@@ -30,17 +30,19 @@ Research sources backing the PRD are cited inline and collected in the [research
 
 ## Status
 
-v0.2.0 — the full v1 loop is implemented and CI-protected (2026-08):
+v0.3.0 — v1 complete, fleet + observability landed (2026-08):
 
-- **CLI**: `devagent run|serve|validate|log|status|config`
-- **Workers**: headless Claude Code (`claude -p`) and OpenCode (`opencode run`); fan-out mode (`--worker both`) runs parallel legs in isolated worktrees and picks the test-passing winner; single-worker mode retries with repair prompts carrying gate evidence
-- **Gates**: G1 repo-native test suite (npm/go conventions), G2 up/down migration apply against a compose database (skips honestly without Docker), G3 static migration analysis (8 rules: destructive ops, type narrowing, non-concurrent indexes, unindexed FKs, NOT NULL without default, missing down-migrations)
-- **Triggers**: CLI runs plus a webhook server (`devagent serve`) verifying Linear HMAC signatures with delivery dedup, dispatching full pipeline runs on AgentSessionEvent
-- **Delivery**: gh-based PR publishing with plan + acceptance-criteria body (`--auto-pr`)
-- **Hygiene**: per-run git worktree isolation, structured JSONL run logs, spec-sufficiency refusal (vague tickets get a clarifying comment instead of a guess), credentials from environment only
-- 96 tests green incl. end-to-end over real git fixtures
+- **CLI**: `devagent run|serve|validate|log|status|dashboard|fleet|config`
+- **Workers**: headless Claude Code (`claude -p`) and OpenCode (`opencode run`); fan-out mode (`--worker both`) runs parallel legs and picks the test-passing winner; retries carry gate evidence back as repair prompts
+- **Gates**: G1 repo-native tests, G2 up/down migration apply (compose; honest skips without Docker), G3 static migration analysis (8 rules), G4 concurrency review scoped to the run's own diff
+- **Fleet**: `devagent fleet --ticket A --ticket B --repo api=/repos/api ...` runs the ticket×repo matrix over a bounded pool with per-job failure isolation
+- **Triggers**: CLI plus webhook server (`serve`) — HMAC verification, delivery dedup, latest-wins per ticket via lock registry
+- **Delivery**: branch push + gh PR with plan, changed-file evidence, acceptance criteria (`--auto-pr`)
+- **Resilience**: Linear 429 handling honors Retry-After with jittered backoff
+- **Observability**: JSONL run logs, `status`, `log`, and a static HTML `dashboard`
+- 125 tests green incl. end-to-end over real git fixtures
 
-Not yet wired: G4 async/race review gate. See the [roadmap](docs/PRD.md#17-roadmap).
+Deferred to later: deeper sandbox isolation beyond compose conventions, remote execution. See the [roadmap](docs/PRD.md#17-roadmap).
 
 ## Development
 
