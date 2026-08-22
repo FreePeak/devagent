@@ -6,7 +6,7 @@ import { fetchTicket } from './integrations/linear.js';
 import { runPipeline, type ImplementResult } from './pipeline.js';
 import { runMigrationStaticGate } from './validation/runner.js';
 import type { ImplementationPlan } from './planner.js';
-import { buildImplementationPrompt } from './prompt.js';
+import { buildImplementationPrompt, buildRepairPrompt } from './prompt.js';
 import { getWorker } from './workers/index.js';
 import { createWorktree } from './git/worktree.js';
 import type { WorkerName } from './types.js';
@@ -36,6 +36,7 @@ async function implementStage(
   const workerName: WorkerName = cfg.worker;
   const worker = getWorker(workerName);
   const prompt = buildImplementationPrompt(plan);
+  let repairPrompt = prompt;
   const maxAttempts = Math.max(1, cfg.maxLoops);
 
   // Isolated worktree + branch per run (FR-IMPL-01); falls back to repoPath on failure
@@ -52,17 +53,29 @@ async function implementStage(
 
   try {
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const attemptPrompt = attempt === 1 ? prompt : repairPrompt;
       log.info('implement', `Worker ${workerName} attempt ${attempt}/${maxAttempts}`, {});
-      const result = await worker.spawn({ prompt, cwd, timeoutMs: cfg.timeoutMs });
+      const result = await worker.spawn({ prompt: attemptPrompt, cwd, timeoutMs: cfg.timeoutMs });
       log.info('implement', `Attempt ${attempt} finished`, {
         exitCode: result.exitCode,
         timedOut: result.timedOut,
         durationMs: result.durationMs,
         events: result.events.length,
       });
-      if (!result.timedOut && result.exitCode === 0) {
+      if (result.timedOut || result.exitCode !== 0) {
+        repairPrompt = buildRepairPrompt(plan, attempt, result.resultText ?? `worker exited ${result.exitCode}`);
+        continue;
+      }
+      // Worker reports success: verify with the repo's own test suite before accepting
+      const { runTestGate } = await import('./validation/test-gate.js');
+      const g1 = await runTestGate(cwd, cfg.timeoutMs);
+      log.info('implement', `Attempt ${attempt} test gate: ${g1.passed ? 'passed' : 'failed'}`, {
+        detail: g1.detail?.split('\n')[0],
+      });
+      if (g1.passed) {
         return { ok: true, worker: workerName, attempts: attempt, worktreePath };
       }
+      repairPrompt = buildRepairPrompt(plan, attempt, g1.detail ?? 'test suite failed');
     }
     return { ok: false, worker: workerName, attempts: maxAttempts, worktreePath };
   } finally {

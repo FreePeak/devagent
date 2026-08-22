@@ -33,3 +33,17 @@ ${plan.tasks.map((task, i) => `${i + 1}. ${task}`).join('\n')}
 - Do not touch unrelated files, lockfiles, or CI configuration.
 - When finished, ensure the test suite passes as well as you can without a live environment.`;
 }
+
+/** Follow-up prompt for a failed attempt: carries the gate evidence back to the worker (FR-IMPL-04). */
+export function buildRepairPrompt(plan: ImplementationPlan, attempt: number, failureDetail: string): string {
+  return `Your previous implementation attempt (${attempt}) did NOT pass validation.
+
+## Failure evidence
+${failureDetail.trim() || '(no output captured)'}
+
+## Task
+Fix the issues in the existing worktree so the original task is satisfied:
+${plan.tasks.map((task, i) => `${i + 1}. ${task}`).join('\n')}
+
+Constraints unchanged: repo conventions, expand-first migrations, no unrelated edits.`;
+}
