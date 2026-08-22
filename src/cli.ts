@@ -174,6 +174,15 @@ async function dispatchRun(
   creds: ReturnType<typeof loadCredentials>,
   config: ReturnType<typeof loadConfig>,
 ): Promise<void> {
+  // Latest-wins dedup: skip if a run for this ticket is already active
+  const { tryAcquireRun } = await import('./runregistry.js');
+  const home = process.env.DEVAGENT_HOME || join(process.env.HOME || '.', '.devagent');
+  const lock = tryAcquireRun(home, ticketId);
+  if (!lock) {
+    console.log(`Run for ${ticketId} already active; skipping duplicate trigger`);
+    return;
+  }
+
   const logger = new RunLogger();
   logger.info('fetch', `Webhook-dispatched run ${logger.runId} starting`, { ticket: ticketId });
   try {
@@ -191,6 +200,8 @@ async function dispatchRun(
     printOutcomes(outcomes);
   } catch (err) {
     logger.error('fetch', `Dispatch failed: ${(err as Error).message}`);
+  } finally {
+    lock.release();
   }
 }
 
