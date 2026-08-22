@@ -1,0 +1,2000 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc 3.10.2" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>DevAgent - Product Requirements Document</title>
+  <style>
+    /* Default styles provided by pandoc.
+    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+    */
+    html {
+      color: #1a1a1a;
+      background-color: #fdfdfd;
+    }
+    body {
+      margin: 0 auto;
+      max-width: 36em;
+      padding-left: 50px;
+      padding-right: 50px;
+      padding-top: 50px;
+      padding-bottom: 50px;
+      hyphens: auto;
+      overflow-wrap: break-word;
+      text-rendering: optimizeLegibility;
+      font-kerning: normal;
+    }
+    @media (max-width: 600px) {
+      body {
+        font-size: 0.9em;
+        padding: 12px;
+      }
+      h1 {
+        font-size: 1.8em;
+      }
+    }
+    @media print {
+      html {
+        background-color: white;
+      }
+      body {
+        background-color: transparent;
+        color: black;
+      }
+      p, h2, h3 {
+        orphans: 3;
+        widows: 3;
+      }
+      h2, h3, h4 {
+        page-break-after: avoid;
+      }
+    }
+    p {
+      margin: 1em 0;
+    }
+    a {
+      color: #1a1a1a;
+    }
+    a:visited {
+      color: #1a1a1a;
+    }
+    img {
+      max-width: 100%;
+    }
+    svg {
+      height: auto;
+      max-width: 100%;
+    }
+    h1, h2, h3, h4, h5, h6 {
+      margin-top: 1.4em;
+    }
+    h5, h6 {
+      font-size: 1em;
+      font-style: italic;
+    }
+    h6 {
+      font-weight: normal;
+    }
+    ol, ul {
+      padding-left: 1.7em;
+      margin-top: 1em;
+    }
+    li > ol, li > ul {
+      margin-top: 0;
+    }
+    blockquote {
+      margin: 1em 0 1em 1.7em;
+      padding-left: 1em;
+      border-left: 2px solid #e6e6e6;
+      color: #606060;
+    }
+    code {
+      white-space: pre-wrap;
+      font-family: Menlo, Monaco, Consolas, 'Lucida Console', monospace;
+      font-size: 85%;
+      margin: 0;
+      hyphens: manual;
+    }
+    pre {
+      margin: 1em 0;
+      overflow: auto;
+    }
+    pre code {
+      padding: 0;
+      overflow: visible;
+      overflow-wrap: normal;
+    }
+    .sourceCode {
+     background-color: transparent;
+     overflow: visible;
+    }
+    hr {
+      border: none;
+      border-top: 1px solid #1a1a1a;
+      height: 1px;
+      margin: 1em 0;
+    }
+    table {
+      margin: 1em 0;
+      border-collapse: collapse;
+      width: 100%;
+      overflow-x: auto;
+      display: block;
+      font-variant-numeric: lining-nums tabular-nums;
+    }
+    table caption {
+      margin-bottom: 0.75em;
+    }
+    tbody {
+      margin-top: 0.5em;
+      border-top: 1px solid #1a1a1a;
+      border-bottom: 1px solid #1a1a1a;
+    }
+    th {
+      border-top: 1px solid #1a1a1a;
+      padding: 0.25em 0.5em 0.25em 0.5em;
+    }
+    td {
+      padding: 0.125em 0.5em 0.25em 0.5em;
+    }
+    header {
+      margin-bottom: 4em;
+      text-align: center;
+    }
+    #TOC li {
+      list-style: none;
+    }
+    #TOC ul {
+      padding-left: 1.3em;
+    }
+    #TOC > ul {
+      padding-left: 0;
+    }
+    #TOC a:not(:hover) {
+      text-decoration: none;
+    }
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: 1.5em;}
+    div.column{flex: auto;}
+    @media screen {
+    div.columns{gap: min(4vw, 1.5em);}
+    div.column{overflow-x: auto;}
+    }
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+    /* CSS for syntax highlighting */
+    html { -webkit-text-size-adjust: 100%; }
+    pre > code.sourceCode { white-space: pre; position: relative; }
+    pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+    pre > code.sourceCode > span:empty { height: 1.2em; }
+    .sourceCode { overflow: visible; }
+    code.sourceCode > span { color: inherit; text-decoration: inherit; }
+    div.sourceCode { margin: 1em 0; }
+    pre.sourceCode { margin: 0; }
+    @media screen {
+    div.sourceCode { overflow: auto; }
+    }
+    @media print {
+    pre > code.sourceCode { white-space: pre-wrap; }
+    pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+    }
+    pre.numberSource code
+      { counter-reset: source-line 0; }
+    pre.numberSource code > span
+      { position: relative; left: -4em; counter-increment: source-line; }
+    pre.numberSource code > span > a:first-child::before
+      { content: counter(source-line);
+        position: relative; left: -1em; text-align: right; vertical-align: baseline;
+        border: none; display: inline-block;
+        -webkit-touch-callout: none; -webkit-user-select: none;
+        -khtml-user-select: none; -moz-user-select: none;
+        -ms-user-select: none; user-select: none;
+        padding: 0 4px; width: 4em;
+        color: #aaaaaa;
+      }
+    pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa;  padding-left: 4px; }
+    div.sourceCode
+      {   }
+    @media screen {
+    pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+    }
+    code span.al { color: #ff0000; font-weight: bold; } /* Alert */
+    code span.an { color: #60a0b0; font-weight: bold; font-style: italic; } /* Annotation */
+    code span.at { color: #7d9029; } /* Attribute */
+    code span.bn { color: #40a070; } /* BaseN */
+    code span.bu { color: #008000; } /* BuiltIn */
+    code span.cf { color: #007020; font-weight: bold; } /* ControlFlow */
+    code span.ch { color: #4070a0; } /* Char */
+    code span.cn { color: #880000; } /* Constant */
+    code span.co { color: #60a0b0; font-style: italic; } /* Comment */
+    code span.cv { color: #60a0b0; font-weight: bold; font-style: italic; } /* CommentVar */
+    code span.do { color: #ba2121; font-style: italic; } /* Documentation */
+    code span.dt { color: #902000; } /* DataType */
+    code span.dv { color: #40a070; } /* DecVal */
+    code span.er { color: #ff0000; font-weight: bold; } /* Error */
+    code span.ex { } /* Extension */
+    code span.fl { color: #40a070; } /* Float */
+    code span.fu { color: #06287e; } /* Function */
+    code span.im { color: #008000; font-weight: bold; } /* Import */
+    code span.in { color: #60a0b0; font-weight: bold; font-style: italic; } /* Information */
+    code span.kw { color: #007020; font-weight: bold; } /* Keyword */
+    code span.op { color: #666666; } /* Operator */
+    code span.ot { color: #007020; } /* Other */
+    code span.pp { color: #bc7a00; } /* Preprocessor */
+    code span.sc { color: #4070a0; } /* SpecialChar */
+    code span.ss { color: #bb6688; } /* SpecialString */
+    code span.st { color: #4070a0; } /* String */
+    code span.va { color: #19177c; } /* Variable */
+    code span.vs { color: #4070a0; } /* VerbatimString */
+    code span.wa { color: #60a0b0; font-weight: bold; font-style: italic; } /* Warning */
+  </style>
+  <style>
+  /* DevAgent PRD styling */
+  :root {
+    --bg: #ffffff;
+    --fg: #1a1a2e;
+    --muted: #5a6478;
+    --accent: #2456c7;
+    --border: #dde3ee;
+    --code-bg: #f4f6fa;
+    --quote-bg: #f0f4ff;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0 auto;
+    padding: 2.5rem 1.25rem 5rem;
+    max-width: 56rem;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.65;
+    color: var(--fg);
+    background: var(--bg);
+  }
+
+  header#title-block-header h1.title {
+    font-size: 2rem;
+    border-bottom: 3px solid var(--accent);
+    padding-bottom: 0.5rem;
+  }
+
+  h1, h2, h3, h4 { line-height: 1.25; margin-top: 2rem; }
+
+  h2 {
+    font-size: 1.4rem;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0.3rem;
+    scroll-margin-top: 1rem;
+  }
+
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  code {
+    background: var(--code-bg);
+    border-radius: 4px;
+    padding: 0.15em 0.35em;
+    font-size: 0.9em;
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+  }
+
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem;
+    overflow-x: auto;
+  }
+
+  pre code { background: none; padding: 0; }
+
+  blockquote {
+    margin: 1rem 0;
+    padding: 0.75rem 1.25rem;
+    border-left: 4px solid var(--accent);
+    background: var(--quote-bg);
+    color: var(--muted);
+  }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 1.25rem 0;
+    font-size: 0.92em;
+  }
+
+  th, td {
+    border: 1px solid var(--border);
+    padding: 0.45rem 0.7rem;
+    text-align: left;
+    vertical-align: top;
+  }
+
+  th { background: var(--code-bg); }
+
+  /* pandoc TOC */
+  nav#TOC {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.5rem;
+    margin-bottom: 2rem;
+    background: #fafbfe;
+    font-size: 0.95em;
+  }
+
+  nav#TOC > ul { padding-left: 1.2rem; }
+  nav#TOC ul { list-style-type: none; }
+  nav#TOC li { margin: 0.25rem 0; }
+  nav#TOC::before {
+    content: "Contents";
+    display: block;
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12141c;
+      --fg: #e4e7f0;
+      --muted: #9aa4bb;
+      --accent: #7ea4f5;
+      --border: #2b3044;
+      --code-bg: #1c2030;
+      --quote-bg: #1a2138;
+    }
+    th { background: #1c2030; }
+  }
+  </style>
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">DevAgent - Product Requirements Document</h1>
+</header>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a href="#devagent--product-requirements-document"
+id="toc-devagent--product-requirements-document">DevAgent — Product
+Requirements Document</a>
+<ul>
+<li><a href="#table-of-contents" id="toc-table-of-contents">Table of
+Contents</a></li>
+<li><a href="#1-executive-summary" id="toc-1-executive-summary">1.
+Executive Summary</a></li>
+<li><a href="#2-problem-statement" id="toc-2-problem-statement">2.
+Problem Statement</a></li>
+<li><a href="#3-product-vision-and-positioning"
+id="toc-3-product-vision-and-positioning">3. Product Vision and
+Positioning</a></li>
+<li><a href="#4-competitive-landscape"
+id="toc-4-competitive-landscape">4. Competitive Landscape</a></li>
+<li><a href="#5-target-users-and-personas"
+id="toc-5-target-users-and-personas">5. Target Users and
+Personas</a></li>
+<li><a href="#6-scope" id="toc-6-scope">6. Scope</a></li>
+<li><a href="#7-functional-requirements"
+id="toc-7-functional-requirements">7. Functional Requirements</a></li>
+<li><a href="#8-system-architecture" id="toc-8-system-architecture">8.
+System Architecture</a></li>
+<li><a href="#9-worker-adapter-layer" id="toc-9-worker-adapter-layer">9.
+Worker Adapter Layer</a></li>
+<li><a href="#10-delivery-pipeline" id="toc-10-delivery-pipeline">10.
+Delivery Pipeline</a></li>
+<li><a href="#11-validation-gates-domain-intelligence"
+id="toc-11-validation-gates-domain-intelligence">11. Validation Gates
+(Domain Intelligence)</a></li>
+<li><a href="#12-cli-specification" id="toc-12-cli-specification">12.
+CLI Specification</a></li>
+<li><a href="#13-integrations" id="toc-13-integrations">13.
+Integrations</a></li>
+<li><a href="#14-non-functional-requirements"
+id="toc-14-non-functional-requirements">14. Non-Functional
+Requirements</a></li>
+<li><a href="#15-metrics-and-success-criteria"
+id="toc-15-metrics-and-success-criteria">15. Metrics and Success
+Criteria</a></li>
+<li><a href="#16-risks-and-mitigations"
+id="toc-16-risks-and-mitigations">16. Risks and Mitigations</a></li>
+<li><a href="#17-roadmap" id="toc-17-roadmap">17. Roadmap</a></li>
+<li><a href="#18-open-questions" id="toc-18-open-questions">18. Open
+Questions</a></li>
+<li><a href="#19-research-appendix" id="toc-19-research-appendix">19.
+Research Appendix</a></li>
+</ul></li>
+</ul>
+</nav>
+<h1 id="devagent--product-requirements-document">DevAgent — Product
+Requirements Document</h1>
+<blockquote>
+<p>The Autonomous Backend Delivery Agent for modern engineering
+teams.</p>
+<p>Status: Draft v0.1 · 2026-08-22 · Owner: linh.doan</p>
+</blockquote>
+<hr />
+<h2 id="table-of-contents">Table of Contents</h2>
+<ol type="1">
+<li><a href="#1-executive-summary">Executive Summary</a></li>
+<li><a href="#2-problem-statement">Problem Statement</a></li>
+<li><a href="#3-product-vision-and-positioning">Product Vision and
+Positioning</a></li>
+<li><a href="#4-competitive-landscape">Competitive Landscape</a></li>
+<li><a href="#5-target-users-and-personas">Target Users and
+Personas</a></li>
+<li><a href="#6-scope">Scope</a></li>
+<li><a href="#7-functional-requirements">Functional
+Requirements</a></li>
+<li><a href="#8-system-architecture">System Architecture</a></li>
+<li><a href="#9-worker-adapter-layer">Worker Adapter Layer</a></li>
+<li><a href="#10-delivery-pipeline">Delivery Pipeline</a></li>
+<li><a href="#11-validation-gates-domain-intelligence">Validation Gates
+(Domain Intelligence)</a></li>
+<li><a href="#12-cli-specification">CLI Specification</a></li>
+<li><a href="#13-integrations">Integrations</a></li>
+<li><a href="#14-non-functional-requirements">Non-Functional
+Requirements</a></li>
+<li><a href="#15-metrics-and-success-criteria">Metrics and Success
+Criteria</a></li>
+<li><a href="#16-risks-and-mitigations">Risks and Mitigations</a></li>
+<li><a href="#17-roadmap">Roadmap</a></li>
+<li><a href="#18-open-questions">Open Questions</a></li>
+<li><a href="#19-research-appendix">Research Appendix</a></li>
+</ol>
+<hr />
+<h2 id="1-executive-summary">1. Executive Summary</h2>
+<p>DevAgent is a vertical autonomous agent that converts backend tickets
+into tested, reviewed Pull Requests with minimal human involvement. A
+user assigns a ticket to <code>@devagent</code> in Linear or Jira;
+DevAgent parses the spec, plans the work, drafts database migrations and
+API code using headless coding-agent CLIs (Claude Code, OpenCode) as
+execution workers, validates the result in sandboxed Docker containers,
+and opens a Pull Request with auto-generated documentation for frontend
+teams.</p>
+<p>DevAgent is <strong>not</strong> a general-purpose coding tool. It is
+a delivery pipeline product: the value is in the closed loop (ticket →
+plan → code → validate → PR) and in backend-specific domain intelligence
+that general coding agents lack — migration safety validation,
+foreign-key integrity checks, and async/race-condition review.</p>
+<h2 id="2-problem-statement">2. Problem Statement</h2>
+<p>Backend ticket delivery has three chronic failure modes:</p>
+<ol type="1">
+<li><strong>Latency</strong>: small-to-medium backend tickets (new
+endpoint, schema tweak, queue consumer) wait days in backlog even though
+they are well-specified.</li>
+<li><strong>Correctness risk from automation</strong>: general AI coders
+break database integrity — destructive migrations, missing foreign-key
+constraints, lock-timeout-inducing index builds on large tables — and
+ignore async race conditions because they never execute what they write
+against real data.</li>
+<li><strong>Review burden</strong>: PRs from AI tools often "look right"
+but are unverified, shifting cost onto human reviewers who must mentally
+simulate behavior.</li>
+</ol>
+<p>DevAgent addresses all three by owning delivery end to end and
+refusing to submit anything it has not proven green in an isolated
+environment.</p>
+<h2 id="3-product-vision-and-positioning">3. Product Vision and
+Positioning</h2>
+<h3 id="31-positioning-statement">3.1 Positioning statement</h3>
+<table>
+<thead>
+<tr>
+<th>Dimension</th>
+<th>General coding tool (Cursor, Copilot IDE)</th>
+<th>DevAgent</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>User role</td>
+<td>Human writes code, AI assists</td>
+<td>Human assigns ticket, AI delivers PR</td>
+</tr>
+<tr>
+<td>Input</td>
+<td>Editor + human intent</td>
+<td>Ticket ID from Linear/Jira/GitHub</td>
+</tr>
+<tr>
+<td>Scope</td>
+<td>Any code, any task</td>
+<td>Backend only: migrations + API + tests</td>
+</tr>
+<tr>
+<td>Output</td>
+<td>Suggestions in editor</td>
+<td>Green, tested Pull Request</td>
+</tr>
+<tr>
+<td>Trust model</td>
+<td>Human verifies every keystroke</td>
+<td>Closed-loop validation before human review</td>
+</tr>
+</tbody>
+</table>
+<h3 id="32-key-differentiators">3.2 Key differentiators</h3>
+<ol type="1">
+<li><strong>Set-and-forget backend ops</strong> — DevAgent behaves as a
+virtual team member, not an IDE extension.</li>
+<li><strong>Specialized domain intelligence</strong> — explicit
+validation of migration scripts, foreign-key safety, and
+event-queue/async logic; the failure modes generic agents miss.</li>
+<li><strong>Closed-loop testing</strong> — nothing is submitted until it
+passes inside a sandboxed container against real migrations.</li>
+<li><strong>Multi-worker fan-out</strong> — the same ticket can run
+through multiple coding-agent CLIs in parallel isolated worktrees;
+DevAgent cross-checks both diffs and delivers the winner.</li>
+</ol>
+<h3 id="33-what-devagent-is-not">3.3 What DevAgent is not</h3>
+<ul>
+<li>Not a model provider — it orchestrates existing agent CLIs.</li>
+<li>Not an IDE plugin or pair-programmer.</li>
+<li>Not autonomous infrastructure ops (no deployments to
+production).</li>
+</ul>
+<h2 id="4-competitive-landscape">4. Competitive Landscape</h2>
+<h3 id="41-overview">4.1 Overview</h3>
+<table>
+<thead>
+<tr>
+<th>Product</th>
+<th>Trigger</th>
+<th>Testing/validation depth</th>
+<th>Pricing model</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Devin (Cognition)</td>
+<td>Slack, Linear/Jira, GitHub, API, web</td>
+<td>Repo tests in own VM; no structured verification; retry loops burn
+credits</td>
+<td>$0/$20/$200 per-user + pay-as-you-go ACUs (~$2.25 / 15 active
+min)</td>
+</tr>
+<tr>
+<td>GitHub Copilot coding agent</td>
+<td>Issue assignment, @copilot comment</td>
+<td>Reuses repo CI on ephemeral Actions runners; iterates on CI
+failures; human review mandatory</td>
+<td>Bundled in Copilot Pro/Business/Enterprise seats</td>
+</tr>
+<tr>
+<td>OpenHands (All Hands AI)</td>
+<td>Issue assignment, manual/API</td>
+<td>Whatever tests exist in repo/Docker runtime — fully
+user-supplied</td>
+<td>OSS free + API costs; Cloud ~$20/mo + tokens</td>
+</tr>
+<tr>
+<td>Factory Droid</td>
+<td>CLI, Slack, PR comments, tickets, webhooks</td>
+<td>Repo tests + audit/compliance controls, no domain checks</td>
+<td>Pro ~$20 / Plus ~$100 / Max ~$200 per-user; quota risk below
+Enterprise</td>
+</tr>
+<tr>
+<td>Google Jules</td>
+<td>Task assignment; plan-approval gate</td>
+<td>Plan preview + diff review; tests only if configured in VM</td>
+<td>Free 15 tasks/day; paid via Google AI Pro/Ultra tiers</td>
+</tr>
+<tr>
+<td>OpenAI Codex cloud agent</td>
+<td>ChatGPT sidebar, CLI/IDE/SDK, GitHub</td>
+<td>Container test runs; no structured gates</td>
+<td>Bundled in ChatGPT plans; credit-metered</td>
+</tr>
+<tr>
+<td>Claude Code GitHub Actions</td>
+<td>@claude mention, any GitHub event</td>
+<td>Auto-fix on CI failures; validation = user's CI</td>
+<td>Anthropic subscription/API usage</td>
+</tr>
+</tbody>
+</table>
+<h3 id="42-the-white-space-devagent-occupies">4.2 The white space
+DevAgent occupies</h3>
+<ol type="1">
+<li><strong>Nobody validates database migrations.</strong> Every
+competitor treats "tests pass" as the correctness ceiling. None offer
+schema-diff analysis, migration dry-runs against a shadow database,
+rollback verification, or destructive-change detection. This is the core
+of DevAgent's differentiation.</li>
+<li><strong>Validation is outsourced to the target repo's CI.</strong>
+Copilot, Codex, Jules, Droid, and Claude Code Actions all inherit
+whatever the repository already has. Under-tested backends get green-lit
+unvalidated PRs.</li>
+<li><strong>Backend correctness is implicit.</strong> No vendor ships
+contract-level verification (API behavior vs spec, transactional
+integrity, concurrency hazards) as a product feature.</li>
+<li><strong>Cost opacity punishes exactly this workload.</strong> Devin
+ACUs and Codex credits punish long-running backend work; DevAgent's
+fixed-gate design gives predictable per-task cost.</li>
+<li><strong>Ticket-driven autonomy exists but is shallow</strong> —
+Devin and Droid already do ticket→PR, which validates the workflow;
+their gap is verification depth, not trigger plumbing.</li>
+</ol>
+<p>Implication for positioning: compete on <em>trust per PR</em>
+(validation evidence attached), not on raw generation capability.</p>
+<p><em>(Full profiles with sources: <a
+href="#192-competitive-profiles">appendix 19.2</a>.)</em></p>
+<h2 id="5-target-users-and-personas">5. Target Users and Personas</h2>
+<h3 id="p1--backend-engineer-mai-primary">P1 — Backend Engineer "Mai"
+(primary)</h3>
+<p>Mid-level backend developer on a 5–15 person team. Spends a large
+share of each sprint on well-specified CRUD endpoints, schema
+adjustments, and queue consumers. Wants those tickets gone without
+context-switching cost; will review DevAgent PRs like any teammate's,
+but expects tests and migration notes already in place.</p>
+<p><strong>Success for Mai</strong>: assigns ticket before standup,
+reviews a green PR after lunch.</p>
+<h3 id="p2--tech-lead--em-duc-buyer">P2 — Tech Lead / EM "Duc"
+(buyer)</h3>
+<p>Owns delivery velocity and production stability. Cautious about
+AI-generated code touching the database. Needs approval gates on
+migrations, audit logs per run, and hard budget caps before rolling out
+team-wide.</p>
+<p><strong>Success for Duc</strong>: zero migration-caused incidents
+attributable to DevAgent; measurable backlog burn-down.</p>
+<h3 id="p3--frontend-engineer-khanh-beneficiary">P3 — Frontend Engineer
+"Khanh" (beneficiary)</h3>
+<p>Blocked on API contracts. Benefits from DevAgent's auto-generated PR
+documentation: endpoint specs, request/response examples, and migration
+notes attached to every PR.</p>
+<h3 id="p4--platformdevops-tuan-operator">P4 — Platform/DevOps "Tuan"
+(operator)</h3>
+<p>Installs and operates DevAgent: manages credentials (Linear/GitHub
+tokens), Docker sandbox capacity, CLI worker versions, and run budgets.
+Never wants agent credentials with more scope than necessary.</p>
+<h2 id="6-scope">6. Scope</h2>
+<h3 id="61-in-scope-v1">6.1 In scope (v1)</h3>
+<table>
+<thead>
+<tr>
+<th>Area</th>
+<th>Decision</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Issue tracker</td>
+<td>Linear only (Jira, GitHub Issues in v2)</td>
+</tr>
+<tr>
+<td>Target repositories</td>
+<td>Backend services in one language ecosystem chosen at first
+deployment (Go or TypeScript/Node)</td>
+</tr>
+<tr>
+<td>Git host</td>
+<td>GitHub via <code>gh</code> CLI (GitLab in v2)</td>
+</tr>
+<tr>
+<td>Worker agents</td>
+<td>Claude Code and OpenCode headless CLIs</td>
+</tr>
+<tr>
+<td>Ticket types</td>
+<td>New/modified REST endpoints, schema migrations, queue/event
+consumers</td>
+</tr>
+<tr>
+<td>Execution</td>
+<td>Per-run git worktree + branch; validation inside Docker Compose</td>
+</tr>
+<tr>
+<td>Human control</td>
+<td><code>--interactive</code> approval gates; full headless
+<code>--auto-pr</code> mode</td>
+</tr>
+</tbody>
+</table>
+<h3 id="62-out-of-scope-v1">6.2 Out of scope (v1)</h3>
+<ul>
+<li>Frontend/UI code generation</li>
+<li>Deploying or promoting code to production environments</li>
+<li>Non-backend languages (mobile, ML training code)</li>
+<li>Real-time collaboration features, IDE integrations</li>
+<li>Self-hosted model management (workers bring their own
+auth/subscriptions)</li>
+</ul>
+<h2 id="7-functional-requirements">7. Functional Requirements</h2>
+<p>Requirements use IDs <code>FR-&lt;area&gt;-NN</code>. Priority:
+<strong>M</strong> = must-have for v1, <strong>S</strong> = should-have,
+<strong>C</strong> = could-have.</p>
+<h3 id="71-ticket-ingestion-area-ticket">7.1 Ticket ingestion (area:
+TICKET)</h3>
+<table>
+<thead>
+<tr>
+<th>ID</th>
+<th>Requirement</th>
+<th>Pri</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>FR-TICKET-01</td>
+<td>Fetch a ticket by identifier from Linear via GraphQL API given a
+configured API credential</td>
+<td>M</td>
+</tr>
+<tr>
+<td>FR-TICKET-02</td>
+<td>Extract structured spec fields from the ticket: title, description,
+acceptance criteria, labels, linked issues</td>
+<td>M</td>
+</tr>
+<tr>
+<td>FR-TICKET-03</td>
+<td>Post status comments to the ticket at each pipeline stage transition
+(started, implementing, validating, PR-opened, failed)</td>
+<td>M</td>
+</tr>
+<tr>
+<td>FR-TICKET-04</td>
+<td>React to ticket assignment events (webhook) to trigger runs without
+manual CLI invocation</td>
+<td>S</td>
+</tr>
+<tr>
+<td>FR-TICKET-05</td>
+<td>Detect insufficient-specification tickets and refuse with a
+clarifying question posted back to the ticket</td>
+<td>M</td>
+</tr>
+</tbody>
+</table>
+<h3 id="72-planning-area-plan">7.2 Planning (area: PLAN)</h3>
+<table>
+<thead>
+<tr>
+<th>ID</th>
+<th>Requirement</th>
+<th>Pri</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>FR-PLAN-01</td>
+<td>Produce a written implementation plan (task list, files to touch,
+migration outline) from the ticket spec before any code is written</td>
+<td>M</td>
+</tr>
+<tr>
+<td>FR-PLAN-02</td>
+<td>Attach the plan to the ticket so humans can correct it before
+implementation begins in interactive mode</td>
+<td>M</td>
+</tr>
+<tr>
+<td>FR-PLAN-03</td>
+<td>Classify the ticket: endpoint-only / migration-required /
+consumer-only; route to the appropriate validation gate set</td>
+<td>M</td>
+</tr>
+</tbody>
+</table>
+<h3 id="73-implementation-area-impl">7.3 Implementation (area:
+IMPL)</h3>
+<table>
+<thead>
+<tr>
+<th>ID</th>
+<th>Requirement</th>
+<th>Pri</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>FR-IMPL-01</td>
+<td>Execute implementation by spawning a headless worker agent inside an
+isolated git worktree and dedicated branch
+(<code>devagent/&lt;ticket-id&gt;</code>)</td>
+<td>M</td>
+</tr>
+<tr>
+<td>FR-IMPL-02</td>
+<td>Support two interchangeable workers: Claude Code
+(<code>claude -p</code>) and OpenCode (<code>opencode run</code>);
+selection via flag or config</td>
+<td>M</td>
+</tr>
+<tr>
+<td>FR-IMPL-03</td>
+<td>Fan-out mode: run the same plan through both workers in parallel
+worktrees and select one diff (or merged diff) after validation
+scoring</td>
+<td>S</td>
+</tr>
+<tr>
+<td>FR-IMPL-04</td>
+<td>Feed failing test output back to the worker and retry, up to a
+configurable maximum loop count (default 3)</td>
+<td>M</td>
+</tr>
+<tr>
+<td>FR-IMPL-05</td>
+<td>Enforce per-run budget: maximum wall-clock time and maximum worker
+steps/tokens; abort cleanly on breach</td>
+<td>M</td>
+</tr>
+<tr>
+<td>FR-IMPL-06</td>
+<td>Fall back from one worker to the other when the primary errors or
+times out mid-run</td>
+<td>S</td>
+</tr>
+</tbody>
+</table>
+<h3 id="74-validation-gates-area-valid">7.4 Validation gates (area:
+VALID)</h3>
+<table>
+<thead>
+<tr>
+<th>ID</th>
+<th>Requirement</th>
+<th>Pri</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>FR-VALID-01</td>
+<td>Bring up the target service's Docker Compose stack (or equivalent
+sandbox definition) inside the run's workspace and execute the test
+suite; capture structured results</td>
+<td>M</td>
+</tr>
+<tr>
+<td>FR-VALID-02</td>
+<td>Apply migrations against a throwaway database snapshot seeded with
+representative data; verify up-migration success, down-migration
+success, and application boot against the migrated schema</td>
+<td>M</td>
+</tr>
+<tr>
+<td>FR-VALID-03</td>
+<td>Static migration analysis: detect destructive operations (DROP
+COLUMN/TABLE, type narrowing), non-concurrent index creation, missing FK
+indexes, and lock-risk patterns; block PR on critical findings</td>
+<td>M</td>
+</tr>
+<tr>
+<td>FR-VALID-04</td>
+<td>Data-loss heuristic: compare row counts/table shapes before and
+after migration on the snapshot; flag any shrinkage</td>
+<td>S</td>
+</tr>
+<tr>
+<td>FR-VALID-05</td>
+<td>Async/race-condition review pass: a dedicated audit of the diff
+targeting concurrency hazards (unawaited promises, shared mutable state,
+queue handler idempotency); findings attached to PR as review
+comments</td>
+<td>S</td>
+</tr>
+<tr>
+<td>FR-VALID-06</td>
+<td>Refuse to open a PR while any critical validation gate fails; post
+the failure report to the ticket instead</td>
+<td>M</td>
+</tr>
+</tbody>
+</table>
+<h3 id="75-delivery-area-deliver">7.5 Delivery (area: DELIVER)</h3>
+<table>
+<thead>
+<tr>
+<th>ID</th>
+<th>Requirement</th>
+<th>Pri</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>FR-DELIVER-01</td>
+<td>Open a Pull Request containing: summary, test evidence (suite output
+digest), migration notes, and API contract documentation generated from
+the diff</td>
+<td>M</td>
+</tr>
+<tr>
+<td>FR-DELIVER-02</td>
+<td>Generate frontend-facing API docs (endpoint list, request/response
+schema examples) from changed route/handler code and attach to the PR
+description</td>
+<td>S</td>
+</tr>
+<tr>
+<td>FR-DELIVER-03</td>
+<td>Link PR back to the originating ticket and close the loop (Linear
+state transition) when PR merges</td>
+<td>S</td>
+</tr>
+<tr>
+<td>FR-DELIVER-04</td>
+<td>In interactive mode, pause before migration application and before
+PR creation for explicit human approval</td>
+<td>M</td>
+</tr>
+</tbody>
+</table>
+<h3 id="76-operations-area-ops">7.6 Operations (area: OPS)</h3>
+<table>
+<thead>
+<tr>
+<th>ID</th>
+<th>Requirement</th>
+<th>Pri</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>FR-OPS-01</td>
+<td>Write a structured run log per execution (stage timeline, worker
+commands, outputs, decisions) queryable for debugging</td>
+<td>M</td>
+</tr>
+<tr>
+<td>FR-OPS-02</td>
+<td>All credentials supplied exclusively via environment variables;
+never stored in config files or logs</td>
+<td>M</td>
+</tr>
+<tr>
+<td>FR-OPS-03</td>
+<td>Pin worker CLI versions in configuration; warn when installed
+versions drift</td>
+<td>S</td>
+</tr>
+<tr>
+<td>FR-OPS-04</td>
+<td>Dry-run mode that executes planning and prints what would happen
+without spawning workers or touching remotes</td>
+<td>M</td>
+</tr>
+</tbody>
+</table>
+<h2 id="8-system-architecture">8. System Architecture</h2>
+<p>DevAgent is a thin orchestration layer over existing agent CLIs and
+infrastructure. It calls no LLM API directly; all code generation
+happens inside worker agent processes.</p>
+<pre class="mermaid"><code>flowchart TB
+    subgraph Sources
+        L[Linear ticket / webhook]
+    end
+
+    subgraph DevAgent[&quot;DevAgent orchestrator (this product)&quot;]
+        T[Ticket adapter]
+        P[Planner]
+        O[Run orchestrator&lt;br/&gt;budgets, retries, gates]
+        W[Worker adapter layer]
+        V[Validation engine]
+        G[Git worktree manager]
+        PR[PR publisher]
+        LOG[(Structured run logs)]
+    end
+
+    subgraph Workers[&quot;Headless coding-agent CLIs&quot;]
+        CC[Claude Code - claude -p]
+        OC[OpenCode - opencode run]
+    end
+
+    subgraph Sandbox[&quot;Per-run sandbox&quot;]
+        WT1[worktree A + branch]
+        WT2[worktree B + branch]
+        DK[Docker Compose stack&lt;br/&gt;app + throwaway DB snapshot]
+    end
+
+    GH[GitHub - gh CLI]
+
+    L --&gt; T --&gt; P --&gt; O
+    O --&gt; W
+    W --&gt; CC --&gt; WT1
+    W --&gt; OC --&gt; WT2
+    G --&gt; WT1 &amp; WT2
+    WT1 &amp; WT2 --&gt; V
+    DK --&gt; V
+    V --&gt; O
+    O --&gt; PR --&gt; GH
+    PR --&gt; L
+    O --&gt; LOG</code></pre>
+<h3 id="81-component-responsibilities">8.1 Component
+responsibilities</h3>
+<table>
+<thead>
+<tr>
+<th>Component</th>
+<th>Responsibility</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Ticket adapter</td>
+<td>Fetch/parse tickets, post comments, subscribe to assignment
+webhooks</td>
+</tr>
+<tr>
+<td>Planner</td>
+<td>Convert ticket spec into an implementation plan and route
+classification</td>
+</tr>
+<tr>
+<td>Run orchestrator</td>
+<td>Owns the pipeline state machine, budgets, retry loops, approval
+gates</td>
+</tr>
+<tr>
+<td>Worker adapter</td>
+<td>Uniform spawn/collect interface over heterogeneous agent CLIs
+(section 9)</td>
+</tr>
+<tr>
+<td>Validation engine</td>
+<td>Test execution, migration safety, data-loss and async audits
+(section 11)</td>
+</tr>
+<tr>
+<td>Worktree manager</td>
+<td>Create/clean isolated worktrees and branches per run or per fan-out
+leg</td>
+</tr>
+<tr>
+<td>PR publisher</td>
+<td>Assemble PR body (summary, test evidence, docs), open PR, link
+ticket</td>
+</tr>
+<tr>
+<td>Run logger</td>
+<td>Append-only structured JSONL log per run for postmortems</td>
+</tr>
+</tbody>
+</table>
+<h3 id="82-key-design-rules">8.2 Key design rules</h3>
+<ol type="1">
+<li><strong>No direct LLM calls</strong> — model/vendor changes never
+touch DevAgent code; only worker adapters.</li>
+<li><strong>Every run is disposable</strong> — workspace state lives in
+a worktree plus Docker volumes, both torn down after the run.</li>
+<li><strong>Gates are separate from workers</strong> — validation runs
+on the diff/worktree regardless of which worker produced it, enabling
+cross-worker comparison on equal footing.</li>
+</ol>
+<h2 id="9-worker-adapter-layer">9. Worker Adapter Layer</h2>
+<p>The single abstraction that makes DevAgent worker-agnostic:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode typescript"><code class="sourceCode typescript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">interface</span> WorkerAdapter {</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>  <span class="kw">readonly</span> name<span class="op">:</span> <span class="st">&#39;claude-code&#39;</span> <span class="op">|</span> <span class="st">&#39;opencode&#39;</span><span class="op">;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Spawn a headless run inside cwd (the run&#39;s worktree).</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">spawn</span>(opts<span class="op">:</span> {</span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>    prompt<span class="op">:</span> <span class="dt">string</span><span class="op">;</span>          <span class="co">// task instructions incl. plan and constraints</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>    cwd<span class="op">:</span> <span class="dt">string</span><span class="op">;</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>    timeoutMs<span class="op">:</span> <span class="dt">number</span><span class="op">;</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>    maxSteps<span class="op">?:</span> <span class="dt">number</span><span class="op">;</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>  })<span class="op">:</span> <span class="bu">Promise</span><span class="op">&lt;</span>WorkerResult<span class="op">&gt;;</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a><span class="kw">interface</span> WorkerResult {</span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>  exitCode<span class="op">:</span> <span class="dt">number</span><span class="op">;</span></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>  diffSummary<span class="op">:</span> { filesChanged<span class="op">:</span> <span class="dt">number</span><span class="op">;</span> insertions<span class="op">:</span> <span class="dt">number</span><span class="op">;</span> deletions<span class="op">:</span> <span class="dt">number</span> }<span class="op">;</span></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>  events<span class="op">:</span> WorkerEvent[]<span class="op">;</span>     <span class="co">// parsed structured output for logging/replay</span></span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Concern</th>
+<th>Claude Code</th>
+<th>OpenCode</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Headless invocation</td>
+<td><code>claude -p "&lt;prompt&gt;"</code></td>
+<td><code>opencode run "&lt;prompt&gt;"</code></td>
+</tr>
+<tr>
+<td>Structured output</td>
+<td><code>--output-format json</code> / <code>stream-json</code></td>
+<td>configured output format</td>
+</tr>
+<tr>
+<td>Permission handling</td>
+<td><code>--permission-mode</code> (non-interactive acceptance of
+edits)</td>
+<td>permission/approval config</td>
+</tr>
+<tr>
+<td>Session continuity</td>
+<td><code>--resume</code> / <code>--continue</code> for follow-up
+turns</td>
+<td>session resume support</td>
+</tr>
+</tbody>
+</table>
+<p>Exact flag surfaces are version-dependent and must be pinned via
+configuration (FR-OPS-03); adapters translate the stable
+<code>WorkerAdapter</code> contract to whatever the installed CLI
+supports.</p>
+<h2 id="10-delivery-pipeline">10. Delivery Pipeline</h2>
+<p>State machine per ticket:</p>
+<pre class="mermaid"><code>stateDiagram-v2
+    [*] --&gt; Fetch: run --ticket LINEAR-204
+    Fetch --&gt; Plan: spec parsed
+    Plan --&gt; SpecCheck
+    SpecCheck --&gt; Clarify: insufficient spec
+    Clarify --&gt; [*]: question posted to ticket
+    SpecCheck --&gt; Implement: plan approved (interactive)&lt;br/&gt;or auto-continue (headless)
+    Implement --&gt; Validate: worker returns diff
+    Validate --&gt; Implement: tests failed, loops &lt; max (retry with failure output)
+    Validate --&gt; MigrationGate: tests green
+    MigrationGate --&gt; ReviewPass: migration safe
+    MigrationGate --&gt; Failed: critical finding
+    ReviewPass --&gt; Approval: interactive mode
+    Approval --&gt; Publish: human approves
+    ReviewPass --&gt; Publish: headless mode
+    Publish --&gt; [*]: PR opened, ticket updated
+    Failed --&gt; [*]: report posted to ticket</code></pre>
+<p>Stage transitions post progress comments to the ticket
+(FR-TICKET-03). Every transition is appended to the run log
+(FR-OPS-01).</p>
+<p>Fan-out variant (FR-IMPL-03): <code>Implement</code> fans into two
+parallel legs (one per worker); <code>Validate</code> scores each leg
+(tests passed, gate findings count, diff size) and selects the winning
+leg before <code>MigrationGate</code>.</p>
+<h2 id="11-validation-gates-domain-intelligence">11. Validation Gates
+(Domain Intelligence)</h2>
+<p>This is where DevAgent differs from generic coding agents. Gates run
+identically regardless of which worker produced the diff.</p>
+<h3 id="gate-g1--test-execution">Gate G1 — Test execution</h3>
+<ul>
+<li>Bring up the repository's sandbox definition (Docker Compose by
+convention: <code>docker-compose.devagent.yml</code> or repo
+default).</li>
+<li>Run the configured test suite; capture pass/fail counts, failing
+test names, and output excerpts.</li>
+<li>On failure: feed structured failure output back to the worker
+(FR-IMPL-04), max N loops.</li>
+</ul>
+<h3 id="gate-g2--migration-application">Gate G2 — Migration
+application</h3>
+<p>Applies only to migration-classified tickets (FR-PLAN-03):</p>
+<ol type="1">
+<li>Snapshot the sandbox database seeded with representative fixture
+data.</li>
+<li>Apply up-migration; assert success and boot of the service against
+the migrated schema.</li>
+<li>Apply down-migration; assert schema returns to baseline.</li>
+<li>Compare table/row shapes before vs after; flag shrinkage as data
+loss (FR-VALID-04).</li>
+</ol>
+<h3 id="gate-g3--static-migration-analysis">Gate G3 — Static migration
+analysis</h3>
+<p>Linter-style rules over migration files; critical severity blocks
+PR:</p>
+<table>
+<thead>
+<tr>
+<th>Rule</th>
+<th>Severity</th>
+<th>Rationale</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>DROP TABLE / DROP COLUMN present</td>
+<td>critical</td>
+<td>data destruction</td>
+</tr>
+<tr>
+<td>Column type narrowing (int→smallint, text→varchar(n) smaller)</td>
+<td>critical</td>
+<td>potential truncation/failure</td>
+</tr>
+<tr>
+<td>CREATE INDEX without CONCURRENTLY (Postgres)</td>
+<td>high</td>
+<td>lock outage on large tables</td>
+</tr>
+<tr>
+<td>Added FK without supporting index</td>
+<td>high</td>
+<td>full-scan on deletes/joins</td>
+</tr>
+<tr>
+<td>NOT NULL on existing column without default/backfill</td>
+<td>high</td>
+<td>fails on populated tables</td>
+</tr>
+<tr>
+<td>Missing down-migration</td>
+<td>medium</td>
+<td>unrecoverable deploys</td>
+</tr>
+</tbody>
+</table>
+<p>The rule corpus is public and codifiable: Squawk rules,
+strong_migrations checks, and Atlas analyzers (destructive / data_depend
+/ incompatible codes) together form a near-complete dangerous-pattern
+taxonomy. DevAgent integrates these tools where they fit (Squawk for
+Postgres SQL, <code>atlas migrate lint</code> for replay-based analysis)
+rather than reinventing them; the G3 table above is the vendor-neutral
+rule contract.</p>
+<h3 id="gate-g4--asyncrace-condition-review">Gate G4 —
+Async/race-condition review</h3>
+<p>A dedicated audit pass (separate worker prompt, not the implementer)
+over the diff targeting concurrency hazards. Research consensus
+(ConSynergy 2025, RaceBench 2026): pure-LLM interleaving reasoning is
+weak at fine-grained variable tracking; best results come from hybrid
+pipelines where an LLM proposes suspicious sites and static/dynamic
+tools confirm. Therefore G4 is layered:</p>
+<ol type="1">
+<li><strong>Deterministic lints first</strong> (cheap, zero
+false-positive classes): <code>no-floating-promises</code> /
+<code>require-atomic-updates</code> (TypeScript),
+<code>go test -race</code> under the test workload (Go, happens-before
+detection, zero false positives but coverage-bound).</li>
+<li><strong>LLM hypothesis pass</strong>: unawaited
+promises/fire-and-forget calls, shared mutable state across requests,
+queue-handler idempotency, transaction boundaries spanning I/O.</li>
+<li>Findings posted as PR review comments (advisory in v1); LLM-only
+findings are labeled as such so reviewers can weight them.</li>
+</ol>
+<h2 id="12-cli-specification">12. CLI Specification</h2>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Headless: ticket to PR without human touchpoints</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="ex">devagent</span> run <span class="at">--ticket</span> LINEAR-204 <span class="at">--repo</span> ./backend-service <span class="at">--auto-pr</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a><span class="co"># Interactive: pause at plan approval, migration gate, and pre-publish</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a><span class="ex">devagent</span> run <span class="at">--ticket</span> JIRA-8821 <span class="at">--interactive</span></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a><span class="co"># Worker selection</span></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a><span class="ex">devagent</span> run <span class="at">--ticket</span> LINEAR-204 <span class="at">--worker</span> claude-code   <span class="co"># or opencode | both</span></span></code></pre></div>
+<h3 id="commands">Commands</h3>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>devagent run</code></td>
+<td>Execute the full pipeline for one ticket</td>
+</tr>
+<tr>
+<td><code>devagent plan --ticket &lt;id&gt;</code></td>
+<td>Produce and print/post the implementation plan only</td>
+</tr>
+<tr>
+<td><code>devagent validate --worktree &lt;path&gt;</code></td>
+<td>Run all applicable gates against an existing worktree</td>
+</tr>
+<tr>
+<td><code>devagent status [--run &lt;id&gt;]</code></td>
+<td>Show recent runs and stage states</td>
+</tr>
+<tr>
+<td><code>devagent log --run &lt;id&gt;</code></td>
+<td>Print structured run log</td>
+</tr>
+<tr>
+<td><code>devagent config</code></td>
+<td>Show effective configuration (workers, budgets, credentials
+presence)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="flags-run">Flags (<code>run</code>)</h3>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Default</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--ticket &lt;id&gt;</code></td>
+<td>required</td>
+<td>Tracker ticket identifier</td>
+</tr>
+<tr>
+<td><code>--repo &lt;path&gt;</code></td>
+<td><code>.</code></td>
+<td>Target repository</td>
+</tr>
+<tr>
+<td><code>--worker &lt;name&gt;</code></td>
+<td>config</td>
+<td><code>claude-code</code>, <code>opencode</code>, or
+<code>both</code> (fan-out)</td>
+</tr>
+<tr>
+<td><code>--auto-pr</code></td>
+<td>off</td>
+<td>Skip approval gates (headless mode)</td>
+</tr>
+<tr>
+<td><code>--interactive</code></td>
+<td>on when TTY</td>
+<td>Pause at human gates</td>
+</tr>
+<tr>
+<td><code>--max-loops &lt;n&gt;</code></td>
+<td>3</td>
+<td>Test-failure retry budget</td>
+</tr>
+<tr>
+<td><code>--timeout &lt;dur&gt;</code></td>
+<td>30m</td>
+<td>Wall-clock cap per run</td>
+</tr>
+<tr>
+<td><code>--dry-run</code></td>
+<td>off</td>
+<td>Plan only; no workers, no remotes</td>
+</tr>
+</tbody>
+</table>
+<h3 id="environment-variables-credentials-only--fr-ops-02">Environment
+variables (credentials only — FR-OPS-02)</h3>
+<p><code>LINEAR_API_KEY</code>, <code>GITHUB_TOKEN</code> (scoped to
+contents:write + pull-requests:write on target repos),
+<code>DEVAGENT_HOME</code> (run state/logs).</p>
+<h2 id="13-integrations">13. Integrations</h2>
+<h3 id="131-linear-v1-tracker">13.1 Linear (v1 tracker)</h3>
+<ul>
+<li><strong>API</strong>: GraphQL at
+<code>https://api.linear.app/graphql</code>; SDK
+<code>@linear/sdk</code> for TypeScript.</li>
+<li><strong>Auth</strong>: OAuth2 application with granular scopes over
+personal API keys. The "assign to @devagent" pattern uses Linear's
+first-class <strong>Agent</strong> support: OAuth scopes
+<code>app:assignable</code> (issue delegation) and
+<code>app:mentionable</code> (@mentions). Assignment sets the agent as
+<strong>delegate</strong> — humans keep ownership; DevAgent acts on
+their behalf.</li>
+<li><strong>Trigger path</strong>: assigning or mentioning creates an
+<strong>AgentSession</strong>; a <code>created</code>
+<code>AgentSessionEvent</code> webhook is the run trigger. Progress
+reports back via <strong>AgentActivities</strong> (<code>thought</code>,
+<code>action</code>, <code>elicitation</code> for clarifying questions,
+<code>response</code> for final) which render as thread comments.</li>
+<li><strong>Webhook handling</strong>: verify HMAC-SHA256
+<code>Linear-Signature</code>; dedup on <code>Linear-Delivery</code>
+UUID; respond within 5 s and process asynchronously (retries at 1 m / 1
+h / 6 h; persistent failure disables the webhook).</li>
+<li><strong>Rate limits</strong>: leaky-bucket; API key = 2,500
+req/user/hr, OAuth app = 5,000. GraphQL complexity budget applies — keep
+paginated child counts small. Never poll; use webhooks and filters.</li>
+</ul>
+<h3 id="132-jira-cloud-v2">13.2 Jira Cloud (v2)</h3>
+<ul>
+<li>REST v3, auth via scoped API token + Basic auth (dedicated service
+account) or OAuth 2.0 (3LO) with <code>read:jira-work</code> /
+<code>write:jira-work</code>.</li>
+<li>Run trigger: dynamic webhook with JQL filter; assignment detection
+from <code>changelog</code> items where
+<code>field == assignee</code>.</li>
+<li>Honor HTTP 429 + <code>Retry-After</code> (points-based shared
+quota); watch the CAPTCHA lockout trap on repeated failed basic-auth
+logins.</li>
+</ul>
+<h3 id="133-github-v1-git-host">13.3 GitHub (v1 git host)</h3>
+<ul>
+<li><strong>Auth model</strong>: GitHub App over fine-grained PAT —
+distinct <code>app-name[bot]</code> identity gives clean audit
+attribution; installation tokens are short-lived (~1 h) minted per
+run.</li>
+<li><strong>Least-privilege permissions</strong>: Contents read+write,
+Pull requests read+write, Issues read+write (commenting); nothing
+else.</li>
+<li><strong>Mechanics</strong>: branch push via git HTTPS
+(<code>x-access-token:&lt;token&gt;</code>), <code>gh pr create</code>
+headless with <code>GH_TOKEN</code>, arbitrary calls via
+<code>gh api</code>.</li>
+<li><strong>Branch protection</strong>: do not grant bypass by default —
+DevAgent PRs go through normal review; bypass lists (rulesets) may
+include the App only if auto-merge is later desired. Signed-commit rules
+require signed bot commits where enabled.</li>
+<li><strong>Rate limits</strong>: 5,000 req/hr (App); secondary limit
+≤100 concurrent requests; handle 403 with <code>Retry-After</code>.</li>
+</ul>
+<h3 id="134-gitlab-v2">13.4 GitLab (v2)</h3>
+<p>Project access tokens (bot user, 365-day cap, rotation endpoint) with
+scopes <code>api</code>, <code>read_repository</code>,
+<code>write_repository</code>; Developer role suffices for branch + MR
+creation; bots cannot self-approve MRs (aligns with human-review
+gate).</p>
+<h3 id="135-cross-cutting-integration-requirements">13.5 Cross-cutting
+integration requirements</h3>
+<ol type="1">
+<li>Webhook idempotency via provider delivery IDs on all trackers.</li>
+<li>Respond-fast/process-late on every webhook endpoint.</li>
+<li>Exponential backoff with jitter honoring provider-specific retry
+semantics.</li>
+<li>Short-lived credentials preferred everywhere; static keys only where
+unavoidable (Jira token).</li>
+<li>Ticket fields are untrusted input (prompt-injection defense,
+R5).</li>
+</ol>
+<h2 id="14-non-functional-requirements">14. Non-Functional
+Requirements</h2>
+<table>
+<thead>
+<tr>
+<th>ID</th>
+<th>Requirement</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>NFR-01</td>
+<td>A run never exceeds its wall-clock budget; all subprocesses are
+killed and the worktree torn down on breach</td>
+</tr>
+<tr>
+<td>NFR-02</td>
+<td>Worker credentials are never logged; run logs redact environment
+values</td>
+</tr>
+<tr>
+<td>NFR-03</td>
+<td>Concurrent runs are isolated: separate worktrees, branches, Docker
+projects, no shared mutable state</td>
+</tr>
+<tr>
+<td>NFR-04</td>
+<td>All run state is reproducible from the structured log alone
+(postmortems need no live access)</td>
+</tr>
+<tr>
+<td>NFR-05</td>
+<td>DevAgent runs on macOS and Linux with Docker as the only heavyweight
+dependency</td>
+</tr>
+<tr>
+<td>NFR-06</td>
+<td>Adding a third worker CLI requires only a new
+<code>WorkerAdapter</code> implementation — no core changes</td>
+</tr>
+</tbody>
+</table>
+<h2 id="15-metrics-and-success-criteria">15. Metrics and Success
+Criteria</h2>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Definition</th>
+<th>v1 target</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Ticket-to-PR rate</td>
+<td>% of accepted tickets that produce an opened PR without human code
+edits</td>
+<td>≥ 60% on curated ticket set</td>
+</tr>
+<tr>
+<td>PR acceptance</td>
+<td>% of DevAgent PRs merged within 7 days without major rework</td>
+<td>≥ 70%</td>
+</tr>
+<tr>
+<td>Migration incident rate</td>
+<td>Production incidents attributable to DevAgent migrations</td>
+<td>0</td>
+</tr>
+<tr>
+<td>Loop closure</td>
+<td>Median wall-clock ticket → PR-opened</td>
+<td>&lt; 45 min</td>
+</tr>
+<tr>
+<td>Retry efficiency</td>
+<td>% of runs succeeding within the retry loop vs. escalating to
+fan-out</td>
+<td>track, no target v1</td>
+</tr>
+</tbody>
+</table>
+<p><strong>v1 exit criterion (the spine works):</strong> one real "add a
+GET /health endpoint" ticket flows end-to-end automatically — fetch →
+plan → implement (both workers selectable) → tests green in Docker →
+gates pass → PR opened with evidence.</p>
+<h2 id="16-risks-and-mitigations">16. Risks and Mitigations</h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Risk</th>
+<th>Mitigation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>R1</td>
+<td>Headless CLI flags change between worker releases</td>
+<td>Pin versions in config (FR-OPS-03); adapter contract isolates
+breakage; CI smoke test per pinned version</td>
+</tr>
+<tr>
+<td>R2</td>
+<td>Agent produces plausible-but-wrong migration that passes naive
+checks</td>
+<td>Gate G2 requires up+down+boot against seeded snapshot; G3 static
+rules; human approval gate in interactive mode</td>
+</tr>
+<tr>
+<td>R3</td>
+<td>Runaway cost/time in retry loops</td>
+<td>Hard budgets (FR-IMPL-05); escalate to fan-out only per policy,
+never unbounded</td>
+</tr>
+<tr>
+<td>R4</td>
+<td>Ticket specs too vague for autonomous work</td>
+<td>Spec-check refusal with clarifying question posted to ticket
+(FR-TICKET-05)</td>
+</tr>
+<tr>
+<td>R5</td>
+<td>Prompt injection via ticket content (attacker files a ticket
+instructing the agent)</td>
+<td>Treat ticket fields as untrusted data; workers receive sanitized
+plan, not raw instructions; no credential-bearing commands in
+prompts</td>
+</tr>
+<tr>
+<td>R6</td>
+<td>Sandbox escape via worker tool use</td>
+<td>Workers confined to worktree cwd; Docker network isolation; no host
+Docker socket exposure to worker processes</td>
+</tr>
+<tr>
+<td>R7</td>
+<td>Dependency on fast-moving external projects (Orca, dsh) if
+reused</td>
+<td>Reuse interface designs, not binaries; keep adapters thin so any
+piece can be replaced</td>
+</tr>
+</tbody>
+</table>
+<h2 id="17-roadmap">17. Roadmap</h2>
+<h3 id="phase-0--foundations-week-1">Phase 0 — Foundations (week 1)</h3>
+<p>Repo skeleton (<code>cmd/devagent</code>,
+<code>internal/{linear,planner,coder,tester,pr}</code> or TS
+equivalent), config loading, credential handling, run logger.</p>
+<h3 id="phase-1--the-spine-weeks-23">Phase 1 — The spine (weeks
+2–3)</h3>
+<p>Single worker (Claude Code), single trivial ticket type, Linear
+fetch, worktree + branch, Docker test loop with one retry, PR open with
+evidence. Exit: v1 criterion above.</p>
+<h3 id="phase-2--differentiators-weeks-46">Phase 2 — Differentiators
+(weeks 4–6)</h3>
+<p>Migration gates G2/G3, async review gate G4, OpenCode adapter +
+fan-out mode, interactive approval gates, frontend-facing API docs on
+PRs.</p>
+<h3 id="phase-3--hardening-weeks-78">Phase 3 — Hardening (weeks
+7–8)</h3>
+<p>Budget enforcement polish, webhook-triggered runs, run
+dashboard/status command, curated benchmark set of historical tickets to
+measure metrics.</p>
+<h3 id="phase-4--expansion-post-v1">Phase 4 — Expansion (post-v1)</h3>
+<p>Jira adapter, GitLab publisher, second language ecosystem, GitHub
+Issues ingestion, merge-assist for fan-out winners.</p>
+<h2 id="18-open-questions">18. Open Questions</h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Question</th>
+<th>Owner</th>
+<th>Needed by</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Q1</td>
+<td>First target language ecosystem: Go or TypeScript? Determines
+sandbox image and test-runner integration.</td>
+<td>linh.doan</td>
+<td>Phase 0</td>
+</tr>
+<tr>
+<td>Q2</td>
+<td>Linear Agent (developer preview) vs plain webhook-on-assignment for
+v1 trigger? Agent path is richer but preview-status.</td>
+<td>linh.doan</td>
+<td>Phase 1</td>
+</tr>
+<tr>
+<td>Q3</td>
+<td>Fan-out cost policy: always <code>both</code>, on-failure-only, or
+config per repo?</td>
+<td>product</td>
+<td>Phase 2</td>
+</tr>
+<tr>
+<td>Q4</td>
+<td>Where do fixture/representative datasets for Gate G2 come from —
+repo-provided seeds or DevAgent-generated synthetic data?</td>
+<td>eng</td>
+<td>Phase 2</td>
+</tr>
+<tr>
+<td>Q5</td>
+<td>Should G4 async findings be advisory or blocking?</td>
+<td>product</td>
+<td>Phase 2</td>
+</tr>
+<tr>
+<td>Q6</td>
+<td>Single-tenant CLI tool first, or multi-tenant service from day one?
+Affects webhook server design.</td>
+<td>linh.doan</td>
+<td>Phase 3</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="19-research-appendix">19. Research Appendix</h2>
+<h3 id="191-base-layer-analysis-orca-and-deepseek-harness">19.1
+Base-layer analysis: Orca and DeepSeek Harness</h3>
+<p><strong>Orca (stablyai/orca)</strong> — Electron-based Agent
+Development Environment; orchestrates parallel coding agents in git
+worktrees; ~51k stars.</p>
+<ul>
+<li>More scriptable than its GUI-first surface suggests: orchestration
+CLI with runs, tasks, dispatch, human decision gates
+(<code>gate-create</code>/<code>gate-resolve</code>), supervised workers
+with fencing semantics, and structured completion reports
+(<code>--outcome succeeded|failed --files-modified --report-path</code>).
+These primitives map almost 1:1 onto DevAgent's pipeline needs.</li>
+<li>Production-grade worktree hygiene worth copying as a taxonomy: base
+prefetch, lineage pruning, retirement backfill scans, removal safety
+fencing.</li>
+<li>Agent-facing Linear skill pattern: JSON CLI + version-matched docs
+served by the binary + explicit "treat returned fields as untrusted"
+guardrail.</li>
+<li><code>orca serve</code> provides headless mode, but the CLI still
+drives an Electron daemon — headless, not library-embeddable.</li>
+<li><strong>Verdict</strong>: prior art and pattern source; optionally a
+dev-time cockpit. Wrong foundation for a headless ticket-to-PR service
+(fast-moving daily releases, 2k+ open PRs, GUI-centric runtime).</li>
+</ul>
+<p><strong>DeepSeek Harness (<code>@deepseek-ai/dsh</code>)</strong> —
+plugin-based agent framework on Cordis ("everything is a plugin");
+developer preview with promised breaking changes; ~183k stars.</p>
+<ul>
+<li>Already solves the driver-layer problem DevAgent faces: bundles
+exist that spawn Claude Code and Codex as subagents, plus an
+automation-only <strong>ACP</strong> (Agent Client Protocol) JSON-RPC
+stdio server — a neutral standard worth adopting at the adapter
+boundary.</li>
+<li>Right abstractions to borrow: durable session-event log with
+"model-visible means logged" invariant; waterfall event seams for
+pre/post-execute hooks.</li>
+<li>Zero delivery-pipeline features (no tickets, worktrees, PRs) —
+adopting it means building all of DevAgent's actual domain anyway,
+inside someone else's unstable abstractions.</li>
+<li><strong>Verdict</strong>: watchlist; study its ACP bridge and driver
+interfaces when designing <code>WorkerAdapter</code>.</li>
+</ul>
+<p><strong>Fan-out vs retry synthesis</strong>: single-worker retry is
+cheap when success probability is high but suffers context contamination
+across retries; fan-out converts latency into reliability (success ≈
+1−(1−p)^N) at N× cost and needs a deterministic judge (tests). DevAgent
+policy: one attempt → on test failure, small-N parallel fan-out with
+varied prompts/workers → tests select exactly one winner → failed legs'
+logs retained as retry context.</p>
+<h3 id="192-competitive-profiles">19.2 Competitive profiles</h3>
+<p><strong>Devin (Cognition).</strong> Archetype "AI software engineer":
+autonomous cloud agent in its own VM (shell, editor, browser). Strongest
+ticket-driven player — Slack mentions, Linear/Jira assignment, GitHub
+events, REST API. Pricing collapsed from $500/mo team plan to
+consumption: Free / Pro $20 / Max $200 / Teams from $80/org, plus
+pay-as-you-go ACUs (~$2.25 per 15 active minutes; auto-reloading credits
+can silently overspend). Documented weaknesses: struggles with complex
+unfamiliar codebases (the stated reason for repricing), inconsistent
+results across identical runs, and its own Session Insights classifying
+&gt;20-ACU sessions as "unhealthy" — an implicit admission that broad
+tasks burn credits through failure loops. No structured post-build
+verification beyond repo tests.</p>
+<p><strong>GitHub Copilot coding agent.</strong> Distribution winner.
+Assign Copilot to an issue or @mention it; it opens a draft PR, commits
+with progress logs, marks ready for review. Validation runs on ephemeral
+GitHub Actions runners with network allowlists, read-only repo
+permissions, branch-scoped short-lived tokens; it cannot approve PRs or
+trigger workflows. Iterates against CI failures before handoff — but
+that CI is the repo's own; no opinionated validation layer (no migration
+checks, no semantic backend review). Requires Copilot
+Pro/Business/Enterprise.</p>
+<p><strong>OpenHands (All Hands AI).</strong> Open-source challenger
+(ex-OpenDevin): plan → edit → run shell → test → iterate inside
+Docker-sandboxed runtimes; issue assignment resolves to PRs on
+GitHub/GitLab. Managed Cloud or self-hosted (free, LLM costs only);
+model-agnostic via API keys. Weaknesses: validation depth is whatever
+the target repo has; self-hosting demands ops investment; quality varies
+sharply by model.</p>
+<p><strong>Factory Droid.</strong> Enterprise-oriented; broadest
+execution topology (CLI, VS Code, Slack, PR comments/labels,
+Linear/Jira, API/webhooks); multi-model routing per task; parallel
+Droids; spec-driven workflows; Droid Computers (managed cloud dev
+environments or BYOM) for private-network/Fortune 500 use. Weaknesses:
+rolling rate limits can exhaust quota mid-task below Enterprise tier;
+sales-led pricing; validation is "run repo's tests" plus audit logs — no
+domain-specific correctness checks.</p>
+<p><strong>Google Jules.</strong> Async Gemini agent bound to GitHub:
+clones into a private Google Cloud VM, presents a step-by-step plan
+first, executes on its own branch, PRs only after approval. CLI + API
+companions. Pricing rides Google AI subscriptions (free 15 tasks/day;
+Pro ~$19.99/mo 100 tasks/day; Ultra 300/day). Beta-labeled,
+individual-account gating, English-only support, capacity not
+guaranteed, task-count pricing incentivizes shallow tasks.</p>
+<p><strong>OpenAI Codex cloud agent.</strong> Woven into ChatGPT: cloud
+tasks in isolated containers preloaded with the repo produce diffs/PRs;
+triggered from ChatGPT, CLI, IDE, SDK, GitHub; parallel execution;
+includes code review and Slack integrations. Credit-metered within
+ChatGPT plans (5-hour rolling windows), extendable by purchased credits;
+API-key fallback. Opaque variable credit consumption ("similar tasks
+consume different amounts"); limits shared across agentic features; no
+structured validation beyond container test runs.</p>
+<p><strong>Claude Code GitHub Actions / background agents.</strong>
+Framework more than product: <code>claude-code-action</code> runs Claude
+Code in repo workflows (@claude mentions, any event trigger), built on
+the Agent SDK; autonomously responds to CI failures and review comments;
+explicit security posture (actor verification, least-privilege App
+permissions). Web/mobile background sessions plus scheduled routines
+round it out. DIY burden: you own workflow YAML, runner environment, and
+validation wiring.</p>
+<p>Sources: <a href="https://devin.ai/pricing/">devin.ai/pricing</a> ·
+<a
+href="https://techcrunch.com/2025/04/03/devin-the-viral-coding-ai-agent-gets-a-new-pay-as-you-go-plan/">TechCrunch
+on Devin pricing</a> · <a
+href="https://docs.github.com/en/copilot/concepts/agents/copilot-coding-agent">Copilot
+coding agent docs</a> · <a
+href="https://github.com/All-Hands-AI/OpenHands">OpenHands</a> · <a
+href="https://factory.ai/pricing">factory.ai/pricing</a> · <a
+href="https://factory.ai/news/droid-computers">Droid Computers</a> · <a
+href="https://jules.google/docs/usage-limits/">Jules usage limits</a> ·
+<a href="https://developers.openai.com/codex/pricing">Codex pricing</a>
+· <a href="https://openai.com/chatgpt/pricing/">ChatGPT plans</a> · <a
+href="https://code.claude.com/docs/en/github-actions">Claude Code GitHub
+Actions</a></p>
+<h3 id="193-headless-cli-orchestration">19.3 Headless CLI
+orchestration</h3>
+<h3 id="194-migration-safety-tooling-and-techniques">19.4
+Migration-safety tooling and techniques</h3>
+<p><strong>Tool landscape.</strong></p>
+<ul>
+<li><strong>Squawk</strong> (Postgres SQL linter, Rust; CLI + GitHub
+Action): lock/blocking rules
+(<code>require-concurrent-index-creation</code>,
+<code>changing-column-type</code>,
+<code>constraint-missing-not-valid</code>,
+<code>disallowed-unique-constraint</code>), timeout hygiene
+(<code>require-lock-timeout</code>,
+<code>require-statement-timeout</code>), data loss
+(<code>ban-drop-table/column/database</code>,
+<code>ban-truncate-cascade</code>), client-breaking
+(<code>renaming-column/table</code>, <code>prefer-text-field</code>,
+<code>prefer-timestamptz</code>, <code>prefer-identity</code>).</li>
+<li><strong>Atlas (Ariga)</strong>: declarative schema diff, drift
+detection vs live DB, and <code>atlas migrate lint</code> which replays
+the migration directory on a dev DB and runs analyzers —
+<code>destructive</code> (fails CI), <code>data_depend</code> (succeeds
+locally, fails depending on table contents), <code>incompatible</code>
+(renames/drops breaking rolling deploys), <code>non_linear</code>
+(edited/rebased applied migrations). Per-check error/skip policy in
+<code>atlas.hcl</code>; <code>force = true</code> makes checks
+non-bypassable.</li>
+<li><strong>migra</strong>: original deprecated; maintained successor
+adds pg_dump input, JSON output with risk classification, GitHub Action,
+AI explain modes. Lesson: DDL-parsing vs live-introspection is a key
+design fork.</li>
+<li><strong>Flyway/Liquibase validate</strong>: history/structure
+integrity only (checksums, changelog well-formedness) — not semantic
+safety. Useful as an additional gate, insufficient alone.</li>
+<li><strong>Prisma</strong>: <code>migrate diff</code> between schema
+sources with <code>--exit-code</code> as a pure diff gate; the
+<strong>shadow database</strong> replays full migration history into a
+throwaway DB to detect drift and proactively evaluate generated SQL for
+data loss. Canonical implementation of "validate against production-like
+state."</li>
+<li><strong>django-migration-linter / strong_migrations</strong>: static
+classification of backward-incompatible operations; strong_migrations'
+danger criterion ("blocks reads/writes more than a few seconds after
+acquiring a lock") is the right severity bar.</li>
+</ul>
+<p><strong>Dangerous-pattern taxonomy</strong> (synthesis of the above;
+drives gates G2/G3):</p>
+<table>
+<thead>
+<tr>
+<th>Category</th>
+<th>Patterns</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Long locks / write blocking</td>
+<td>non-concurrent index ops; ALTER COLUMN TYPE rewrite; volatile column
+defaults forcing rewrite; SET NOT NULL full scan; inline-validated
+FK/check constraints</td>
+</tr>
+<tr>
+<td>Lock convoy</td>
+<td>missing lock_timeout/statement_timeout on DDL sessions; migration
+queues behind long-held locks and freezes traffic</td>
+</tr>
+<tr>
+<td>Data loss</td>
+<td>DROP TABLE/COLUMN/DATABASE; TRUNCATE CASCADE; dropping NOT NULL;
+truncating type casts</td>
+</tr>
+<tr>
+<td>Client breaking (rolling deploy)</td>
+<td>column/table renames, removed enum values, breaking type changes
+while old code still runs</td>
+</tr>
+<tr>
+<td>Data-dependent failure</td>
+<td>constraint/index creation that succeeds locally but fails on dirty
+production data</td>
+</tr>
+<tr>
+<td>Transaction hazards</td>
+<td>CONCURRENTLY inside transaction; huge backfills inside migration
+transactions; leftover INVALID indexes from failed concurrent
+builds</td>
+</tr>
+<tr>
+<td>History divergence</td>
+<td>editing/deleting applied migrations; non-linear migration
+directories after branch merges</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Validation techniques.</strong></p>
+<ul>
+<li>Shadow-DB replay (Prisma-style): replay the full migration chain
+into a throwaway DB seeded with representative data; diff end-state vs
+expectation; evaluate delta for data loss.</li>
+<li>Expand-contract as the enforcement model for risky changes: expand
+(additive: nullable column, NOT VALID constraint) → migrate (dual-write
++ batched backfill ~10k rows with replica-lag monitoring) → contract
+(drop old shape only after zero-reference grace period). Gate-based
+checkpoint sequencing where only the final irreversible step is gated
+hardest.</li>
+<li>Tooling exemplars: pgroll (versioned Postgres schemas via
+search_path, trigger-based data copy, trivial rollback); PlanetScale
+deploy requests (copy-table cutover with ~30-min revert window — and
+their admitted gap: no referential-integrity validation when adding FKs,
+an opening for DevAgent's deeper checks).</li>
+</ul>
+<p>Sources: <a href="https://squawkhq.com/docs/rules">Squawk rules</a> ·
+<a href="https://atlasgo.io/lint/analyzers">Atlas analyzers</a> · <a
+href="https://github.com/djrobstep/migra">migra</a> · <a
+href="https://github.com/ankane/strong_migrations">strong_migrations</a>
+· <a
+href="https://github.com/3YOURMIND/django-migration-linter">django-migration-linter</a>
+· <a
+href="https://documentation.red-gate.com/flyway/reference/commands/validate">Flyway
+validate</a> · <a
+href="https://docs.liquibase.com/commands/utility/validate.html">Liquibase
+validate</a> · <a
+href="https://www.prisma.io/docs/orm/reference/prisma-cli-reference">Prisma
+CLI</a> · <a
+href="https://www.prisma.io/docs/orm/prisma-migrate/understanding-prisma-migrate/shadow-database">Prisma
+shadow DB</a> · <a
+href="https://planetscale.com/docs/concepts/deploy-requests">PlanetScale
+deploy requests</a> · <a
+href="https://github.com/xataio/pgroll">pgroll</a> · <a
+href="https://www.zero-downtime-schema.com/zero-downtime-schema-evolution-patterns/expand-and-contract-methodology/">Expand-and-contract
+methodology</a> · <a
+href="https://www.mdpi.com/1999-5903/17/12/578">ConSynergy (MDPI
+2025)</a> · <a href="https://doi.org/10.5281/zenodo.20242300">RaceBench
+artifact (2026)</a> · <a
+href="https://fbinfer.com/docs/checker-racerd/">Infer RacerD</a> · <a
+href="https://go.dev/doc/articles/race_detector">Go race detector</a> ·
+<a
+href="https://typescript-eslint.io/rules/no-floating-promises">typescript-eslint
+no-floating-promises</a></p>
+<p><strong>G4 evidence base.</strong> Dynamic ground truth: Go race
+detector (TSan-based happens-before, zero false positives,
+coverage-bound, 5–10x memory overhead). Static: Meta Infer RacerD
+(compositional inter-procedural detection, incremental CI re-analysis,
+caught 2500+ issues pre-production at Facebook; annotation-free
+operation drove adoption). LLM state of the art: ConSynergy hybrid
+pipeline (LLM chain-of-thought cross-thread reasoning → SMT
+verification) reaching precision 80% / recall 87.1% on DataRaceBench and
+related benchmarks; consistent finding across the literature that
+pure-LLM interleaving reasoning underperforms specialized tools and
+hybrids win.</p>
+<p><strong>Claude Code headless (<code>claude -p</code>).</strong>
+Verified flags: <code>--output-format text|json|stream-json</code> (JSON
+result includes <code>session_id</code>, <code>total_cost_usd</code>,
+per-model usage; <code>stream-json</code> emits NDJSON events ending in
+<code>type:"result"</code>, with retryable-failure categories via
+<code>system/api_retry</code> events);
+<code>--json-schema '&lt;schema&gt;'</code> for validated structured
+output;
+<code>--permission-mode default|acceptEdits|plan|auto|dontAsk|bypassPermissions</code>;
+<code>--allowedTools</code> / <code>--disallowedTools</code> allow/deny
+lists; sessions via <code>--continue</code> /
+<code>--resume &lt;id&gt;</code> (cross-directory since v2.1.223);
+budget via <code>--max-turns &lt;n&gt;</code> (errors with subtype
+<code>error_max_turns</code> when reached); plus <code>--model</code>,
+<code>--fallback-model</code>, <code>--append-system-prompt</code>,
+<code>--mcp-config</code>, and <code>--bare</code> for fast
+deterministic CI starts (skips hooks/skills/plugins discovery). Hooks
+system (<code>PreToolUse</code>, <code>PostToolUse</code>,
+<code>Stop</code>, <code>PermissionRequest</code>, etc.) enables
+programmatic permission decisions via JSON output. Version-dependent
+behaviors to pin: <code>--json-schema</code> validation (v2.1.205),
+<code>plugin_errors[]</code>/<code>mcp_server_errors[]</code> CI-gate
+fields (v2.1.219+).</p>
+<p><strong>OpenCode headless (<code>opencode run</code>).</strong>
+One-shot execution with <code>--format json</code> (raw JSON events),
+<code>-m provider/model</code>, <code>-c/--continue</code>,
+<code>-s/--session &lt;id&gt;</code>, <code>--agent &lt;name&gt;</code>,
+and <code>--auto</code> to auto-approve permissions not explicitly
+denied — the orchestrator escape hatch. Strongest programmatic surface
+of the two CLIs is <code>opencode serve</code>: headless HTTP server
+(OpenAPI 3.1 at <code>/doc</code>) with full REST session
+CRUD/fork/abort/diff, a permission-answer endpoint, SSE event streams,
+and <code>--attach &lt;url&gt;</code> on <code>run</code> to reuse a
+warm server (avoids cold boot per run). Also ships an ACP stdio server
+and GitHub Actions mode. Permissions resolve per action
+(<code>read</code>, <code>edit</code>, <code>bash</code>,
+<code>task</code>, ...) to allow/ask/deny with wildcard patterns,
+last-match-wins; <code>.env</code> reads denied by default.</p>
+<p><strong>Orchestration patterns (community practice).</strong> Git
+worktrees per worker are the standard isolation primitive (sub-second
+creation, shared object store) — they prevent filesystem collisions, not
+logical conflicts, so pair with ownership boundaries over shared files
+(lockfiles, migrations, contracts). Task claiming via lease + heartbeat
+so crashed workers' tasks reassign. Verification gates must be run by
+the supervisor independently of agent claims; failed verification
+reassigns rather than trusts completion reports. Parse worker stdout as
+NDJSON line-by-line; enforce budgets via <code>--max-turns</code> plus
+wall-clock kill; retry only on retryable error categories
+(<code>rate_limit</code>, <code>overloaded</code>, 5xx) with backoff.
+Cost heuristics: no agents for &lt;5-min work, read-only exploration
+before implementation, stop after two failed repair attempts.</p>
+<p>Sources: <a href="https://code.claude.com/docs/en/headless">Claude
+Code headless</a> · <a
+href="https://code.claude.com/docs/en/cli-reference">CLI reference</a> ·
+<a href="https://code.claude.com/docs/en/hooks">Hooks</a> · <a
+href="https://code.claude.com/docs/en/settings">Settings</a> · <a
+href="https://code.claude.com/docs/en/github-actions">GitHub Actions</a>
+· <a href="https://opencode.ai/docs/cli">OpenCode CLI</a> · <a
+href="https://opencode.ai/docs/server">OpenCode server</a> · <a
+href="https://opencode.ai/docs/config">OpenCode config</a> · <a
+href="https://opencode.ai/docs/permissions">OpenCode permissions</a> ·
+<a
+href="https://amux.io/blog/parallel-agents-isolated-worktrees/">Parallel
+agents in isolated worktrees (amux)</a> · <a
+href="https://github.com/anthropics/claude-code-action">claude-code-action</a></p>
+<p>These findings refine section 9's adapter table: Claude Code budget
+control = <code>--max-turns</code> + wall clock; OpenCode permission
+bypass = <code>--auto</code>; both emit parseable JSON event streams;
+OpenCode additionally offers the serve-based REST surface as a future
+alternative transport.</p>
+</body>
+</html>
