@@ -2,6 +2,31 @@ import type { TicketSpec } from '../types.js';
 
 const LINEAR_GRAPHQL_ENDPOINT = 'https://api.linear.app/graphql';
 
+/** Linear rate limits: honor Retry-After on 429 with jittered backoff (max 3 retries). */
+export async function fetchLinear(
+  body: string,
+  apiKey: string,
+  opts: { retries?: number; sleep?: (ms: number) => Promise<void> } = {},
+): Promise<Response> {
+  const retries = opts.retries ?? 3;
+  const sleep = opts.sleep ?? ((ms) => new Promise<void>((r) => setTimeout(r, ms)));
+  let res: Response | null = null;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    res = await fetch(LINEAR_GRAPHQL_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: apiKey },
+      body,
+    });
+    if (res.status !== 429 || attempt === retries) break;
+    const retryAfter = Number(res.headers.get('retry-after'));
+    const delayMs = Number.isFinite(retryAfter) && retryAfter > 0
+      ? retryAfter * 1000
+      : Math.min(30_000, 1000 * 2 ** attempt) + Math.floor(Math.random() * 500);
+    await sleep(delayMs);
+  }
+  return res!;
+}
+
 /**
  * GraphQL query fetching a Linear issue by identifier (e.g. "ENG-204").
  * Exported so tests can assert on its shape without network access.
@@ -128,17 +153,13 @@ export async function postTicketComment(
   body: string,
   apiKey: string,
 ): Promise<void> {
-  const res = await fetch(LINEAR_GRAPHQL_ENDPOINT, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: apiKey,
-    },
-    body: JSON.stringify({
+  const res = await fetchLinear(
+    JSON.stringify({
       query: LINEAR_COMMENT_MUTATION,
       variables: { input: { issueId, body } },
     }),
-  });
+    apiKey,
+  );
 
   if (!res.ok) {
     throw new Error(`Linear comment failed: HTTP ${res.status}`);
@@ -158,17 +179,13 @@ export async function fetchTicket(
   id: string,
   apiKey: string,
 ): Promise<TicketSpec> {
-  const res = await fetch(LINEAR_GRAPHQL_ENDPOINT, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: apiKey,
-    },
-    body: JSON.stringify({
+  const res = await fetchLinear(
+    JSON.stringify({
       query: LINEAR_ISSUE_QUERY,
       variables: { id },
     }),
-  });
+    apiKey,
+  );
 
   if (!res.ok) {
     throw new Error(`Linear API request failed: HTTP ${res.status}`);

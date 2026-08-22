@@ -138,6 +138,45 @@ describe('linear', () => {
     expect(body.variables.id).toBe('ENG-9');
   });
 
+  it('fetchLinear retries 429 honoring Retry-After, then succeeds', async () => {
+    const { fetchLinear } = await import('../src/integrations/linear.js');
+    const sleeps: number[] = [];
+    const fetchMock = vi.fn().mockImplementation(async () => {
+      const call = fetchMock.mock.calls.length;
+      return {
+        ok: true,
+        status: call === 1 ? 429 : 200,
+        headers: { get: (k: string) => (k.toLowerCase() === 'retry-after' ? '2' : null) },
+        json: async () => ({ data: { issue: { title: 'ok', description: '' } } }),
+      };
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const res = await fetchLinear('{}', 'key', {
+      retries: 2,
+      sleep: async (ms) => {
+        sleeps.push(ms);
+      },
+    });
+    expect(res.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(sleeps).toEqual([2000]); // Retry-After: 2 seconds honored exactly
+  });
+
+  it('fetchLinear gives up after max retries on persistent 429', async () => {
+    const { fetchLinear } = await import('../src/integrations/linear.js');
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 429,
+      headers: { get: () => '0' },
+      json: async () => ({}),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(fetchLinear('{}', 'key', { retries: 2, sleep: async () => {} })).resolves.toMatchObject({
+      status: 429,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3); // initial + 2 retries
+  });
+
   it('fetchTicket throws on non-200 responses', async () => {
     vi.stubGlobal(
       'fetch',
