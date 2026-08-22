@@ -20,6 +20,22 @@ function run(
   });
 }
 
+/**
+ * Push a branch to origin so `gh pr create -H` can reference it.
+ * Uses explicit refspec so local-only branches publish cleanly.
+ */
+export async function pushBranch(repoPath: string, branch: string): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    execFile('git', ['push', '-u', 'origin', `${branch}:${branch}`], { cwd: repoPath }, (err, _stdout, stderr) => {
+      if (err) {
+        reject(describeError(`git push ${branch} failed`, String(stderr)));
+      } else {
+        resolve();
+      }
+    });
+  });
+}
+
 export interface CreatePrOptions {
   /** Absolute or relative path to the git repository */
   repoPath: string;

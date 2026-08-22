@@ -16,7 +16,7 @@ import {
   fetchTicket,
   parseLinearIssue,
 } from '../src/integrations/linear.js';
-import { branchExists, createPr } from '../src/integrations/github.js';
+import { branchExists, createPr, pushBranch } from '../src/integrations/github.js';
 import {
   createWorktree,
   removeWorktree,
@@ -341,5 +341,39 @@ describe('worktree', () => {
       return undefined;
     }) as never);
     await expect(removeWorktree('/repo', 'GONE-1')).resolves.toBeUndefined();
+  });
+});
+
+describe('pushBranch', () => {
+  let m: ReturnType<typeof mockedExec>;
+  beforeEach(() => {
+    m = mockedExec();
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+  it('pushes explicit refspec to origin', async () => {
+    m.mockImplementation(((file: string, args: string[], _o: unknown, cb: (err: null) => void) => {
+      expect(file).toBe('git');
+      expect(args).toEqual(['push', '-u', 'origin', 'devagent/ENG-9:devagent/ENG-9']);
+      cb(null);
+      return undefined;
+    }) as never);
+    await pushBranch('/repo', 'devagent/ENG-9');
+  });
+
+  it('rejects with stderr detail on failure', async () => {
+    m.mockImplementation(((
+      _f: string,
+      _a: string[],
+      _o: unknown,
+      cb: (err: Error, stdout: string, stderr: string) => void,
+    ) => {
+      const e = new Error('git failed') as Error & { stderr?: string };
+      e.stderr = '! [remote rejected] x (permission denied)';
+      cb(e, '', e.stderr);
+      return undefined;
+    }) as never);
+    await expect(pushBranch('/repo', 'x')).rejects.toThrow(/permission denied/);
   });
 });

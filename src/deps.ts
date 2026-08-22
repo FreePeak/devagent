@@ -50,7 +50,9 @@ export function buildDeps(creds: Credentials, cfg: StageConfig, log: RunLogger):
     publishStage: async (_c, plan, impl) => {
       if (!impl.worktreePath || !creds.githubToken) return undefined;
       const branch = `devagent/${plan.ticket.id}`;
-      const { createPr } = await import('./integrations/github.js');
+      const { pushBranch, createPr } = await import('./integrations/github.js');
+      // The branch exists only in the local worktree until pushed
+      await pushBranch(impl.worktreePath, branch);
       return createPr({
         repoPath: cfg.repoPath,
         branch,
