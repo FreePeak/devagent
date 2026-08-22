@@ -47,7 +47,22 @@ program
       return;
     }
 
-    logger.info('fetch', `Run ${logger.runId} starting`, { ticket: cfg.ticketId, worker: cfg.worker, dryRun: cfg.dryRun });
+    // Tracker selection: Jira when JIRA_* env present, else Linear
+    const useJira = Boolean(process.env.JIRA_DOMAIN && process.env.JIRA_EMAIL && process.env.JIRA_API_TOKEN);
+    const fetchForTracker = async (id: string) => {
+      if (useJira) {
+        const { fetchJiraTicket } = await import('./integrations/jira.js');
+        return fetchJiraTicket(id, {
+          domain: process.env.JIRA_DOMAIN!,
+          email: process.env.JIRA_EMAIL!,
+          apiToken: process.env.JIRA_API_TOKEN!,
+        });
+      }
+      const { fetchTicket } = await import('./integrations/linear.js');
+      return fetchTicket(id, creds.linearApiKey!);
+    };
+
+    logger.info('fetch', `Run ${logger.runId} starting`, { ticket: cfg.ticketId, worker: cfg.worker, dryRun: cfg.dryRun, tracker: useJira ? 'jira' : 'linear' });
 
     try {
       const outcomes = await runPipeline(cfg, buildDeps(creds, cfg, logger), logger);

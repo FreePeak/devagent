@@ -20,7 +20,19 @@ export interface StageConfig {
 /** Shared PipelineDeps construction for both `run` and `serve` entry points. */
 export function buildDeps(creds: Credentials, cfg: StageConfig, log: RunLogger): PipelineDeps {
   return {
-    fetchTicket: (id) => fetchTicket(id, creds.linearApiKey!),
+    fetchTicket: (id) => {
+      // Jira when JIRA_* env present, else Linear (mirrors cli.ts selection)
+      if (process.env.JIRA_DOMAIN && process.env.JIRA_EMAIL && process.env.JIRA_API_TOKEN) {
+        return import('./integrations/jira.js').then((m) =>
+          m.fetchJiraTicket(id, {
+            domain: process.env.JIRA_DOMAIN!,
+            email: process.env.JIRA_EMAIL!,
+            apiToken: process.env.JIRA_API_TOKEN!,
+          }),
+        );
+      }
+      return fetchTicket(id, creds.linearApiKey!);
+    },
     postTicketComment: (internalId, comment) => postTicketComment(internalId, comment, creds.linearApiKey!),
     runGateG1: (worktreePath, timeoutMs) =>
       import('./validation/test-gate.js').then((m) => m.runTestGate(worktreePath, timeoutMs)),
