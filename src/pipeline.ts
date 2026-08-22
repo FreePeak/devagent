@@ -42,6 +42,8 @@ export interface PipelineDeps {
   };
   /** Real worker dispatch; injected so the pipeline stays unit-testable. */
   implementStage?(cfg: RunConfig, plan: ImplementationPlan, log: RunLogger): Promise<ImplementResult>;
+  /** G1 test gate; injected by the caller (repo-native test run in cli.ts). */
+  runGateG1?(worktreePath: string, timeoutMs: number): Promise<{ passed: boolean; detail?: string }>;
   /** PR publishing; injected by the caller (gh-based in cli.ts). */
   publishStage?(cfg: RunConfig, plan: ImplementationPlan, impl: ImplementResult): Promise<string | undefined>;
 }
@@ -98,8 +100,19 @@ export async function runPipeline(cfg: RunConfig, deps: PipelineDeps, log: RunLo
     return outcomes;
   }
 
-  // Stage: validate — G3 runs without a sandbox
+  // Stage: validate — G1 (tests) then G3 (migration static analysis)
   const gatePath = impl.worktreePath ?? cfg.repoPath;
+
+  if (deps.runGateG1) {
+    const g1 = await deps.runGateG1(gatePath, cfg.timeoutMs);
+    log.info('validate', `G1 ${g1.passed ? 'passed' : 'failed'}${g1.detail ? `: ${g1.detail.split('\n')[0]}` : ''}`, {});
+    outcomes.push({ stage: 'validate', passed: g1.passed });
+    if (!g1.passed) {
+      outcomes.push({ stage: 'failed', reason: `test gate failed: ${g1.detail ?? 'no detail'}` });
+      return outcomes;
+    }
+  }
+
   const g3 = deps.runGateG3(gatePath, plan.classification);
   log.info('validate', `G3 ${g3.passed ? 'passed' : 'failed'}: ${g3.detail ?? ''}`, {});
   outcomes.push({ stage: 'validate', passed: g3.passed });

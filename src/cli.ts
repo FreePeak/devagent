@@ -103,6 +103,8 @@ program
           fetchTicket: (id) => fetchTicket(id, creds.linearApiKey!),
           postTicketComment: (internalId, comment) =>
             import('./integrations/linear.js').then((m) => m.postTicketComment(internalId, comment, creds.linearApiKey!)),
+          runGateG1: (worktreePath, timeoutMs) =>
+            import('./validation/test-gate.js').then((m) => m.runTestGate(worktreePath, timeoutMs)),
           runGateG3: (repoPath, classification) => {
             const r = runMigrationStaticGate({ repoPath, classification });
             return { passed: r.passed, findings: r.findings, detail: r.detail };
