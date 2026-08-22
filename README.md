@@ -30,26 +30,28 @@ Research sources backing the PRD are cited inline and collected in the [research
 
 ## Status
 
-v0.1.0 — the spine is implemented and CI-protected (2026-08):
+v0.2.0 — the full v1 loop is implemented and CI-protected (2026-08):
 
-- TypeScript CLI (`devagent run|config`) with pipeline state machine
-- Worker adapters for headless Claude Code (`claude -p`) and OpenCode (`opencode run`)
-- G3 static migration-safety gate: 8 rules (destructive ops, type narrowing, non-concurrent indexes, unindexed FKs, NOT NULL without default, missing down-migrations)
-- Linear GraphQL ticket ingestion + clarification comments; gh-based PR publishing in `--auto-pr`
-- Per-run git worktree isolation; structured JSONL run logs; spec-sufficiency refusal
-- 65 tests green; typecheck clean
+- **CLI**: `devagent run|serve|validate|log|status|config`
+- **Workers**: headless Claude Code (`claude -p`) and OpenCode (`opencode run`); fan-out mode (`--worker both`) runs parallel legs in isolated worktrees and picks the test-passing winner; single-worker mode retries with repair prompts carrying gate evidence
+- **Gates**: G1 repo-native test suite (npm/go conventions), G2 up/down migration apply against a compose database (skips honestly without Docker), G3 static migration analysis (8 rules: destructive ops, type narrowing, non-concurrent indexes, unindexed FKs, NOT NULL without default, missing down-migrations)
+- **Triggers**: CLI runs plus a webhook server (`devagent serve`) verifying Linear HMAC signatures with delivery dedup, dispatching full pipeline runs on AgentSessionEvent
+- **Delivery**: gh-based PR publishing with plan + acceptance-criteria body (`--auto-pr`)
+- **Hygiene**: per-run git worktree isolation, structured JSONL run logs, spec-sufficiency refusal (vague tickets get a clarifying comment instead of a guess), credentials from environment only
+- 96 tests green incl. end-to-end over real git fixtures
 
-Not yet wired: Docker sandbox test gates (G1/G2), webhook-triggered runs, fan-out mode. See the [roadmap](docs/PRD.md#17-roadmap).
+Not yet wired: G4 async/race review gate. See the [roadmap](docs/PRD.md#17-roadmap).
 
 ## Development
 
 ```bash
 npm install
 npm run typecheck && npm test   # verify
+npm run dev -- --help           # command overview
 npm run dev -- config           # smoke-test the CLI
 ```
 
-Credentials via environment only: `LINEAR_API_KEY`, `GITHUB_TOKEN`. See [PRD section 12](docs/PRD.md#12-cli-specification) for the full CLI contract.
+Credentials via environment only: `LINEAR_API_KEY`, `GITHUB_TOKEN`, `LINEAR_WEBHOOK_SECRET` (for `serve`). See [PRD section 12](docs/PRD.md#12-cli-specification) for the full CLI contract.
 
 ## License
 
