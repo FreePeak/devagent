@@ -26,6 +26,22 @@ export function buildDeps(creds: Credentials, cfg: StageConfig, log: RunLogger):
       import('./validation/test-gate.js').then((m) => m.runTestGate(worktreePath, timeoutMs)),
     runGateG2: (worktreePath, timeoutMs) =>
       import('./validation/migration-apply-gate.js').then((m) => m.runMigrationApplyGate(worktreePath, timeoutMs)),
+    runGateG4: async (worktreePath) => {
+      const { collectChangedSourceFiles, analyzeAsyncHazards } = await import('./validation/async-review.js');
+      const { spawnCli } = await import('./workers/spawn-utils.js');
+      const base = (await import('./config.js')).loadConfig(worktreePath).githubBaseBranch ?? 'main';
+      const runGit = async (args: string[]) => {
+        const r = await spawnCli('git', args, { cwd: worktreePath, timeoutMs: 30_000 });
+        return { exitCode: r.exitCode, stdout: r.stdout };
+      };
+      const files = await collectChangedSourceFiles(worktreePath, base, runGit);
+      const findings = analyzeAsyncHazards(files);
+      const blocking = findings.some((f) => f.severity === 'high');
+      return {
+        passed: !blocking,
+        detail: `${files.length} changed file(s), ${findings.length} finding(s)${blocking ? ' (blocking high-severity)' : ''}`,
+      };
+    },
     runGateG3: (repoPath, classification: TicketClass) => {
       const r = runMigrationStaticGate({ repoPath, classification });
       return { passed: r.passed, findings: r.findings, detail: r.detail };

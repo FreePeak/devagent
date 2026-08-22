@@ -44,6 +44,8 @@ export interface PipelineDeps {
   implementStage?(cfg: RunConfig, plan: ImplementationPlan, log: RunLogger): Promise<ImplementResult>;
   /** G2 migration-apply gate; injected by the caller (Docker-based). */
   runGateG2?(worktreePath: string, timeoutMs: number): Promise<{ passed: boolean; detail?: string }>;
+  /** G4 async-review gate; injected by the caller (heuristic scan in cli/deps). */
+  runGateG4?(worktreePath: string): Promise<{ passed: boolean; detail?: string }>;
   /** G1 test gate; injected by the caller (repo-native test run in cli.ts). */
   runGateG1?(worktreePath: string, timeoutMs: number): Promise<{ passed: boolean; detail?: string }>;
   /** PR publishing; injected by the caller (gh-based in cli.ts). */
@@ -131,6 +133,17 @@ export async function runPipeline(cfg: RunConfig, deps: PipelineDeps, log: RunLo
   if (!g3.passed) {
     outcomes.push({ stage: 'failed', reason: 'migration static gate failed' });
     return outcomes;
+  }
+
+  // Stage: validate — G4 async review for consumer-classified tickets
+  if (deps.runGateG4 && plan.classification === 'consumer-only') {
+    const g4 = await deps.runGateG4(gatePath);
+    log.info('validate', `G4 ${g4.passed ? 'passed' : 'failed'}: ${g4.detail ?? ''}`, {});
+    outcomes.push({ stage: 'validate', passed: g4.passed });
+    if (!g4.passed) {
+      outcomes.push({ stage: 'failed', reason: `async review gate failed: ${g4.detail ?? 'no detail'}` });
+      return outcomes;
+    }
   }
 
   // Stage: publish — headless mode publishes; interactive mode defers to the caller
