@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { loadConfig, loadCredentials, credentialStatus } from './config.js';
 import { RunLogger } from './logger.js';
 import { fetchTicket } from './integrations/linear.js';
@@ -213,6 +215,59 @@ function buildPrBody(plan: ImplementationPlan): string {
     ...(t.acceptanceCriteria.length ? t.acceptanceCriteria.map((c) => `- [ ] ${c}`) : ['- (see ticket)']),
   ].join('\n');
 }
+
+program
+  .command('validate')
+  .description('Run all applicable gates against a repository or worktree')
+  .option('--worktree <path>', 'path to repository/worktree', process.cwd())
+  .action(async (opts) => {
+    const { runMigrationStaticGate } = await import('./validation/runner.js');
+    const { runTestGate } = await import('./validation/test-gate.js');
+
+    // Classify from the repo's own contents rather than a ticket
+    const classification = runMigrationStaticGate({ repoPath: opts.worktree, classification: 'endpoint-only' });
+    const hasMigrations = classification.findings.length > 0 || classification.detail !== 'skipped: no migrations in this ticket';
+
+    let failed = false;
+    const g1 = await runTestGate(opts.worktree, 15 * 60_000);
+    console.log(`G1 tests: ${g1.passed ? 'PASS' : 'FAIL'}${g1.detail ? `\n  ${g1.detail.split('\n').join('\n  ')}` : ''}`);
+    if (!g1.passed) failed = true;
+
+    if (hasMigrations) {
+      const g3 = runMigrationStaticGate({ repoPath: opts.worktree, classification: 'migration-required' });
+      for (const f of g3.findings) {
+        console.log(`G3 ${f.severity.toUpperCase()} ${f.ruleId}${f.file ? ` (${f.file})` : ''}: ${f.message}`);
+      }
+      if (!g3.passed) failed = true;
+      if (g3.passed) console.log('G3 migration static: PASS');
+    } else {
+      console.log('G3 migration static: SKIPPED (no migrations found)');
+    }
+
+    process.exitCode = failed ? 1 : 0;
+  });
+
+program
+  .command('log')
+  .description('Print the structured JSONL log of a run')
+  .requiredOption('--run <id>', 'run identifier')
+  .action((opts) => {
+    const home = process.env.DEVAGENT_HOME || join(process.env.HOME || '.', '.devagent');
+    const p = join(home, 'runs', `${opts.run}.jsonl`);
+    if (!existsSync(p)) {
+      console.error(`No run log at ${p}`);
+      process.exitCode = 1;
+      return;
+    }
+    for (const line of readFileSync(p, 'utf8').trim().split('\n')) {
+      try {
+        const e = JSON.parse(line) as { ts: string; stage: string; level: string; message: string };
+        console.log(`${e.ts} [${e.level}] ${e.stage}: ${e.message}`);
+      } catch {
+        // skip malformed lines
+      }
+    }
+  });
 
 program
   .command('config')
