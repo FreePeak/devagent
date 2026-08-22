@@ -82,3 +82,23 @@ describe('timingSafeEqualHex', () => {
     expect(timingSafeEqualHex('abc', 'abcd')).toBe(false);
   });
 });
+
+describe('parseGithubIssueEvent', () => {
+  it('maps issue opened events to owner/repo#n', async () => {
+    const { parseGithubIssueEvent } = await import('../src/server/webhook.js');
+    const d = parseGithubIssueEvent('issues', {
+      action: 'opened',
+      issue: { number: 5, title: 'Fix login' },
+      repository: { full_name: 'acme/api' },
+    });
+    expect(d).toEqual({ issueIdentifier: 'acme/api#5', title: 'Fix login' });
+  });
+
+  it('ignores non-issue events, PRs, and malformed payloads', async () => {
+    const { parseGithubIssueEvent } = await import('../src/server/webhook.js');
+    expect(parseGithubIssueEvent('push', {})).toBeNull();
+    expect(parseGithubIssueEvent('issues', { action: 'opened', issue: { number: 1, title: 'x', pull_request: {} }, repository: { full_name: 'a/b' } })).toBeNull();
+    expect(parseGithubIssueEvent('issues', { action: 'closed', issue: { number: 1, title: 'x' }, repository: { full_name: 'a/b' } })).toBeNull();
+    expect(parseGithubIssueEvent('issues', { action: 'opened', issue: { title: 'no number' }, repository: { full_name: 'a/b' } })).toBeNull();
+  });
+});

@@ -158,7 +158,7 @@ program
     const config = loadConfig(opts.repo);
 
     const { createServer } = await import('node:http');
-    const { handleWebhook, DeliveryDedup, parseAgentSessionEvent } = await import('./server/webhook.js');
+    const { handleWebhook, DeliveryDedup, parseAgentSessionEvent, parseGithubIssueEvent } = await import('./server/webhook.js');
     const dedup = new DeliveryDedup();
 
     const server = createServer((req, res) => {
@@ -171,9 +171,11 @@ program
         signingSecret: process.env.LINEAR_WEBHOOK_SECRET!,
         dedup,
         onEvent: (v) => {
-          const dispatch = parseAgentSessionEvent(v.payload);
-          if (!dispatch) return; // not a session event we act on
-          void dispatchRun(dispatch.issueIdentifier, creds, config).catch(() => {
+          const linearDispatch = parseAgentSessionEvent(v.payload);
+          const githubDispatch = linearDispatch ? null : parseGithubIssueEvent(v.githubEvent, v.payload);
+          const ticketId = linearDispatch?.issueIdentifier ?? githubDispatch?.issueIdentifier;
+          if (!ticketId) return; // not an event we act on
+          void dispatchRun(ticketId, creds, config).catch(() => {
             // logged inside dispatchRun
           });
         },

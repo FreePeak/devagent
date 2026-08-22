@@ -18,6 +18,8 @@ export interface VerifiedWebhook {
   /** Provider delivery id for dedup (Linear-Delivery / X-GitHub-Delivery) */
   deliveryId: string;
   event: string;
+  /** GitHub's X-GitHub-Event header when present (issues, push, ...) */
+  githubEvent?: string;
   payload: unknown;
 }
 
@@ -48,7 +50,12 @@ export function verifyAndParse(
     throw new SignatureError('invalid JSON body');
   }
 
-  return { deliveryId, event: header(req.headers['linear-event']) ?? 'unknown', payload };
+  return {
+    deliveryId,
+    event: header(req.headers['linear-event']) ?? 'unknown',
+    githubEvent: header(req.headers['x-github-event']) ?? undefined,
+    payload,
+  };
 }
 
 /** In-memory dedup window; a real deployment swaps this for the run store. */
@@ -134,6 +141,31 @@ export function parseAgentSessionEvent(payload: unknown): AgentSessionDispatch |
     issueIdentifier: issue.identifier,
     issueId: issue.id,
     commentBody: typeof p.comment?.body === 'string' ? p.comment.body : null,
+  };
+}
+
+/**
+ * Extract a dispatchable ticket from a GitHub issues webhook event
+ * (event header "issues", action opened/labeled). Untrusted-data discipline:
+ * only well-typed fields are read.
+ */
+export interface GithubIssueDispatch {
+  /** "owner/repo#123" composite key */
+  issueIdentifier: string;
+  title: string;
+}
+
+export function parseGithubIssueEvent(eventHeader: string | undefined, payload: unknown): GithubIssueDispatch | null {
+  const ghEvent = (payload as { action?: unknown; issue?: { number?: unknown; title?: unknown; pull_request?: unknown }; repository?: { full_name?: unknown } } | null);
+  if (eventHeader !== 'issues' || !ghEvent || ghEvent.action !== 'opened') return null;
+  const issue = ghEvent.issue;
+  // PRs also fire "issues" events — skip those (they have their own pipeline)
+  if (!issue || 'pull_request' in issue) return null;
+  if (typeof issue.number !== 'number' || typeof issue.title !== 'string') return null;
+  if (typeof ghEvent.repository?.full_name !== 'string') return null;
+  return {
+    issueIdentifier: `${ghEvent.repository.full_name}#${issue.number}`,
+    title: issue.title,
   };
 }
 
