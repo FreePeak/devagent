@@ -8,6 +8,7 @@ import { runMigrationStaticGate } from './validation/runner.js';
 import type { ImplementationPlan } from './planner.js';
 import { buildImplementationPrompt } from './prompt.js';
 import { getWorker } from './workers/index.js';
+import { createWorktree } from './git/worktree.js';
 import type { WorkerName } from './types.js';
 
 /** Dispatch a worker inside an isolated worktree with the retry loop (FR-IMPL-01..04). */
@@ -21,20 +22,36 @@ async function implementStage(
   const prompt = buildImplementationPrompt(plan);
   const maxAttempts = Math.max(1, cfg.maxLoops);
 
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    log.info('implement', `Worker ${workerName} attempt ${attempt}/${maxAttempts}`, {});
-    const result = await worker.spawn({ prompt, cwd: cfg.repoPath, timeoutMs: cfg.timeoutMs });
-    log.info('implement', `Attempt ${attempt} finished`, {
-      exitCode: result.exitCode,
-      timedOut: result.timedOut,
-      durationMs: result.durationMs,
-      events: result.events.length,
-    });
-    if (!result.timedOut && result.exitCode === 0) {
-      return { ok: true, worker: workerName, attempts: attempt };
-    }
+  // Isolated worktree + branch per run (FR-IMPL-01); falls back to repoPath on failure
+  let cwd = cfg.repoPath;
+  let worktreePath: string | undefined;
+  try {
+    const wt = await createWorktree(cfg.repoPath, plan.ticket.id);
+    cwd = wt.worktreePath;
+    worktreePath = wt.worktreePath;
+    log.info('implement', `Worktree ready: ${wt.worktreePath} (branch ${wt.branch})`, {});
+  } catch (err) {
+    log.warn('implement', `Worktree creation failed, running in repo root: ${(err as Error).message}`);
   }
-  return { ok: false, worker: workerName, attempts: maxAttempts };
+
+  try {
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      log.info('implement', `Worker ${workerName} attempt ${attempt}/${maxAttempts}`, {});
+      const result = await worker.spawn({ prompt, cwd, timeoutMs: cfg.timeoutMs });
+      log.info('implement', `Attempt ${attempt} finished`, {
+        exitCode: result.exitCode,
+        timedOut: result.timedOut,
+        durationMs: result.durationMs,
+        events: result.events.length,
+      });
+      if (!result.timedOut && result.exitCode === 0) {
+        return { ok: true, worker: workerName, attempts: attempt, worktreePath };
+      }
+    }
+    return { ok: false, worker: workerName, attempts: maxAttempts, worktreePath };
+  } finally {
+    if (worktreePath) log.info('implement', `Worktree preserved for inspection: ${worktreePath}`, {});
+  }
 }
 
 const program = new Command();
@@ -92,6 +109,17 @@ program
           },
           implementStage: (c, plan, lg) =>
             implementStage({ repoPath: c.repoPath, maxLoops: c.maxLoops, timeoutMs: c.timeoutMs, worker: c.worker }, plan, lg),
+          publishStage: async (c, plan, impl) => {
+            if (!impl.worktreePath || !creds.githubToken) return undefined;
+            const branch = `devagent/${plan.ticket.id}`;
+            const { createPr } = await import('./integrations/github.js');
+            return createPr({
+              repoPath: c.repoPath,
+              branch,
+              title: `[${plan.ticket.id}] ${plan.ticket.title}`,
+              body: buildPrBody(plan),
+            });
+          },
         },
         logger,
       );
@@ -108,6 +136,13 @@ program
           case 'implement':
             console.log(`Implement (${o.worker}): ${o.ok ? 'ok' : 'failed'} after ${o.attempts} attempt(s)`);
             break;
+          case 'publish':
+            if (o.prUrl) {
+              console.log(`PR opened: ${o.prUrl}`);
+            } else {
+              console.log(`Publish: ${o.note}`);
+            }
+            break;
           case 'validate':
             console.log(`Validation: ${o.passed ? 'PASSED' : 'FAILED'}`);
             break;
@@ -116,7 +151,7 @@ program
             process.exitCode = 1;
             break;
           default:
-            console.log(`${o.stage}: ${'note' in o ? o.note : ''}`);
+            break;
         }
       }
       console.log(`Run log: ${logger.path}`);
@@ -126,6 +161,27 @@ program
       process.exitCode = 1;
     }
   });
+
+/** PR body with plan, ticket link, and evidence placeholders (FR-DELIVER-01). */
+function buildPrBody(plan: ImplementationPlan): string {
+  const t = plan.ticket;
+  return [
+    `Closes ${t.id}${t.url ? ` (${t.url})` : ''}.`,
+    '',
+    '## Summary',
+    `Automated implementation classified as **${plan.classification}** by DevAgent.`,
+    '',
+    '## Plan',
+    ...plan.tasks.map((task, i) => `${i + 1}. ${task}`),
+    '',
+    '## Validation',
+    '- G3 static migration analysis: passed',
+    '- Test suite: see CI run on this branch',
+    '',
+    '## Acceptance criteria',
+    ...(t.acceptanceCriteria.length ? t.acceptanceCriteria.map((c) => `- [ ] ${c}`) : ['- (see ticket)']),
+  ].join('\n');
+}
 
 program
   .command('config')

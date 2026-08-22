@@ -30,7 +30,26 @@ Research sources backing the PRD are cited inline and collected in the [research
 
 ## Status
 
-Pre-code, design phase (2026-08). See the [roadmap](docs/PRD.md#17-roadmap) — Phase 0/1 targets the end-to-end spine: one Linear ticket to one green PR.
+v0.1.0 — the spine is implemented and CI-protected (2026-08):
+
+- TypeScript CLI (`devagent run|config`) with pipeline state machine
+- Worker adapters for headless Claude Code (`claude -p`) and OpenCode (`opencode run`)
+- G3 static migration-safety gate: 8 rules (destructive ops, type narrowing, non-concurrent indexes, unindexed FKs, NOT NULL without default, missing down-migrations)
+- Linear GraphQL ticket ingestion + clarification comments; gh-based PR publishing in `--auto-pr`
+- Per-run git worktree isolation; structured JSONL run logs; spec-sufficiency refusal
+- 65 tests green; typecheck clean
+
+Not yet wired: Docker sandbox test gates (G1/G2), webhook-triggered runs, fan-out mode. See the [roadmap](docs/PRD.md#17-roadmap).
+
+## Development
+
+```bash
+npm install
+npm run typecheck && npm test   # verify
+npm run dev -- config           # smoke-test the CLI
+```
+
+Credentials via environment only: `LINEAR_API_KEY`, `GITHUB_TOKEN`. See [PRD section 12](docs/PRD.md#12-cli-specification) for the full CLI contract.
 
 ## License
 

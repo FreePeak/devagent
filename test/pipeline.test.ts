@@ -92,7 +92,26 @@ describe('runPipeline', () => {
       const outcomes = await runPipeline(baseCfg({ autoPr: true }), okDeps({ implementStage: impl, runGateG3: g3 }), log);
       expect(outcases(outcomes)).toContain('implement');
       expect(impl).toHaveBeenCalledOnce();
-      expect(outcomes.at(-1)).toMatchObject({ stage: 'publish', note: 'auto-pr enabled' });
+      expect(outcomes.at(-1)).toMatchObject({ stage: 'publish', note: 'no publisher configured' });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('publishes via publishStage in auto-pr mode', async () => {
+    const { log, dir } = tmpLog();
+    try {
+      const publish = vi.fn().mockResolvedValue('https://github.com/o/r/pull/1');
+      const outcomes = await runPipeline(
+        baseCfg({ autoPr: true }),
+        okDeps({
+          implementStage: vi.fn().mockResolvedValue({ ok: true, worker: 'claude-code' as const, attempts: 1 }),
+          publishStage: publish,
+        }),
+        log,
+      );
+      expect(publish).toHaveBeenCalledOnce();
+      expect(outcomes.at(-1)).toMatchObject({ stage: 'publish', prUrl: 'https://github.com/o/r/pull/1' });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

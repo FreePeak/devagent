@@ -42,6 +42,8 @@ export interface PipelineDeps {
   };
   /** Real worker dispatch; injected so the pipeline stays unit-testable. */
   implementStage?(cfg: RunConfig, plan: ImplementationPlan, log: RunLogger): Promise<ImplementResult>;
+  /** PR publishing; injected by the caller (gh-based in cli.ts). */
+  publishStage?(cfg: RunConfig, plan: ImplementationPlan, impl: ImplementResult): Promise<string | undefined>;
 }
 
 export async function runPipeline(cfg: RunConfig, deps: PipelineDeps, log: RunLogger): Promise<StageOutcome[]> {
@@ -106,7 +108,19 @@ export async function runPipeline(cfg: RunConfig, deps: PipelineDeps, log: RunLo
     return outcomes;
   }
 
-  // Stage: publish — gated on autoPr/interactive (handled by caller)
-  outcomes.push({ stage: 'publish', note: cfg.autoPr ? 'auto-pr enabled' : 'awaiting approval' });
+  // Stage: publish — headless mode publishes; interactive mode defers to the caller
+  if (cfg.autoPr && deps.publishStage) {
+    try {
+      const prUrl = await deps.publishStage(cfg, plan, impl);
+      log.info('publish', `PR opened: ${prUrl ?? 'unknown'}`, {});
+      outcomes.push({ stage: 'publish', prUrl, note: 'auto-pr enabled' });
+    } catch (err) {
+      log.error('publish', `PR creation failed: ${(err as Error).message}`);
+      outcomes.push({ stage: 'failed', reason: `PR creation failed: ${(err as Error).message}` });
+      return outcomes;
+    }
+  } else {
+    outcomes.push({ stage: 'publish', note: cfg.autoPr ? 'no publisher configured' : 'awaiting approval' });
+  }
   return outcomes;
 }
