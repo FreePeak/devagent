@@ -76,3 +76,10 @@ export async function removeWorktree(
     // best-effort cleanup
   }
 }
+
+/** Files changed on this branch vs its merge-base with the default branch. */
+export async function listChangedFiles(repoPath: string, baseBranch: string): Promise<string[]> {
+  const mergeBase = await run('git', ['merge-base', baseBranch, 'HEAD'], repoPath);
+  const diff = await run('git', ['diff', '--name-only', mergeBase.stdout.trim(), 'HEAD'], repoPath);
+  return diff.stdout.split('\n').map((s) => s.trim()).filter(Boolean);
+}

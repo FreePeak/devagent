@@ -51,13 +51,21 @@ export function buildDeps(creds: Credentials, cfg: StageConfig, log: RunLogger):
       if (!impl.worktreePath || !creds.githubToken) return undefined;
       const branch = `devagent/${plan.ticket.id}`;
       const { pushBranch, createPr } = await import('./integrations/github.js');
+      const { listChangedFiles } = await import('./git/worktree.js');
       // The branch exists only in the local worktree until pushed
       await pushBranch(impl.worktreePath, branch);
+      let changedFiles: string[] = [];
+      const baseBranch = 'main';
+      try {
+        changedFiles = await listChangedFiles(impl.worktreePath, baseBranch);
+      } catch {
+        // evidence is best-effort; never block publishing on it
+      }
       return createPr({
         repoPath: cfg.repoPath,
         branch,
         title: `[${plan.ticket.id}] ${plan.ticket.title}`,
-        body: buildPrBody(plan),
+        body: buildPrBody(plan, changedFiles),
       });
     },
   };
@@ -135,8 +143,8 @@ async function implementStage(
   }
 }
 
-/** PR body with plan, ticket link, and evidence placeholders (FR-DELIVER-01). */
-function buildPrBody(plan: ImplementationPlan): string {
+/** PR body with plan, changed-file evidence, and acceptance criteria (FR-DELIVER-01). */
+function buildPrBody(plan: ImplementationPlan, changedFiles: string[]): string {
   const t = plan.ticket;
   return [
     `Closes ${t.id}${t.url ? ` (${t.url})` : ''}.`,
@@ -147,6 +155,9 @@ function buildPrBody(plan: ImplementationPlan): string {
     '## Plan',
     ...plan.tasks.map((task, i) => `${i + 1}. ${task}`),
     '',
+    ...(changedFiles.length
+      ? ['## Files changed', ...changedFiles.map((f) => `- \`${f}\``), '']
+      : []),
     '## Validation',
     '- G3 static migration analysis: passed',
     '- Test suite: see CI run on this branch',
