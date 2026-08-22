@@ -55,7 +55,7 @@ export function buildDeps(creds: Credentials, cfg: StageConfig, log: RunLogger):
       // The branch exists only in the local worktree until pushed
       await pushBranch(impl.worktreePath, branch);
       let changedFiles: string[] = [];
-      const baseBranch = 'main';
+      const baseBranch = (await import('./config.js')).loadConfig(impl.worktreePath).githubBaseBranch ?? 'main';
       try {
         changedFiles = await listChangedFiles(impl.worktreePath, baseBranch);
       } catch {
