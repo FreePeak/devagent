@@ -304,6 +304,44 @@ program
   });
 
 program
+  .command('serve')
+  .description('Run the webhook receiver HTTP server (FR-TICKET-04)')
+  .option('--port <n>', 'listen port', Number, 8080)
+  .action(async (opts) => {
+    const { LINEAR_WEBHOOK_SECRET } = process.env;
+    if (!LINEAR_WEBHOOK_SECRET) {
+      console.error('LINEAR_WEBHOOK_SECRET is not set.');
+      process.exitCode = 1;
+      return;
+    }
+    const { createServer } = await import('node:http');
+    const { handleWebhook, DeliveryDedup } = await import('./server/webhook.js');
+    const logger = new RunLogger();
+    const dedup = new DeliveryDedup();
+
+    const server = createServer((req, res) => {
+      if (req.method !== 'POST' || !req.url?.startsWith('/webhooks/linear')) {
+        res.statusCode = 404;
+        res.end();
+        return;
+      }
+      handleWebhook(req, res, {
+        signingSecret: LINEAR_WEBHOOK_SECRET,
+        dedup,
+        onEvent: (v) => {
+          // Loop 11 routes this into runPipeline; for now log and enqueue nothing
+          logger.info('fetch', `Webhook received: ${v.event}`, { deliveryId: v.deliveryId });
+        },
+      });
+    });
+
+    server.listen(opts.port, () => {
+      logger.info('fetch', `Webhook server listening on :${opts.port}`, {});
+      console.log(`Listening on :${opts.port} — POST /webhooks/linear`);
+    });
+  });
+
+program
   .command('config')
   .description('Show effective configuration and credential presence (never values)')
   .action(() => {
