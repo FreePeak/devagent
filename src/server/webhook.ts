@@ -115,6 +115,28 @@ function header(value: string | string[] | undefined): string | null {
   return value ?? null;
 }
 
+/**
+ * Extract a dispatchable ticket identifier from a Linear AgentSessionEvent
+ * payload. Treats all fields as untrusted source data (PRD risk R5).
+ */
+export interface AgentSessionDispatch {
+  issueIdentifier: string;
+  issueId: string;
+  commentBody: string | null;
+}
+
+export function parseAgentSessionEvent(payload: unknown): AgentSessionDispatch | null {
+  const p = payload as { type?: unknown; agentSession?: { issue?: { identifier?: unknown; id?: unknown } }; comment?: { body?: unknown } } | null;
+  if (!p || p.type !== 'AgentSessionEvent') return null;
+  const issue = p.agentSession?.issue;
+  if (typeof issue?.identifier !== 'string' || typeof issue?.id !== 'string') return null;
+  return {
+    issueIdentifier: issue.identifier,
+    issueId: issue.id,
+    commentBody: typeof p.comment?.body === 'string' ? p.comment.body : null,
+  };
+}
+
 function stripPrefix(sig: string): string {
   return sig.startsWith('sha256=') ? sig.slice(7) : sig;
 }
