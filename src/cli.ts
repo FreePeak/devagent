@@ -17,7 +17,23 @@ async function implementStage(
   plan: ImplementationPlan,
   log: RunLogger,
 ): Promise<ImplementResult> {
-  const workerName: WorkerName = cfg.worker === 'both' ? 'claude-code' : cfg.worker;
+  if (cfg.worker === 'both') {
+    const { runFanout } = await import('./workers/fanout.js');
+    const { runTestGate } = await import('./validation/test-gate.js');
+    log.info('implement', 'Fan-out mode: dispatching both workers', {});
+    const winner = await runFanout(plan, ['claude-code', 'opencode'], log, {
+      repoPath: cfg.repoPath,
+      timeoutMs: cfg.timeoutMs,
+      scoreLeg: (wt, ms) => runTestGate(wt, ms).then((r) => r.passed),
+    });
+    if (!winner) {
+      return { ok: false, worker: 'claude-code', attempts: 1 };
+    }
+    log.info('implement', `Fan-out winner: ${winner.worker} (tests ${winner.testsPassed})`, {});
+    return { ok: true, worker: winner.worker, worktreePath: winner.worktreePath, attempts: 1 };
+  }
+
+  const workerName: WorkerName = cfg.worker;
   const worker = getWorker(workerName);
   const prompt = buildImplementationPrompt(plan);
   const maxAttempts = Math.max(1, cfg.maxLoops);
