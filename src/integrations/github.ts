@@ -25,15 +25,17 @@ function run(
  * Uses explicit refspec so local-only branches publish cleanly.
  */
 export async function pushBranch(repoPath: string, branch: string): Promise<void> {
-  await new Promise<void>((resolve, reject) => {
-    execFile('git', ['push', '-u', 'origin', `${branch}:${branch}`], { cwd: repoPath }, (err, _stdout, stderr) => {
-      if (err) {
-        reject(describeError(`git push ${branch} failed`, String(stderr)));
-      } else {
-        resolve();
-      }
-    });
-  });
+  await withRateLimitRetry(() =>
+    new Promise<void>((resolve, reject) => {
+      execFile('git', ['push', '-u', 'origin', `${branch}:${branch}`], { cwd: repoPath }, (err, _stdout, stderr) => {
+        if (err) {
+          reject(describeError(`git push ${branch} failed`, String(stderr)));
+        } else {
+          resolve();
+        }
+      });
+    }),
+  );
 }
 
 export interface CreatePrOptions {
@@ -51,6 +53,24 @@ function describeError(context: string, stderr?: string): Error {
   return new Error(`${context}${detail}`);
 }
 
+const RATE_LIMIT_PATTERN = /rate limit|secondary rate|abuse detection/i;
+
+/**
+ * Retry once after a pause when GitHub signals a (secondary) rate limit.
+ * gh/git expose limits as stderr text rather than headers, so the wait is
+ * fixed at 60s — long enough for the standard secondary window.
+ */
+export async function withRateLimitRetry<T>(fn: () => Promise<T>, opts: { sleep?: (ms: number) => Promise<void> } = {}): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    const msg = String((err as Error).message ?? err);
+    if (!RATE_LIMIT_PATTERN.test(msg)) throw err;
+    await (opts.sleep ?? ((ms) => new Promise<void>((r) => setTimeout(r, ms))))(60_000);
+    return fn();
+  }
+}
+
 /**
  * Create a pull request via the `gh` CLI.
  * Equivalent to `gh pr create -t <title> -b <body> -B <base> -H <branch>` run
@@ -64,7 +84,7 @@ export async function createPr(opts: CreatePrOptions): Promise<string> {
   args.push('-H', opts.branch);
 
   try {
-    const { stdout, stderr } = await run('gh', args, opts.repoPath);
+    const { stdout, stderr } = await withRateLimitRetry(() => run('gh', args, opts.repoPath));
 
     // `gh pr create` prints the PR URL as the last non-empty stdout line.
     const url = stdout

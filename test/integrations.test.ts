@@ -416,3 +416,45 @@ describe('pushBranch', () => {
     await expect(pushBranch('/repo', 'x')).rejects.toThrow(/permission denied/);
   });
 });
+
+describe('withRateLimitRetry', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+  it('retries once after 60s pause on rate-limit errors', async () => {
+    const { pushBranch } = await import('../src/integrations/github.js');
+    const { withRateLimitRetry } = await import('../src/integrations/github.js');
+    const sleeps: number[] = [];
+    let calls = 0;
+    // drive the wrapper directly for determinism
+    const result = await withRateLimitRetry(
+      async () => {
+        calls++;
+        if (calls === 1) {
+          throw new Error('gh: API rate limit exceeded for installation');
+        }
+        return 'done';
+      },
+      { sleep: async (ms) => sleeps.push(ms) },
+    );
+    expect(result).toBe('done');
+    expect(calls).toBe(2);
+    expect(sleeps).toEqual([60_000]);
+    void pushBranch;
+  });
+
+  it('passes through non-rate-limit errors immediately', async () => {
+    const { withRateLimitRetry } = await import('../src/integrations/github.js');
+    let calls = 0;
+    await expect(
+      withRateLimitRetry(
+        async () => {
+          calls++;
+          throw new Error('no remote configured');
+        },
+        { sleep: async () => {} },
+      ),
+    ).rejects.toThrow(/no remote configured/);
+    expect(calls).toBe(1);
+  });
+});
