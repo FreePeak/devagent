@@ -309,6 +309,16 @@ program
   });
 
 program
+  .command('dashboard')
+  .description('Generate a static HTML status board from run logs')
+  .action(async () => {
+    const { writeDashboard } = await import('./observe.js');
+    const home = process.env.DEVAGENT_HOME || join(process.env.HOME || '.', '.devagent');
+    const { path, runs } = writeDashboard(home);
+    console.log(`${runs} run(s) -> ${path}`);
+  });
+
+program
   .command('config')
   .description('Show effective configuration and credential presence (never values)')
   .action(() => {
