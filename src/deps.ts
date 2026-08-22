@@ -50,12 +50,26 @@ export function buildDeps(creds: Credentials, cfg: StageConfig, log: RunLogger):
     publishStage: async (_c, plan, impl) => {
       if (!impl.worktreePath || !creds.githubToken) return undefined;
       const branch = `devagent/${plan.ticket.id}`;
+      const baseBranch = (await import('./config.js')).loadConfig(impl.worktreePath).githubBaseBranch ?? 'main';
       const { pushBranch, createPr } = await import('./integrations/github.js');
       const { listChangedFiles } = await import('./git/worktree.js');
+      const { spawnCli: gitSpawn } = await import('./workers/spawn-utils.js');
+
+      // Divergence guard (Orca lesson): warn when base moved ahead of our
+      // fork point — the PR will be flagged out-of-date upstream.
+      try {
+        const mb = await gitSpawn('git', ['merge-base', 'HEAD', `origin/${baseBranch}`], { cwd: impl.worktreePath, timeoutMs: 30_000 });
+        const ob = await gitSpawn('git', ['rev-parse', `origin/${baseBranch}`], { cwd: impl.worktreePath, timeoutMs: 30_000 });
+        if (mb.exitCode === 0 && ob.exitCode === 0 && mb.stdout.trim() !== ob.stdout.trim()) {
+          log.warn('publish', `${baseBranch} has advanced since this run started; PR may be out-of-date`);
+        }
+      } catch {
+        // no remote or offline: skip the check silently
+      }
+
       // The branch exists only in the local worktree until pushed
       await pushBranch(impl.worktreePath, branch);
       let changedFiles: string[] = [];
-      const baseBranch = (await import('./config.js')).loadConfig(impl.worktreePath).githubBaseBranch ?? 'main';
       try {
         changedFiles = await listChangedFiles(impl.worktreePath, baseBranch);
       } catch {

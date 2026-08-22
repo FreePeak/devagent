@@ -485,25 +485,31 @@ Project access tokens (bot user, 365-day cap, rotation endpoint) with scopes `ap
 
 ## 17. Roadmap
 
-### Phase 0 — Foundations (week 1)
+> **Status (2026-08):** Phases 0–3 are implemented and CI-protected on `main`
+> (v0.3.0): spine, G1–G4 gates, worktree isolation, retry-with-evidence,
+> fan-out, webhook server + latest-wins registry, fleet mode, rate-limit
+> handling, JSONL logs + HTML dashboard, 127 tests green incl. E2E over real
+> git fixtures.
 
-Repo skeleton (`cmd/devagent`, `internal/{linear,planner,coder,tester,pr}` or TS equivalent), config loading, credential handling, run logger.
+### Phase 0 — Foundations ✅
 
-### Phase 1 — The spine (weeks 2–3)
+Repo skeleton, config loading, credential handling, run logger.
 
-Single worker (Claude Code), single trivial ticket type, Linear fetch, worktree + branch, Docker test loop with one retry, PR open with evidence. Exit: v1 criterion above.
+### Phase 1 — The spine ✅
 
-### Phase 2 — Differentiators (weeks 4–6)
+Worker dispatch (Claude Code), Linear fetch, worktree + branch, test loop with repair-prompt retries, PR open with evidence.
 
-Migration gates G2/G3, async review gate G4, OpenCode adapter + fan-out mode, interactive approval gates, frontend-facing API docs on PRs.
+### Phase 2 — Differentiators ✅
 
-### Phase 3 — Hardening (weeks 7–8)
+Gates G2/G3/G4, OpenCode adapter + fan-out mode, migration safety rules.
 
-Budget enforcement polish, webhook-triggered runs, run dashboard/status command, curated benchmark set of historical tickets to measure metrics.
+### Phase 3 — Hardening ✅
+
+Webhook-triggered runs with HMAC verification and dedup, run dashboard/status commands, end-to-end fixture tests, Linear + GitHub rate-limit resilience.
 
 ### Phase 4 — Expansion (post-v1)
 
-Jira adapter, GitLab publisher, second language ecosystem, GitHub Issues ingestion, merge-assist for fan-out winners.
+Jira adapter, GitLab publisher, second language ecosystem, GitHub Issues ingestion, merge-assist for fan-out winners, remote execution, deeper sandbox isolation.
 
 ## 18. Open Questions
 
