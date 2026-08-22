@@ -61,6 +61,69 @@ program
   });
 
 program
+  .command('fleet')
+  .description('Run tickets across multiple repositories with bounded concurrency')
+  .requiredOption('--ticket <ids...>', 'ticket identifiers (one or more)')
+  .requiredOption('--repo <entries...>', 'repo entries as name=path (one or more)')
+  .option('--concurrency <n>', 'max parallel runs', Number, 2)
+  .option('--worker <name>', 'claude-code | opencode | both')
+  .option('--auto-pr', 'publish PRs without approval gates', false)
+  .option('--max-loops <n>', 'test-failure retry budget', Number)
+  .action(async (opts) => {
+    const config = loadConfig(process.cwd());
+    const creds = loadCredentials();
+    if (!creds.linearApiKey) {
+      console.error('LINEAR_API_KEY is not set.');
+      process.exitCode = 1;
+      return;
+    }
+
+    const entries = [];
+    for (const raw of opts.repo as string[]) {
+      const eq = raw.indexOf('=');
+      if (eq <= 0) {
+        console.error(`Invalid --repo entry "${raw}" (expected name=path)`);
+        process.exitCode = 1;
+        return;
+      }
+      entries.push({ name: raw.slice(0, eq), path: raw.slice(eq + 1) });
+    }
+
+    const { runFleet } = await import('./fleet.js');
+    const result = await runFleet({
+      ticketIds: opts.ticket as string[],
+      entries,
+      concurrency: opts.concurrency,
+      timeoutMs: config.timeoutMinutes * 60_000,
+      worker: (opts.worker ?? config.worker) as 'claude-code' | 'opencode' | 'both',
+      autoPr: opts.autoPr ?? false,
+      maxLoops: opts.maxLoops ?? config.maxLoops,
+      runOne: async ({ repoPath, ticketId, worker, autoPr, maxLoops, timeoutMs, log }) => {
+        const cfg = {
+          ticketId,
+          repoPath,
+          worker,
+          autoPr,
+          interactive: !autoPr,
+          maxLoops,
+          timeoutMs,
+          dryRun: false,
+        };
+        const outcomes = await runPipeline(cfg, buildDeps(creds, cfg, log), log);
+        const failed = outcomes.find((o) => o.stage === 'failed') as { reason?: string } | undefined;
+        return { ok: !failed, summary: failed?.reason ?? 'completed' };
+      },
+    });
+
+    console.log('\nFleet results:');
+    for (const item of result.items) {
+      console.log(`  ${item.ok ? '✓' : '✗'} ${item.entry}/${item.ticketId}: ${item.summary}${item.logPath ? ` (log ${item.logPath})` : ''}`);
+    }
+    console.log(`${result.succeeded} succeeded, ${result.failed} failed`);
+    if (result.failed > 0) process.exitCode = 1;
+  });
+
+program
   .command('serve')
   .description('Run the webhook receiver HTTP server (FR-TICKET-04)')
   .option('--port <n>', 'listen port', Number, 8080)
