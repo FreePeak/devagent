@@ -347,6 +347,31 @@ program
   });
 
 program
+  .command('clean')
+  .description('Remove run worktrees older than the cutoff (default 7 days)')
+  .option('--repo <path>', 'target repository', process.cwd())
+  .option('--older-than <days>', 'age cutoff in days', Number, 7)
+  .action(async (opts) => {
+    const { findStaleWorktrees } = await import('./maintenance.js');
+    const { removeWorktree } = await import('./git/worktree.js');
+    const stale = findStaleWorktrees(opts.repo, (opts.olderThan as number) * 86_400_000);
+    if (stale.length === 0) {
+      console.log('No stale worktrees.');
+      return;
+    }
+    for (const wt of stale) {
+      const ticketKey = wt.path.split('/').pop()!;
+      try {
+        await removeWorktree(opts.repo, ticketKey);
+        console.log(`removed ${wt.path} (${Math.round(wt.ageMs / 86_400_000)}d old)`);
+      } catch (err) {
+        console.error(`failed to remove ${wt.path}: ${(err as Error).message}`);
+        process.exitCode = 1;
+      }
+    }
+  });
+
+program
   .command('config')
   .description('Show effective configuration and credential presence (never values)')
   .action(() => {
