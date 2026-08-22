@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { loadConfig, loadCredentials, credentialStatus } from './config.js';
 import { RunLogger } from './logger.js';
@@ -136,6 +136,8 @@ program
             import('./integrations/linear.js').then((m) => m.postTicketComment(internalId, comment, creds.linearApiKey!)),
           runGateG1: (worktreePath, timeoutMs) =>
             import('./validation/test-gate.js').then((m) => m.runTestGate(worktreePath, timeoutMs)),
+          runGateG2: (worktreePath, timeoutMs) =>
+            import('./validation/migration-apply-gate.js').then((m) => m.runMigrationApplyGate(worktreePath, timeoutMs)),
           runGateG3: (repoPath, classification) => {
             const r = runMigrationStaticGate({ repoPath, classification });
             return { passed: r.passed, findings: r.findings, detail: r.detail };
@@ -265,6 +267,38 @@ program
         console.log(`${e.ts} [${e.level}] ${e.stage}: ${e.message}`);
       } catch {
         // skip malformed lines
+      }
+    }
+  });
+
+program
+  .command('status')
+  .description('List recent runs (id, last stage, last message)')
+  .option('--limit <n>', 'number of runs', Number, 10)
+  .action((opts) => {
+    
+    const home = process.env.DEVAGENT_HOME || join(process.env.HOME || '.', '.devagent');
+    const runsDir = join(home, 'runs');
+    let files: string[] = [];
+    try {
+      files = readdirSync(runsDir).filter((f) => f.endsWith('.jsonl')).sort().slice(-(opts.limit as number));
+    } catch {
+      console.log('No runs yet.');
+      return;
+    }
+    if (files.length === 0) {
+      console.log('No runs yet.');
+      return;
+    }
+    for (const file of files) {
+      const lines = readFileSync(join(runsDir, file), 'utf8').trim().split('\n');
+      const last = lines.at(-1);
+      if (!last) continue;
+      try {
+        const e = JSON.parse(last) as { runId: string; stage: string; level: string; message: string; ts: string };
+        console.log(`${e.runId.slice(0, 8)}  ${e.ts}  [${e.stage}/${e.level}] ${e.message}`);
+      } catch {
+        continue;
       }
     }
   });

@@ -42,6 +42,8 @@ export interface PipelineDeps {
   };
   /** Real worker dispatch; injected so the pipeline stays unit-testable. */
   implementStage?(cfg: RunConfig, plan: ImplementationPlan, log: RunLogger): Promise<ImplementResult>;
+  /** G2 migration-apply gate; injected by the caller (Docker-based). */
+  runGateG2?(worktreePath: string, timeoutMs: number): Promise<{ passed: boolean; detail?: string }>;
   /** G1 test gate; injected by the caller (repo-native test run in cli.ts). */
   runGateG1?(worktreePath: string, timeoutMs: number): Promise<{ passed: boolean; detail?: string }>;
   /** PR publishing; injected by the caller (gh-based in cli.ts). */
@@ -109,6 +111,16 @@ export async function runPipeline(cfg: RunConfig, deps: PipelineDeps, log: RunLo
     outcomes.push({ stage: 'validate', passed: g1.passed });
     if (!g1.passed) {
       outcomes.push({ stage: 'failed', reason: `test gate failed: ${g1.detail ?? 'no detail'}` });
+      return outcomes;
+    }
+  }
+
+  if (deps.runGateG2 && plan.classification === 'migration-required') {
+    const g2 = await deps.runGateG2(gatePath, cfg.timeoutMs);
+    log.info('validate', `G2 ${g2.passed ? 'passed' : 'failed'}${g2.detail ? `: ${g2.detail.split(';')[0]}` : ''}`, {});
+    outcomes.push({ stage: 'validate', passed: g2.passed });
+    if (!g2.passed) {
+      outcomes.push({ stage: 'failed', reason: `migration apply gate failed: ${g2.detail ?? 'no detail'}` });
       return outcomes;
     }
   }
