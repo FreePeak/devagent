@@ -9,6 +9,7 @@ const LINEAR_GRAPHQL_ENDPOINT = 'https://api.linear.app/graphql';
 export const LINEAR_ISSUE_QUERY = `
 query Issue($id: String!) {
   issue(id: $id) {
+    id
     title
     description
     url
@@ -22,6 +23,7 @@ query Issue($id: String!) {
 `.trim();
 
 interface RawIssue {
+  id?: unknown;
   title?: unknown;
   description?: unknown;
   url?: unknown;
@@ -108,7 +110,44 @@ export function parseLinearIssue(data: unknown): TicketSpec {
     labels,
     acceptanceCriteria: extractAcceptanceCriteria(description),
     url: typeof issue.url === 'string' ? issue.url : undefined,
+    trackerInternalId: typeof issue.id === 'string' ? issue.id : undefined,
   };
+}
+
+const LINEAR_COMMENT_MUTATION = `
+mutation Comment($input: CommentCreateInput!) {
+  commentCreate(input: $input) {
+    success
+  }
+}
+`.trim();
+
+/** Post a progress/clarification comment to a Linear issue (FR-TICKET-03). */
+export async function postTicketComment(
+  issueId: string,
+  body: string,
+  apiKey: string,
+): Promise<void> {
+  const res = await fetch(LINEAR_GRAPHQL_ENDPOINT, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: apiKey,
+    },
+    body: JSON.stringify({
+      query: LINEAR_COMMENT_MUTATION,
+      variables: { input: { issueId, body } },
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Linear comment failed: HTTP ${res.status}`);
+  }
+
+  const gql = (await res.json()) as { errors?: Array<{ message?: string }> } | null;
+  if (gql?.errors?.length) {
+    throw new Error(`Linear comment GraphQL error: ${gql.errors[0]?.message ?? 'unknown'}`);
+  }
 }
 
 /**

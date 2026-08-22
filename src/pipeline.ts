@@ -1,29 +1,47 @@
 import type { RunConfig, TicketSpec, WorkerName } from './types.js';
 import type { RunLogger } from './logger.js';
+import type { ImplementationPlan } from './planner.js';
 import { checkSpec, planFromTicket } from './planner.js';
 
 /**
- * Pipeline state machine skeleton (PRD section 10).
- * Loop 1 wires: fetch -> plan -> spec-check. Implement/validate/publish stages
- * call into worker adapters and gates; sandbox-dependent stages (G1/G2) are stubbed.
+ * Pipeline state machine (PRD section 10).
+ * fetch -> plan -> spec-check -> implement -> validate(G3) -> publish.
+ * Sandbox-dependent gates (G1/G2) are injected by the caller when available.
  */
 
 export type StageOutcome =
   | { stage: 'clarify'; question: string }
   | { stage: 'plan'; summary: string; tasks: string[] }
-  | { stage: 'implement'; worker: WorkerName; note: string }
+  | {
+      stage: 'implement';
+      worker: WorkerName;
+      worktreePath?: string;
+      branch?: string;
+      attempts: number;
+      ok: boolean;
+    }
   | { stage: 'validate'; passed: boolean }
   | { stage: 'publish'; prUrl?: string; note: string }
   | { stage: 'failed'; reason: string };
 
+export interface ImplementResult {
+  ok: boolean;
+  worker: WorkerName;
+  worktreePath?: string;
+  branch?: string;
+  attempts: number;
+}
+
 export interface PipelineDeps {
   fetchTicket(ticketId: string): Promise<TicketSpec>;
-  postTicketComment?(ticketId: string, comment: string): Promise<void>;
+  postTicketComment?(trackerInternalId: string, comment: string): Promise<void>;
   runGateG3(repoPath: string, classification: import('./types.js').TicketClass): {
     passed: boolean;
     findings: unknown[];
     detail?: string;
   };
+  /** Real worker dispatch; injected so the pipeline stays unit-testable. */
+  implementStage?(cfg: RunConfig, plan: ImplementationPlan, log: RunLogger): Promise<ImplementResult>;
 }
 
 export async function runPipeline(cfg: RunConfig, deps: PipelineDeps, log: RunLogger): Promise<StageOutcome[]> {
@@ -43,7 +61,13 @@ export async function runPipeline(cfg: RunConfig, deps: PipelineDeps, log: RunLo
   if (!spec.sufficient && spec.question) {
     log.warn('clarify', 'Insufficient specification', {});
     outcomes.push({ stage: 'clarify', question: spec.question });
-    await deps.postTicketComment?.(cfg.ticketId, spec.question);
+    if (ticket.trackerInternalId && deps.postTicketComment) {
+      try {
+        await deps.postTicketComment(ticket.trackerInternalId, spec.question);
+      } catch (err) {
+        log.warn('clarify', `Failed to post clarification comment: ${(err as Error).message}`);
+      }
+    }
     return outcomes;
   }
   outcomes.push({ stage: 'plan', summary: plan.classification, tasks: plan.tasks });
@@ -53,11 +77,28 @@ export async function runPipeline(cfg: RunConfig, deps: PipelineDeps, log: RunLo
     return outcomes;
   }
 
-  // Stage: implement — delegated to worker adapters (wired in cli.ts)
-  outcomes.push({ stage: 'implement', worker: cfg.worker === 'both' ? 'claude-code' : cfg.worker, note: 'worker dispatch' });
+  // Stage: implement
+  if (!deps.implementStage) {
+    outcomes.push({ stage: 'failed', reason: 'no worker dispatch configured' });
+    return outcomes;
+  }
+  const impl = await deps.implementStage(cfg, plan, log);
+  outcomes.push({
+    stage: 'implement',
+    worker: impl.worker,
+    worktreePath: impl.worktreePath,
+    branch: impl.branch,
+    attempts: impl.attempts,
+    ok: impl.ok,
+  });
+  if (!impl.ok) {
+    outcomes.push({ stage: 'failed', reason: 'worker failed to produce a diff within retry budget' });
+    return outcomes;
+  }
 
   // Stage: validate — G3 runs without a sandbox
-  const g3 = deps.runGateG3(cfg.repoPath, plan.classification);
+  const gatePath = impl.worktreePath ?? cfg.repoPath;
+  const g3 = deps.runGateG3(gatePath, plan.classification);
   log.info('validate', `G3 ${g3.passed ? 'passed' : 'failed'}: ${g3.detail ?? ''}`, {});
   outcomes.push({ stage: 'validate', passed: g3.passed });
   if (!g3.passed) {

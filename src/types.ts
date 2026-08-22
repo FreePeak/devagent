@@ -14,6 +14,8 @@ export interface TicketSpec {
   acceptanceCriteria: string[];
   /** Raw tracker URL for linking back */
   url?: string;
+  /** Tracker-internal object id (e.g. Linear UUID) required for mutations like comments */
+  trackerInternalId?: string;
 }
 
 export type TicketClass = 'endpoint-only' | 'migration-required' | 'consumer-only';

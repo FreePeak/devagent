@@ -3,8 +3,39 @@ import { Command } from 'commander';
 import { loadConfig, loadCredentials, credentialStatus } from './config.js';
 import { RunLogger } from './logger.js';
 import { fetchTicket } from './integrations/linear.js';
-import { runPipeline } from './pipeline.js';
+import { runPipeline, type ImplementResult } from './pipeline.js';
 import { runMigrationStaticGate } from './validation/runner.js';
+import type { ImplementationPlan } from './planner.js';
+import { buildImplementationPrompt } from './prompt.js';
+import { getWorker } from './workers/index.js';
+import type { WorkerName } from './types.js';
+
+/** Dispatch a worker inside an isolated worktree with the retry loop (FR-IMPL-01..04). */
+async function implementStage(
+  cfg: { repoPath: string; maxLoops: number; timeoutMs: number; worker: WorkerName | 'both' },
+  plan: ImplementationPlan,
+  log: RunLogger,
+): Promise<ImplementResult> {
+  const workerName: WorkerName = cfg.worker === 'both' ? 'claude-code' : cfg.worker;
+  const worker = getWorker(workerName);
+  const prompt = buildImplementationPrompt(plan);
+  const maxAttempts = Math.max(1, cfg.maxLoops);
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    log.info('implement', `Worker ${workerName} attempt ${attempt}/${maxAttempts}`, {});
+    const result = await worker.spawn({ prompt, cwd: cfg.repoPath, timeoutMs: cfg.timeoutMs });
+    log.info('implement', `Attempt ${attempt} finished`, {
+      exitCode: result.exitCode,
+      timedOut: result.timedOut,
+      durationMs: result.durationMs,
+      events: result.events.length,
+    });
+    if (!result.timedOut && result.exitCode === 0) {
+      return { ok: true, worker: workerName, attempts: attempt };
+    }
+  }
+  return { ok: false, worker: workerName, attempts: maxAttempts };
+}
 
 const program = new Command();
 
@@ -53,11 +84,14 @@ program
         cfg,
         {
           fetchTicket: (id) => fetchTicket(id, creds.linearApiKey!),
-          postTicketComment: async () => {}, // wired in loop 2
+          postTicketComment: (internalId, comment) =>
+            import('./integrations/linear.js').then((m) => m.postTicketComment(internalId, comment, creds.linearApiKey!)),
           runGateG3: (repoPath, classification) => {
             const r = runMigrationStaticGate({ repoPath, classification });
             return { passed: r.passed, findings: r.findings, detail: r.detail };
           },
+          implementStage: (c, plan, lg) =>
+            implementStage({ repoPath: c.repoPath, maxLoops: c.maxLoops, timeoutMs: c.timeoutMs, worker: c.worker }, plan, lg),
         },
         logger,
       );
@@ -70,6 +104,9 @@ program
             break;
           case 'clarify':
             console.log(`Needs clarification: ${o.question}`);
+            break;
+          case 'implement':
+            console.log(`Implement (${o.worker}): ${o.ok ? 'ok' : 'failed'} after ${o.attempts} attempt(s)`);
             break;
           case 'validate':
             console.log(`Validation: ${o.passed ? 'PASSED' : 'FAILED'}`);
