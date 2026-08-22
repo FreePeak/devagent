@@ -59,11 +59,35 @@ export function buildDeps(creds: Credentials, cfg: StageConfig, log: RunLogger):
       return { passed: r.passed, findings: r.findings, detail: r.detail };
     },
     implementStage: (c, plan, lg) => implementStage(cfg, plan as ImplementationPlan, lg),
-    publishStage: async (_c, plan, impl) => {
-      if (!impl.worktreePath || !creds.githubToken) return undefined;
+    publishStage: async (_c, planRaw, impl) => {
+      const plan = planRaw as ImplementationPlan;
+      if (!impl.worktreePath) return undefined;
       const branch = `devagent/${plan.ticket.id}`;
+      const { pushBranch } = await import('./integrations/github.js');
       const baseBranch = (await import('./config.js')).loadConfig(impl.worktreePath).githubBaseBranch ?? 'main';
-      const { pushBranch, createPr } = await import('./integrations/github.js');
+
+      // GitLab path: GITLAB_* env wins when no GitHub credentials present
+      const gitlabToken = process.env.GITLAB_TOKEN;
+      const gitlabProject = process.env.GITLAB_PROJECT_ID;
+      if (gitlabToken && gitlabProject && !creds.githubToken) {
+        await pushBranch(impl.worktreePath, branch);
+        const { createMergeRequest } = await import('./integrations/gitlab.js');
+        return createMergeRequest(
+          {
+            baseUrl: process.env.GITLAB_BASE_URL || 'https://gitlab.com',
+            projectId: gitlabProject,
+            token: gitlabToken,
+          },
+          {
+            sourceBranch: branch,
+            targetBranch: baseBranch,
+            title: `[${plan.ticket.id}] ${plan.ticket.title}`,
+            description: buildPrBody(plan, []),
+          },
+        );
+      }
+      if (!creds.githubToken) return undefined;
+      const { createPr } = await import('./integrations/github.js');
       const { listChangedFiles } = await import('./git/worktree.js');
       const { spawnCli: gitSpawn } = await import('./workers/spawn-utils.js');
 
