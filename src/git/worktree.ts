@@ -99,6 +99,40 @@ export async function removeWorktree(
   }
 }
 
+/**
+ * Stage every change (`git add -A`) and commit with --no-verify.
+ * Returns true when a commit was created, false when the tree was clean
+ * (nothing-to-commit is tolerated, not an error).
+ */
+export async function commitAllChanges(worktreePath: string, message: string): Promise<boolean> {
+  await run('git', ['add', '-A'], worktreePath);
+  try {
+    await run('git', ['commit', '--no-verify', '-m', message], worktreePath);
+    return true;
+  } catch (err) {
+    const e = err as { stdout?: string; stderr?: string };
+    if (/nothing to commit/i.test(`${e.stdout ?? ''}${e.stderr ?? ''}`)) return false;
+    throw err;
+  }
+}
+
+/** Rename the currently checked-out branch inside a worktree. */
+export async function renameCurrentBranch(worktreePath: string, newBranch: string): Promise<void> {
+  await run('git', ['branch', '-m', newBranch], worktreePath);
+}
+
+/**
+ * Hard-delete a branch from the repo. Best-effort: any failure
+ * (unknown branch, checked out elsewhere) is swallowed.
+ */
+export async function deleteBranch(repoPath: string, branch: string): Promise<void> {
+  try {
+    await run('git', ['branch', '-D', branch], repoPath);
+  } catch {
+    // best-effort cleanup
+  }
+}
+
 /** Files changed on this branch vs its merge-base with the default branch. */
 export async function listChangedFiles(repoPath: string, baseBranch: string): Promise<string[]> {
   const mergeBase = await run('git', ['merge-base', baseBranch, 'HEAD'], repoPath);

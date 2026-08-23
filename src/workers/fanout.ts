@@ -14,6 +14,7 @@ import { createWorktree } from '../git/worktree.js';
 export interface FanoutLeg {
   worker: WorkerName;
   worktreePath?: string;
+  branch?: string;
   ok: boolean;
   testsPassed: boolean | null;
   durationMs: number;
@@ -23,6 +24,12 @@ export interface FanoutOptions {
   repoPath: string;
   timeoutMs: number;
   scoreLeg?(worktreePath: string, timeoutMs: number): Promise<boolean | null>;
+  /**
+   * Merge-assist hook (PRD section 17 Phase 4): invoked once after winner
+   * selection with every usable leg plus the winner, before runFanout
+   * returns. Awaited, so publishStage sees the settled git state.
+   */
+  onSelected?(legs: FanoutLeg[], winner: FanoutLeg): Promise<void>;
 }
 
 /** Returns the winning leg, or null if no leg produced a usable result. */
@@ -38,10 +45,12 @@ export async function runFanout(
       const worker = getWorker(workerName);
       let cwd = opts.repoPath;
       let worktreePath: string | undefined;
+      let branch: string | undefined;
       try {
         const wt = await createWorktree(opts.repoPath, `${plan.ticket.id}-${workerSuffix(workerName, i)}`);
         cwd = wt.worktreePath;
         worktreePath = wt.worktreePath;
+        branch = wt.branch;
       } catch (err) {
         log.warn('implement', `Fanout ${workerName}: worktree failed (${(err as Error).message})`);
       }
@@ -54,7 +63,7 @@ export async function runFanout(
         durationMs: result.durationMs,
       });
       const testsPassed = ok && worktreePath && opts.scoreLeg ? await opts.scoreLeg(worktreePath, opts.timeoutMs) : null;
-      return { worker: workerName, worktreePath, ok, testsPassed, durationMs: Date.now() - started };
+      return { worker: workerName, worktreePath, branch, ok, testsPassed, durationMs: Date.now() - started };
     }),
   );
 
@@ -64,7 +73,9 @@ export async function runFanout(
   const rank = (l: FanoutLeg): number =>
     (l.testsPassed === true ? 2 : l.testsPassed === null ? 1 : 0) * 10 + (l.worker === 'claude-code' ? 1 : 0);
 
-  return usable.reduce((best, leg) => (rank(leg) > rank(best) ? leg : best));
+  const winner = usable.reduce((best, leg) => (rank(leg) > rank(best) ? leg : best));
+  if (opts.onSelected) await opts.onSelected(usable, winner);
+  return winner;
 }
 
 function workerSuffix(name: WorkerName, index: number): string {
