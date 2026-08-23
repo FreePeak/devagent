@@ -25,6 +25,7 @@ devagent run --ticket JIRA-8821 --interactive
 |---|---|---|
 | [Product Requirements Document](docs/PRD.md) | Markdown | Full PRD: problem, personas, requirements (FR/NFR), architecture, pipeline, validation gates, CLI spec, integrations, metrics, risks, roadmap |
 | [Product Requirements Document](docs/PRD.html) | HTML | Same document, styled single-file HTML for sharing |
+| [cc-guard: auto-resume for headless sessions](docs/cc-guard.md) | Markdown | Supervisor that restarts Claude Code sessions killed by API failures ("Connection lost mid-response") via `devagent guard` |
 
 Research sources backing the PRD are cited inline and collected in the [research appendix](docs/PRD.md#19-research-appendix).
 
