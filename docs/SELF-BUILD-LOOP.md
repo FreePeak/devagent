@@ -20,6 +20,7 @@ All loop state lives in `.selfbuild/` (gitignored):
 | `.selfbuild/research/loop-N.md` | Phase 1 output for iteration N |
 | `.selfbuild/goals/loop-N.md` | Phase 2-3 output: validated goal statement |
 | `.selfbuild/logs/loop-N.log` | Full phase log |
+| `.selfbuild/lessons.md` | Ratchet-only lessons file: research appends durable lessons (dated), never deletes or edits existing ones |
 
 The next loop number is `ledger lines + 1`. Crash recovery is implicit: an unfinished
 iteration simply reruns under its own number.
@@ -61,6 +62,23 @@ Environment knobs (all optional):
 | `SELFBUILD_WORKER` | `claude-code` | Worker CLI passed to `devagent task` |
 | `SELFBUILD_PUSH_MODE` | `pr` | `pr` (branch + PR via auto-pr) or `main` (direct commit) |
 | `SELFBUILD_CLAUDE` | `claude -p` | Headless researcher invocation |
+| `SELFBUILD_STARVATION_LIMIT` | `5` | Halt when the last N ledger entries are all non-`ok` (cross-run thrash guard) |
+| `SELFBUILD_DRY_RUN` | `0` | `1` executes all phases without side effects (stub outputs, no claude/task/push) |
+
+## Guardrails (Kitchen Loop lineage)
+
+Research phase 1 of this loop's first iteration (arXiv 2603.25697 "Kitchen Loop",
+Ouroboros) surfaced four patterns now encoded here:
+
+1. **Circuit breaker** — abort after `SELFBUILD_MAX_CONSECUTIVE_FAILURES` failed
+   iterations within one run (regression-failure gate, default threshold 3).
+2. **Starvation gate** — halt when the ledger shows N consecutive non-productive
+   iterations across ALL runs; catches slow thrash that the per-run breaker misses.
+3. **Lessons ratchet** — durable findings are appended to `lessons.md`, monotonic and
+   version-controlled by convention; later iterations consume them instead of
+   re-deriving (spec-anchored improvement, not metric-chasing).
+4. **Failure feedback** — each iteration's research prompt includes the prior ledger
+   tail so defects compound into fixes rather than repeats.
 
 ## Orca integration
 
@@ -87,7 +105,7 @@ Manage with `orca automations list|show|runs|remove`.
 (`orca terminal create`); the script loops internally. Pair with cc-guard
 (`devagent guard-status --resume`) for API-failure recovery.
 
-## Guardrails
+## Guardrails (operational)
 
 - Circuit breaker stops the loop after repeated failures instead of thrashing.
 - Every iteration starts from an up-to-date main (`git pull --ff-only`; skipped cleanly
