@@ -20,11 +20,12 @@ const AUDITOR_SYSTEM_PROMPT = `You are an independent software auditor. You veri
 For each acceptance criterion, collect concrete evidence from the environment (command output snippets, file excerpts, test results) and judge ONLY that evidence — do not trust the executor's claims.
 
 Respond with ONLY a JSON object (no prose, no markdown fences):
-{"verdict":"pass|fail","integrity":"clean|suspect|violation","criteriaResults":[{"criterion":"...","met":true,"evidence":"command + output excerpt proving it"}],"summary":"one paragraph on what you inspected and how"}
+{"verdict":"pass|fail|ask","integrity":"clean|suspect|violation","criteriaResults":[{"criterion":"...","met":true,"evidence":"command + output excerpt proving it"}],"summary":"one paragraph on what you inspected and how"}
 Rules:
 - verdict is "pass" only if EVERY criterion is met with real evidence.
+- verdict is "ask" when completion cannot be judged without a human decision (missing credentials, ambiguous requirement needing the task owner, action you are not authorized to take). Put the precise question in "summary".
 - integrity is "clean" unless you observed signs the workspace was mutated improperly during your inspection (set "violation" if you did, and explain in summary).
-- criteriaResults must contain one entry per acceptance criterion.`;
+- criteriaResults must contain one entry per acceptance criterion (may be empty for "ask").`;
 
 export interface AuditorInput {
   goal: string;
@@ -71,21 +72,23 @@ export function parseAuditReport(text: string): AuditVerdict | null {
     return null;
   }
   const o = raw as Record<string, unknown>;
-  if (o.verdict !== 'pass' && o.verdict !== 'fail') return null;
+  if (o.verdict !== 'pass' && o.verdict !== 'fail' && o.verdict !== 'ask') return null;
   if (o.integrity !== 'clean' && o.integrity !== 'suspect' && o.integrity !== 'violation') return null;
-  if (!Array.isArray(o.criteriaResults) || o.criteriaResults.length === 0) return null;
+  // ask verdicts may skip criteria; pass/fail must carry at least one
+  if (!Array.isArray(o.criteriaResults)) return null;
+  if (o.verdict !== 'ask' && o.criteriaResults.length === 0) return null;
   const criteriaResults = [];
   for (const r of o.criteriaResults) {
     const c = r as Record<string, unknown>;
     if (typeof c.criterion !== 'string' || typeof c.met !== 'boolean' || typeof c.evidence !== 'string') return null;
     criteriaResults.push({ criterion: c.criterion, met: c.met, evidence: c.evidence });
   }
-  if (typeof o.summary !== 'string') return null;
+  if (typeof o.summary !== 'string' || !o.summary.trim()) return null;
   // LH-Harness rule: pass requires every criterion met AND clean integrity.
   // A self-contradictory "pass" with unmet criteria coerces to fail.
   const allMet = criteriaResults.every((c) => c.met);
   return {
-    verdict: o.verdict === 'pass' && allMet ? 'pass' : 'fail',
+    verdict: o.verdict === 'pass' ? (allMet ? 'pass' : 'fail') : o.verdict,
     integrity: o.integrity,
     criteriaResults,
     summary: o.summary,

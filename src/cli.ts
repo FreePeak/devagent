@@ -443,6 +443,15 @@ program
   .option('--executor <name>', 'executor worker (default from config)')
   .option('--auditor <name>', 'independent auditor worker; pass --no-audit to trust executor gates only')
   .option('--no-audit', 'disable the independent audit gate')
+  .option(
+    '--answer <id=text>',
+    'resolve a task paused for human input (repeatable, use with --resume)',
+    (v: string, acc: string[]) => {
+      acc.push(v);
+      return acc;
+    },
+    [] as string[],
+  )
   .option('--concurrency <n>', 'parallel executor slots', Number, 2)
   .option('--max-task-retries <n>', 'scheduler retry budget per task', Number, 1)
   .option('--resume', 'continue an existing board instead of re-planning', false)
@@ -478,6 +487,24 @@ program
         for (const t of tasks) {
           console.log(`  ${t.id}: ${t.title}${t.dependsOn.length ? ` (after ${t.dependsOn.join(',')})` : ''}`);
         }
+      }
+
+      // Human-in-the-loop: resolve tasks the auditor paused with verdict 'ask'
+      for (const a of (opts.answer ?? []) as string[]) {
+        const eq = a.indexOf('=');
+        const id = eq > 0 ? a.slice(0, eq).trim() : '';
+        const text = eq > 0 ? a.slice(eq + 1).trim() : '';
+        const t = id ? board.tasks.find((x) => x.id === id) : undefined;
+        if (!t || t.status !== 'ask' || !text) {
+          console.error(`--answer ${a}: no task '${id || '?'}' paused for input (or empty answer); ignored`);
+          continue;
+        }
+        // The answer becomes part of the contract; audit state resets so the
+        // next attempt is re-verified against it.
+        t.prompt += `\n\nHuman answer to "${t.failureDetail ?? 'prior question'}": ${text}`;
+        t.evidenceGaps = undefined;
+        t.status = 'pending';
+        console.log(`Answered ${id}; task back in queue.`);
       }
 
       const result = await runScheduler(

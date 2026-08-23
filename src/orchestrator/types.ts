@@ -36,7 +36,8 @@ export interface CriterionResult {
  * report can never support a completed record).
  */
 export interface AuditVerdict {
-  verdict: 'pass' | 'fail';
+  /** 'ask': completion cannot be judged without human input/authorization */
+  verdict: 'pass' | 'fail' | 'ask';
   integrity: 'clean' | 'suspect' | 'violation';
   criteriaResults: CriterionResult[];
   /** Auditor's one-paragraph account of what it actually checked */

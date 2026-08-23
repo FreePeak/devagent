@@ -57,6 +57,14 @@ describe('parseAuditReport', () => {
     )!;
     expect(r.verdict).toBe('fail');
   });
+
+  it('accepts ask verdicts with empty criteria but requires the question', () => {
+    const r = parseAuditReport(
+      '{"verdict":"ask","integrity":"clean","criteriaResults":[],"summary":"which DB credentials should the migration use?"}',
+    )!;
+    expect(r.verdict).toBe('ask');
+    expect(parseAuditReport('{"verdict":"ask","integrity":"clean","criteriaResults":[],"summary":"  "}')).toBeNull();
+  });
 });
 
 describe('buildAuditPrompt', () => {
@@ -165,6 +173,38 @@ describe('audit-gated scheduler transitions', () => {
     );
     expect(b.tasks[0]!.status).toBe('failed');
     expect(b.tasks[0]!.failureDetail).toContain('integrity violation');
+  });
+
+  it('pauses a task as ask (no retry burn) when the auditor needs human input', async () => {
+    const b = board([
+      task({ id: 'T1' }),
+      task({ id: 'T2', dependsOn: ['T1'] }),
+    ]);
+    let audits = 0;
+    await runScheduler(
+      b,
+      { repoPath: '.', executor: 'claude-code', concurrency: 1, maxTaskRetries: 3, timeoutMs: 1000 },
+      {
+        executeTask: async () => ({ ok: true }),
+        auditTask: async () => {
+          audits += 1;
+          return {
+            verdict: 'ask',
+            integrity: 'clean',
+            criteriaResults: [],
+            summary: 'need to know which env var holds the API key',
+          };
+        },
+      },
+      log,
+    );
+    expect(audits).toBe(1); // ask is not retried
+    const t1 = b.tasks[0]!;
+    expect(t1.status).toBe('ask');
+    expect(t1.failureDetail).toContain('needs human input');
+    expect(t1.attempts).toBeLessThanOrEqual(1);
+    // dependent is blocked while upstream waits for the human
+    expect(recomputeReadiness(b.tasks).find((t) => t.id === 'T2')!.status).toBe('blocked');
   });
 
   it('legacy mode without auditTask still completes directly', async () => {

@@ -91,6 +91,13 @@ export async function runScheduler(
               task.status = 'done';
               task.failureDetail = undefined;
               log.info('task', `${task.id} done (audited)`, { criteria: v.criteriaResults.length });
+            } else if (v && v.verdict === 'ask') {
+              // Not a failure and not retryable: the branch waits for a human
+              // answer via `orchestrate --resume --answer <id>=<text>`
+              task.audit = v;
+              task.status = 'ask';
+              task.failureDetail = `needs human input: ${v.summary.slice(0, 200)}`;
+              log.warn('task', `${task.id} paused for human input`, { question: v.summary.slice(0, 200) });
             } else {
               // Externalize the failure into state so the retry targets the
               // gap instead of redoing blind work (LH recovery lesson)
