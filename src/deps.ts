@@ -141,7 +141,7 @@ export function buildDeps(creds: Credentials, cfg: StageConfig, log: RunLogger):
 }
 
 /** Dispatch a worker inside an isolated worktree with the retry loop (FR-IMPL-01..04). */
-async function implementStage(
+export async function implementStage(
   cfg: StageConfig & Pick<RunConfig, 'worker' | 'maxLoops'>,
   plan: ImplementationPlan,
   log: RunLogger,

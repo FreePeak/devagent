@@ -133,7 +133,11 @@ async function main(): Promise<void> {
 
     // implementStage/publishStage come from the shared factory like cli.ts does
     const { buildDeps } = await import('../src/deps.js');
-    const creds = { linearApiKey: 'unused-offline' };
+    const creds = {
+      linearApiKey: 'unused-offline',
+      // pass through so publishStage can push + open a real PR via gh
+      githubToken: process.env.GITHUB_TOKEN,
+    };
     const fullDeps = { ...buildDeps(creds, cfg, log), ...deps, fetchTicket: deps.fetchTicket };
 
     const outcomes = await runPipeline(cfg, fullDeps, log);

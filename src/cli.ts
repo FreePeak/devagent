@@ -362,6 +362,78 @@ program
   });
 
 program
+  .command('task')
+  .description('Run one prompt-driven task headlessly (orchestrator integration mode)')
+  .requiredOption('--prompt <text>', 'task description (first line becomes the title)')
+  .option('--repo <path>', 'target repository', process.cwd())
+  .option('--worker <name>', 'claude-code | opencode | both')
+  .option('--auto-pr', 'push branch and open PR when green', false)
+  .option('--max-loops <n>', 'test-failure retry budget', Number)
+  .action(async (opts) => {
+    const config = loadConfig(opts.repo);
+    const creds = loadCredentials();
+    const logger = new RunLogger();
+
+    const cfg = {
+      prompt: opts.prompt as string,
+      repoPath: opts.repo,
+      autoPr: opts.autoPr ?? false,
+      maxLoops: opts.maxLoops ?? config.maxLoops,
+      timeoutMs: config.timeoutMinutes * 60_000,
+      log: logger,
+    };
+    logger.info('task', `Task run ${logger.runId} starting`, { repo: cfg.repoPath, autoPr: cfg.autoPr });
+
+    try {
+      const taskMod = await import('./task.js');
+      const { runTask } = taskMod;
+      type TaskDeps = import('./task.js').TaskDeps;
+      const { implementStage } = await import('./deps.js');
+      const { runMigrationStaticGate } = await import('./validation/runner.js');
+
+      const workerName = ((opts.worker ?? config.worker) as 'claude-code' | 'opencode' | 'both');
+      const deps: TaskDeps = {
+        runPipelineDeps: {
+          fetchTicket: async () => ({ id: 'TASK', title: '', description: '', labels: [], acceptanceCriteria: [] }),
+          runGateG3: (rp, classification) => {
+            const r = runMigrationStaticGate({ repoPath: rp, classification });
+            return { passed: r.passed, findings: r.findings, detail: r.detail };
+          },
+        },
+        implementStage: async (c, ticket, lg) => {
+          const plan = { ticket, classification: 'endpoint-only' as const, tasks: [], summary: ticket.title };
+          return implementStage(
+            { repoPath: c.repoPath, maxLoops: c.maxLoops, timeoutMs: c.timeoutMs, worker: workerName, autoPr: c.autoPr },
+            plan,
+            lg,
+          );
+        },
+        publishStage: async (c, _ticket, impl) => {
+          if (!impl.worktreePath || !creds.githubToken) return undefined;
+          const branch = `devagent/task-${logger.runId.slice(0, 8)}`;
+          const { pushBranch, createPr } = await import('./integrations/github.js');
+          await pushBranch(impl.worktreePath, branch);
+          void loadConfig(c.repoPath).githubBaseBranch; // base defaults via gh when omitted
+          return createPr({
+            repoPath: c.repoPath,
+            branch,
+            title: cfg.prompt.split('\n')[0]!.slice(0, 80),
+            body: `Automated task via \`devagent task\`.\n\n## Prompt\n${cfg.prompt}`,
+          });
+        },
+      };
+
+      const result = await runTask(cfg, deps);
+      console.log(result.note);
+      if (!result.ok) process.exitCode = 1;
+      console.log(`Run log: ${logger.path}`);
+    } catch (err) {
+      console.error((err as Error).message);
+      process.exitCode = 1;
+    }
+  });
+
+program
   .command('clean')
   .description('Remove run worktrees older than the cutoff (default 7 days)')
   .option('--repo <path>', 'target repository', process.cwd())
