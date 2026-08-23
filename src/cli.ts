@@ -551,11 +551,31 @@ program
     for (const t of board.tasks) counts.set(t.status, (counts.get(t.status) ?? 0) + 1);
     const bar = Object.fromEntries([...counts].map(([k, v]) => [k, v]));
     console.log(`Goal: ${board.goal}`);
-    console.log(`Roles: planner=${board.roles.planner} executor=${board.roles.executor}`);
+    const roleLine = `Roles: planner=${board.roles.planner} executor=${board.roles.executor}`;
+    console.log(board.roles.auditor ? `${roleLine} auditor=${board.roles.auditor}` : roleLine);
     console.log(`Tasks: ${board.tasks.length} (${Object.entries(bar).map(([k, v]) => `${k}:${v}`).join(' ')})`);
     for (const t of board.tasks) {
-      const mark = t.status === 'done' ? '✓' : t.status === 'failed' ? '✗' : t.status === 'dispatched' ? '▶' : t.status === 'blocked' ? '⛔' : '·';
-      console.log(` ${mark} [${t.status}] ${t.id}: ${t.title}${t.failureDetail ? ` — ${t.failureDetail.slice(0, 80)}` : ''}`);
+      const mark =
+        t.status === 'done'
+          ? '✓'
+          : t.status === 'failed'
+            ? '✗'
+            : t.status === 'dispatched'
+              ? '▶'
+              : t.status === 'blocked'
+                ? '⛔'
+                : t.status === 'untrusted'
+                  ? '~'
+                  : t.status === 'ask'
+                    ? '?'
+                    : '·';
+      const auditNote = t.audit
+        ? ` [audit ${t.audit.verdict}/${t.audit.integrity}${t.audit.criteriaResults.some((c) => !c.met) ? `, unmet: ${t.audit.criteriaResults.filter((c) => !c.met).length}` : ''}]`
+        : '';
+      const gapNote = t.evidenceGaps?.length ? ` — gaps: ${t.evidenceGaps[0]!.slice(0, 80)}` : '';
+      console.log(
+        ` ${mark} [${t.status}] ${t.id}: ${t.title}${auditNote}${gapNote}${!gapNote && t.failureDetail ? ` — ${t.failureDetail.slice(0, 80)}` : ''}`,
+      );
     }
     console.log(`Updated: ${board.updatedAt}`);
     const allDone = board.tasks.length > 0 && board.tasks.every((t) => t.status === 'done');

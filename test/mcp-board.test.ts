@@ -93,6 +93,63 @@ describe('devagent_board MCP tool', () => {
     expect(board.tasks.map((t) => t.id)).toEqual(['T1', 'T2', 'T3']);
   });
 
+  it('surfaces audit verdicts and evidence gaps for audited tasks', async () => {
+    const repo = tempRepo();
+    writeFileSync(
+      join(repo, '.devagent-project.json'),
+      JSON.stringify({
+        goal: 'audited work',
+        createdAt: '2026-08-24T00:00:00Z',
+        updatedAt: '2026-08-24T01:00:00Z',
+        roles: { planner: 'claude-code', executor: 'claude-code', auditor: 'opencode' },
+        tasks: [
+          {
+            id: 'T1',
+            title: 'schema',
+            prompt: 'p',
+            dependsOn: [],
+            status: 'done',
+            attempts: 1,
+            audit: {
+              verdict: 'pass',
+              integrity: 'clean',
+              criteriaResults: [
+                { criterion: 'table exists', met: true, evidence: 'psql \\dt shows it' },
+                { criterion: 'index exists', met: true, evidence: '\\di shows idx' },
+              ],
+              summary: 'verified via psql',
+            },
+          },
+          {
+            id: 'T2',
+            title: 'retry me',
+            prompt: 'p',
+            dependsOn: [],
+            status: 'pending',
+            attempts: 1,
+            evidenceGaps: ['unmet: b holds — grep found nothing'],
+          },
+        ],
+      }),
+    );
+    const { input, output } = start();
+    const res = await rpc(input, output, {
+      jsonrpc: '2.0',
+      id: 5,
+      method: 'tools/call',
+      params: { name: 'devagent_board', arguments: { repoPath: repo } },
+    });
+    const board = JSON.parse((res.result as { content: Array<{ text: string }> }).content[0].text) as {
+      roles: { auditor?: string };
+      tasks: Array<{ id: string; audit?: { verdict: string; integrity: string; unmetCriteria: string[] }; evidenceGaps?: string[] }>;
+    };
+    expect(board.roles.auditor).toBe('opencode');
+    expect(board.tasks[0]!.audit).toEqual({ verdict: 'pass', integrity: 'clean', unmetCriteria: [] });
+    expect(board.tasks[0]!.evidenceGaps).toBeUndefined();
+    expect(board.tasks[1]!.audit).toBeUndefined();
+    expect(board.tasks[1]!.evidenceGaps![0]).toContain('unmet: b holds');
+  });
+
   it('reports tool error for a nonexistent repo path', async () => {
     const { input, output } = start();
     const res = await rpc(input, output, {

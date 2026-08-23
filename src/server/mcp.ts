@@ -136,6 +136,16 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<st
           status: t.status,
           dependsOn: t.dependsOn,
           attempts: t.attempts,
+          ...(t.audit
+            ? {
+                audit: {
+                  verdict: t.audit.verdict,
+                  integrity: t.audit.integrity,
+                  unmetCriteria: t.audit.criteriaResults.filter((c) => !c.met).map((c) => c.criterion),
+                },
+              }
+            : {}),
+          ...(t.evidenceGaps?.length ? { evidenceGaps: t.evidenceGaps } : {}),
           ...(t.failureDetail ? { failureDetail: t.failureDetail } : {}),
         })),
       });
