@@ -444,7 +444,9 @@ program
   .option('--concurrency <n>', 'parallel executor slots', Number, 2)
   .option('--max-task-retries <n>', 'scheduler retry budget per task', Number, 1)
   .option('--resume', 'continue an existing board instead of re-planning', false)
+  .option('--no-merge', 'skip merge-back even when all tasks are done', false)
   .action(async (opts) => {
+    const cfg = { dryRunMerge: opts.merge === false };
     const config = loadConfig(opts.repo);
     const logger = new RunLogger();
     logger.info('task', `Orchestration run ${logger.runId} starting`, { repo: opts.repo });
@@ -498,11 +500,54 @@ program
       // resume hint for the next session
       console.log(`Board: ${opts.repo}/.devagent-project.json (resume with --resume)`);
       console.log(`Run log: ${logger.path}`);
+
+      // Merge-back when every task is done and not a dry inspection
+      const allDone = result.tasks.length > 0 && result.tasks.every((t) => t.status === 'done');
+      if (!allDone || cfg.dryRunMerge) return;
+
+      const baseBranch = loadConfig(opts.repo).githubBaseBranch ?? 'main';
+      console.log(`\nAll tasks done — merging into ${baseBranch}...`);
+      const { mergeProjectBranches } = await import('./orchestrator/merge.js');
+      const mr = await mergeProjectBranches(opts.repo, result, baseBranch, logger);
+      if (mr.ok) {
+        console.log(`Integrated: ${mr.merged.join(', ')}`);
+      } else {
+        console.error(`Integration failed at ${mr.failure!.taskId} (${mr.failure!.stage}): ${mr.failure!.detail}`);
+        console.error('Board preserved; fix and re-run with --resume.');
+        process.exitCode = 1;
+      }
     } catch (err) {
       console.error((err as Error).message);
       process.exitCode = 1;
     }
   });
+program
+  .command('project')
+  .description('Show orchestrator project board status for a repository')
+  .option('--repo <path>', 'target repository', process.cwd())
+  .action(async (opts) => {
+    const { loadBoard } = await import('./orchestrator/store.js');
+    const board = loadBoard(opts.repo);
+    if (!board) {
+      console.log('No project board. Start one: devagent orchestrate --goal "..."');
+      return;
+    }
+    const counts = new Map<string, number>();
+    for (const t of board.tasks) counts.set(t.status, (counts.get(t.status) ?? 0) + 1);
+    const bar = Object.fromEntries([...counts].map(([k, v]) => [k, v]));
+    console.log(`Goal: ${board.goal}`);
+    console.log(`Roles: planner=${board.roles.planner} executor=${board.roles.executor}`);
+    console.log(`Tasks: ${board.tasks.length} (${Object.entries(bar).map(([k, v]) => `${k}:${v}`).join(' ')})`);
+    for (const t of board.tasks) {
+      const mark = t.status === 'done' ? '✓' : t.status === 'failed' ? '✗' : t.status === 'dispatched' ? '▶' : t.status === 'blocked' ? '⛔' : '·';
+      console.log(` ${mark} [${t.status}] ${t.id}: ${t.title}${t.failureDetail ? ` — ${t.failureDetail.slice(0, 80)}` : ''}`);
+    }
+    console.log(`Updated: ${board.updatedAt}`);
+    const allDone = board.tasks.length > 0 && board.tasks.every((t) => t.status === 'done');
+    if (allDone) console.log('Ready to integrate: devagent orchestrate --goal "" --resume');
+    else console.log('Resume: devagent orchestrate --goal "" --resume');
+  });
+
 program
   .command('mcp')
   .description('Expose DevAgent as MCP tools over stdio (devagent_dispatch/status/log)')
