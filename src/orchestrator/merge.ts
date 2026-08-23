@@ -61,10 +61,12 @@ export async function mergeProjectBranches(
     const m = await git(['merge', '--no-ff', '--no-edit', branch], repoPath);
     if (m.exitCode !== 0) {
       await git(['merge', '--abort'], repoPath); // leave the tree clean
+      // git reports conflicts on stdout ("CONFLICT (content): ..."), errors on stderr
+      const detail = `${m.stdout.trim()}\n${m.stderr.trim()}`.trim().slice(0, 300);
       return {
         ok: false,
         merged,
-        failure: { taskId: id, stage: 'merge', detail: m.stderr.trim().slice(0, 300) || `merge ${branch} failed` },
+        failure: { taskId: id, stage: 'merge', detail: detail || `merge ${branch} failed` },
       };
     }
     // Gate the integrated tree after every merge
