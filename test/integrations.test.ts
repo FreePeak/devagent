@@ -336,27 +336,43 @@ describe('worktree', () => {
     expect(opts.cwd).toBe('/repo');
   });
 
-  it('createWorktree throws descriptive error when branch already exists', async () => {
+  it('createWorktree attaches a new worktree to the branch when it already exists', async () => {
+    const calls: string[][] = [];
     m.mockImplementation(((
       _file: string,
-      _args: string[],
+      args: string[],
       _opts: unknown,
       cb: (err: Error | null, stdout: string, stderr: string) => void,
     ) => {
-      cb(
-        Object.assign(new Error('exit code 128'), {
-          stderr:
-            "fatal: a branch named 'devagent/ENG-1' already exists",
-        }),
-        '',
-        '',
-      );
+      calls.push(args);
+      if (args.includes('-b')) {
+        cb(
+          Object.assign(new Error('exit code 128'), {
+            stderr:
+              "fatal: a branch named 'devagent/ENG-1' already exists",
+          }),
+          '',
+          '',
+        );
+      } else {
+        cb(null, '', '');
+      }
       return undefined;
     }) as never);
 
-    await expect(createWorktree('/repo', 'ENG-1')).rejects.toThrow(
-      /branch "devagent\/ENG-1" already exists/,
-    );
+    const info = await createWorktree('/repo', 'ENG-1');
+
+    expect(info).toEqual({
+      worktreePath: '/repo/.devagent-worktrees/ENG-1',
+      branch: 'devagent/ENG-1',
+    });
+    // Retry attaches the worktree to the pre-existing branch (no -b)
+    expect(calls[1]).toEqual([
+      'worktree',
+      'add',
+      '/repo/.devagent-worktrees/ENG-1',
+      'devagent/ENG-1',
+    ]);
   });
 
   it('removeWorktree runs git worktree remove --force and swallows failures', async () => {

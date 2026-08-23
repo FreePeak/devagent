@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { existsSync } from 'node:fs';
 
 function run(
   cmd: string,
@@ -29,11 +30,23 @@ export function sanitizeTicketId(ticketId: string): string {
   return ticketId.replace(/[^A-Za-z0-9\-_]/g, '');
 }
 
+/** True when repoPath sits inside a git work tree. */
+export async function isGitRepository(repoPath: string): Promise<boolean> {
+  try {
+    await run('git', ['rev-parse', '--is-inside-work-tree'], repoPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Create a git worktree for the given ticket:
  *   branch:  devagent/<sanitized ticket id>
  *   path:    <repoPath>/.devagent-worktrees/<sanitized ticket id>
- * Throws when the branch already exists (detected via git stderr).
+ * Re-runs reuse prior work: when the branch already exists, the existing
+ * worktree dir is returned as-is, or a new worktree is attached to the
+ * existing branch.
  */
 export async function createWorktree(
   repoPath: string,
@@ -49,9 +62,16 @@ export async function createWorktree(
     const e = err as { stderr?: string; message?: string };
     const stderr = e.stderr ?? e.message ?? '';
     if (/already exists/.test(stderr)) {
-      throw new Error(
-        `Cannot create worktree for "${ticketId}": branch "${branch}" already exists`,
-      );
+      if (existsSync(worktreePath)) {
+        return { worktreePath, branch };
+      }
+      try {
+        await run('git', ['worktree', 'add', worktreePath, branch], repoPath);
+      } catch (reErr) {
+        const reStderr = (reErr as { stderr?: string }).stderr ?? '';
+        throw new Error(`git worktree add failed: ${reStderr.trim()}`);
+      }
+      return { worktreePath, branch };
     }
     throw new Error(`git worktree add failed: ${stderr.trim()}`);
   }

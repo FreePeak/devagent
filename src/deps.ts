@@ -5,7 +5,7 @@ import type { RunLogger } from './logger.js';
 import type { ImplementationPlan } from './planner.js';
 import { fetchTicket, postTicketComment } from './integrations/linear.js';
 import { runMigrationStaticGate } from './validation/runner.js';
-import { createWorktree } from './git/worktree.js';
+import { createWorktree, isGitRepository } from './git/worktree.js';
 import { getWorker } from './workers/index.js';
 import { buildImplementationPrompt, buildRepairPrompt } from './prompt.js';
 
@@ -168,7 +168,8 @@ async function implementStage(
   let repairPrompt = prompt;
   const maxAttempts = Math.max(1, cfg.maxLoops);
 
-  // Isolated worktree + branch per run (FR-IMPL-01); falls back to repoPath on failure
+  // Isolated worktree + branch per run (FR-IMPL-01); aborts for git repos instead
+  // of silently executing in repo root
   let cwd = cfg.repoPath;
   let worktreePath: string | undefined;
   try {
@@ -177,7 +178,12 @@ async function implementStage(
     worktreePath = wt.worktreePath;
     log.info('implement', `Worktree ready: ${wt.worktreePath} (branch ${wt.branch})`, {});
   } catch (err) {
-    log.warn('implement', `Worktree creation failed, running in repo root: ${(err as Error).message}`);
+    const message = (err as Error).message;
+    if (await isGitRepository(cfg.repoPath)) {
+      log.error('implement', `Aborting run: worktree creation failed: ${message}`);
+      throw new Error(`worktree creation failed: ${message}`);
+    }
+    log.warn('implement', `Not a git repository, running in repo root: ${message}`);
   }
 
   try {
