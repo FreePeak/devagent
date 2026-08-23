@@ -48,6 +48,16 @@ program
       return;
     }
 
+    // Latest-wins dedup: one active run per ticket across processes
+    const { tryAcquireRun } = await import('./runregistry.js');
+    const home = process.env.DEVAGENT_HOME || join(process.env.HOME || '.', '.devagent');
+    const lock = tryAcquireRun(home, cfg.ticketId);
+    if (!lock) {
+      console.error(`Run for ${cfg.ticketId} already active`);
+      process.exitCode = 1;
+      return;
+    }
+
     // Tracker selection: Jira when JIRA_* env present, else Linear
     const useJira = Boolean(process.env.JIRA_DOMAIN && process.env.JIRA_EMAIL && process.env.JIRA_API_TOKEN);
     const fetchForTracker = async (id: string) => {
@@ -74,6 +84,8 @@ program
       logger.error('fetch', (err as Error).message);
       console.error((err as Error).message);
       process.exitCode = 1;
+    } finally {
+      lock.release();
     }
   });
 
