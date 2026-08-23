@@ -62,3 +62,18 @@ DevAgent promises "ticket to tested PR." This round makes DevAgent eat its own c
 ## Success metric
 
 All four tickets implemented via DevAgent's own `runPipeline`, G1 green on every resulting branch, full suite ≥ previous count (142).
+
+## Outcome (2026-08-23)
+
+| Ticket | Result | Verified |
+|---|---|---|
+| DA-DOG-01 | ✅ delivered (`15de52c`) — dry-run offline via `buildDryRunDeps` | live: exit 0, plan printed, no remotes |
+| DA-DOG-02 | ✅ delivered (`c5c6236`) — args validated first | live: correct error without creds; CLI test asserts exit 1 |
+| DA-DOG-03 | ✅ delivered (`3f7b216`) — branch reuse + abort instead of repo-root fallback | 152→156 suite; reuse paths unit-tested |
+| DA-DOG-04 | ✅ delivered (`3998054`) — run acquires latest-wins lock | live: concurrent run rejected, exit 1 |
+
+**Process findings from dogfooding itself** (feed into next round):
+- **DA-DOG-05 (harness):** 10-min worker timeout was too small for real tickets; both attempts timed out and the retry restarted from scratch because branch reuse didn't exist yet. Timeout raised to 25 min in the dispatch runner; consider per-stage budgets + resumable attempts.
+- **DA-DOG-06 (process):** one worker ignored the ticket and refactored unrelated server code; G1 passed anyway since tests were unaffected. Mitigation shipped: prompt now forbids out-of-scope refactors and restates binding ACs in repair prompts. Still missing: an automated AC-overlap gate on the changed-file set.
+
+Final state: 156 tests / 22 files green, all work merged to `main` and pushed.
