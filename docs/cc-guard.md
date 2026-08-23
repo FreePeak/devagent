@@ -49,6 +49,20 @@ work. Output streams through untouched; guard diagnostics go to stderr.
 | `--max-delay-ms <n>` | `60000` | backoff ceiling |
 | `--no-progress-timeout-ms <n>` | `0` (off) | kill + retry when the child streams nothing this long |
 
+## Checking interactive sessions
+
+`devagent guard-status` inspects the latest transcript for the current
+project and reports whether its last assistant turn died on an API error
+(persisted as a synthetic `<synthetic>` message with `isApiErrorMessage`):
+
+```sh
+npx tsx src/cli.ts guard-status
+# INTERRUPTED session <id> (...)
+# resume with: claude --resume <id>
+```
+
+Exit code 1 means interrupted, so it can gate scripts or shell prompts.
+
 ## Non-retryable errors
 
 Auth and billing failures never succeed on retry. If the synthetic error

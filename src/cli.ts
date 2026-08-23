@@ -623,6 +623,43 @@ program
   });
 
 program
+  .command('guard-status')
+  .description(
+    'Check whether the latest Claude Code session for a project ended on an API error',
+  )
+  .option('--project-dir <path>', 'working directory to derive the project slug from', process.cwd())
+  .action(async (opts) => {
+    const { claudeProjectsDir, latestTranscript, inspectTranscript, projectSlug } =
+      await import('./sessionguard/transcript.js');
+    const projects = claudeProjectsDir(process.env.HOME || '.');
+    const dir = join(projects, projectSlug(opts.projectDir as string));
+    let file;
+    try {
+      file = latestTranscript(dir);
+    } catch {
+      console.error(`No transcript directory at ${dir}`);
+      process.exitCode = 1;
+      return;
+    }
+    if (!file) {
+      console.error(`No transcripts found in ${dir}`);
+      process.exitCode = 1;
+      return;
+    }
+    const status = inspectTranscript(file);
+    if (status.interrupted) {
+      console.log(
+        `INTERRUPTED session ${status.sessionId} (${status.file})\nlast error: ${status.lastErrorText ?? 'unknown'}\nresume with: claude --resume ${status.sessionId}`,
+      );
+      process.exitCode = 1;
+    } else {
+      console.log(
+        `OK session ${status.sessionId} (${status.file}) last activity ${status.lastTimestamp ?? 'unknown'}`,
+      );
+    }
+  });
+
+program
   .command('config')
   .description('Show effective configuration and credential presence (never values)')
   .action(() => {
