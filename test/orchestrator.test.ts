@@ -163,3 +163,15 @@ describe('runScheduler wave persistence', () => {
     expect(persists).toBe(2); // one per wave
   });
 });
+
+describe('parsePlan robustness (live-smoke findings)', () => {
+  it('parses JSON wrapped in prose and fences', () => {
+    const out = 'Here is my plan:\n```json\n[{"id":"T1","title":"a","prompt":"p","dependsOn":[]}]\n```\nLet me know if you want changes.';
+    expect(parsePlan(out)!.map((t) => t.id)).toEqual(['T1']);
+  });
+
+  it('parses trailing-comma-free arrays embedded in chatter', () => {
+    const out = 'Sure! [ {"title":"a","prompt":"p"} ] hope that helps';
+    expect(parsePlan(out)).toHaveLength(1);
+  });
+});

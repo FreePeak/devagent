@@ -67,9 +67,11 @@ export async function createWorktree(
       }
       try {
         await run('git', ['worktree', 'add', worktreePath, branch], repoPath);
-      } catch (reErr) {
-        const reStderr = (reErr as { stderr?: string }).stderr ?? '';
-        throw new Error(`git worktree add failed: ${reStderr.trim()}`);
+      } catch {
+        // Stale registration (directory removed without `git worktree remove`):
+        // prune orphaned metadata and retry once.
+        await run('git', ['worktree', 'prune'], repoPath);
+        await run('git', ['worktree', 'add', worktreePath, branch], repoPath);
       }
       return { worktreePath, branch };
     }

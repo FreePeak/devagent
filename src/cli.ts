@@ -444,7 +444,8 @@ program
   .option('--concurrency <n>', 'parallel executor slots', Number, 2)
   .option('--max-task-retries <n>', 'scheduler retry budget per task', Number, 1)
   .option('--resume', 'continue an existing board instead of re-planning', false)
-  .option('--no-merge', 'skip merge-back even when all tasks are done', false)
+  // NOTE: no explicit default — commander negates --no-merge to opts.merge=true
+  .option('--no-merge', 'skip merge-back even when all tasks are done')
   .action(async (opts) => {
     const cfg = { dryRunMerge: opts.merge === false };
     const config = loadConfig(opts.repo);
@@ -578,6 +579,46 @@ program
         console.error(`failed to remove ${wt.path}: ${(err as Error).message}`);
         process.exitCode = 1;
       }
+    }
+  });
+
+program
+  .command('guard')
+  .description(
+    'Run a headless Claude Code session with auto-resume on API failure (args after --)',
+  )
+  .option('--resume-prompt <text>', 'prompt sent when resuming', 'Continue')
+  .option('--max-attempts <n>', 'total launches including the first', Number, 5)
+  .option('--base-delay-ms <n>', 'first resume backoff', Number, 2_000)
+  .option('--max-delay-ms <n>', 'backoff ceiling', Number, 60_000)
+  .option(
+    '--no-progress-timeout-ms <n>',
+    'kill + resume when the child streams nothing for this long (0 disables)',
+    Number,
+    0,
+  )
+  .argument('<claudeArgs...>', 'claude invocation, e.g. -- claude -p "task"')
+  .action(async (claudeArgs: string[], opts) => {
+    const { runGuard } = await import('./sessionguard/guard.js');
+    const { spawnClaude } = await import('./sessionguard/spawn.js');
+    const result = await runGuard({
+      argv: claudeArgs,
+      resumePrompt: opts.resumePrompt as string,
+      maxAttempts: opts.maxAttempts as number,
+      backoff: {
+        baseDelayMs: opts.baseDelayMs as number,
+        maxDelayMs: opts.maxDelayMs as number,
+      },
+      noProgressTimeoutMs: opts.noProgressTimeoutMs as number,
+      log: (message) => console.error(message),
+      onLine: (line, stream) => (stream === 'stdout' ? process.stdout.write(line + '\n') : console.error(line)),
+      runner: spawnClaude,
+    });
+    if (!result.ok) {
+      console.error(`[cc-guard] gave up after ${result.attempts} attempt(s): ${result.reason}${result.lastError ? ` — ${result.lastError}` : ''}`);
+      process.exitCode = 1;
+    } else {
+      console.error(`[cc-guard] completed after ${result.attempts} attempt(s), resumed ${result.resumed} time(s)`);
     }
   });
 

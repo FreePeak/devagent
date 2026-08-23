@@ -1,5 +1,6 @@
 import type { OrchestratorTask } from './types.js';
 import type { WorkerName } from '../types.js';
+import { join } from 'node:path';
 import { spawnCli } from '../workers/spawn-utils.js';
 
 /**
@@ -27,12 +28,15 @@ interface RawTask {
 }
 
 export function parsePlan(output: string): OrchestratorTask[] | null {
-  // Tolerate markdown fences around the JSON array
-  const match = output.match(/\[[\s\S]*\]/);
-  if (!match) return null;
+  // Tolerate markdown fences and surrounding prose around the JSON array
+  const fenced = output.match(/```(?:json)?\s*([\s\S]*?)```/);
+  const candidate = fenced ? fenced[1]! : output;
+  const start = candidate.indexOf('[');
+  const end = candidate.lastIndexOf(']');
+  if (start === -1 || end <= start) return null;
   let raw: RawTask[];
   try {
-    raw = JSON.parse(match[0]) as RawTask[];
+    raw = JSON.parse(candidate.slice(start, end + 1)) as RawTask[];
   } catch {
     return null;
   }
@@ -111,6 +115,29 @@ export async function runPlanner(
     cwd: repoPath,
     timeoutMs,
   });
-  const plan = result.timedOut ? null : parsePlan(result.resultText ?? '');
-  return plan ?? fallbackPlan(goal);
+  let plan = result.timedOut ? null : parsePlan(result.resultText ?? '');
+  // Live-smoke lesson: claude occasionally returns exit 0 with empty stdout
+  // (transient). One retry before falling back.
+  if (!plan && !result.timedOut && !result.resultText) {
+    const retry = await worker.spawn({
+      prompt: `${PLANNER_SYSTEM_PROMPT}\n\n## Goal\n${goal}`,
+      cwd: repoPath,
+      timeoutMs,
+    });
+    plan = retry.timedOut ? null : parsePlan(retry.resultText ?? '');
+    if (plan) return plan;
+  }
+  if (plan) return plan;
+  // Observability: persist raw planner output so parse failures are debuggable
+  const { appendFileSync, mkdirSync } = await import('node:fs');
+  try {
+    mkdirSync(join(repoPath, '.devagent-planner'), { recursive: true });
+    appendFileSync(
+      join(repoPath, '.devagent-planner', `plan-${Date.now()}.txt`),
+      `--- timedOut=${result.timedOut} exitCode=${result.exitCode} resultBytes=${(result.resultText ?? '').length} stderr=${(result as unknown as { stderr?: string }).stderr?.slice(0, 200) ?? 'n/a'} ---\n${result.resultText ?? '(empty)'}\n`,
+    );
+  } catch {
+    // best-effort diagnostics only
+  }
+  return fallbackPlan(goal);
 }
