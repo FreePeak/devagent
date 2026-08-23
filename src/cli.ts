@@ -6,6 +6,7 @@ import { loadConfig, loadCredentials, credentialStatus } from './config.js';
 import { RunLogger } from './logger.js';
 import { runPipeline } from './pipeline.js';
 import { buildDeps, buildDryRunDeps } from './deps.js';
+import type { WorkerName } from './types.js';
 
 const program = new Command();
 
@@ -433,6 +434,75 @@ program
     }
   });
 
+program
+  .command('orchestrate')
+  .description('Planner decomposes a goal into tasks; executors implement them in dependency waves')
+  .requiredOption('--goal <text>', 'product goal to decompose and implement')
+  .option('--repo <path>', 'target repository', process.cwd())
+  .option('--planner <name>', 'planner worker (default from config)')
+  .option('--executor <name>', 'executor worker (default from config)')
+  .option('--concurrency <n>', 'parallel executor slots', Number, 2)
+  .option('--max-task-retries <n>', 'scheduler retry budget per task', Number, 1)
+  .option('--resume', 'continue an existing board instead of re-planning', false)
+  .action(async (opts) => {
+    const config = loadConfig(opts.repo);
+    const logger = new RunLogger();
+    logger.info('task', `Orchestration run ${logger.runId} starting`, { repo: opts.repo });
+
+    try {
+      const { loadBoard, saveBoard, createBoard } = await import('./orchestrator/store.js');
+      const { runScheduler } = await import('./orchestrator/scheduler.js');
+      const { executeTask } = await import('./orchestrator/executor.js');
+
+      const plannerName = (opts.planner ?? config.worker) as WorkerName;
+      const executorName = (opts.executor ?? config.worker) as WorkerName;
+      const timeoutMs = config.timeoutMinutes * 60_000;
+
+      let board = opts.resume ? loadBoard(opts.repo) : null;
+      if (!board) {
+        if (opts.resume) console.error('No existing board found; planning fresh.');
+        const { runPlanner } = await import('./orchestrator/planner.js');
+        const tasks = await runPlanner(opts.goal, opts.repo, plannerName, timeoutMs);
+        board = createBoard(opts.goal, tasks, { planner: plannerName, executor: executorName });
+        saveBoard(opts.repo, board);
+        console.log(`Plan (${tasks.length} task(s)):`);
+        for (const t of tasks) {
+          console.log(`  ${t.id}: ${t.title}${t.dependsOn.length ? ` (after ${t.dependsOn.join(',')})` : ''}`);
+        }
+      }
+
+      const result = await runScheduler(
+        board,
+        {
+          repoPath: opts.repo,
+          executor: executorName,
+          concurrency: opts.concurrency,
+          maxTaskRetries: opts.maxTaskRetries,
+          timeoutMs,
+          // persist after every wave so resume never re-runs done work
+          onWavePersisted: (b) => saveBoard(opts.repo, b),
+        },
+        { executeTask: (a) => executeTask({ ...a, executor: executorName }) },
+        logger,
+      );
+      saveBoard(opts.repo, result);
+
+      const done = result.tasks.filter((t) => t.status === 'done').length;
+      const failed = result.tasks.filter((t) => t.status === 'failed').length;
+      const blocked = result.tasks.filter((t) => t.status === 'blocked').length;
+      console.log(`\nProject: ${done}/${result.tasks.length} done, ${failed} failed, ${blocked} blocked`);
+      for (const t of result.tasks) {
+        console.log(`  [${t.status}] ${t.id}: ${t.title}${t.failureDetail ? ` — ${t.failureDetail.slice(0, 100)}` : ''}`);
+      }
+      if (failed > 0 || blocked > 0) process.exitCode = 1;
+      // resume hint for the next session
+      console.log(`Board: ${opts.repo}/.devagent-project.json (resume with --resume)`);
+      console.log(`Run log: ${logger.path}`);
+    } catch (err) {
+      console.error((err as Error).message);
+      process.exitCode = 1;
+    }
+  });
 program
   .command('mcp')
   .description('Expose DevAgent as MCP tools over stdio (devagent_dispatch/status/log)')
