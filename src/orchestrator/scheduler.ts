@@ -1,4 +1,4 @@
-import type { OrchestratorTask, ProjectBoard } from './types.js';
+import type { AuditVerdict, OrchestratorTask, ProjectBoard } from './types.js';
 import { recomputeReadiness } from './types.js';
 import type { RunLogger } from '../logger.js';
 import type { WorkerName } from '../types.js';
@@ -9,6 +9,11 @@ import type { WorkerName } from '../types.js';
  * failed task marks itself failed and blocks dependents but never kills
  * siblings. Each attempt runs on a fresh worktree (Orca lesson: no context
  * contamination across retries).
+ *
+ * Evidence-gated completion (LongHorizon-Harness lesson): an executor
+ * success only moves the task to 'untrusted'; it becomes 'done' solely on
+ * an independent audit verdict with clean integrity. Failed audits are
+ * externalized into evidenceGaps so the retry targets the actual gap.
  */
 
 export interface ExecuteTaskResult {
@@ -25,6 +30,12 @@ export interface SchedulerDeps {
     timeoutMs: number;
     log: RunLogger;
   }): Promise<ExecuteTaskResult>;
+  /**
+   * Independent read-only audit of an 'untrusted' task. Returns null for an
+   * inconclusive run (worker crash, unparsable report) — treated as
+   * retryable, never as pass.
+   */
+  auditTask?(args: { task: OrchestratorTask; board: ProjectBoard; repoPath: string; timeoutMs: number; log: RunLogger }): Promise<AuditVerdict | null>;
 }
 
 export interface SchedulerOptions {
@@ -60,10 +71,44 @@ export async function runScheduler(
         try {
           const r = await deps.executeTask({ task, board, repoPath: opts.repoPath, timeoutMs: opts.timeoutMs, log });
           task.worktreePath = r.worktreePath ?? task.worktreePath;
-          if (r.ok) {
+          if (r.ok && !deps.auditTask) {
+            // legacy mode: no auditor configured — executor gates are the trust boundary
             task.status = 'done';
             task.failureDetail = undefined;
             log.info('task', `${task.id} done`, {});
+          } else if (r.ok && deps.auditTask) {
+            // Evidence gate: executor success is only a claim until audited
+            task.status = 'untrusted';
+            let v: AuditVerdict | null = null;
+            try {
+              v = await deps.auditTask({ task, board, repoPath: opts.repoPath, timeoutMs: opts.timeoutMs, log });
+            } catch (err) {
+              log.warn('audit', `${task.id} audit crashed: ${(err as Error).message}`, {});
+            }
+            if (v && v.verdict === 'pass' && v.integrity === 'clean') {
+              task.audit = v;
+              task.evidenceGaps = undefined;
+              task.status = 'done';
+              task.failureDetail = undefined;
+              log.info('task', `${task.id} done (audited)`, { criteria: v.criteriaResults.length });
+            } else {
+              // Externalize the failure into state so the retry targets the
+              // gap instead of redoing blind work (LH recovery lesson)
+              const gaps =
+                v && v.verdict === 'fail'
+                  ? v.criteriaResults.filter((c) => !c.met).map((c) => `unmet: ${c.criterion} — ${c.evidence.slice(0, 200)}`)
+                  : [];
+              if (v?.integrity !== 'clean' && v) gaps.push(`integrity ${v.integrity}: workspace mutation or provenance concern`);
+              if (!v) gaps.push('audit inconclusive: worker crashed or report unparsable');
+              task.evidenceGaps = gaps;
+              if (v) task.audit = v;
+              task.status = task.attempts < opts.maxTaskRetries ? 'pending' : 'failed';
+              task.failureDetail = gaps[0] ?? 'audit failed';
+              log.warn('task', `${task.id} audit rejected (${v ? v.verdict + '/' + v.integrity : 'inconclusive'})`, {
+                attempt: task.attempts,
+                gaps: gaps.length,
+              });
+            }
           } else {
             task.failureDetail = r.detail;
             // retryable within budget -> pending for the next wave; else failed

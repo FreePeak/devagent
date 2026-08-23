@@ -441,6 +441,8 @@ program
   .option('--repo <path>', 'target repository', process.cwd())
   .option('--planner <name>', 'planner worker (default from config)')
   .option('--executor <name>', 'executor worker (default from config)')
+  .option('--auditor <name>', 'independent auditor worker; pass --no-audit to trust executor gates only')
+  .option('--no-audit', 'disable the independent audit gate')
   .option('--concurrency <n>', 'parallel executor slots', Number, 2)
   .option('--max-task-retries <n>', 'scheduler retry budget per task', Number, 1)
   .option('--resume', 'continue an existing board instead of re-planning', false)
@@ -456,9 +458,13 @@ program
       const { loadBoard, saveBoard, createBoard } = await import('./orchestrator/store.js');
       const { runScheduler } = await import('./orchestrator/scheduler.js');
       const { executeTask } = await import('./orchestrator/executor.js');
+      const { runAudit } = await import('./orchestrator/auditor.js');
 
       const plannerName = (opts.planner ?? config.worker) as WorkerName;
       const executorName = (opts.executor ?? config.worker) as WorkerName;
+      // Evidence gate on by default (LH-Harness lesson): executor success is a
+      // claim; only an independent audit makes it trusted state.
+      const auditorName: WorkerName | undefined = opts.audit === false ? undefined : ((opts.auditor ?? executorName) as WorkerName);
       const timeoutMs = config.timeoutMinutes * 60_000;
 
       let board = opts.resume ? loadBoard(opts.repo) : null;
@@ -466,7 +472,7 @@ program
         if (opts.resume) console.error('No existing board found; planning fresh.');
         const { runPlanner } = await import('./orchestrator/planner.js');
         const tasks = await runPlanner(opts.goal, opts.repo, plannerName, timeoutMs);
-        board = createBoard(opts.goal, tasks, { planner: plannerName, executor: executorName });
+        board = createBoard(opts.goal, tasks, { planner: plannerName, executor: executorName, auditor: auditorName });
         saveBoard(opts.repo, board);
         console.log(`Plan (${tasks.length} task(s)):`);
         for (const t of tasks) {
@@ -485,7 +491,12 @@ program
           // persist after every wave so resume never re-runs done work
           onWavePersisted: (b) => saveBoard(opts.repo, b),
         },
-        { executeTask: (a) => executeTask({ ...a, executor: executorName }) },
+        {
+          executeTask: (a) => executeTask({ ...a, executor: executorName }),
+          auditTask: auditorName
+            ? (a) => runAudit({ board: a.board, task: a.task, worktreePath: a.task.worktreePath ?? a.repoPath, timeoutMs: a.timeoutMs, auditor: auditorName })
+            : undefined,
+        },
         logger,
       );
       saveBoard(opts.repo, result);
@@ -493,7 +504,10 @@ program
       const done = result.tasks.filter((t) => t.status === 'done').length;
       const failed = result.tasks.filter((t) => t.status === 'failed').length;
       const blocked = result.tasks.filter((t) => t.status === 'blocked').length;
-      console.log(`\nProject: ${done}/${result.tasks.length} done, ${failed} failed, ${blocked} blocked`);
+      const untrusted = result.tasks.filter((t) => t.status === 'untrusted').length;
+      console.log(
+        `\nProject: ${done}/${result.tasks.length} done, ${failed} failed, ${blocked} blocked${untrusted ? `, ${untrusted} awaiting audit` : ''}`,
+      );
       for (const t of result.tasks) {
         console.log(`  [${t.status}] ${t.id}: ${t.title}${t.failureDetail ? ` — ${t.failureDetail.slice(0, 100)}` : ''}`);
       }

@@ -88,7 +88,8 @@ export type RunStage =
   | 'publish'
   | 'failed'
   | 'clarify'
-  | 'task';
+  | 'task'
+  | 'audit';
 
 export interface RunConfig {
   ticketId: string;

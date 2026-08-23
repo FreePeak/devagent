@@ -14,16 +14,19 @@ import { spawnCli } from '../workers/spawn-utils.js';
 const PLANNER_SYSTEM_PROMPT = `You are a software planner. Decompose the given goal into 2-6 small, precise, independently testable implementation tasks for a coding agent.
 Rules:
 - Each task must be implementable in one focused session in an isolated worktree.
-- "expected" must state how to verify completion (files that exist, tests that pass) — make it machine-checkable.
+- "acceptanceCriteria" must be a list of machine-checkable completion signals (files that exist, tests that pass, exports present) — an independent auditor will verify each item separately against the environment.
+- Optionally add "constraints" for things the executor must NOT do (e.g. touch unrelated modules, change public API).
 - Order tasks so dependencies come first; use dependsOn with earlier task ids.
 - Respond with ONLY a JSON array (no prose, no markdown fences):
-[{"id":"T1","title":"...","prompt":"precise implementation instructions including which files/functions to touch","expected":"e.g. 'src/x.ts exports y and npm test passes'","dependsOn":[]}]`;
+[{"id":"T1","title":"...","prompt":"precise implementation instructions including which files/functions to touch","acceptanceCriteria":["src/x.ts exists and exports y","npm test passes"],"constraints":["do not modify src/other.ts"],"dependsOn":[]}]`;
 
 interface RawTask {
   id?: unknown;
   title?: unknown;
   prompt?: unknown;
   expected?: unknown;
+  acceptanceCriteria?: unknown;
+  constraints?: unknown;
   dependsOn?: unknown;
 }
 
@@ -55,6 +58,14 @@ export function parsePlan(output: string): OrchestratorTask[] | null {
       id,
       title: r.title.slice(0, 120),
       prompt: r.prompt,
+      acceptanceCriteria:
+        Array.isArray(r.acceptanceCriteria) && r.acceptanceCriteria.every((c) => typeof c === 'string')
+          ? (r.acceptanceCriteria as string[]).filter((c) => c.trim()).slice(0, 10)
+          : undefined,
+      boundaryConstraints:
+        Array.isArray(r.constraints) && r.constraints.every((c) => typeof c === 'string')
+          ? (r.constraints as string[]).filter((c) => c.trim()).slice(0, 10)
+          : undefined,
       expectedOutput: typeof r.expected === 'string' ? r.expected : undefined,
       dependsOn: Array.isArray(r.dependsOn)
         ? r.dependsOn.filter((d): d is string => typeof d === 'string')

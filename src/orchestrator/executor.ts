@@ -23,15 +23,22 @@ export async function executeTask(args: {
   const { getWorker } = await import('../workers/index.js');
   const { runTestGate } = await import('../validation/test-gate.js');
 
+  const criteria = [...(task.acceptanceCriteria ?? []), ...(task.expectedOutput ? [task.expectedOutput] : [])];
   const ticket = {
     id: task.id,
     title: task.title,
     description: [
       task.prompt,
-      task.expectedOutput ? `\nCompletion check (must hold when you finish):\n${task.expectedOutput}` : '',
+      task.boundaryConstraints?.length
+        ? `\nBoundary constraints (must respect):\n${task.boundaryConstraints.map((c) => `- ${c}`).join('\n')}`
+        : '',
+      // Targeted re-contracting: retry closes the audited gap, not blind redo
+      task.evidenceGaps?.length
+        ? `\nPrevious attempt failed independent audit. Close these specific gaps:\n${task.evidenceGaps.map((g) => `- ${g}`).join('\n')}`
+        : '',
     ].join(''),
     labels: ['orchestrated'],
-    acceptanceCriteria: task.expectedOutput ? [task.expectedOutput] : [],
+    acceptanceCriteria: criteria,
     url: '',
     trackerInternalId: task.id,
   };
