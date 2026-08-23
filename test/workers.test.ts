@@ -14,6 +14,9 @@ let nextResult: {
   delayMs?: number;
 } = { error: null, stdout: '', stderr: '' };
 
+/** Optional FIFO of per-call results; consumed before falling back to nextResult. */
+let resultQueue: typeof nextResult[] = [];
+
 const execFileMock = vi.fn(
   (
     _cmd: string,
@@ -21,7 +24,7 @@ const execFileMock = vi.fn(
     opts: { signal?: AbortSignal },
     cb: ExecFileCallback,
   ) => {
-    const result = nextResult;
+    const result = resultQueue.length > 0 ? resultQueue.shift()! : nextResult;
     if (opts?.signal) {
       // Simulate a real child: abort kills the process and surfaces an error.
       opts.signal.addEventListener('abort', () => {
@@ -52,6 +55,7 @@ const baseOpts = { cwd: '/tmp/repo', timeoutMs: 5_000 };
 
 beforeEach(() => {
   nextResult = { error: null, stdout: '', stderr: '' };
+  resultQueue = [];
 });
 
 afterEach(() => {
@@ -106,6 +110,80 @@ describe('claude-code adapter', () => {
     expect(res.resultText).toBeNull();
     expect(res.sessionId).toBeNull();
     expect(res.events).toEqual([]);
+  });
+});
+
+describe('claude-code adapter API-failure resume', () => {
+  const noSleep = async () => {};
+  const adapter = new ClaudeCodeAdapter(noSleep);
+
+  it('resumes the same session after a mid-stream API failure and succeeds', async () => {
+    resultQueue = [
+      {
+        error: Object.assign(new Error('boom'), { code: 1 }),
+        stdout: JSON.stringify({
+          is_error: true,
+          result: 'API Error: Connection lost mid-response.',
+          session_id: 'sess-9',
+        }),
+        stderr: '',
+      },
+      { error: null, stdout: JSON.stringify({ result: 'done after resume', session_id: 'sess-9' }), stderr: '' },
+    ];
+    const res = await adapter.spawn({ ...baseOpts, prompt: 'ship it' });
+    expect(execFileMock).toHaveBeenCalledTimes(2);
+    const resumeCall = (execFileMock.mock.calls[1] as unknown[])[1] as string[];
+    expect(resumeCall.slice(0, 4)).toEqual(['--resume', 'sess-9', '-p', 'Continue']);
+    expect(res.exitCode).toBe(0);
+    expect(res.resultText).toBe('done after resume');
+    expect(res.sessionId).toBe('sess-9');
+  });
+
+  it('does not resume when the failure carries no session id', async () => {
+    resultQueue = [
+      {
+        error: Object.assign(new Error('boom'), { code: 1 }),
+        stdout: '',
+        stderr: 'connect ECONNREFUSED',
+      },
+      { error: null, stdout: '', stderr: '' },
+    ];
+    const res = await adapter.spawn({ ...baseOpts, prompt: 'x' });
+    expect(execFileMock).toHaveBeenCalledTimes(1);
+    expect(res.exitCode).toBe(1);
+  });
+
+  it('aborts immediately on non-retryable auth errors', async () => {
+    resultQueue = [
+      {
+        error: Object.assign(new Error('boom'), { code: 1 }),
+        stdout: JSON.stringify({
+          is_error: true,
+          result: 'Invalid API key provided',
+          session_id: 'sess-2',
+        }),
+        stderr: '',
+      },
+      { error: null, stdout: '', stderr: '' },
+    ];
+    await adapter.spawn({ ...baseOpts, prompt: 'x' });
+    expect(execFileMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('respects apiMaxAttempts and stops after exhausting them', async () => {
+    const fail = {
+      error: Object.assign(new Error('boom'), { code: 1 }),
+      stdout: JSON.stringify({
+        is_error: true,
+        result: 'API Error: Connection refused',
+        session_id: 's1',
+      }),
+      stderr: '',
+    };
+    resultQueue = [fail, fail, fail, fail];
+    const res = await adapter.spawn({ ...baseOpts, prompt: 'x', apiMaxAttempts: 3 });
+    expect(execFileMock).toHaveBeenCalledTimes(3);
+    expect(res.exitCode).toBe(1);
   });
 });
 

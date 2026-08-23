@@ -30,6 +30,11 @@ export interface WorkerSpawnOptions {
   timeoutMs: number;
   maxSteps?: number;
   env?: Record<string, string>;
+  /**
+   * Total launches allowed when the worker auto-resumes a session killed by
+   * an API failure (claude-code adapter). Includes the first launch.
+   */
+  apiMaxAttempts?: number;
 }
 
 export interface WorkerEvent {
