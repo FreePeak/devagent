@@ -13,6 +13,7 @@ import { join } from 'node:path';
  *   devagent_dispatch  — run a prompt-driven task headlessly (task mode)
  *   devagent_status    — list recent runs from the runs directory
  *   devagent_log       — read one run's JSONL log tail
+ *   devagent_board     — read the durable orchestration board (goal + tasks + statuses)
  */
 
 interface JsonRpcRequest {
@@ -60,6 +61,18 @@ const TOOLS: ToolDef[] = [
       required: ['runId'],
     },
   },
+  {
+    name: 'devagent_board',
+    description:
+      'Read the durable orchestration board (.devagent-project.json): goal, planner/executor roles, and every task with status, dependencies, attempts, and failure detail. Lets MCP hosts observe shared pipeline state.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repoPath: { type: 'string', description: 'Absolute path to the git repository holding the board file' },
+      },
+      required: ['repoPath'],
+    },
+  },
 ];
 
 function runsDir(): string {
@@ -105,6 +118,28 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<st
       return listRuns();
     case 'devagent_log':
       return readRunLog(String(args.runId), Number(args.tail) || 10);
+    case 'devagent_board': {
+      const { loadBoard } = await import('../orchestrator/store.js');
+      const board = loadBoard(String(args.repoPath));
+      if (!board) return JSON.stringify({ exists: false });
+      const counts: Record<string, number> = {};
+      for (const t of board.tasks) counts[t.status] = (counts[t.status] ?? 0) + 1;
+      return JSON.stringify({
+        exists: true,
+        goal: board.goal,
+        updatedAt: board.updatedAt,
+        roles: board.roles,
+        counts,
+        tasks: board.tasks.map((t) => ({
+          id: t.id,
+          title: t.title,
+          status: t.status,
+          dependsOn: t.dependsOn,
+          attempts: t.attempts,
+          ...(t.failureDetail ? { failureDetail: t.failureDetail } : {}),
+        })),
+      });
+    }
     case 'devagent_dispatch': {
       const { spawnCli } = await import('../workers/spawn-utils.js');
       const argv = ['src/cli.ts', 'task', '--prompt', String(args.prompt), '--repo', String(args.repoPath)];
