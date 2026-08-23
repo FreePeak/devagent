@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createWorktree } from '../src/git/worktree.js';
+import { commitAllChanges, createWorktree, deleteBranch, renameCurrentBranch } from '../src/git/worktree.js';
 
 const dirs: string[] = [];
 afterAll(() => {
@@ -78,6 +78,63 @@ describe('createWorktree', () => {
         cwd: second.worktreePath,
       }).toString().trim();
       expect(branch).toBe('devagent/ENG-3');
+    } finally {
+      rmSync(`${repo}/.devagent-worktrees`, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('commitAllChanges / renameCurrentBranch / deleteBranch (merge-assist primitives)', () => {
+  it('commits untracked and modified files with --no-verify', async () => {
+    const repo = initRepo();
+    const wt = await createWorktree(repo, 'ENG-9');
+    try {
+      writeFileSync(join(wt.worktreePath, 'new.txt'), 'added\n');
+      writeFileSync(join(wt.worktreePath, 'f.txt'), 'edited\n');
+
+      const created = await commitAllChanges(wt.worktreePath, 'wip commit');
+
+      expect(created).toBe(true);
+      const status = execFileSync('git', ['status', '--porcelain'], { cwd: wt.worktreePath }).toString();
+      expect(status).toBe('');
+      const subject = execFileSync('git', ['log', '-1', '--format=%s'], { cwd: wt.worktreePath }).toString().trim();
+      expect(subject).toBe('wip commit');
+    } finally {
+      rmSync(`${repo}/.devagent-worktrees`, { recursive: true, force: true });
+    }
+  });
+
+  it('tolerates nothing-to-commit on a clean tree', async () => {
+    const repo = initRepo();
+    const wt = await createWorktree(repo, 'ENG-11');
+    try {
+      const created = await commitAllChanges(wt.worktreePath, 'should not appear');
+      expect(created).toBe(false);
+      const subject = execFileSync('git', ['log', '-1', '--format=%s'], { cwd: wt.worktreePath }).toString().trim();
+      expect(subject).toBe('init');
+    } finally {
+      rmSync(`${repo}/.devagent-worktrees`, { recursive: true, force: true });
+    }
+  });
+
+  it('renames the checked-out branch and deletes branches best-effort', async () => {
+    const repo = initRepo();
+    const wt = await createWorktree(repo, 'ENG-12');
+    try {
+      await renameCurrentBranch(wt.worktreePath, 'devagent/ENG-12-canonical');
+      const current = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+        cwd: wt.worktreePath,
+      }).toString().trim();
+      expect(current).toBe('devagent/ENG-12-canonical');
+
+      // Checked-out branch cannot be deleted from the repo root: must not throw
+      await deleteBranch(repo, 'devagent/ENG-12-canonical');
+      execFileSync('git', ['branch', 'spare'], { cwd: repo });
+      await deleteBranch(repo, 'spare');
+      const branches = execFileSync('git', ['branch', '--list'], { cwd: repo }).toString();
+      expect(branches).not.toContain('spare');
+      // Unknown branch: swallowed
+      await deleteBranch(repo, 'nope');
     } finally {
       rmSync(`${repo}/.devagent-worktrees`, { recursive: true, force: true });
     }
