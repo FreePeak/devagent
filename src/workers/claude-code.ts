@@ -90,12 +90,28 @@ interface RunOutcome {
   parsed: Record<string, unknown> | null;
 }
 
+export function interpretForTest(run: SpawnCliResult): RunOutcome {
+  return interpret(run);
+}
+
 function interpret(run: SpawnCliResult): RunOutcome {
   let parsed: Record<string, unknown> | null = null;
   if (run.stdout.trim()) {
     try {
       const candidate: unknown = JSON.parse(run.stdout);
-      if (candidate !== null && typeof candidate === 'object' && !Array.isArray(candidate)) {
+      if (Array.isArray(candidate)) {
+        // Newer claude CLI: --output-format json emits the full event stream
+        // as a JSON array; the terminal entry carries type:'result'
+        // (live-smoke lesson: treating arrays as unparsable made every
+        // planner call look empty).
+        for (let i = candidate.length - 1; i >= 0; i--) {
+          const e = candidate[i] as Record<string, unknown> | null;
+          if (e !== null && typeof e === 'object' && !Array.isArray(e) && e.type === 'result') {
+            parsed = e;
+            break;
+          }
+        }
+      } else if (candidate !== null && typeof candidate === 'object') {
         parsed = candidate as Record<string, unknown>;
       }
     } catch {

@@ -58,7 +58,21 @@ export async function executeTask(args: {
     });
     if (result.timedOut || result.exitCode !== 0) continue;
     const g1 = await runTestGate(worktreePath, timeoutMs);
-    if (g1.passed) return { ok: true, worktreePath };
+    if (g1.passed) {
+      // Commit the work: uncommitted changes never reach merge-back
+      // (live-smoke lesson: gate passed in-tree but merge integrated nothing).
+      const { spawnCli } = await import('../workers/spawn-utils.js');
+      await spawnCli('git', ['add', '-A'], { cwd: worktreePath, timeoutMs: 30_000 });
+      const commit = await spawnCli(
+        'git',
+        ['commit', '-m', `task ${task.id}: ${task.title}`, '--no-verify'],
+        { cwd: worktreePath, timeoutMs: 30_000 },
+      );
+      if (commit.exitCode !== 0 && !/nothing to commit/.test(commit.stderr + commit.stdout)) {
+        return { ok: false, worktreePath, detail: `commit failed: ${commit.stderr.slice(0, 200)}` };
+      }
+      return { ok: true, worktreePath };
+    }
     log.warn('task', `${task.id} G1 failed on executor attempt ${attempt}`, {});
   }
   return { ok: false, worktreePath, detail: 'test gate failed after executor attempts' };

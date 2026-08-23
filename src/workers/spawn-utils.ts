@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { execFile, type ExecFileOptionsWithStringEncoding } from 'node:child_process';
 
 export interface SpawnCliOptions {
   cwd: string;
@@ -15,9 +15,18 @@ export interface SpawnCliResult {
 }
 
 /**
+ * Env vars injected by agent harnesses / CI that corrupt nested CLI
+ * dispatches (live-smoke lesson: a parent's ANTHROPIC_MODEL makes child
+ * `claude -p` fail model resolution and emit nothing on stdout).
+ */
+const NESTED_ENV_BLOCKLIST = ['ANTHROPIC_MODEL', 'ANTHROPIC_SMALL_FAST_MODEL', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDECODE'];
+
+/**
  * Run a CLI to completion with a hard timeout.
  * On timeout the child is killed with SIGKILL and timedOut=true is returned
  * (exitCode -1) instead of throwing, so callers can map it to WorkerResult.
+ * Stdin is ignored: headless prompts come via argv; leaving stdin open makes
+ * some CLIs block waiting for piped input.
  */
 export function spawnCli(cmd: string, args: string[], opts: SpawnCliOptions): Promise<SpawnCliResult> {
   return new Promise((resolve) => {
@@ -28,6 +37,9 @@ export function spawnCli(cmd: string, args: string[], opts: SpawnCliOptions): Pr
       controller.abort();
     }, opts.timeoutMs);
 
+    const baseEnv: NodeJS.ProcessEnv = { ...process.env };
+    for (const k of NESTED_ENV_BLOCKLIST) delete baseEnv[k];
+    if (opts.env) Object.assign(baseEnv, opts.env);
     execFile(
       cmd,
       args,
@@ -38,8 +50,10 @@ export function spawnCli(cmd: string, args: string[], opts: SpawnCliOptions): Pr
         signal: controller.signal,
         encoding: 'utf8',
         maxBuffer: 64 * 1024 * 1024,
-        ...(opts.env ? { env: { ...process.env, ...opts.env } } : {}),
-      },
+        env: baseEnv,
+        // NOTE: stdin must stay a pipe (default). stdio:'ignore' makes
+        // `claude -p` emit empty stdout (live-smoke lesson).
+      } as ExecFileOptionsWithStringEncoding,
       (error, stdout, stderr) => {
         clearTimeout(timer);
         if (timedOut) {
