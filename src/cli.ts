@@ -454,6 +454,7 @@ program
   )
   .option('--concurrency <n>', 'parallel executor slots', Number, 2)
   .option('--max-task-retries <n>', 'scheduler retry budget per task', Number, 1)
+  .option('--max-recoveries <n>', 'planner-written recovery re-contracts per task before terminal failure (0 disables)', Number, 1)
   .option('--resume', 'continue an existing board instead of re-planning', false)
   // NOTE: no explicit default — commander negates --no-merge to opts.merge=true
   .option('--no-merge', 'skip merge-back even when all tasks are done')
@@ -514,6 +515,7 @@ program
           executor: executorName,
           concurrency: opts.concurrency,
           maxTaskRetries: opts.maxTaskRetries,
+          maxRecoveries: opts.maxRecoveries,
           timeoutMs,
           // persist after every wave so resume never re-runs done work
           onWavePersisted: (b) => saveBoard(opts.repo, b),
@@ -523,6 +525,13 @@ program
           auditTask: auditorName
             ? (a) => runAudit({ board: a.board, task: a.task, worktreePath: a.task.worktreePath ?? a.repoPath, timeoutMs: a.timeoutMs, auditor: auditorName })
             : undefined,
+          planRecovery:
+            opts.maxRecoveries > 0
+              ? (a) =>
+                  import('./orchestrator/planner.js').then(({ runRecoveryPlanner }) =>
+                    runRecoveryPlanner({ goal: board!.goal, task: a.task, repoPath: opts.repo, plannerWorker: plannerName, timeoutMs }),
+                  )
+              : undefined,
         },
         logger,
       );

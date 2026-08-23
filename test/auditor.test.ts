@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { buildAuditPrompt, parseAuditReport } from '../src/orchestrator/auditor.js';
+import { parseRecoveryContract } from '../src/orchestrator/planner.js';
 import { runScheduler } from '../src/orchestrator/scheduler.js';
-import { recomputeReadiness } from '../src/orchestrator/types.js';
+import { attemptSuffix, recomputeReadiness } from '../src/orchestrator/types.js';
 import type { AuditVerdict, OrchestratorTask, ProjectBoard } from '../src/orchestrator/types.js';
 import { RunLogger } from '../src/logger.js';
 
@@ -216,6 +217,86 @@ describe('audit-gated scheduler transitions', () => {
       log,
     );
     expect(b.tasks[0]!.status).toBe('done');
+  });
+});
+
+describe('recovery contracts (LH manager re-contracting)', () => {
+  it('grants one planner re-contract on terminal failure, then succeeds', async () => {
+    const b = board([task({ id: 'T1' })]);
+    let execs = 0;
+    let recoveries = 0;
+    await runScheduler(
+      b,
+      { repoPath: '.', executor: 'claude-code', concurrency: 1, maxTaskRetries: 1, maxRecoveries: 1, timeoutMs: 1000 },
+      {
+        executeTask: async ({ task: t }) => {
+          execs += 1;
+          // first contract is doomed; the recovery contract passes
+          return { ok: (t.recoveries ?? 0) > 0 };
+        },
+        planRecovery: async () => {
+          recoveries += 1;
+          return { prompt: 'targeted fix: export y from src/y.ts', acceptanceCriteria: ['src/y.ts exports y'] };
+        },
+      },
+      log,
+    );
+    expect(recoveries).toBe(1);
+    expect(execs).toBe(2); // original attempt + recovery attempt
+    const t1 = b.tasks[0]!;
+    expect(t1.status).toBe('done');
+    expect(t1.prompt).toContain('targeted fix');
+    expect(t1.acceptanceCriteria).toEqual(['src/y.ts exports y']);
+  });
+
+  it('stops granting after maxRecoveries and goes terminal failed', async () => {
+    const b = board([task({ id: 'T1' })]);
+    let recoveries = 0;
+    await runScheduler(
+      b,
+      { repoPath: '.', executor: 'claude-code', concurrency: 1, maxTaskRetries: 1, maxRecoveries: 1, timeoutMs: 1000 },
+      {
+        executeTask: async () => ({ ok: false, detail: 'tests failed' }),
+        planRecovery: async () => {
+          recoveries += 1;
+          return { prompt: `try harder (${recoveries})` };
+        },
+      },
+      log,
+    );
+    expect(recoveries).toBe(1); // cap respected
+    expect(b.tasks[0]!.status).toBe('failed');
+  });
+
+  it('goes straight to failed when no recovery planner is wired', async () => {
+    const b = board([task({ id: 'T1' })]);
+    await runScheduler(
+      b,
+      { repoPath: '.', executor: 'claude-code', concurrency: 1, maxTaskRetries: 1, timeoutMs: 1000 },
+      { executeTask: async () => ({ ok: false, detail: 'boom' }) },
+      log,
+    );
+    expect(b.tasks[0]!.status).toBe('failed');
+  });
+});
+
+describe('parseRecoveryContract', () => {
+  it('parses valid contracts and rejects malformed ones', () => {
+    expect(parseRecoveryContract('```json\n{"prompt":"redo via migration","acceptanceCriteria":["down.sql exists"]}\n```')).toEqual({
+      prompt: 'redo via migration',
+      acceptanceCriteria: ['down.sql exists'],
+    });
+    expect(parseRecoveryContract('{"prompt":"   "}')).toBeNull();
+    expect(parseRecoveryContract('{"acceptanceCriteria":["x"]}')).toBeNull();
+    expect(parseRecoveryContract('{"prompt":"p","acceptanceCriteria":["ok",42]}')).toBeNull();
+  });
+});
+
+describe('attemptSuffix', () => {
+  it('stays legacy-compatible and extends for recoveries', () => {
+    expect(attemptSuffix(2)).toBe('a2');
+    expect(attemptSuffix(2, 0)).toBe('a2');
+    expect(attemptSuffix(0, 1)).toBe('a0r1');
   });
 });
 
