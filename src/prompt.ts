@@ -27,6 +27,9 @@ ${criteria}
 ${plan.tasks.map((task, i) => `${i + 1}. ${task}`).join('\n')}
 
 ## Constraints
+- Implement ONLY what the acceptance criteria and plan require. Do not refactor,
+  restructure, or add features beyond them — an on-spec minimal fix beats an
+  off-spec improvement. New modules are out of scope unless the plan lists them.
 - Follow existing repo conventions for structure, naming, and tests.
 - If the plan includes database changes, write both up- and down-migrations.
   Prefer additive (expand-first) changes; never drop or narrow existing columns.
@@ -45,5 +48,11 @@ ${failureDetail.trim() || '(no output captured)'}
 Fix the issues in the existing worktree so the original task is satisfied:
 ${plan.tasks.map((task, i) => `${i + 1}. ${task}`).join('\n')}
 
-Constraints unchanged: repo conventions, expand-first migrations, no unrelated edits.`;
+## Acceptance criteria (unchanged, still binding)
+${plan.ticket.acceptanceCriteria.length
+    ? plan.ticket.acceptanceCriteria.map((c) => `- ${c}`).join('\n')
+    : '- (none provided)'}
+
+Constraints unchanged: implement only the acceptance criteria and plan — no refactors
+or new modules beyond scope; repo conventions; expand-first migrations; no unrelated edits.`;
 }

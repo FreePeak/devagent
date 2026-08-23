@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { loadConfig, loadCredentials, credentialStatus } from './config.js';
 import { RunLogger } from './logger.js';
 import { runPipeline } from './pipeline.js';
-import { buildDeps } from './deps.js';
+import { buildDeps, buildDryRunDeps } from './deps.js';
 
 const program = new Command();
 
@@ -41,7 +41,8 @@ program
       dryRun: opts.dryRun ?? false,
     };
 
-    if (!creds.linearApiKey) {
+    // Dry-run plans offline against a synthetic ticket; no credentials needed
+    if (!cfg.dryRun && !creds.linearApiKey) {
       console.error('LINEAR_API_KEY is not set. Ticket fetching is unavailable.');
       process.exitCode = 1;
       return;
@@ -65,7 +66,8 @@ program
     logger.info('fetch', `Run ${logger.runId} starting`, { ticket: cfg.ticketId, worker: cfg.worker, dryRun: cfg.dryRun, tracker: useJira ? 'jira' : 'linear' });
 
     try {
-      const outcomes = await runPipeline(cfg, buildDeps(creds, cfg, logger), logger);
+      const deps = cfg.dryRun ? buildDryRunDeps(cfg.ticketId) : buildDeps(creds, cfg, logger);
+      const outcomes = await runPipeline(cfg, deps, logger);
       printOutcomes(outcomes);
       console.log(`Run log: ${logger.path}`);
     } catch (err) {

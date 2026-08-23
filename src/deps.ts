@@ -1,6 +1,6 @@
 import type { Credentials } from './config.js';
 import type { PipelineDeps, ImplementResult } from './pipeline.js';
-import type { RunConfig, TicketClass } from './types.js';
+import type { RunConfig, TicketClass, TicketSpec } from './types.js';
 import type { RunLogger } from './logger.js';
 import type { ImplementationPlan } from './planner.js';
 import { fetchTicket, postTicketComment } from './integrations/linear.js';
@@ -15,6 +15,25 @@ export interface StageConfig {
   timeoutMs: number;
   worker: RunConfig['worker'];
   autoPr: boolean;
+}
+
+/**
+ * Offline PipelineDeps for --dry-run (plan-only): synthetic ticket, no
+ * credentials, and none of the network-touching stages. The pipeline stops
+ * after plan, so only fetchTicket/runGateG3 are ever reachable.
+ */
+export function buildDryRunDeps(ticketId: string): PipelineDeps {
+  const ticket: TicketSpec = {
+    id: ticketId,
+    title: `[dry-run] ${ticketId}`,
+    description: 'Synthetic ticket for plan-only execution; no tracker credentials required.',
+    labels: [],
+    acceptanceCriteria: [],
+  };
+  return {
+    fetchTicket: async () => ticket,
+    runGateG3: () => ({ passed: true, findings: [], detail: 'skipped: dry-run' }),
+  };
 }
 
 /** Shared PipelineDeps construction for both `run` and `serve` entry points. */
