@@ -85,6 +85,13 @@ export function buildResumeArgv(
       }
     }
   }
+  // Drop any prior --resume pair so re-resuming never duplicates the flag.
+  for (let i = 0; i < out.length - 1; i++) {
+    if (out[i] === '--resume') {
+      out.splice(i, 2);
+      break;
+    }
+  }
   out.push('--resume', sessionId, '-p', resumePrompt);
   return out;
 }

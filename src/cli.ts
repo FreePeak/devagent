@@ -628,6 +628,12 @@ program
     'Check whether the latest Claude Code session for a project ended on an API error',
   )
   .option('--project-dir <path>', 'working directory to derive the project slug from', process.cwd())
+  .option('--resume-prompt <text>', 'prompt used when resuming an interrupted session', 'Continue')
+  .option(
+    '--resume',
+    'if the session is interrupted, resume it headlessly via devagent guard',
+    false,
+  )
   .action(async (opts) => {
     const { claudeProjectsDir, latestTranscript, inspectTranscript, projectSlug } =
       await import('./sessionguard/transcript.js');
@@ -651,7 +657,26 @@ program
       console.log(
         `INTERRUPTED session ${status.sessionId} (${status.file})\nlast error: ${status.lastErrorText ?? 'unknown'}\nresume with: claude --resume ${status.sessionId}`,
       );
-      process.exitCode = 1;
+      if (opts.resume && status.sessionId) {
+        const { runGuard } = await import('./sessionguard/guard.js');
+        const { spawnClaude } = await import('./sessionguard/spawn.js');
+        const result = await runGuard({
+          argv: ['claude', '--resume', status.sessionId, '-p', opts.resumePrompt as string],
+          resumePrompt: opts.resumePrompt as string,
+          runner: spawnClaude,
+          log: (message) => console.error(message),
+          onLine: (line, stream) =>
+            stream === 'stdout' ? process.stdout.write(line + '\n') : console.error(line),
+        });
+        if (!result.ok) {
+          console.error(`[cc-guard] resume failed after ${result.attempts} attempt(s): ${result.reason}`);
+          process.exitCode = 1;
+        } else {
+          console.error(`[cc-guard] session ${status.sessionId} resumed and completed`);
+        }
+      } else {
+        process.exitCode = 1;
+      }
     } else {
       console.log(
         `OK session ${status.sessionId} (${status.file}) last activity ${status.lastTimestamp ?? 'unknown'}`,

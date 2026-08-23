@@ -59,9 +59,13 @@ project and reports whether its last assistant turn died on an API error
 npx tsx src/cli.ts guard-status
 # INTERRUPTED session <id> (...)
 # resume with: claude --resume <id>
+
+# detect AND recover in one step (runs devagent guard against the session)
+npx tsx src/cli.ts guard-status --resume
 ```
 
-Exit code 1 means interrupted, so it can gate scripts or shell prompts.
+Exit code 1 means interrupted (and still interrupted after `--resume`
+fails), so it can gate scripts or shell prompts.
 
 ## Non-retryable errors
 

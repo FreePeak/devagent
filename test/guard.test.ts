@@ -84,6 +84,15 @@ describe('buildResumeArgv', () => {
     const argv = buildResumeArgv(['claude', '--print', 'task'], 's', 'go');
     expect(argv).toEqual(['claude', '--resume', 's', '-p', 'go']);
   });
+
+  it('replaces a prior --resume id when re-resuming', () => {
+    const argv = buildResumeArgv(
+      ['claude', '--resume', 'old-s', '-p', 'Continue'],
+      'new-s',
+      'Continue',
+    );
+    expect(argv).toEqual(['claude', '--resume', 'new-s', '-p', 'Continue']);
+  });
 });
 
 describe('backoffDelay', () => {
