@@ -4,3 +4,4 @@ dist/
 .devagent/
 *.log
 .env
+.selfbuild/
