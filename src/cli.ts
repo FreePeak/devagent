@@ -434,6 +434,14 @@ program
   });
 
 program
+  .command('mcp')
+  .description('Expose DevAgent as MCP tools over stdio (devagent_dispatch/status/log)')
+  .action(async () => {
+    const { startMcpServer } = await import('./server/mcp.js');
+    startMcpServer();
+  });
+
+program
   .command('clean')
   .description('Remove run worktrees older than the cutoff (default 7 days)')
   .option('--repo <path>', 'target repository', process.cwd())
