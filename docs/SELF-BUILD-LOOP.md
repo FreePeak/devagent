@@ -42,8 +42,10 @@ iteration simply reruns under its own number.
 6. **Testing** — `devagent task` gates internally (test-gate, migration rules,
    async-review); after merge-back the driver additionally runs repo-level `npm test`.
    Failure marks the iteration failed and feeds diagnostics into the next Research phase.
-7. **Push** — `--auto-pr` pushes the branch and opens a PR (or commit-to-main when
-   `SELFBUILD_PUSH_MODE=main`, matching historical loop practice).
+7. **Push** — `--auto-pr` pushes the branch and opens a PR. **Policy (locked 2026-08-24):
+   product code always ships as a PR, never direct to origin/main**; direct main is
+   reserved for docs and `.selfbuild` protocol chores. `SELFBUILD_PUSH_MODE=main`
+   remains available but is not the operating default.
 
 ## Running
 
@@ -63,6 +65,7 @@ Environment knobs (all optional):
 | `SELFBUILD_PUSH_MODE` | `pr` | `pr` (branch + PR via auto-pr) or `main` (direct commit) |
 | `SELFBUILD_CLAUDE` | `claude -p` | Headless researcher invocation |
 | `SELFBUILD_STARVATION_LIMIT` | `5` | Halt when the last N ledger entries are all non-`ok` (cross-run thrash guard) |
+| `SELFBUILD_CLEANUP_DELAY_SECS` | `1800` | Grace period before a pr-mode iteration's worktree + branch (`devagent/TASK`) are removed; deletion only happens once the branch tip is verified on origin |
 | `SELFBUILD_DRY_RUN` | `0` | `1` executes all phases without side effects (stub outputs, no claude/task/push) |
 
 ## Guardrails (Kitchen Loop lineage)
