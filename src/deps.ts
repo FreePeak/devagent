@@ -1,8 +1,10 @@
+import { basename } from 'node:path';
 import type { Credentials } from './config.js';
 import type { PipelineDeps, ImplementResult } from './pipeline.js';
 import type { RunConfig, TicketClass, TicketSpec } from './types.js';
 import type { RunLogger } from './logger.js';
 import type { ImplementationPlan } from './planner.js';
+import type { FanoutLeg } from './workers/fanout.js';
 import { fetchTicket, postTicketComment } from './integrations/linear.js';
 import { runMigrationStaticGate } from './validation/runner.js';
 import { createWorktree, isGitRepository } from './git/worktree.js';
@@ -149,11 +151,47 @@ export async function implementStage(
   if (cfg.worker === 'both') {
     const { runFanout } = await import('./workers/fanout.js');
     const { runTestGate } = await import('./validation/test-gate.js');
+    const git = await import('./git/worktree.js');
     log.info('implement', 'Fan-out mode: dispatching both workers', {});
+
+    // Merge-assist for the fan-out winner (PRD section 17 Phase 4): make the
+    // winning leg publishable through the normal pushBranch/createPr path.
+    // Every step is best-effort; a cleanup failure never fails the run.
+    const canonicalBranch = `devagent/${plan.ticket.id}`;
+    const mergeAssistWinner = async (legs: FanoutLeg[], winner: FanoutLeg): Promise<void> => {
+      if (!winner.worktreePath) return;
+      try {
+        const committed = await git.commitAllChanges(
+          winner.worktreePath,
+          `devagent(${plan.ticket.id}): fan-out winner (${winner.worker})`,
+        );
+        if (!committed) log.info('implement', 'Fan-out winner had nothing to commit', {});
+      } catch (err) {
+        log.warn('implement', `Fan-out winner commit failed: ${(err as Error).message}`);
+      }
+      try {
+        await git.renameCurrentBranch(winner.worktreePath, canonicalBranch);
+        log.info('implement', `Fan-out winner branch renamed to ${canonicalBranch}`, {});
+      } catch (err) {
+        log.warn('implement', `Fan-out winner branch rename failed: ${(err as Error).message}`);
+      }
+      for (const leg of legs) {
+        if (leg === winner || !leg.worktreePath) continue;
+        try {
+          await git.removeWorktree(cfg.repoPath, basename(leg.worktreePath));
+          if (leg.branch) await git.deleteBranch(cfg.repoPath, leg.branch);
+          log.info('implement', `Fan-out loser cleaned up: ${leg.worker}`, {});
+        } catch (err) {
+          log.warn('implement', `Fan-out loser cleanup failed (${leg.worker}): ${(err as Error).message}`);
+        }
+      }
+    };
+
     const winner = await runFanout(plan, ['claude-code', 'opencode'], log, {
       repoPath: cfg.repoPath,
       timeoutMs: cfg.timeoutMs,
       scoreLeg: (wt, ms) => runTestGate(wt, ms).then((r) => r.passed),
+      onSelected: mergeAssistWinner,
     });
     if (!winner) {
       return { ok: false, worker: 'claude-code', attempts: 1 };
