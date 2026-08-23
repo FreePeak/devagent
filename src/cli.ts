@@ -88,12 +88,6 @@ program
   .option('--max-loops <n>', 'test-failure retry budget', Number)
   .action(async (opts) => {
     const config = loadConfig(process.cwd());
-    const creds = loadCredentials();
-    if (!creds.linearApiKey) {
-      console.error('LINEAR_API_KEY is not set.');
-      process.exitCode = 1;
-      return;
-    }
 
     const entries = [];
     for (const raw of opts.repo as string[]) {
@@ -104,6 +98,13 @@ program
         return;
       }
       entries.push({ name: raw.slice(0, eq), path: raw.slice(eq + 1) });
+    }
+
+    const creds = loadCredentials();
+    if (!creds.linearApiKey) {
+      console.error('LINEAR_API_KEY is not set.');
+      process.exitCode = 1;
+      return;
     }
 
     const { runFleet } = await import('./fleet.js');

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { runFleet, type FleetRunOptions } from '../src/fleet.js';
-import { mkdtempSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -74,5 +75,39 @@ describe('runFleet', () => {
     void join;
     void tmpdir;
     void mkdtempSync;
+  });
+});
+
+describe('fleet CLI argument validation', () => {
+  it('reports malformed --repo entries before credential checks, with exit code 1', () => {
+    const repoRoot = join(tmpdir(), 'da-fleet-cli-badrepo');
+    mkdtempSync(repoRoot);
+    try {
+      let status: number | undefined;
+      let stderr = '';
+      try {
+        execFileSync(
+          'npx',
+          ['tsx', 'src/cli.ts', 'fleet', '--ticket', 'E-1', '--repo', 'badformat'],
+          {
+            cwd: join(import.meta.dirname, '..'),
+            stdio: 'pipe',
+            env: {
+              PATH: process.env.PATH,
+              HOME: process.env.HOME,
+              // Explicitly absent: LINEAR_API_KEY
+            },
+          },
+        );
+      } catch (err) {
+        status = (err as { status?: number }).status;
+        stderr = (err as { stderr?: Buffer }).stderr?.toString() ?? '';
+      }
+      expect(status).toBe(1);
+      expect(stderr).toContain('Invalid --repo entry "badformat" (expected name=path)');
+      expect(stderr).not.toContain('LINEAR_API_KEY');
+    } finally {
+      rmSync(repoRoot, { recursive: true, force: true });
+    }
   });
 });
