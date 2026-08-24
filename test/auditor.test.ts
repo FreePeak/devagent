@@ -347,6 +347,40 @@ describe('repeat-gap escalation (SWE-agent L2)', () => {
   });
 });
 
+describe('wave budget ceiling (SWE-agent L1)', () => {
+  it('stops dispatching at maxWaves and leaves pending tasks resumable', async () => {
+    const b = board([
+      task({ id: 'T1' }),
+      task({ id: 'T2' }),
+    ]);
+    let execs = 0;
+    const out = await runScheduler(
+      b,
+      { repoPath: '.', executor: 'claude-code', concurrency: 1, maxTaskRetries: 3, maxWaves: 2, timeoutMs: 1000 },
+      {
+        // always fail so tasks keep re-queuing; without a cap this never ends
+        executeTask: async ({ task: t }) => {
+          execs += 1;
+          t.status = 'untrusted';
+          return { ok: true };
+        },
+        auditTask: async () => ({
+          verdict: 'fail',
+          integrity: 'clean',
+          criteriaResults: [{ criterion: `gap wave-${execs}`, met: false, evidence: 'nope' }],
+          summary: 'not done',
+        }),
+      },
+      log,
+    );
+    // 2 waves x 2 tasks; the cap stopped wave 3 (each task keeps failing with
+    // distinct gaps, so without the cap this loops until retries exhaust)
+    expect(execs).toBe(4);
+    // nothing stuck mid-flight; tasks stay retryable -> --resume continues
+    expect(out.tasks.every((t) => t.status !== 'dispatched' && t.status !== 'untrusted' && t.status !== 'done')).toBe(true);
+  });
+});
+
 describe('parseRecoveryContract', () => {
   it('parses valid contracts and rejects malformed ones', () => {
     expect(parseRecoveryContract('```json\n{"prompt":"redo via migration","acceptanceCriteria":["down.sql exists"]}\n```')).toEqual({

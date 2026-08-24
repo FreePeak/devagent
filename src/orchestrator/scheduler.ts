@@ -58,6 +58,13 @@ export interface SchedulerOptions {
    */
   repeatGapThreshold?: number;
   timeoutMs: number;
+  /**
+   * Hard cap on dispatch waves (SWE-agent L1: unresolved runs average 2x the
+   * cost of resolved ones — bound the board instead of escalating budgets).
+   * When reached, unfinished tasks stay pending and the run ends with a
+   * resumable board.
+   */
+  maxWaves?: number;
   /** Called after each wave with terminal task transitions persisted (LangGraph pending-writes lesson). */
   onWavePersisted?: (board: ProjectBoard) => void;
 }
@@ -95,12 +102,21 @@ export async function runScheduler(
     return true;
   };
 
+  let wave = 0;
   for (;;) {
     board.tasks = recomputeReadiness(board.tasks);
     const queue = board.tasks.filter(
       (t) => t.status === 'ready' || (t.status === 'failed' && t.attempts < opts.maxTaskRetries),
     );
     if (queue.length === 0) break;
+    // Budget ceiling: stop dispatching, leave the board resumable
+    if (opts.maxWaves !== undefined && wave >= opts.maxWaves) {
+      log.warn('task', `wave budget exhausted after ${wave} wave(s); ${queue.length} task(s) still queued`, {
+        queued: queue.map((t) => t.id),
+      });
+      break;
+    }
+    wave += 1;
 
     const workers = Array.from({ length: Math.min(opts.concurrency, queue.length) }, async () => {
       for (;;) {
