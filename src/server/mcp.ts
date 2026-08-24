@@ -83,11 +83,11 @@ const TOOLS: ToolDef[] = [
         repoPath: { type: 'string', description: 'Absolute path to the git repository holding the ledger' },
         taskId: { type: 'string', description: 'Optional filter to one task id' },
       },
-        required: ['repoPath'],
-      },
+      required: ['repoPath'],
     },
-    {
-      name: 'devagent_answer',
+  },
+  {
+    name: 'devagent_answer',
     description:
       'Answer a task an auditor paused for human input (board status "ask"). The answer folds into the task contract and the task re-enters the queue; use devagent_board to discover pending questions.',
     inputSchema: {

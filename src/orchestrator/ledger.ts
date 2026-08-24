@@ -82,3 +82,19 @@ export function readLedger(repoPath: string, opts: { taskId?: string } = {}): Au
   }
   return out;
 }
+
+/**
+ * Compact evidence history for one task, newest first (SWE-agent lesson:
+ * informative-but-concise feedback — operators see verdict trends without
+ * reading raw JSONL).
+ */
+export function ledgerTailFor(
+  repoPath: string,
+  taskId: string,
+  n = 3,
+): Array<{ ts: string; attempt: number; verdict: string; integrity: string }> {
+  return readLedger(repoPath, { taskId })
+    .slice(-n)
+    .reverse()
+    .map((r) => ({ ts: r.ts, attempt: r.attempt, verdict: r.verdict, integrity: r.integrity }));
+}
