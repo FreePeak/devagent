@@ -15,6 +15,7 @@ export interface TaskOptions {
   prompt: string;
   repoPath: string;
   autoPr: boolean;
+  autoMerge?: boolean;
   maxLoops: number;
   timeoutMs: number;
   log: RunLogger;
