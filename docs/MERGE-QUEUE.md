@@ -4,7 +4,7 @@
 below merges clean, including cross-stack pairs.*
 
 Merge in this order (each PR's base retargets to main automatically once its
-parent lands):
+parent lands; verified conflict-free including the #7 -> #12 extension, 2026-08-24 loop 53):
 
 | Order | PR | Contents | Base |
 |---|---|---|---|
@@ -15,6 +15,7 @@ parent lands):
 | 5 | #9 | run ledger (persisted audit verdicts) | main |
 | 6 | #10 | `devagent_ledger` MCP tool | #9 |
 | 7 | #11 | audit history in `devagent project` | #10 |
+| 8 | #12 | repeat-gap escalation to recovery contracts | #7 |
 | any | #8 | orchestration guide docs | main |
 
 After all land: 253+ tests green on the combined tree (verified per-branch;
@@ -24,7 +25,6 @@ re-run `npm test` after each merge).
 
 Once #3/#7 are in, implement from [openhands-sweagent.md](research/openhands-sweagent.md):
 
-1. L2 — consecutive unmet-criterion streak → early recovery escalation
-   (scheduler.ts)
+~~L2 — consecutive-failure escalation~~ — shipped as #12
 2. L1 — board-level spend/wave budget ceiling (cli + scheduler)
 3. L4 — converge board/log/ledger onto the ledger stream
