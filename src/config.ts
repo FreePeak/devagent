@@ -16,6 +16,8 @@ export interface DevAgentConfig {
   /** Opt out of manual review: DevAgent auto-reviews and auto-merges its own PRs. */
   autoMerge?: boolean;
   testCommand?: string;
+  /** Repo-local lessons file injected into worker prompts (defaults to .devagent/lessons.md). */
+  lessonsFile?: string;
 }
 
 export interface Credentials {
