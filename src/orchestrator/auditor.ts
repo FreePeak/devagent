@@ -1,6 +1,8 @@
+import { dirname, join } from 'node:path';
 import type { AuditVerdict, OrchestratorTask, ProjectBoard } from './types.js';
 import type { WorkerName } from '../types.js';
 import { spawnCli } from '../workers/spawn-utils.js';
+import { appendAuditRecord, auditLedgerRecord } from './ledger.js';
 
 /**
  * Auditor role (LongHorizon-Harness lesson): executor self-reports never
@@ -127,5 +129,29 @@ export async function runAudit(args: {
       ? { ...report, integrity: 'violation', summary: `${report.summary}\n[harness] workspace mutated during audit: ${mutated.slice(0, 5).join(', ')}` }
       : { verdict: 'fail', integrity: 'violation', criteriaResults: [{ criterion: 'audit completed', met: false, evidence: `workspace mutated during audit: ${mutated.slice(0, 5).join(', ')}` }], summary: '[harness] workspace mutated during audit' };
   }
+  // Persist to the run ledger (best-effort): history survives worktree
+  // cleanup and board resets. Inconclusive runs record a fail/unknown entry
+  // so gaps in the ledger are meaningful, not silent.
+  const { appendAuditRecord } = await import('./ledger.js');
+  appendAuditRecord(
+    await repoRootFrom(args.worktreePath),
+    auditLedgerRecord({
+      taskId: args.task.id,
+      attempt: args.task.attempts,
+      verdict: report ?? { verdict: 'fail', integrity: 'suspect', criteriaResults: [], summary: 'audit inconclusive: worker crash or unparsable report' },
+    }),
+  );
   return report;
+}
+
+/**
+ * Resolve the main repository root from a linked worktree so ledger writes
+ * land in one durable place regardless of which worktree ran the audit.
+ * Falls back to the worktree itself outside a git context.
+ */
+export async function repoRootFrom(worktreePath: string): Promise<string> {
+  const r = await spawnCli('git', ['rev-parse', '--git-common-dir'], { cwd: worktreePath, timeoutMs: 15_000 });
+  if (r.exitCode !== 0 || !r.stdout.trim()) return worktreePath;
+  const dir = r.stdout.trim();
+  return dir.endsWith('/.git') || dir === '.git' ? join(worktreePath, dir, '..') : dirname(dir);
 }

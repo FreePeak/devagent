@@ -80,6 +80,7 @@ export interface OrchestratorTask {
    * recovery re-contract instead of burning retries on the same wall).
    */
   repeatGaps?: number;
+
 }
 
 /** Branch/worktree attempt suffix; recovery grants extend it to stay collision-free. */

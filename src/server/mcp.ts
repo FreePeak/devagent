@@ -64,13 +64,40 @@ const TOOLS: ToolDef[] = [
   {
     name: 'devagent_board',
     description:
-      'Read the durable orchestration board (.devagent-project.json): goal, planner/executor roles, and every task with status, dependencies, attempts, and failure detail. Lets MCP hosts observe shared pipeline state.',
+      'Read the durable orchestration board (.devagent-project.json): goal, planner/executor roles, and every task with status, dependencies, attempts, and failure detail. Tasks paused for human input (status "ask") are also listed under pendingQuestions.',
     inputSchema: {
       type: 'object',
       properties: {
         repoPath: { type: 'string', description: 'Absolute path to the git repository holding the board file' },
       },
       required: ['repoPath'],
+    },
+  },
+  {
+    name: 'devagent_ledger',
+    description:
+      'Read the append-only audit ledger (.devagent/runs/orchestration/events.jsonl): one record per independent audit with verdict, integrity, unmet criteria, and summary. History that survives worktree cleanup; complements the live devagent_board view.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repoPath: { type: 'string', description: 'Absolute path to the git repository holding the ledger' },
+        taskId: { type: 'string', description: 'Optional filter to one task id' },
+      },
+      required: ['repoPath'],
+    },
+  },
+  {
+    name: 'devagent_answer',
+    description:
+      'Answer a task an auditor paused for human input (board status "ask"). The answer folds into the task contract and the task re-enters the queue; use devagent_board to discover pending questions.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repoPath: { type: 'string', description: 'Absolute path to the git repository holding the board file' },
+        taskId: { type: 'string', description: 'Task id currently in status "ask"' },
+        answer: { type: 'string', description: 'The human decision or missing information' },
+      },
+      required: ['repoPath', 'taskId', 'answer'],
     },
   },
 ];
@@ -130,6 +157,9 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<st
         updatedAt: board.updatedAt,
         roles: board.roles,
         counts,
+        pendingQuestions: board.tasks
+          .filter((t) => t.status === 'ask')
+          .map((t) => ({ taskId: t.id, title: t.title, question: (t.failureDetail ?? '').replace(/^needs human input:\s*/, '') })),
         tasks: board.tasks.map((t) => ({
           id: t.id,
           title: t.title,
@@ -149,6 +179,20 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<st
           ...(t.failureDetail ? { failureDetail: t.failureDetail } : {}),
         })),
       });
+    }
+    case 'devagent_ledger': {
+      const { readLedger } = await import('../orchestrator/ledger.js');
+      return JSON.stringify({
+        records: readLedger(String(args.repoPath), { taskId: args.taskId ? String(args.taskId) : undefined }),
+      });
+    }
+    case 'devagent_answer': {
+      const { loadBoard, saveBoard, applyHumanAnswer } = await import('../orchestrator/store.js');
+      const board = loadBoard(String(args.repoPath));
+      if (!board) return JSON.stringify({ ok: false, note: 'no project board for this repo' });
+      const r = applyHumanAnswer(board, String(args.taskId), String(args.answer));
+      if (r.ok) saveBoard(String(args.repoPath), board); // persist only on success
+      return JSON.stringify(r);
     }
     case 'devagent_dispatch': {
       const { spawnCli } = await import('../workers/spawn-utils.js');

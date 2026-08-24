@@ -347,6 +347,7 @@ describe('repeat-gap escalation (SWE-agent L2)', () => {
   });
 });
 
+
 describe('parseRecoveryContract', () => {
   it('parses valid contracts and rejects malformed ones', () => {
     expect(parseRecoveryContract('```json\n{"prompt":"redo via migration","acceptanceCriteria":["down.sql exists"]}\n```')).toEqual({

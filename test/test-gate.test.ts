@@ -40,6 +40,76 @@ describe('detectTestCommand', () => {
     }
   });
 
+  it('falls back to python3 -m pytest on pyproject.toml', () => {
+    const dir = tempRepo({ 'pyproject.toml': '[tool.pytest]\n' });
+    try {
+      expect(detectTestCommand(dir)).toEqual({ cmd: 'python3', args: ['-m', 'pytest'] });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('uses the devagent.json testCommand override when present', () => {
+    const dir = tempRepo({ 'devagent.json': JSON.stringify({ testCommand: 'python3 -m pytest -q' }) });
+    try {
+      expect(detectTestCommand(dir)).toEqual({ cmd: 'python3', args: ['-m', 'pytest', '-q'] });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('prefers the override over package.json and go.mod conventions', () => {
+    const dir = tempRepo({
+      'package.json': JSON.stringify({ scripts: { test: 'vitest run' } }),
+      'devagent.json': JSON.stringify({ testCommand: 'make test' }),
+    });
+    try {
+      expect(detectTestCommand(dir)).toEqual({ cmd: 'make', args: ['test'] });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('falls through to conventions on malformed devagent.json', () => {
+    const dir = tempRepo({ 'package.json': JSON.stringify({ scripts: { test: 'x' } }), 'devagent.json': '{oops' });
+    try {
+      expect(detectTestCommand(dir)).toEqual({ cmd: 'npm', args: ['test'] });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('throws on an invalid testCommand type instead of falling through', () => {
+    const dir = tempRepo({
+      'package.json': JSON.stringify({ scripts: { test: 'vitest run' } }),
+      '.devagent.json': JSON.stringify({ testCommand: 42 }),
+    });
+    try {
+      expect(() => detectTestCommand(dir)).toThrow(/Invalid testCommand/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('ranks overrides above npm, go, and python conventions', () => {
+    const withAll = tempRepo({
+      'package.json': JSON.stringify({ scripts: { test: 'x' } }),
+      'go.mod': 'module x\n',
+      'pyproject.toml': '[tool.pytest]\n',
+    });
+    const withGoPy = tempRepo({ 'go.mod': 'module x\n', 'pyproject.toml': '[tool.pytest]\n' });
+    try {
+      expect(detectTestCommand(withGoPy)).toEqual({ cmd: 'go', args: ['test', './...'] });
+      writeFileSync(join(withAll, 'devagent.json'), JSON.stringify({ testCommand: 'yarn test' }));
+      expect(detectTestCommand(withAll)).toEqual({ cmd: 'yarn', args: ['test'] });
+      rmSync(join(withAll, 'devagent.json'));
+      expect(detectTestCommand(withAll)).toEqual({ cmd: 'npm', args: ['test'] });
+    } finally {
+      rmSync(withAll, { recursive: true, force: true });
+      rmSync(withGoPy, { recursive: true, force: true });
+    }
+  });
+
   it('returns null with no conventions', () => {
     expect(detectTestCommand(tempRepo())).toBeNull();
   });
