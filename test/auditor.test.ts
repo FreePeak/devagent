@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { buildAuditPrompt, parseAuditReport } from '../src/orchestrator/auditor.js';
+import { parseRecoveryContract } from '../src/orchestrator/planner.js';
 import { runScheduler } from '../src/orchestrator/scheduler.js';
-import { recomputeReadiness } from '../src/orchestrator/types.js';
+import { attemptSuffix, recomputeReadiness } from '../src/orchestrator/types.js';
 import type { AuditVerdict, OrchestratorTask, ProjectBoard } from '../src/orchestrator/types.js';
 import { RunLogger } from '../src/logger.js';
 
@@ -216,6 +217,187 @@ describe('audit-gated scheduler transitions', () => {
       log,
     );
     expect(b.tasks[0]!.status).toBe('done');
+  });
+});
+
+describe('recovery contracts (LH manager re-contracting)', () => {
+  it('grants one planner re-contract on terminal failure, then succeeds', async () => {
+    const b = board([task({ id: 'T1' })]);
+    let execs = 0;
+    let recoveries = 0;
+    await runScheduler(
+      b,
+      { repoPath: '.', executor: 'claude-code', concurrency: 1, maxTaskRetries: 1, maxRecoveries: 1, timeoutMs: 1000 },
+      {
+        executeTask: async ({ task: t }) => {
+          execs += 1;
+          // first contract is doomed; the recovery contract passes
+          return { ok: (t.recoveries ?? 0) > 0 };
+        },
+        planRecovery: async () => {
+          recoveries += 1;
+          return { prompt: 'targeted fix: export y from src/y.ts', acceptanceCriteria: ['src/y.ts exports y'] };
+        },
+      },
+      log,
+    );
+    expect(recoveries).toBe(1);
+    expect(execs).toBe(2); // original attempt + recovery attempt
+    const t1 = b.tasks[0]!;
+    expect(t1.status).toBe('done');
+    expect(t1.prompt).toContain('targeted fix');
+    expect(t1.acceptanceCriteria).toEqual(['src/y.ts exports y']);
+  });
+
+  it('stops granting after maxRecoveries and goes terminal failed', async () => {
+    const b = board([task({ id: 'T1' })]);
+    let recoveries = 0;
+    await runScheduler(
+      b,
+      { repoPath: '.', executor: 'claude-code', concurrency: 1, maxTaskRetries: 1, maxRecoveries: 1, timeoutMs: 1000 },
+      {
+        executeTask: async () => ({ ok: false, detail: 'tests failed' }),
+        planRecovery: async () => {
+          recoveries += 1;
+          return { prompt: `try harder (${recoveries})` };
+        },
+      },
+      log,
+    );
+    expect(recoveries).toBe(1); // cap respected
+    expect(b.tasks[0]!.status).toBe('failed');
+  });
+
+  it('goes straight to failed when no recovery planner is wired', async () => {
+    const b = board([task({ id: 'T1' })]);
+    await runScheduler(
+      b,
+      { repoPath: '.', executor: 'claude-code', concurrency: 1, maxTaskRetries: 1, timeoutMs: 1000 },
+      { executeTask: async () => ({ ok: false, detail: 'boom' }) },
+      log,
+    );
+    expect(b.tasks[0]!.status).toBe('failed');
+  });
+});
+
+describe('repeat-gap escalation (SWE-agent L2)', () => {
+  const failVerdict = (criterion: string): AuditVerdict => ({
+    verdict: 'fail',
+    integrity: 'clean',
+    criteriaResults: [{ criterion, met: false, evidence: 'grep found nothing' }],
+    summary: 'not done',
+  });
+
+  it('escalates to recovery after 2 identical primary gaps, before retries exhaust', async () => {
+    const b = board([task({ id: 'T1' })]);
+    let execs = 0;
+    let recoveries = 0;
+    await runScheduler(
+      b,
+      { repoPath: '.', executor: 'claude-code', concurrency: 1, maxTaskRetries: 3, maxRecoveries: 1, timeoutMs: 1000 },
+      {
+        executeTask: async ({ task: t }) => {
+          execs += 1;
+          return { ok: true };
+        },
+        auditTask: async ({ task: t }) =>
+          (t.recoveries ?? 0) > 0
+            ? { verdict: 'pass', integrity: 'clean', criteriaResults: [{ criterion: 'b holds', met: true, evidence: 'fixed under new contract' }], summary: 'verified' }
+            : failVerdict('b holds'), // same primary gap every pre-recovery attempt
+        planRecovery: async () => {
+          recoveries += 1;
+          return { prompt: `rewritten contract ${recoveries}`, acceptanceCriteria: ['b holds'] };
+        },
+      },
+      log,
+    );
+    // attempt 1 -> gap streak 1 (retry); attempt 2 -> streak 2 triggers early
+    // escalation instead of burning retries 3+ against the same wall
+    expect(execs).toBe(3); // two doomed attempts + one under the new contract
+    expect(recoveries).toBe(1);
+    expect(b.tasks[0]!.status).toBe('done');
+    expect(b.tasks[0]!.prompt).toContain('rewritten contract');
+  });
+
+  it('does not escalate when gaps differ between attempts', async () => {
+    const b = board([task({ id: 'T1' })]);
+    let recoveries = 0;
+    let call = 0;
+    await runScheduler(
+      b,
+      { repoPath: '.', executor: 'claude-code', concurrency: 1, maxTaskRetries: 2, maxRecoveries: 1, timeoutMs: 1000 },
+      {
+        executeTask: async () => ({ ok: true }),
+        auditTask: async ({ task: t }) =>
+          (t.recoveries ?? 0) > 0
+            ? { verdict: 'pass', integrity: 'clean', criteriaResults: [{ criterion: 'ok', met: true, evidence: 'done' }], summary: 'verified' }
+            : failVerdict(`criterion v${++call}`),
+        planRecovery: async () => {
+          recoveries += 1;
+          return { prompt: 'rewrite' };
+        },
+      },
+      log,
+    );
+    // distinct primary gaps each time: no early escalation, budget runs out
+    // first, recovery granted exactly at exhaustion
+    expect(recoveries).toBe(1);
+    expect(b.tasks[0]!.status).toBe('done');
+    expect(call).toBe(2);
+  });
+});
+
+describe('wave budget ceiling (SWE-agent L1)', () => {
+  it('stops dispatching at maxWaves and leaves pending tasks resumable', async () => {
+    const b = board([
+      task({ id: 'T1' }),
+      task({ id: 'T2' }),
+    ]);
+    let execs = 0;
+    const out = await runScheduler(
+      b,
+      { repoPath: '.', executor: 'claude-code', concurrency: 1, maxTaskRetries: 3, maxWaves: 2, timeoutMs: 1000 },
+      {
+        // always fail so tasks keep re-queuing; without a cap this never ends
+        executeTask: async ({ task: t }) => {
+          execs += 1;
+          t.status = 'untrusted';
+          return { ok: true };
+        },
+        auditTask: async () => ({
+          verdict: 'fail',
+          integrity: 'clean',
+          criteriaResults: [{ criterion: `gap wave-${execs}`, met: false, evidence: 'nope' }],
+          summary: 'not done',
+        }),
+      },
+      log,
+    );
+    // 2 waves x 2 tasks; the cap stopped wave 3 (each task keeps failing with
+    // distinct gaps, so without the cap this loops until retries exhaust)
+    expect(execs).toBe(4);
+    // nothing stuck mid-flight; tasks stay retryable -> --resume continues
+    expect(out.tasks.every((t) => t.status !== 'dispatched' && t.status !== 'untrusted' && t.status !== 'done')).toBe(true);
+  });
+});
+
+describe('parseRecoveryContract', () => {
+  it('parses valid contracts and rejects malformed ones', () => {
+    expect(parseRecoveryContract('```json\n{"prompt":"redo via migration","acceptanceCriteria":["down.sql exists"]}\n```')).toEqual({
+      prompt: 'redo via migration',
+      acceptanceCriteria: ['down.sql exists'],
+    });
+    expect(parseRecoveryContract('{"prompt":"   "}')).toBeNull();
+    expect(parseRecoveryContract('{"acceptanceCriteria":["x"]}')).toBeNull();
+    expect(parseRecoveryContract('{"prompt":"p","acceptanceCriteria":["ok",42]}')).toBeNull();
+  });
+});
+
+describe('attemptSuffix', () => {
+  it('stays legacy-compatible and extends for recoveries', () => {
+    expect(attemptSuffix(2)).toBe('a2');
+    expect(attemptSuffix(2, 0)).toBe('a2');
+    expect(attemptSuffix(0, 1)).toBe('a0r1');
   });
 });
 

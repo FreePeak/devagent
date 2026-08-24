@@ -46,8 +46,10 @@ export async function executeTask(args: {
 
   let worktreePath: string | undefined;
   try {
-    // branch devagent/<TASKID>-<attempt> keeps retries isolated (fresh tree)
-    const wt = await createWorktree(repoPath, `${sanitizeTicketId(task.id)}-a${task.attempts}`);
+    // branch devagent/<TASKID>-a<attempt>[r<recovery>] keeps retries isolated
+    // (fresh tree); recovery grants extend the suffix to avoid branch reuse
+    const { attemptSuffix } = await import('./types.js');
+    const wt = await createWorktree(repoPath, `${sanitizeTicketId(task.id)}-${attemptSuffix(task.attempts, task.recoveries)}`);
     worktreePath = wt.worktreePath;
   } catch (err) {
     return { ok: false, detail: `worktree creation failed: ${(err as Error).message}` };

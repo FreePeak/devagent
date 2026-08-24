@@ -113,6 +113,79 @@ export function fallbackPlan(goal: string): OrchestratorTask[] {
   ];
 }
 
+const RECOVERY_SYSTEM_PROMPT = `You are a software planner. An autonomous coding agent failed this task after exhausting its retries. Write a NEW implementation contract targeting exactly what went wrong — do not repeat the old approach blindly.
+Respond with ONLY a JSON object (no prose, no markdown fences):
+{"prompt":"precise implementation instructions incorporating what failed and how to avoid it","acceptanceCriteria":["machine-checkable completion signal",...]}`;
+
+export interface RecoveryContract {
+  prompt: string;
+  acceptanceCriteria?: string[];
+}
+
+/** Parse a recovery contract field-by-field; untrusted data, malformed = null. */
+export function parseRecoveryContract(text: string): RecoveryContract | null {
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (start === -1 || end <= start) return null;
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text.slice(start, end + 1));
+  } catch {
+    return null;
+  }
+  const o = raw as Record<string, unknown>;
+  if (typeof o.prompt !== 'string' || !o.prompt.trim()) return null;
+  let acceptanceCriteria: string[] | undefined;
+  if (Array.isArray(o.acceptanceCriteria)) {
+    if (!o.acceptanceCriteria.every((c) => typeof c === 'string' && c.trim())) return null;
+    acceptanceCriteria = (o.acceptanceCriteria as string[]).slice(0, 10);
+  }
+  return { prompt: o.prompt, acceptanceCriteria };
+}
+
+/**
+ * Manager-style re-contracting (LH lesson): when retries are exhausted,
+ * rewrite the task contract around the recorded evidence gaps and audit
+ * findings instead of letting the failure block the subtree. Returns null
+ * when no recovery contract can be produced.
+ */
+export async function runRecoveryPlanner(args: {
+  goal: string;
+  task: OrchestratorTask;
+  repoPath: string;
+  plannerWorker: WorkerName;
+  timeoutMs: number;
+}): Promise<RecoveryContract | null> {
+  const { getWorker } = await import('../workers/index.js');
+  const worker = getWorker(args.plannerWorker);
+  const t = args.task;
+  const auditNote = t.audit
+    ? `\nLatest audit (${t.audit.verdict}/${t.audit.integrity}):\n${t.audit.criteriaResults.map((c) => `- ${c.criterion}: ${c.met ? 'met' : 'UNMET'} — ${c.evidence.slice(0, 200)}`).join('\n')}`
+    : '';
+  const gaps = t.evidenceGaps?.length ? `\nEvidence gaps:\n${t.evidenceGaps.map((g) => `- ${g}`).join('\n')}` : '';
+  const failure = t.failureDetail ? `\nFailure detail: ${t.failureDetail.slice(0, 400)}` : '';
+  const result = await worker.spawn({
+    prompt: [
+      RECOVERY_SYSTEM_PROMPT,
+      '',
+      '## Project goal',
+      args.goal,
+      '',
+      `## Failed task ${t.id}: ${t.title}`,
+      t.prompt,
+      t.acceptanceCriteria?.length ? `\nAcceptance criteria were:\n${t.acceptanceCriteria.map((c) => `- ${c}`).join('\n')}` : '',
+      `${auditNote}${gaps}${failure}`,
+      `\nAttempts used: ${t.attempts}`,
+    ]
+      .filter(Boolean)
+      .join('\n'),
+    cwd: args.repoPath,
+    timeoutMs: args.timeoutMs,
+  });
+  if (result.timedOut || result.exitCode !== 0) return null;
+  return parseRecoveryContract(result.resultText ?? '');
+}
+
 export async function runPlanner(
   goal: string,
   repoPath: string,

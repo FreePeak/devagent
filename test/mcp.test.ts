@@ -14,7 +14,7 @@ describe('handleRpc', () => {
   it('lists all tools', async () => {
     const res = await handleRpc({ jsonrpc: '2.0', id: 2, method: 'tools/list' });
     const tools = (res as { result: { tools: { name: string }[] } }).result.tools;
-    expect(tools.map((t) => t.name)).toEqual(['devagent_dispatch', 'devagent_status', 'devagent_log', 'devagent_board', 'devagent_ledger']);
+    expect(tools.map((t) => t.name)).toEqual(['devagent_dispatch', 'devagent_status', 'devagent_log', 'devagent_board', 'devagent_ledger', 'devagent_answer']);
   });
 
   it('answers ping', async () => {
