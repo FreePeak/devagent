@@ -178,6 +178,45 @@ program
     const dedup = new DeliveryDedup();
 
     const server = createServer((req, res) => {
+      // Human-in-the-loop resume endpoint (LangGraph interrupt/resume pattern:
+      // observation via devagent_board, decisions POSTed here). Token-gated.
+      if (req.method === 'POST' && req.url?.startsWith('/api/answer')) {
+        const token = process.env.DEVAGENT_ANSWER_TOKEN;
+        if (!token || req.headers.authorization !== `Bearer ${token}`) {
+          // 503 when unconfigured: the service refuses to run approvals open
+          res.statusCode = token ? 401 : 503;
+          res.setHeader('content-type', 'application/json');
+          res.end(JSON.stringify({ ok: false, note: token ? 'unauthorized' : 'DEVAGENT_ANSWER_TOKEN not configured' }));
+          return;
+        }
+        let raw = '';
+        req.on('data', (c: Buffer) => {
+          raw += c;
+          if (raw.length > 1_000_000) req.destroy(); // bound the body
+        });
+        req.on('end', () => {
+          let parsed: { repoPath?: unknown; taskId?: unknown; answer?: unknown };
+          try {
+            parsed = JSON.parse(raw) as typeof parsed;
+          } catch {
+            res.statusCode = 400;
+            res.end(JSON.stringify({ ok: false, note: 'invalid JSON body' }));
+            return;
+          }
+          if (typeof parsed.repoPath !== 'string' || typeof parsed.taskId !== 'string' || typeof parsed.answer !== 'string') {
+            res.statusCode = 400;
+            res.end(JSON.stringify({ ok: false, note: 'expected {repoPath, taskId, answer} strings' }));
+            return;
+          }
+          void import('./orchestrator/store.js').then(({ applyAnswerToRepo }) => {
+            const r = applyAnswerToRepo(parsed.repoPath as string, parsed.taskId as string, parsed.answer as string);
+            res.statusCode = r.status;
+            res.setHeader('content-type', 'application/json');
+            res.end(JSON.stringify(r.body));
+          });
+        });
+        return;
+      }
       if (req.method !== 'POST' || !req.url?.startsWith('/webhooks/linear')) {
         res.statusCode = 404;
         res.end();
@@ -198,7 +237,9 @@ program
       });
     });
 
-    server.listen(opts.port, () => console.log(`Listening on :${opts.port} — POST /webhooks/linear`));
+    server.listen(opts.port, () =>
+      console.log(`Listening on :${opts.port} — POST /webhooks/linear, POST /api/answer (Bearer DEVAGENT_ANSWER_TOKEN)`),
+    );
   });
 
 /** Fire-and-forget pipeline execution for webhook-dispatched tickets. */

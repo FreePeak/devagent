@@ -65,3 +65,32 @@ export function applyHumanAnswer(
   t.status = 'pending';
   return { ok: true, note: `Answered ${id}; task back in queue.` };
 }
+
+export interface AnswerEndpointResult {
+  /** HTTP status code for the answer route */
+  status: number;
+  body: Record<string, unknown>;
+}
+
+/**
+ * Repo-level answer application with HTTP semantics, shared by the `serve`
+ * command's POST /api/answer route (LangGraph interrupt/resume pattern:
+ * observation and resumption are separate endpoints; decisions bind
+ * explicitly to a task id and reject cleanly when state moved on).
+ */
+export function applyAnswerToRepo(repoPath: string, taskId: string, answer: string): AnswerEndpointResult {
+  if (!answer.trim()) {
+    return { status: 400, body: { ok: false, note: 'empty answer' } };
+  }
+  const board = loadBoard(repoPath);
+  if (!board) {
+    return { status: 404, body: { ok: false, note: 'no project board for this repo' } };
+  }
+  const r = applyHumanAnswer(board, taskId, answer);
+  if (!r.ok) {
+    // unknown id or task no longer in 'ask': a stale/duplicate decision is a conflict
+    return { status: 409, body: { ok: false, note: r.note } };
+  }
+  saveBoard(repoPath, board);
+  return { status: 200, body: { ok: true, note: r.note } };
+}
