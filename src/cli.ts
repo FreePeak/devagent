@@ -621,7 +621,17 @@ program
   .description('Show the orchestration run ledger (persisted audit verdicts)')
   .option('--repo <path>', 'target repository', process.cwd())
   .option('--task <id>', 'filter to one task id')
+  .option('--summary', 'print aggregate outcome stats instead of the record list')
   .action(async (opts) => {
+    if (opts.summary) {
+      const { summarizeLedger } = await import('./orchestrator/ledger.js');
+      const sum = summarizeLedger(opts.repo);
+      console.log(
+        `tasks: ${sum.tasks} | audits: ${sum.audits} | resolved: ${sum.resolved} | unresolved: ${sum.unresolved}` +
+          (sum.meanAttemptsToPass !== null ? ` | mean attempts-to-pass: ${sum.meanAttemptsToPass}` : ''),
+      );
+      return;
+    }
     const { readLedger } = await import('./orchestrator/ledger.js');
     const records = readLedger(opts.repo, { taskId: opts.task });
     if (records.length === 0) {

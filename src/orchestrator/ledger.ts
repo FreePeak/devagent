@@ -98,3 +98,46 @@ export function ledgerTailFor(
     .reverse()
     .map((r) => ({ ts: r.ts, attempt: r.attempt, verdict: r.verdict, integrity: r.integrity }));
 }
+
+/**
+ * Outcome aggregation (LangSmith lesson: raw traces earn their keep only
+ * through pass/fail comparison). Attempts-to-pass measures how often the
+ * evidence gate rejects first work — the auditor's real catch rate.
+ */
+export interface LedgerSummary {
+  tasks: number;
+  audits: number;
+  /** Tasks with at least one clean-pass audit */
+  resolved: number;
+  /** Mean attempt index of the first passing audit, across resolved tasks */
+  meanAttemptsToPass: number | null;
+  /** Tasks whose latest audit is fail/ask — still open work */
+  unresolved: number;
+}
+
+export function summarizeLedger(repoPath: string): LedgerSummary {
+  const byTask = new Map<string, AuditLedgerRecord[]>();
+  for (const r of readLedger(repoPath)) {
+    const list = byTask.get(r.taskId) ?? [];
+    list.push(r);
+    byTask.set(r.taskId, list);
+  }
+  let audits = 0;
+  let resolved = 0;
+  let attemptsSum = 0;
+  for (const records of byTask.values()) {
+    audits += records.length;
+    const firstPass = records.find((r) => r.verdict === 'pass' && r.integrity === 'clean');
+    if (firstPass) {
+      resolved += 1;
+      attemptsSum += firstPass.attempt;
+    }
+  }
+  return {
+    tasks: byTask.size,
+    audits,
+    resolved,
+    meanAttemptsToPass: resolved > 0 ? Math.round((attemptsSum / resolved) * 100) / 100 : null,
+    unresolved: byTask.size - resolved,
+  };
+}

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { LEDGER_DIR, appendAuditRecord, auditLedgerRecord, ledgerTailFor, readLedger } from '../src/orchestrator/ledger.js';
+import { LEDGER_DIR, appendAuditRecord, auditLedgerRecord, ledgerTailFor, readLedger, summarizeLedger } from '../src/orchestrator/ledger.js';
 import type { AuditVerdict } from '../src/orchestrator/types.js';
 
 const pass: AuditVerdict = {
@@ -92,5 +92,37 @@ describe('ledgerTailFor (project evidence history)', () => {
     appendAuditRecord(repo, auditLedgerRecord({ taskId: 'T1', attempt: 1, verdict: pass }));
     // caller suppresses display for a lone clean pass; helper still returns it
     expect(ledgerTailFor(repo, 'T1')).toHaveLength(1);
+  });
+});
+
+describe('summarizeLedger (outcome analytics)', () => {
+  const dirs: string[] = [];
+  afterEach(() => {
+    for (const d of dirs) rmSync(d, { recursive: true, force: true });
+    dirs.length = 0;
+  });
+
+  it('computes resolved rate and mean attempts-to-pass across tasks', () => {
+    const repo = mkdtempSync(join(tmpdir(), 'da-sum-'));
+    dirs.push(repo);
+    // T1: fail then pass on attempt 2; T2: pass first try; T3: never passes
+    appendAuditRecord(repo, auditLedgerRecord({ taskId: 'T1', attempt: 1, verdict: failWithUnmet('x') }));
+    appendAuditRecord(repo, auditLedgerRecord({ taskId: 'T1', attempt: 2, verdict: pass }));
+    appendAuditRecord(repo, auditLedgerRecord({ taskId: 'T2', attempt: 1, verdict: pass }));
+    appendAuditRecord(repo, auditLedgerRecord({ taskId: 'T3', attempt: 1, verdict: failWithUnmet('y') }));
+    const sum = summarizeLedger(repo);
+    expect(sum).toEqual({ tasks: 3, audits: 4, resolved: 2, meanAttemptsToPass: 1.5, unresolved: 1 });
+  });
+
+  it('reports zero state for an empty ledger without dividing by zero', () => {
+    const repo = mkdtempSync(join(tmpdir(), 'da-sum-empty-'));
+    dirs.push(repo);
+    expect(summarizeLedger(repo)).toEqual({
+      tasks: 0,
+      audits: 0,
+      resolved: 0,
+      meanAttemptsToPass: null,
+      unresolved: 0,
+    });
   });
 });
