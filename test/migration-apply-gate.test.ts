@@ -58,6 +58,7 @@ describe('runMigrationApplyGate', () => {
   it('skips when no compose file exists', async () => {
     const r = await runMigrationApplyGate(tempRepo(), 1000);
     expect(r.passed).toBe(true);
+    expect(r.skipped).toBe(true);
     expect(r.detail).toContain('skipped');
     expect(mockSpawn).not.toHaveBeenCalled();
   });
@@ -110,9 +111,40 @@ describe('runMigrationApplyGate', () => {
       });
       const r = await runMigrationApplyGate(dir, 5000);
       expect(r.passed).toBe(true);
+      expect(r.skipped).toBeUndefined();
       expect(r.detail).toContain('down-migration: exit 0');
+      expect(r.detail).toContain('rollback round-trip re-up: exit 0');
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
 });
+
+  it('fails when the rollback round-trip re-up breaks after a successful down', async () => {
+    const dir = tempRepo({
+      'docker-compose.yml': compose,
+      'devagent.json': JSON.stringify({ g2: { dbService: 'db', migrationUp: 'migrate up', migrationDown: 'migrate down' } }),
+    });
+    try {
+      let shCalls = 0;
+      mockSpawn.mockImplementation(async (cmd, args) => {
+        if (cmd === 'docker' && args![0] === 'info')
+          return { exitCode: 0, stdout: '24.0', stderr: '', timedOut: false };
+        if (cmd === 'sh') {
+          shCalls += 1;
+          // up ok, down ok, re-up broken (e.g. non-idempotent migration)
+          return shCalls <= 2
+            ? { exitCode: 0, stdout: 'ok', stderr: '', timedOut: false }
+            : { exitCode: 1, stdout: '', stderr: 'column already exists', timedOut: false };
+        }
+        return { exitCode: 0, stdout: '', stderr: '', timedOut: false }; // compose up/down
+      });
+      const r = await runMigrationApplyGate(dir, 5000);
+      expect(shCalls).toBe(3);
+      expect(r.passed).toBe(false);
+      expect(r.detail).toContain('rollback round-trip re-up: exit 1');
+      expect(mockSpawn.mock.calls.some(([c, a]) => c === 'docker' && a!.includes('down'))).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });

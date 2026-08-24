@@ -42,6 +42,7 @@ export async function runTestGate(
     return {
       gate: 'G1-tests',
       passed: true,
+      skipped: true,
       findings: [],
       detail: 'skipped: no runnable test command detected (Docker sandbox not yet configured)',
     };
