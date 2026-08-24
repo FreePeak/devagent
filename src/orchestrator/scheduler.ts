@@ -51,6 +51,13 @@ export interface SchedulerOptions {
   maxTaskRetries: number;
   /** Recovery-contract grants per task before a failure goes terminal */
   maxRecoveries?: number;
+  /**
+   * Consecutive audits repeating the same primary gap that trigger early
+   * recovery escalation (default 2 — SWE-agent decay data says a third
+   * identical attempt rarely recovers).
+   */
+  repeatGapThreshold?: number;
+
   timeoutMs: number;
   /** Called after each wave with terminal task transitions persisted (LangGraph pending-writes lesson). */
   onWavePersisted?: (board: ProjectBoard) => void;
@@ -63,6 +70,8 @@ export async function runScheduler(
   log: RunLogger,
 ): Promise<ProjectBoard> {
   const maxRecoveries = opts.maxRecoveries ?? 1;
+  const repeatGapThreshold = opts.repeatGapThreshold ?? 2;
+
   /** Grant one planner-written re-contract before a failure goes terminal. */
   const grantRecovery = async (task: OrchestratorTask): Promise<boolean> => {
     if (!deps.planRecovery || (task.recoveries ?? 0) >= maxRecoveries) return false;
@@ -83,6 +92,8 @@ export async function runScheduler(
     task.evidenceGaps = undefined;
     task.audit = undefined;
     task.failureDetail = undefined;
+    task.repeatGaps = 0; // new contract, fresh streak
+
     log.info('task', `${task.id} granted recovery contract #${task.recoveries}`, {});
     return true;
   };
@@ -142,8 +153,22 @@ export async function runScheduler(
               if (!v) gaps.push('audit inconclusive: worker crashed or report unparsable');
               task.evidenceGaps = gaps;
               if (v) task.audit = v;
+              // L2 (SWE-agent §B.3.3): recovery odds decay when the same gap
+              // repeats — escalate to a recovery re-contract early instead of
+              // burning the remaining retry budget against the same wall.
+              const primaryGap = gaps[0] ?? '';
+              const prevPrimary = task.failureDetail ?? '';
+              task.repeatGaps = primaryGap && primaryGap === prevPrimary ? (task.repeatGaps ?? 0) + 1 : 1;
+              const earlyEscalation =
+                (task.repeatGaps ?? 0) >= repeatGapThreshold &&
+                (task.recoveries ?? 0) < (opts.maxRecoveries ?? 1);
               task.status =
-                task.attempts < opts.maxTaskRetries ? 'pending' : (await grantRecovery(task)) ? 'pending' : 'failed';
+                task.attempts < opts.maxTaskRetries && !earlyEscalation
+                  ? 'pending'
+                  : (await grantRecovery(task))
+                    ? 'pending'
+                    : 'failed';
+
               task.failureDetail = gaps[0] ?? 'audit failed';
               log.warn('task', `${task.id} audit rejected (${v ? v.verdict + '/' + v.integrity : 'inconclusive'})`, {
                 attempt: task.attempts,

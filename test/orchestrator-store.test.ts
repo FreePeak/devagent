@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { createBoard, formatPlanOnly, loadBoard, saveBoard } from '../src/orchestrator/store.js';
 import { applyHumanAnswer, createBoard, formatPlanOnly, loadBoard, saveBoard } from '../src/orchestrator/store.js';
 import type { ProjectBoard } from '../src/orchestrator/types.js';
 import { existsSync, mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
@@ -89,6 +90,7 @@ describe('formatPlanOnly (orchestrate --plan-only)', () => {
     expect(out).not.toContain('constraints:');
   });
 });
+
 
 describe('applyHumanAnswer', () => {
   function askBoard(): ProjectBoard {
