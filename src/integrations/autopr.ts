@@ -41,10 +41,33 @@ export interface PrStatus {
   state: string;
   mergeable: string;
   reviewDecision: string;
+  /** Author login; when it equals the gh token's viewer, approvals are impossible. */
+  author: string;
   checks: CheckRun[];
 }
 
-const PR_FIELDS = 'number,title,headRefName,baseRefName,state,mergeable,reviewDecision,statusCheckRollup';
+const PR_FIELDS =
+  'number,title,headRefName,baseRefName,state,mergeable,reviewDecision,author,statusCheckRollup';
+
+function parsePr(raw: Record<string, unknown>): PrStatus {
+  const rollup = (raw.statusCheckRollup as Array<Record<string, unknown>> | undefined) ?? [];
+  const author = raw.author as { login?: string } | undefined;
+  return {
+    number: Number(raw.number),
+    title: String(raw.title ?? ''),
+    headRefName: String(raw.headRefName ?? ''),
+    baseRefName: String(raw.baseRefName ?? ''),
+    state: String(raw.state ?? ''),
+    mergeable: String(raw.mergeable ?? 'UNKNOWN'),
+    reviewDecision: String(raw.reviewDecision ?? ''),
+    author: author?.login ?? '',
+    checks: rollup.map((c) => ({
+      name: String(c.name ?? 'unknown'),
+      status: String(c.status ?? 'UNKNOWN'),
+      conclusion: (c.conclusion as string | null) ?? null,
+    })),
+  };
+}
 
 /** True when a completed check counts as passing (SKIPPED/NEUTRAL are not failures). */
 function checkPassed(c: CheckRun): boolean {
@@ -146,34 +169,18 @@ export async function getPrStatus(
   run: RunGh = defaultRunGh,
 ): Promise<PrStatus> {
   const r = await run(['pr', 'view', String(pr), '--json', PR_FIELDS], repoPath);
-  const raw = JSON.parse(r.stdout) as PrStatus & { statusCheckRollup?: Array<Record<string, unknown>> };
-  const checks: CheckRun[] = (raw.statusCheckRollup ?? []).map((c) => ({
-    name: String(c.name ?? 'unknown'),
-    status: String(c.status ?? 'UNKNOWN'),
-    conclusion: (c.conclusion as string | null) ?? null,
-  }));
-  return { ...raw, checks };
+  return parsePr(JSON.parse(r.stdout) as Record<string, unknown>);
 }
 
 export async function listOpenPrs(repoPath: string, run: RunGh = defaultRunGh): Promise<PrStatus[]> {
   const r = await run(['pr', 'list', '--state', 'open', '--json', PR_FIELDS], repoPath);
-  return (JSON.parse(r.stdout) as Array<Record<string, unknown>>).map((p) => {
-    const rollup = (p.statusCheckRollup as Array<Record<string, unknown>> | undefined) ?? [];
-    return {
-      number: Number(p.number),
-      title: String(p.title ?? ''),
-      headRefName: String(p.headRefName ?? ''),
-      baseRefName: String(p.baseRefName ?? ''),
-      state: String(p.state ?? ''),
-      mergeable: String(p.mergeable ?? 'UNKNOWN'),
-      reviewDecision: String(p.reviewDecision ?? ''),
-      checks: rollup.map((c) => ({
-        name: String(c.name ?? 'unknown'),
-        status: String(c.status ?? 'UNKNOWN'),
-        conclusion: (c.conclusion as string | null) ?? null,
-      })),
-    };
-  });
+  return (JSON.parse(r.stdout) as Array<Record<string, unknown>>).map(parsePr);
+}
+
+/** Login owning the gh token; used to detect self-authored PRs. */
+export async function getViewerLogin(repoPath: string, run: RunGh = defaultRunGh): Promise<string> {
+  const r = await run(['api', 'user', '--jq', '.login'], repoPath);
+  return r.stdout.trim();
 }
 
 export async function getPrDiff(repoPath: string, pr: number, run: RunGh = defaultRunGh): Promise<string> {
@@ -189,6 +196,20 @@ export async function postPrReview(
   run: RunGh = defaultRunGh,
 ): Promise<void> {
   await run(['pr', 'review', String(pr), event === 'APPROVE' ? '--approve' : '--request-changes', '-b', body], repoPath);
+}
+
+/**
+ * Evidence delivery for self-authored PRs: GitHub rejects self-approvals
+ * ("Review Can not approve your own pull request"), so the verdict is posted
+ * as a plain comment instead and merging relies on the gates alone.
+ */
+export async function postPrComment(
+  repoPath: string,
+  pr: number,
+  body: string,
+  run: RunGh = defaultRunGh,
+): Promise<void> {
+  await run(['pr', 'comment', String(pr), '--body', body], repoPath);
 }
 
 export async function mergePr(
@@ -283,11 +304,24 @@ export async function autoReviewAndMergeOne(
     return { pr, title: status.title, action: 'skipped', detail: `[dry-run] ${review.reason}` };
   }
 
-  await postPrReview(repoPath, pr, review.event, review.body, run);
-  log(`review posted: ${review.reason}`);
-
-  if (review.event === 'REQUEST_CHANGES') {
-    return { pr, title: status.title, action: 'review-requested', detail: review.reason };
+  let selfAuthored = false;
+  try {
+    selfAuthored = Boolean(status.author) && status.author === (await getViewerLogin(repoPath, run));
+  } catch {
+    // viewer lookup failed: assume not self-authored and let the review fail loudly
+  }
+  if (selfAuthored) {
+    await postPrComment(repoPath, pr, review.body, run);
+    log(`verdict commented (self-authored): ${review.reason}`);
+    if (review.event === 'REQUEST_CHANGES') {
+      return { pr, title: status.title, action: 'review-requested', detail: review.reason };
+    }
+  } else {
+    await postPrReview(repoPath, pr, review.event, review.body, run);
+    log(`review posted: ${review.reason}`);
+    if (review.event === 'REQUEST_CHANGES') {
+      return { pr, title: status.title, action: 'review-requested', detail: review.reason };
+    }
   }
 
   try {

@@ -127,7 +127,7 @@ describe('evaluateAutoReview', () => {
 });
 
 describe('autoReviewAndMergeOne', () => {
-  const viewJson = JSON.stringify({
+  const basePr = {
     number: 9,
     title: 'T',
     headRefName: 'devagent/x',
@@ -135,8 +135,10 @@ describe('autoReviewAndMergeOne', () => {
     state: 'OPEN',
     mergeable: 'MERGEABLE',
     reviewDecision: '',
+    author: { login: 'someone-else' },
     statusCheckRollup: [{ name: 'test', status: 'COMPLETED', conclusion: 'SUCCESS' }],
-  });
+  };
+  const viewJson = JSON.stringify(basePr);
 
   it('approves then merges on green evidence', async () => {
     const { run, calls } = scriptedGh({ view: viewJson, diff: '', review: '', merge: '' });
@@ -162,6 +164,23 @@ describe('autoReviewAndMergeOne', () => {
     expect(o.action).toBe('merged');
     const reviewCall = calls.find((c) => c[1] === 'review')!;
     expect(reviewCall.some((a) => a.includes('DA101'))).toBe(true);
+  });
+
+  it('comments instead of approving a self-authored PR, then merges', async () => {
+    const mine = JSON.parse(viewJson) as Record<string, unknown>;
+    (mine as { author: unknown }).author = { login: 'linh.doan' };
+    const { run, calls } = scriptedGh({
+      view: JSON.stringify(mine),
+      api: 'linh.doan',
+      diff: '',
+      review: new Error('self-approval is forbidden'),
+      comment: '',
+      merge: '',
+    });
+    const o = await autoReviewAndMergeOne('/repo', 9, {}, run);
+    expect(o.action).toBe('merged');
+    expect(calls.some((c) => c[1] === 'comment')).toBe(true);
+    expect(calls.some((c) => c[1] === 'review')).toBe(false);
   });
 
   it('posts request-changes and never merges when CI is red', async () => {
