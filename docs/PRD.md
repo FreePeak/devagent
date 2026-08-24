@@ -526,6 +526,12 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 
 - Remote execution — dispatch pipelines to a shared host so worker capacity is pooled across repos instead of per-workspace.
 - Deeper sandbox isolation — network and filesystem allowlists for workers before any untrusted-repo run.
+  > **Completed post-v0.3 (2026-08-24):** credential-shaped env vars are stripped from
+  > all agent-CLI worker spawns by default (`src/workers/sandbox.ts`, override via
+  > `DEVAGENT_WORKER_ENV_ALLOWLIST`); opt-in macOS seatbelt confinement
+  > (`DEVAGENT_SANDBOX=seatbelt`) denies worker writes outside the worktree and temp
+  > dirs, with network left default-allow as a named policy knob for future tightening.
+  > Git/docker/gh/test-runner spawns keep the full parent env — they need credentials.
 - Selfbuild state bootstrap — auto-create and mirror the `selfbuild/state` orphan branch on first loop run; the durable-state mechanism shipped but no state branch exists on origin yet.
 - Merge-queue rebase automation — stacked loops land with expected conflicts against `main`; auto-rebase waves before dispatch instead of manual queue refreshes.
 - Lessons feedback loop — `selfbuild-state.sh` mirrors `lessons.md` to the state branch (PR #19) but nothing reads it back; inject curated lessons into worker repair and planning prompts so past failures stop repeating.

@@ -1,5 +1,6 @@
 import type { WorkerAdapter, WorkerEvent, WorkerResult, WorkerSpawnOptions } from '../types.js';
 import { spawnCli } from './spawn-utils.js';
+import { prepareWorkerSpawn } from './sandbox.js';
 
 /**
  * Adapter over the OpenCode headless CLI:
@@ -11,15 +12,12 @@ export class OpenCodeAdapter implements WorkerAdapter {
 
   async spawn(opts: WorkerSpawnOptions): Promise<WorkerResult> {
     const start = Date.now();
-    const { exitCode, stdout, timedOut } = await spawnCli(
-      'opencode',
-      ['run', '--format', 'json', opts.prompt],
-      {
-        cwd: opts.cwd,
-        timeoutMs: opts.timeoutMs,
-        ...(opts.env ? { env: opts.env } : {}),
-      },
-    );
+    const prepared = await prepareWorkerSpawn('opencode', ['run', '--format', 'json', opts.prompt], {
+      cwd: opts.cwd,
+      timeoutMs: opts.timeoutMs,
+      ...(opts.env ? { env: opts.env } : {}),
+    });
+    const { exitCode, stdout, timedOut } = await spawnCli(prepared.cmd, prepared.args, prepared.opts);
 
     if (timedOut) {
       return {

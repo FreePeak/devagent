@@ -3,8 +3,14 @@ import { execFile, type ExecFileOptionsWithStringEncoding } from 'node:child_pro
 export interface SpawnCliOptions {
   cwd: string;
   timeoutMs: number;
-  /** Extra env vars merged over process.env. Never logged or included in results. */
+  /** Extra env vars merged over the base environment. Never logged or included in results. */
   env?: Record<string, string>;
+  /**
+   * When true, `env` replaces process.env as the base (still minus
+   * NESTED_ENV_BLOCKLIST) instead of being merged over it. Used by worker
+   * sandboxing: a scrubbed env cannot unset inherited secrets by merging.
+   */
+  replaceEnv?: boolean;
 }
 
 export interface SpawnCliResult {
@@ -37,9 +43,9 @@ export function spawnCli(cmd: string, args: string[], opts: SpawnCliOptions): Pr
       controller.abort();
     }, opts.timeoutMs);
 
-    const baseEnv: NodeJS.ProcessEnv = { ...process.env };
+    const baseEnv: NodeJS.ProcessEnv = opts.replaceEnv ? { ...opts.env } : { ...process.env };
     for (const k of NESTED_ENV_BLOCKLIST) delete baseEnv[k];
-    if (opts.env) Object.assign(baseEnv, opts.env);
+    if (opts.env && !opts.replaceEnv) Object.assign(baseEnv, opts.env);
     execFile(
       cmd,
       args,
