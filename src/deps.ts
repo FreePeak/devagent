@@ -6,6 +6,7 @@ import type { RunLogger } from './logger.js';
 import type { ImplementationPlan } from './planner.js';
 import type { FanoutLeg } from './workers/fanout.js';
 import { fetchTicket, postTicketComment } from './integrations/linear.js';
+import { GITHUB_ISSUE_REF } from './integrations/github-issues.js';
 import { runMigrationStaticGate } from './validation/runner.js';
 import { createWorktree, isGitRepository } from './git/worktree.js';
 import { getWorker } from './workers/index.js';
@@ -43,6 +44,13 @@ export function buildDryRunDeps(ticketId: string): PipelineDeps {
 export function buildDeps(creds: Credentials, cfg: StageConfig, log: RunLogger): PipelineDeps {
   return {
     fetchTicket: (id) => {
+      // GitHub issue refs (owner/repo#n) route to the GitHub Issues adapter
+      if (GITHUB_ISSUE_REF.test(id)) {
+        if (!creds.githubToken) {
+          throw new Error(`GitHub issue ref ${id} requires GITHUB_TOKEN to be set`);
+        }
+        return import('./integrations/github-issues.js').then((m) => m.fetchGitHubTicket(id, creds.githubToken!));
+      }
       // Jira when JIRA_* env present, else Linear (mirrors cli.ts selection)
       if (process.env.JIRA_DOMAIN && process.env.JIRA_EMAIL && process.env.JIRA_API_TOKEN) {
         return import('./integrations/jira.js').then((m) =>
