@@ -373,10 +373,37 @@ program
   .option('--auto-pr', 'push branch and open PR when green', false)
   .option('--auto-merge', 'auto review + merge the PR once CI is green (default from config autoMerge)', false)
   .option('--max-loops <n>', 'test-failure retry budget', Number)
+  .option(
+    '--remote <target>',
+    'delegate to a shared host instead of running locally: [user@]host:/abs/repo/path or ssh://user@host:port/path',
+  )
   .action(async (opts) => {
     const config = loadConfig(opts.repo);
     const creds = loadCredentials();
     const logger = new RunLogger();
+
+    // Remote execution: the shared host owns its checkout, workers and
+    // credentials; this process is a thin client that ships the prompt over
+    // SSH and reports the outcome.
+    if (opts.remote) {
+      const { runRemoteTask } = await import('./remote.js');
+      const { spawnCli } = await import('./workers/index.js');
+      logger.info('task', `Task run ${logger.runId} starting (remote: ${opts.remote})`, {});
+      const result = await runRemoteTask(
+        {
+          target: opts.remote as string,
+          prompt: opts.prompt as string,
+          worker: opts.worker as string | undefined,
+          timeoutMs: config.timeoutMinutes * 60_000,
+          log: logger,
+        },
+        { run: (argv, timeoutMs) => spawnCli(argv[0]!, argv.slice(1), { cwd: process.cwd(), timeoutMs }) },
+      );
+      console.log(result.ok ? result.note : `remote task failed: ${result.note}`);
+      if (result.prUrl) console.log(`PR: ${result.prUrl}`);
+      process.exitCode = result.ok ? 0 : 1;
+      return;
+    }
 
     const cfg = {
       prompt: opts.prompt as string,
