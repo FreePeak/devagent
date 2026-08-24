@@ -503,24 +503,43 @@ Worker dispatch (Claude Code), Linear fetch, worktree + branch, test loop with r
 
 Gates G2/G3/G4, OpenCode adapter + fan-out mode, migration safety rules.
 
+> **Completed post-v0.3 (2026-08-24):** merge-assist for fan-out winners;
+> second language ecosystem via declarative `testCommand` override +
+> Python/pyproject convention detection (PR #15).
+
 ### Phase 3 — Hardening ✅
 
 Webhook-triggered runs with HMAC verification and dedup, run dashboard/status commands, end-to-end fixture tests, Linear + GitHub rate-limit resilience.
 
+> **Completed post-v0.3 (2026-08-24):** Jira adapter, GitLab publisher,
+> GitHub Issues ingestion end-to-end (PR #18); orchestration run ledger +
+> outcome analytics (`devagent_ledger` MCP tool), repeat-gap escalation to
+> recovery contracts, wave budget ceiling (`--max-waves`), auto review +
+> auto merge (`autoMerge`, PR #17).
+
 ### Phase 4 — Expansion (post-v1)
 
-Jira adapter, GitLab publisher, second language ecosystem, GitHub Issues ingestion, merge-assist for fan-out winners, remote execution, deeper sandbox isolation.
+- Remote execution — dispatch pipelines to a shared host so worker capacity is pooled across repos instead of per-workspace.
+- Deeper sandbox isolation — network and filesystem allowlists for workers before any untrusted-repo run.
+- Selfbuild state bootstrap — auto-create and mirror the `selfbuild/state` orphan branch on first loop run; the durable-state mechanism shipped but no state branch exists on origin yet.
+- Merge-queue rebase automation — stacked loops land with expected conflicts against `main`; auto-rebase waves before dispatch instead of manual queue refreshes.
+- autoMerge CI-status gate — auto-merge currently keys off internal gates plus review verdicts; also require green external CI checks before merge.
+- Flaky-test guard for fan-out judging — winner selection assumes deterministic tests; add quarantine/rerun handling for nondeterministic suites.
+- Failure-cluster reporting on ledger analytics — recurring gap categories in the ledger should surface as actionable periodic reports, not just queryable rows.
 
 ## 18. Open Questions
 
 | # | Question | Owner | Needed by |
 |---|---|---|---|
-| Q1 | First target language ecosystem: Go or TypeScript? Determines sandbox image and test-runner integration. | linh.doan | Phase 0 |
-| Q2 | Linear Agent (developer preview) vs plain webhook-on-assignment for v1 trigger? Agent path is richer but preview-status. | linh.doan | Phase 1 |
-| Q3 | Fan-out cost policy: always `both`, on-failure-only, or config per repo? | product | Phase 2 |
 | Q4 | Where do fixture/representative datasets for Gate G2 come from — repo-provided seeds or DevAgent-generated synthetic data? | eng | Phase 2 |
 | Q5 | Should G4 async findings be advisory or blocking? | product | Phase 2 |
-| Q6 | Single-tenant CLI tool first, or multi-tenant service from day one? Affects webhook server design. | linh.doan | Phase 3 |
+| Q7 | Should autoMerge additionally require green external CI status checks (beyond internal gates and review verdicts) before merging? | product | Phase 4 |
+| Q8 | How should winner selection handle flaky/nondeterministic test suites during fan-out judging — rerun budget, quarantine, or refuse-to-judge? | eng | Phase 4 |
+
+> Resolved 2026-08-24: Q1 (ecosystem conventions + `testCommand` override now
+> cover npm/Go/Python), Q2 (plain webhooks shipped in Phase 3), Q3 (policy is
+> one attempt, then fan-out on failure), Q6 (single-tenant CLI + webhook
+> server shipped).
 
 ---
 
