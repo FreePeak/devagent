@@ -611,6 +611,26 @@ program
   });
 
 program
+  .command('ledger')
+  .description('Show the orchestration run ledger (persisted audit verdicts)')
+  .option('--repo <path>', 'target repository', process.cwd())
+  .option('--task <id>', 'filter to one task id')
+  .action(async (opts) => {
+    const { readLedger } = await import('./orchestrator/ledger.js');
+    const records = readLedger(opts.repo, { taskId: opts.task });
+    if (records.length === 0) {
+      console.log('No ledger records. Audits append to .devagent/runs/orchestration/events.jsonl.');
+      return;
+    }
+    for (const r of records) {
+      if (r.kind !== 'audit') continue;
+      const icon = r.verdict === 'pass' ? '+' : r.verdict === 'ask' ? '?' : 'x';
+      const detail = `${r.verdict}/${r.integrity}${r.unmetCriteria.length ? ` unmet:${r.unmetCriteria.length}` : ''} — ${r.summary.slice(0, 90)}`;
+      console.log(`${icon} ${r.ts} [${r.kind}] ${r.taskId} (attempt ${r.attempt}) ${detail}`);
+    }
+  });
+
+program
   .command('mcp')
   .description('Expose DevAgent as MCP tools over stdio (devagent_dispatch/status/log)')
   .action(async () => {
