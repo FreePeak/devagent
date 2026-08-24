@@ -1,6 +1,19 @@
+<div align="center">
+
+<img src="assets/icon.svg" width="96" alt="DevAgent logo"/>
+
 # DevAgent
 
-The Autonomous Backend Delivery Agent for modern engineering teams.
+**The Autonomous Backend Delivery Agent — ticket in, tested pull request out.**
+
+[![CI](https://github.com/FreePeak/devagent/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/FreePeak/devagent/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-6366F1.svg)](LICENSE)
+[![Node](https://img.shields.io/badge/node-%E2%89%A520-22D3EE)](package.json)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+
+</div>
+
+---
 
 DevAgent integrates with your issue tracker (Linear in v1; Jira, GitHub Issues planned), parses backend specs, drafts database migrations, writes production-grade API code using headless coding-agent CLIs (Claude Code, OpenCode) as execution workers, validates every change inside sandboxed Docker containers, and delivers tested Pull Requests with auto-generated documentation for frontend teams.
 
@@ -11,6 +24,17 @@ devagent run --ticket LINEAR-204 --repo ./backend-service --auto-pr
 # Interactive mode with mid-step human approvals
 devagent run --ticket JIRA-8821 --interactive
 ```
+
+## Dashboard
+
+Every orchestration run is observable. `devagent dashboard` renders a static
+status board from run logs — kanban board, per-date run analytics, and feature
+progress across projects:
+
+| Board | Runs by date | Features |
+|---|---|---|
+| ![Board view](docs/screenshots/dashboard-board.png) | ![Runs by date view](docs/screenshots/dashboard-runs-by-date.png) | ![Features view](docs/screenshots/dashboard-features.png) |
+
 
 ## Why DevAgent
 
@@ -99,6 +123,12 @@ npm run dev -- config           # smoke-test the CLI
 
 Credentials via environment only: `LINEAR_API_KEY`, `GITHUB_TOKEN`, `LINEAR_WEBHOOK_SECRET` (for `serve`). See [PRD section 12](docs/PRD.md#12-cli-specification) for the full CLI contract.
 
+## Contributing
+
+Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for setup and
+conventions. For security issues, see [SECURITY.md](SECURITY.md); please do
+not open public issues for vulnerabilities.
+
 ## License
 
-TBD.
+[MIT](LICENSE) © FreePeak and DevAgent contributors.

@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- DevAgent mark: continuous delivery loop around a verified check -->
+  <defs>
+    <linearGradient id="loop" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#22D3EE"/>
+      <stop offset="100%" stop-color="#6366F1"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="42%" r="65%">
+      <stop offset="0%" stop-color="#1E293B"/>
+      <stop offset="100%" stop-color="#0F172A"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="512" height="512" rx="112" fill="url(#glow)"/>
+  <rect x="10" y="10" width="492" height="492" rx="104" fill="none" stroke="#FFFFFF" stroke-opacity="0.06" stroke-width="2"/>
+
+  <!-- delivery loop: 300-degree arc, gap at upper left -->
+  <path d="M 326 135 A 140 140 0 1 1 186 135"
+        fill="none" stroke="url(#loop)" stroke-width="42" stroke-linecap="round"/>
+
+  <!-- loop arrowhead -->
+  <path d="M 234 108 L 200 162 L 170 108 Z" fill="#22D3EE"/>
+
+  <!-- verified check -->
+  <polyline points="202,264 246,308 324,216"
+            fill="none" stroke="#F8FAFC" stroke-width="42"
+            stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

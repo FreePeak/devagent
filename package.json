@@ -2,6 +2,7 @@
   "name": "devagent",
   "version": "0.1.0",
   "description": "Autonomous backend delivery agent: ticket to tested PR",
+  "license": "MIT",
   "type": "module",
   "bin": {
     "devagent": "./dist/cli.js"
