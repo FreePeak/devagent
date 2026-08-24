@@ -76,7 +76,7 @@ Finish by printing exactly one first line: either 'CURATION: changed' or 'CURATI
   fi
 
   # Phase 4-7: validate, plan n/a, implement n/a, push as PR.
-  BRANCH="docs/prd-curation-$DAY"
+  BRANCH="docs/prd-curation-$DAY-$(date -u +%H%M)"
   git checkout -b "$BRANCH"
   git add docs/PRD.md
   git commit -m "Docs: PRD curation $DAY - refresh roadmap backlog from delivery history"
