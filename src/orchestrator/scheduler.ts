@@ -28,6 +28,7 @@ export interface SchedulerDeps {
     board: ProjectBoard;
     repoPath: string;
     timeoutMs: number;
+    lessonsFile?: string;
     log: RunLogger;
   }): Promise<ExecuteTaskResult>;
   /**
@@ -46,6 +47,8 @@ export interface SchedulerDeps {
 
 export interface SchedulerOptions {
   repoPath: string;
+  /** Repo-local lessons file override (see loadLessons). */
+  lessonsFile?: string;
   executor: WorkerName;
   concurrency: number;
   maxTaskRetries: number;
@@ -129,7 +132,7 @@ export async function runScheduler(
         task.attempts += 1;
         log.info('task', `Dispatching ${task.id}: ${task.title}`, { attempt: task.attempts });
         try {
-          const r = await deps.executeTask({ task, board, repoPath: opts.repoPath, timeoutMs: opts.timeoutMs, log });
+          const r = await deps.executeTask({ task, board, repoPath: opts.repoPath, timeoutMs: opts.timeoutMs, lessonsFile: opts.lessonsFile, log });
           task.worktreePath = r.worktreePath ?? task.worktreePath;
           if (r.ok && !deps.auditTask) {
             // legacy mode: no auditor configured — executor gates are the trust boundary

@@ -408,7 +408,7 @@ program
         implementStage: async (c, ticket, lg) => {
           const plan = { ticket, classification: 'endpoint-only' as const, tasks: [], summary: ticket.title };
           return implementStage(
-            { repoPath: c.repoPath, maxLoops: c.maxLoops, timeoutMs: c.timeoutMs, worker: workerName, autoPr: c.autoPr },
+            { repoPath: c.repoPath, maxLoops: c.maxLoops, timeoutMs: c.timeoutMs, worker: workerName, autoPr: c.autoPr, lessonsFile: config.lessonsFile },
             plan,
             lg,
           );
@@ -533,6 +533,7 @@ program
         board,
         {
           repoPath: opts.repo,
+          lessonsFile: config.lessonsFile,
           executor: executorName,
           concurrency: opts.concurrency,
           maxTaskRetries: opts.maxTaskRetries,

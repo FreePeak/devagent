@@ -1,7 +1,7 @@
 import type { RunLogger } from '../logger.js';
 import type { ImplementationPlan } from '../planner.js';
 import type { WorkerName } from '../types.js';
-import { buildImplementationPrompt } from '../prompt.js';
+import { buildImplementationPrompt, loadLessons } from '../prompt.js';
 import { getWorker } from './index.js';
 import { createWorktree } from '../git/worktree.js';
 
@@ -25,6 +25,8 @@ export interface FanoutLeg {
 export interface FanoutOptions {
   repoPath: string;
   timeoutMs: number;
+  /** Repo-local lessons file override (see loadLessons). */
+  lessonsFile?: string;
   scoreLeg?(worktreePath: string, timeoutMs: number): Promise<boolean | null>;
   /**
    * Merge-assist hook (PRD section 17 Phase 4): invoked once after winner
@@ -41,7 +43,7 @@ export async function runFanout(
   log: RunLogger,
   opts: FanoutOptions,
 ): Promise<FanoutLeg | null> {
-  const prompt = buildImplementationPrompt(plan);
+  const prompt = buildImplementationPrompt(plan, loadLessons(opts.repoPath, opts.lessonsFile));
   const legs = await Promise.all(
     workers.map(async (workerName, i): Promise<FanoutLeg> => {
       const worker = getWorker(workerName);

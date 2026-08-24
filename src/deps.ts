@@ -10,7 +10,7 @@ import { GITHUB_ISSUE_REF } from './integrations/github-issues.js';
 import { runMigrationStaticGate } from './validation/runner.js';
 import { createWorktree, isGitRepository } from './git/worktree.js';
 import { getWorker } from './workers/index.js';
-import { buildImplementationPrompt, buildRepairPrompt } from './prompt.js';
+import { buildImplementationPrompt, buildRepairPrompt, loadLessons } from './prompt.js';
 
 export interface StageConfig {
   repoPath: string;
@@ -165,7 +165,7 @@ export function buildDeps(creds: Credentials, cfg: StageConfig, log: RunLogger):
 
 /** Dispatch a worker inside an isolated worktree with the retry loop (FR-IMPL-01..04). */
 export async function implementStage(
-  cfg: StageConfig & Pick<RunConfig, 'worker' | 'maxLoops'>,
+  cfg: StageConfig & Pick<RunConfig, 'worker' | 'maxLoops'> & { lessonsFile?: string },
   plan: ImplementationPlan,
   log: RunLogger,
 ): Promise<ImplementResult> {
@@ -211,6 +211,7 @@ export async function implementStage(
     const winner = await runFanout(plan, ['claude-code', 'opencode'], log, {
       repoPath: cfg.repoPath,
       timeoutMs: cfg.timeoutMs,
+      lessonsFile: cfg.lessonsFile,
       scoreLeg: (wt, ms) => runTestGate(wt, ms).then((r) => r.passed),
       onSelected: mergeAssistWinner,
     });
@@ -223,7 +224,8 @@ export async function implementStage(
 
   const workerName = cfg.worker;
   const worker = getWorker(workerName);
-  const prompt = buildImplementationPrompt(plan);
+  const lessons = loadLessons(cfg.repoPath, cfg.lessonsFile);
+  const prompt = buildImplementationPrompt(plan, lessons);
   let repairPrompt = prompt;
   const maxAttempts = Math.max(1, cfg.maxLoops);
 
@@ -257,7 +259,7 @@ export async function implementStage(
         events: result.events.length,
       });
       if (result.timedOut || result.exitCode !== 0) {
-        repairPrompt = buildRepairPrompt(plan, attempt, result.resultText ?? `worker exited ${result.exitCode}`);
+        repairPrompt = buildRepairPrompt(plan, attempt, result.resultText ?? `worker exited ${result.exitCode}`, lessons);
         continue;
       }
       // Worker reports success: verify with the repo's own test suite before accepting
@@ -269,7 +271,7 @@ export async function implementStage(
       if (g1.passed) {
         return { ok: true, worker: workerName, attempts: attempt, worktreePath };
       }
-      repairPrompt = buildRepairPrompt(plan, attempt, g1.detail ?? 'test suite failed');
+      repairPrompt = buildRepairPrompt(plan, attempt, g1.detail ?? 'test suite failed', lessons);
     }
     return { ok: false, worker: workerName, attempts: maxAttempts, worktreePath };
   } finally {

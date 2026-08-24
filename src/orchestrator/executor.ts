@@ -2,7 +2,7 @@ import type { OrchestratorTask, ProjectBoard } from './types.js';
 import type { RunLogger } from '../logger.js';
 import type { WorkerName } from '../types.js';
 import { createWorktree } from '../git/worktree.js';
-import { buildImplementationPrompt, buildRepairPrompt } from '../prompt.js';
+import { buildImplementationPrompt, buildRepairPrompt, loadLessons } from '../prompt.js';
 import { sanitizeTicketId } from '../git/worktree.js';
 
 /**
@@ -16,6 +16,8 @@ export async function executeTask(args: {
   board: ProjectBoard;
   repoPath: string;
   timeoutMs: number;
+  /** Repo-local lessons file override (see loadLessons). */
+  lessonsFile?: string;
   log: RunLogger;
   executor: WorkerName;
 }): Promise<{ ok: boolean; worktreePath?: string; detail?: string }> {
@@ -56,12 +58,13 @@ export async function executeTask(args: {
   }
 
   const worker = getWorker(executor);
-  const prompt = buildImplementationPrompt(plan);
+  const lessons = loadLessons(repoPath, args.lessonsFile);
+  const prompt = buildImplementationPrompt(plan, lessons);
   const maxAttempts = 2; // in-worker repair loop; scheduler owns cross-wave retries
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const result = await worker.spawn({
-      prompt: attempt === 1 ? prompt : buildRepairPrompt(plan, attempt - 1, 'previous attempt failed the test gate'),
+      prompt: attempt === 1 ? prompt : buildRepairPrompt(plan, attempt - 1, 'previous attempt failed the test gate', lessons),
       cwd: worktreePath,
       timeoutMs,
     });
