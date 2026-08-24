@@ -104,6 +104,24 @@ orca automations create \
 
 Manage with `orca automations list|show|runs|remove`.
 
+**Spawned-session auto-cleanup.** Mode A leaves one Orca workspace
+(`auto-devagent-selfbuild-run-N-<ts>`) plus a live terminal behind per run, forever.
+`scripts/orca-selfbuild-cleanup.sh` reclaims them automatically (macOS):
+
+```sh
+scripts/orca-selfbuild-cleanup.sh                        # dry-run: show what would go
+scripts/orca-selfbuild-cleanup.sh --apply                # close terminals + delete worktrees
+scripts/orca-selfbuild-cleanup.sh --install-launchagent  # schedule hourly via LaunchAgent
+```
+
+Deletion is gated on two safety checks per workspace: nothing modified within
+`ORCA_MIN_AGE_SECS` (default 3600) and HEAD already merged into origin/main (or pushed
+verbatim to origin), so no unpushed work is ever destroyed. Nested
+`.devagent-worktrees/TASK` registrations are detached first; `orca worktree rm` refuses
+the parent otherwise. The LaunchAgent writes `~/Library/Logs/orca-selfbuild-cleanup.log`.
+Other knobs: `ORCA_SELFBUILD_REPO` (repo selector, default `name:devagent`),
+`ORCA_MAIN_REPO` (git context for merge checks).
+
 **B. Long-lived terminal.** Run `npm run selfbuild` inside an Orca terminal tab
 (`orca terminal create`); the script loops internally. Pair with cc-guard
 (`devagent guard-status --resume`) for API-failure recovery.
