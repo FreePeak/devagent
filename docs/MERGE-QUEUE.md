@@ -8,8 +8,8 @@ parent lands; verified conflict-free including the #7 -> #12 extension, 2026-08-
 
 | Order | PR | Contents | Base |
 |---|---|---|---|
-| 1 | #4 | `devagent_answer` MCP tool + pendingQuestions | main |
-| 2 | #6 | token-gated `POST /api/answer` HTTP endpoint | #4 |
+| ~~1~~ | ~~#4~~ merged 2026-08-24 | `devagent_answer` MCP tool + pendingQuestions | — |
+| ~~2~~ | ~~#6~~ merged 2026-08-24 | token-gated `POST /api/answer` HTTP endpoint | — |
 | 3 | #3 | recovery contracts (`--max-recoveries`) | main |
 | 4 | #7 | `orchestrate --plan-only` | #3 |
 | 5 | #9 | run ledger (persisted audit verdicts) | main |
@@ -17,6 +17,10 @@ parent lands; verified conflict-free including the #7 -> #12 extension, 2026-08-
 | 7 | #11 | audit history in `devagent project` | #10 |
 | 8 | #12 | repeat-gap escalation to recovery contracts | #7 |
 | any | #8 | orchestration guide docs | main |
+
+Re-verified against post-#6 main (`d35cb63`): all remaining branches and all
+cross-stack pairs merge conflict-free, **including** selfbuild PR #5
+(gate skipped-evidence semantics), which may merge at any position.
 
 After all land: 253+ tests green on the combined tree (verified per-branch;
 re-run `npm test` after each merge).
