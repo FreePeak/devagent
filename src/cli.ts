@@ -455,6 +455,7 @@ program
   .option('--concurrency <n>', 'parallel executor slots', Number, 2)
   .option('--max-task-retries <n>', 'scheduler retry budget per task', Number, 1)
   .option('--max-recoveries <n>', 'planner-written recovery re-contracts per task before terminal failure (0 disables)', Number, 1)
+  .option('--plan-only', 'persist and print the plan (with contracts), then exit before any executor spend', false)
   .option('--resume', 'continue an existing board instead of re-planning', false)
   // NOTE: no explicit default — commander negates --no-merge to opts.merge=true
   .option('--no-merge', 'skip merge-back even when all tasks are done')
@@ -465,7 +466,7 @@ program
     logger.info('task', `Orchestration run ${logger.runId} starting`, { repo: opts.repo });
 
     try {
-      const { loadBoard, saveBoard, createBoard } = await import('./orchestrator/store.js');
+      const { loadBoard, saveBoard, createBoard, formatPlanOnly } = await import('./orchestrator/store.js');
       const { runScheduler } = await import('./orchestrator/scheduler.js');
       const { executeTask } = await import('./orchestrator/executor.js');
       const { runAudit } = await import('./orchestrator/auditor.js');
@@ -488,6 +489,14 @@ program
         for (const t of tasks) {
           console.log(`  ${t.id}: ${t.title}${t.dependsOn.length ? ` (after ${t.dependsOn.join(',')})` : ''}`);
         }
+      }
+
+      // Validate-before-spend (CrewAI/LangGraph plan-preview lesson): show the
+      // full contracts and stop before executors burn tokens.
+      if (opts.planOnly) {
+        console.log(formatPlanOnly(board));
+        console.log(`\nPlan-only: board saved at ${join(opts.repo, '.devagent-project.json')}. Execute later with --resume.`);
+        return;
       }
 
       // Human-in-the-loop: resolve tasks the auditor paused with verdict 'ask'

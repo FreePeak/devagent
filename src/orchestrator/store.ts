@@ -42,3 +42,18 @@ export function createBoard(
     tasks,
   };
 }
+
+/**
+ * Validate-before-spend rendering for `orchestrate --plan-only`: the full
+ * contracts (prompt, acceptance criteria, boundary constraints) so an
+ * operator can review the plan before any executor spend.
+ */
+export function formatPlanOnly(board: ProjectBoard): string {
+  const lines: string[] = ['Contracts:'];
+  for (const t of board.tasks) {
+    lines.push('', `[${t.id}] ${t.title} (${t.status})`, t.prompt);
+    if (t.acceptanceCriteria?.length) lines.push(`  criteria:\n    ${t.acceptanceCriteria.join('\n    ')}`);
+    if (t.boundaryConstraints?.length) lines.push(`  constraints:\n    ${t.boundaryConstraints.join('\n    ')}`);
+  }
+  return lines.join('\n');
+}
