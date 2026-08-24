@@ -74,6 +74,11 @@ export interface Finding {
 export interface GateResult {
   gate: 'G1-tests' | 'G2-migration-apply' | 'G3-migration-static' | 'G4-async-review';
   passed: boolean;
+  /**
+   * True when the gate did not actually run (missing prerequisites) — evidence
+   * consumers must not treat `passed` as verified-green when this is set.
+   */
+  skipped?: boolean;
   findings: Finding[];
   detail?: string;
 }
