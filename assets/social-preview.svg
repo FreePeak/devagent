@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640">
+  <defs>
+    <linearGradient id="loop" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#22D3EE"/>
+      <stop offset="100%" stop-color="#6366F1"/>
+    </linearGradient>
+    <radialGradient id="bg" cx="30%" cy="30%" r="90%">
+      <stop offset="0%" stop-color="#16213B"/>
+      <stop offset="100%" stop-color="#0B1220"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="1280" height="640" fill="url(#bg)"/>
+
+  <!-- oversized ghost loop, right side -->
+  <g transform="translate(1010,320) scale(1.9)" opacity="0.14">
+    <path d="M -70 -70 A 140 140 0 1 1 -210 -70" fill="none" stroke="#22D3EE" stroke-width="42" stroke-linecap="round"/>
+    <polyline points="-54,-2 -90,52 -120,-2" fill="none" stroke="#22D3EE" stroke-width="42" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <!-- mark -->
+  <g transform="translate(96,128) scale(0.75)">
+    <rect width="512" height="512" rx="112" fill="#0F172A" stroke="#FFFFFF" stroke-opacity="0.08"/>
+    <path d="M 326 135 A 140 140 0 1 1 186 135" fill="none" stroke="url(#loop)" stroke-width="42" stroke-linecap="round"/>
+    <path d="M 234 108 L 200 162 L 170 108 Z" fill="#22D3EE"/>
+    <polyline points="202,264 246,308 324,216" fill="none" stroke="#F8FAFC" stroke-width="42" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <!-- wordmark -->
+  <text x="520" y="290" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
+        font-size="110" font-weight="700" fill="#F8FAFC">DevAgent</text>
+  <text x="524" y="372" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
+        font-size="40" font-weight="400" fill="#94A3B8">Ticket in. Tested pull request out.</text>
+
+  <!-- pipeline chips -->
+  <g font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="28" fill="#CBD5E1">
+    <rect x="520" y="432" width="150" height="56" rx="28" fill="#1E293B"/>
+    <text x="545" y="469">Linear</text>
+    <rect x="686" y="432" width="196" height="56" rx="28" fill="#1E293B"/>
+    <text x="711" y="469">Sandboxed</text>
+    <rect x="898" y="432" width="220" height="56" rx="28" fill="#1E293B"/>
+    <text x="923" y="469">Tested PRs</text>
+  </g>
+</svg>
