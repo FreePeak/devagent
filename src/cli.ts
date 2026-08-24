@@ -466,7 +466,7 @@ program
     logger.info('task', `Orchestration run ${logger.runId} starting`, { repo: opts.repo });
 
     try {
-      const { loadBoard, saveBoard, createBoard, formatPlanOnly } = await import('./orchestrator/store.js');
+      const { loadBoard, saveBoard, createBoard, formatPlanOnly, applyHumanAnswer } = await import('./orchestrator/store.js');
       const { runScheduler } = await import('./orchestrator/scheduler.js');
       const { executeTask } = await import('./orchestrator/executor.js');
       const { runAudit } = await import('./orchestrator/auditor.js');
@@ -502,19 +502,12 @@ program
       // Human-in-the-loop: resolve tasks the auditor paused with verdict 'ask'
       for (const a of (opts.answer ?? []) as string[]) {
         const eq = a.indexOf('=');
-        const id = eq > 0 ? a.slice(0, eq).trim() : '';
-        const text = eq > 0 ? a.slice(eq + 1).trim() : '';
-        const t = id ? board.tasks.find((x) => x.id === id) : undefined;
-        if (!t || t.status !== 'ask' || !text) {
-          console.error(`--answer ${a}: no task '${id || '?'}' paused for input (or empty answer); ignored`);
+        if (eq <= 0) {
+          console.error(`--answer ${a}: expected <taskId>=<answer>; ignored`);
           continue;
         }
-        // The answer becomes part of the contract; audit state resets so the
-        // next attempt is re-verified against it.
-        t.prompt += `\n\nHuman answer to "${t.failureDetail ?? 'prior question'}": ${text}`;
-        t.evidenceGaps = undefined;
-        t.status = 'pending';
-        console.log(`Answered ${id}; task back in queue.`);
+        const r = applyHumanAnswer(board!, a.slice(0, eq), a.slice(eq + 1));
+        (r.ok ? console.log : console.error)(`${r.ok ? '' : `--answer ${a}: `}${r.note}`);
       }
 
       const result = await runScheduler(

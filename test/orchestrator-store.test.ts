@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { createBoard, formatPlanOnly, loadBoard, saveBoard } from '../src/orchestrator/store.js';
+import { applyHumanAnswer, createBoard, formatPlanOnly, loadBoard, saveBoard } from '../src/orchestrator/store.js';
+import type { ProjectBoard } from '../src/orchestrator/types.js';
 import { existsSync, mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -86,5 +87,44 @@ describe('formatPlanOnly (orchestrate --plan-only)', () => {
     const out = formatPlanOnly(board);
     expect(out).not.toContain('criteria:');
     expect(out).not.toContain('constraints:');
+  });
+});
+
+describe('applyHumanAnswer', () => {
+  function askBoard(): ProjectBoard {
+    return {
+      goal: 'g',
+      createdAt: '2026-08-24T00:00:00Z',
+      updatedAt: '2026-08-24T00:00:00Z',
+      roles: { planner: 'claude-code', executor: 'claude-code' },
+      tasks: [
+        {
+          id: 'T1',
+          title: 'paused',
+          prompt: 'original contract',
+          dependsOn: [],
+          status: 'ask',
+          attempts: 1,
+          failureDetail: 'needs human input: which API key env var?',
+        },
+        { id: 'T2', title: 'done', prompt: 'p', dependsOn: [], status: 'done', attempts: 1 },
+      ],
+    };
+  }
+
+  it('folds the answer into the contract and requeues the task', () => {
+    const b = askBoard();
+    const r = applyHumanAnswer(b, 'T1', 'use ORG_API_KEY');
+    expect(r.ok).toBe(true);
+    expect(b.tasks[0]!.status).toBe('pending');
+    expect(b.tasks[0]!.prompt).toContain('use ORG_API_KEY');
+    expect(b.tasks[0]!.prompt).toContain('which API key env var?'); // question kept as context
+    expect(b.tasks[0]!.evidenceGaps).toBeUndefined();
+  });
+
+  it('rejects unknown ids, non-ask tasks, and empty answers', () => {
+    expect(applyHumanAnswer(askBoard(), 'TX', 'yes').ok).toBe(false);
+    expect(applyHumanAnswer(askBoard(), 'T2', 'yes').ok).toBe(false);
+    expect(applyHumanAnswer(askBoard(), 'T1', '   ').ok).toBe(false);
   });
 });
