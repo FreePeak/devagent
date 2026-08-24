@@ -569,6 +569,7 @@ program
   .option('--repo <path>', 'target repository', process.cwd())
   .action(async (opts) => {
     const { loadBoard } = await import('./orchestrator/store.js');
+    const { ledgerTailFor } = await import('./orchestrator/ledger.js');
     const board = loadBoard(opts.repo);
     if (!board) {
       console.log('No project board. Start one: devagent orchestrate --goal "..."');
@@ -603,6 +604,11 @@ program
       console.log(
         ` ${mark} [${t.status}] ${t.id}: ${t.title}${auditNote}${gapNote}${!gapNote && t.failureDetail ? ` — ${t.failureDetail.slice(0, 80)}` : ''}`,
       );
+      // Ledger evidence history (loop 49 L4): verdict trends at a glance
+      const tail = ledgerTailFor(opts.repo, t.id);
+      if (tail.length > 1 || (tail.length === 1 && tail[0]!.verdict !== 'pass')) {
+        console.log(`    history: ${tail.map((r) => `${r.verdict}/${r.integrity}@a${r.attempt}`).join(' -> ')}`);
+      }
     }
     console.log(`Updated: ${board.updatedAt}`);
     const allDone = board.tasks.length > 0 && board.tasks.every((t) => t.status === 'done');
