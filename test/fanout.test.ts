@@ -65,7 +65,7 @@ describe('runFanout', () => {
         scoreLeg: score,
       });
       expect(winner?.worker).toBe('claude-code');
-      expect(score).toHaveBeenCalledTimes(2);
+      expect(score).toHaveBeenCalledTimes(3); // opencode leg gets one flaky rerun
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -95,6 +95,87 @@ describe('runFanout', () => {
         timeoutMs: 5000,
       });
       expect(winner?.worker).toBe('opencode');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('rescues a leg whose tests fail once then pass on rerun, marked flaky', async () => {
+    const dir = logDir();
+    try {
+      mockGetWorker.mockReturnValue(workerMock(0) as never);
+      mockCreate.mockImplementation(async (_r, id) => ({
+        worktreePath: `/tmp/leg-${id}`,
+        branch: `devagent/${id}`,
+      }));
+      const score = vi.fn().mockResolvedValue(true).mockResolvedValueOnce(false);
+
+      const winner = await runFanout(plan, ['opencode'], logger(dir), {
+        repoPath: '/tmp/repo',
+        timeoutMs: 5000,
+        scoreLeg: score,
+      });
+      expect(winner?.worker).toBe('opencode');
+      expect(winner?.flaky).toBe(true);
+      expect(score).toHaveBeenCalledTimes(2);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('prefers a clean pass over a flaky pass', async () => {
+    const dir = logDir();
+    try {
+      const claude = workerMock(0);
+      const open = workerMock(0);
+      mockGetWorker.mockImplementation((n) => (n === 'claude-code' ? claude : open) as never);
+      mockCreate.mockImplementation(async (_r, id) => ({
+        worktreePath: `/tmp/leg-${id}`,
+        branch: `devagent/${id}`,
+      }));
+      // Route by worktree path: claude leg passes cleanly, opencode leg fails
+      // on its first run and passes on the rerun.
+      const calls: Record<string, number> = {};
+      const routed = async (wt: string): Promise<boolean> => {
+        calls[wt] = (calls[wt] ?? 0) + 1;
+        if (wt.includes('claude-code')) return true;
+        return calls[wt] >= 2; // fails on first run, passes on rerun
+      };
+
+      const winner = await runFanout(plan, ['claude-code', 'opencode'], logger(dir), {
+        repoPath: '/tmp/repo',
+        timeoutMs: 5000,
+        scoreLeg: routed,
+      });
+      expect(winner?.worker).toBe('claude-code');
+      expect(winner?.flaky ?? false).toBe(false);
+      expect(calls['/tmp/leg-ENG-9-opencode']).toBe(2);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps a persistently failing leg failed after the single rerun', async () => {
+    const dir = logDir();
+    try {
+      mockGetWorker.mockReturnValue(workerMock(0) as never);
+      mockCreate.mockImplementation(async (_r, id) => ({
+        worktreePath: `/tmp/leg-${id}`,
+        branch: `devagent/${id}`,
+      }));
+      const score = vi.fn().mockResolvedValue(false);
+
+      const winner = await runFanout(plan, ['opencode'], logger(dir), {
+        repoPath: '/tmp/repo',
+        timeoutMs: 5000,
+        scoreLeg: score,
+      });
+      // Sole usable leg still wins (existing semantics), but stays unflagged
+      // and ranked as failed — the guard only rescues pass-after-rerun legs.
+      expect(winner?.worker).toBe('opencode');
+      expect(winner?.testsPassed).toBe(false);
+      expect(winner?.flaky ?? false).toBe(false);
+      expect(score).toHaveBeenCalledTimes(2);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

@@ -17,6 +17,8 @@ export interface FanoutLeg {
   branch?: string;
   ok: boolean;
   testsPassed: boolean | null;
+  /** True when tests failed once and passed on the single flaky rerun. */
+  flaky?: boolean;
   durationMs: number;
 }
 
@@ -62,16 +64,29 @@ export async function runFanout(
         timedOut: result.timedOut,
         durationMs: result.durationMs,
       });
-      const testsPassed = ok && worktreePath && opts.scoreLeg ? await opts.scoreLeg(worktreePath, opts.timeoutMs) : null;
-      return { worker: workerName, worktreePath, branch, ok, testsPassed, durationMs: Date.now() - started };
+      // Flaky guard (PRD section 17 Phase 4): one rerun before condemning a
+      // leg — nondeterministic suites must not discard otherwise good work.
+      let testsPassed = ok && worktreePath && opts.scoreLeg ? await opts.scoreLeg(worktreePath, opts.timeoutMs) : null;
+      let flaky = false;
+      if (testsPassed === false && worktreePath && opts.scoreLeg) {
+        testsPassed = await opts.scoreLeg(worktreePath, opts.timeoutMs);
+        if (testsPassed === true) {
+          flaky = true;
+          log.warn('implement', `Fanout ${workerName}: tests failed then passed on rerun (flaky)`);
+        }
+      }
+      return { worker: workerName, worktreePath, branch, ok, testsPassed, flaky, durationMs: Date.now() - started };
     }),
   );
 
   const usable = legs.filter((l) => l.ok);
   if (usable.length === 0) return null;
 
+  // Clean pass outranks a flaky rescue: a pass that needed a rerun earns no
+  // more trust than a leg we could not score at all.
   const rank = (l: FanoutLeg): number =>
-    (l.testsPassed === true ? 2 : l.testsPassed === null ? 1 : 0) * 10 + (l.worker === 'claude-code' ? 1 : 0);
+    (l.testsPassed === true && !l.flaky ? 2 : l.testsPassed === false && !l.flaky ? 0 : 1) * 10 +
+    (l.worker === 'claude-code' ? 1 : 0);
 
   const winner = usable.reduce((best, leg) => (rank(leg) > rank(best) ? leg : best));
   if (opts.onSelected) await opts.onSelected(usable, winner);
