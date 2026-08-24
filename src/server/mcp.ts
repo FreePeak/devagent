@@ -73,6 +73,19 @@ const TOOLS: ToolDef[] = [
       required: ['repoPath'],
     },
   },
+  {
+    name: 'devagent_ledger',
+    description:
+      'Read the append-only audit ledger (.devagent/runs/orchestration/events.jsonl): one record per independent audit with verdict, integrity, unmet criteria, and summary. History that survives worktree cleanup; complements the live devagent_board view.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repoPath: { type: 'string', description: 'Absolute path to the git repository holding the ledger' },
+        taskId: { type: 'string', description: 'Optional filter to one task id' },
+      },
+      required: ['repoPath'],
+    },
+  },
 ];
 
 function runsDir(): string {
@@ -148,6 +161,12 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<st
           ...(t.evidenceGaps?.length ? { evidenceGaps: t.evidenceGaps } : {}),
           ...(t.failureDetail ? { failureDetail: t.failureDetail } : {}),
         })),
+      });
+    }
+    case 'devagent_ledger': {
+      const { readLedger } = await import('../orchestrator/ledger.js');
+      return JSON.stringify({
+        records: readLedger(String(args.repoPath), { taskId: args.taskId ? String(args.taskId) : undefined }),
       });
     }
     case 'devagent_dispatch': {
