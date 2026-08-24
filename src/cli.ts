@@ -456,6 +456,7 @@ program
   .option('--max-task-retries <n>', 'scheduler retry budget per task', Number, 1)
   .option('--max-recoveries <n>', 'planner-written recovery re-contracts per task before terminal failure (0 disables)', Number, 1)
   .option('--plan-only', 'persist and print the plan (with contracts), then exit before any executor spend', false)
+  .option('--max-waves <n>', 'hard cap on dispatch waves; unfinished tasks stay pending for --resume', Number)
   .option('--resume', 'continue an existing board instead of re-planning', false)
   // NOTE: no explicit default — commander negates --no-merge to opts.merge=true
   .option('--no-merge', 'skip merge-back even when all tasks are done')
@@ -518,6 +519,7 @@ program
           concurrency: opts.concurrency,
           maxTaskRetries: opts.maxTaskRetries,
           maxRecoveries: opts.maxRecoveries,
+          maxWaves: opts.maxWaves,
           timeoutMs,
           // persist after every wave so resume never re-runs done work
           onWavePersisted: (b) => saveBoard(opts.repo, b),
