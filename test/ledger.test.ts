@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { LEDGER_DIR, appendAuditRecord, auditLedgerRecord, ledgerTailFor, readLedger, summarizeLedger } from '../src/orchestrator/ledger.js';
+import { LEDGER_DIR, appendAuditRecord, auditLedgerRecord, clusterFailures, ledgerTailFor, readLedger, summarizeLedger } from '../src/orchestrator/ledger.js';
 import type { AuditVerdict } from '../src/orchestrator/types.js';
 
 const pass: AuditVerdict = {
@@ -124,5 +124,51 @@ describe('summarizeLedger (outcome analytics)', () => {
       meanAttemptsToPass: null,
       unresolved: 0,
     });
+  });
+});
+
+describe('failure clusters', () => {
+  const dirs: string[] = [];
+  const tempRepo = () => {
+    const d = mkdtempSync(join(tmpdir(), 'da-cluster-'));
+    dirs.push(d);
+    return d;
+  };
+  afterEach(() => {
+    for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  });
+
+  it('groups unmet criteria across tasks, counts open tasks, ranks by frequency', () => {
+    const repo = tempRepo();
+    // "tests green" hits T1 (later passes) and T2 (never passes), twice total
+    appendAuditRecord(repo, auditLedgerRecord({ taskId: 'T1', attempt: 1, verdict: failWithUnmet('Tests Green') }));
+    appendAuditRecord(repo, auditLedgerRecord({ taskId: 'T2', attempt: 1, verdict: failWithUnmet('tests   green') }));
+    appendAuditRecord(repo, auditLedgerRecord({ taskId: 'T1', attempt: 2, verdict: pass }));
+    appendAuditRecord(repo, auditLedgerRecord({ taskId: 'T3', attempt: 1, verdict: failWithUnmet('schema exists') }));
+    const clusters = clusterFailures(repo);
+    expect(clusters).toHaveLength(2);
+    expect(clusters[0]).toEqual({
+      criterion: 'Tests Green',
+      occurrences: 2,
+      tasks: ['T1', 'T2'],
+      openTasks: 1,
+    });
+    expect(clusters[1]).toMatchObject({ criterion: 'schema exists', occurrences: 1, openTasks: 1 });
+  });
+
+  it('ignores passing audits without unmet criteria and returns [] for an empty ledger', () => {
+    const repo = tempRepo();
+    appendAuditRecord(repo, auditLedgerRecord({ taskId: 'T1', attempt: 1, verdict: pass }));
+    expect(clusterFailures(repo)).toEqual([]);
+    const empty = tempRepo();
+    expect(clusterFailures(empty)).toEqual([]);
+  });
+
+  it('keeps distinct criteria with different wording in separate clusters', () => {
+    const repo = tempRepo();
+    appendAuditRecord(repo, auditLedgerRecord({ taskId: 'T1', attempt: 1, verdict: failWithUnmet('branch pushed') }));
+    appendAuditRecord(repo, auditLedgerRecord({ taskId: 'T2', attempt: 1, verdict: failWithUnmet('pushed branch') }));
+    const clusters = clusterFailures(repo);
+    expect(clusters.map((c) => c.criterion).sort()).toEqual(['branch pushed', 'pushed branch']);
   });
 });
