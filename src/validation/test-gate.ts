@@ -14,8 +14,32 @@ export interface TestCommand {
   args: string[];
 }
 
-/** Detect the repo's test command from conventional files. */
+const CONFIG_FILENAMES = ['devagent.json', '.devagent.json'];
+
+/**
+ * Detect the repo's test command: declarative devagent.json override first,
+ * then conventional files (package.json, go.mod, pyproject.toml).
+ */
 export function detectTestCommand(repoPath: string): TestCommand | null {
+  for (const name of CONFIG_FILENAMES) {
+    const p = join(repoPath, name);
+    if (existsSync(p)) {
+      let testCommand: unknown;
+      try {
+        testCommand = JSON.parse(readFileSync(p, 'utf8'))?.testCommand;
+      } catch {
+        // malformed config JSON: fall through to convention detection
+      }
+      if (testCommand !== undefined) {
+        if (typeof testCommand !== 'string' || testCommand.length === 0) {
+          throw new Error(`Invalid testCommand "${String(testCommand)}" in ${p}: expected a non-empty string`);
+        }
+        const parts = testCommand.trim().split(/\s+/);
+        return { cmd: parts[0]!, args: parts.slice(1) };
+      }
+      break;
+    }
+  }
   const pkg = join(repoPath, 'package.json');
   if (existsSync(pkg)) {
     try {
@@ -29,6 +53,9 @@ export function detectTestCommand(repoPath: string): TestCommand | null {
   }
   if (existsSync(join(repoPath, 'go.mod'))) {
     return { cmd: 'go', args: ['test', './...'] };
+  }
+  if (existsSync(join(repoPath, 'pyproject.toml'))) {
+    return { cmd: 'python3', args: ['-m', 'pytest'] };
   }
   return null;
 }
