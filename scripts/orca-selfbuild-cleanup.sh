@@ -23,10 +23,30 @@ export PATH
 
 REPO_SELECTOR="${ORCA_SELFBUILD_REPO:-name:devagent}"
 MIN_AGE_SECS="${ORCA_MIN_AGE_SECS:-3600}"
+RUN_MAX_AGE_SECS="${ORCA_RUN_MAX_AGE_SECS:-14400}"
 MAIN_REPO="${ORCA_MAIN_REPO:-$(cd "$(dirname "$0")/.." && pwd)}"
 PATTERN='auto-devagent-'
 APPLY=0
 ACTION="none"
+
+# Workspace paths owned by automation runs Orca still considers open, i.e.
+# status is anything but completed/failed and the run started within
+# RUN_MAX_AGE_SECS (bounds protection if Orca never marks a run terminal).
+live_run_paths() {
+  local aids aid now_ms
+  now_ms="$(( $(date +%s) * 1000 ))"
+  aids="$(orca automations list --json 2>/dev/null | jq -r '.result.automations[]?.id // empty' 2>/dev/null)" || aids=""
+  [ -n "$aids" ] || return 0
+  while IFS= read -r aid; do
+    [ -n "$aid" ] || continue
+    orca automations runs --id "$aid" --json 2>/dev/null \
+      | jq -r --argjson now "$now_ms" --argjson max "$(( RUN_MAX_AGE_SECS * 1000 ))" '
+          (.result.runs // [])[]
+          | select(.status != "completed" and .status != "failed")
+          | select((.scheduledFor // 0) > ($now - $max))
+          | .workspaceId // empty' 2>/dev/null || true
+  done <<< "$aids" | sed 's/^.*:://' | sort -u
+}
 
 for arg in "$@"; do
   case "$arg" in
@@ -86,11 +106,14 @@ cleanup_workspaces() {
   git fetch origin main --quiet || echo "[git] fetch failed, using cached origin/main"
 
   local removed=0 skipped=0 candidates
-  candidates="$(orca worktree list --repo "$REPO_SELECTOR" --json \
-    | jq -r '.result.worktrees[]
+  # Never fail the sweep on empty/malformed orca output (this crashed the whole
+  # run with "Cannot iterate over null" under LaunchAgent, exit code 5).
+  candidates="$(orca worktree list --repo "$REPO_SELECTOR" --json 2>/dev/null \
+    | jq -r '(.result.worktrees // [])
+             | .[]?
              | select(.isMainWorktree == false)
              | select(.path | contains("orca/workspaces/") and contains("'"$PATTERN"'"))
-             | [.id, .path] | @tsv')"
+             | [.id, .path] | @tsv')" || candidates=""
 
   if [ -z "$candidates" ]; then
     echo "[cleanup] no selfbuild workspaces found"
@@ -98,9 +121,20 @@ cleanup_workspaces() {
   fi
 
   # Read from fd 3 so commands inside the loop cannot swallow the candidate list.
+  local live_paths
+  live_paths="$(live_run_paths)"
   while IFS="$(printf '\t')" read -r -u 3 wt_id wt_path; do
     [ -n "$wt_id" ] || continue
     local_name="$(basename "$wt_path")"
+
+    # Gate 0: Orca run liveness. A workspace whose automation run is still
+    # open in Orca must never be torn down, even if the filesystem looks idle:
+    # deleting an active run's workspace is what made runs vanish mid-life.
+    if grep -Fqx "$wt_path" <<<"$live_paths"; then
+      echo "[skip] $local_name : orca run still open (protected)"
+      skipped=$(( skipped + 1 ))
+      continue
+    fi
 
     # Gate 1: idle age. Skip anything touched recently (a run may still be working).
     if [ -n "$(find "$wt_path" -newermt "-${MIN_AGE_SECS} seconds" -print -quit 2>/dev/null)" ]; then
@@ -140,6 +174,13 @@ cleanup_workspaces() {
       if orca worktree rm --worktree "id:$wt_id" --force </dev/null >/dev/null 2>&1; then
         echo "[removed] $local_name (terminal closed, worktree deleted)"
         removed=$(( removed + 1 ))
+      elif ! orca worktree list --repo "$REPO_SELECTOR" --json 2>/dev/null | grep -qF "$wt_id"; then
+        # Registration already gone but the directory stayed behind (seen when
+        # Orca drops a workspace itself). Gates 0-2 passed, so the tree holds
+        # no unpushed work: reclaim it directly.
+        rm -rf "$wt_path" \
+          && { echo "[removed] $local_name (orphan dir reclaimed: registration was gone)"; removed=$(( removed + 1 )); } \
+          || { echo "[error] $local_name : orphan rm failed"; skipped=$(( skipped + 1 )); }
       else
         echo "[error] $local_name : worktree rm failed"
         skipped=$(( skipped + 1 ))
