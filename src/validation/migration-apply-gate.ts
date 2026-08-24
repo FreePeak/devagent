@@ -34,8 +34,8 @@ export function extractG2Config(config: DevAgentConfig): G2Config | null {
   return { dbService: g2.dbService, migrationUp: g2.migrationUp, migrationDown: g2.migrationDown };
 }
 
-async function dockerAvailable(): Promise<boolean> {
-  const r = await spawnCli('docker', ['info', '--format', '{{.ServerVersion}}'], { cwd: '.', timeoutMs: 10_000 });
+async function dockerAvailable(cwd: string): Promise<boolean> {
+  const r = await spawnCli('docker', ['info', '--format', '{{.ServerVersion}}'], { cwd, timeoutMs: 10_000 });
   return !r.timedOut && r.exitCode === 0;
 }
 
@@ -45,10 +45,10 @@ export async function runMigrationApplyGate(
 ): Promise<GateResult> {
   const composeFile = detectComposeFile(worktreePath);
   if (!composeFile) {
-    return { gate: 'G2-migration-apply', passed: true, findings: [], detail: 'skipped: no compose file' };
+    return { gate: 'G2-migration-apply', passed: true, skipped: true, findings: [], detail: 'skipped: no compose file' };
   }
-  if (!(await dockerAvailable())) {
-    return { gate: 'G2-migration-apply', passed: true, findings: [], detail: 'skipped: docker not available' };
+  if (!(await dockerAvailable(worktreePath))) {
+    return { gate: 'G2-migration-apply', passed: true, skipped: true, findings: [], detail: 'skipped: docker not available' };
   }
 
   let g2: G2Config | null = null;
@@ -61,6 +61,7 @@ export async function runMigrationApplyGate(
     return {
       gate: 'G2-migration-apply',
       passed: true,
+      skipped: true,
       findings: [],
       detail: 'skipped: configure g2.dbService + g2.migrationUp in devagent.json',
     };
@@ -97,6 +98,15 @@ export async function runMigrationApplyGate(
     if (down.timedOut || down.exitCode !== 0) {
       await teardown(composeFile, worktreePath, timeoutMs);
       return fail(steps.join('; ') + `; stderr: ${down.stderr.slice(0, 400)}`);
+    }
+    // Rollback round-trip proof (FR-VALID-02): the up-migration must still
+    // apply cleanly on a database the down-migration just rewound. Catches
+    // non-idempotent or destructive migrations that pass a single forward run.
+    const reUp = await spawnCli('sh', ['-c', g2.migrationUp as string], { cwd: worktreePath, timeoutMs });
+    steps.push(`rollback round-trip re-up: exit ${reUp.exitCode}`);
+    if (reUp.timedOut || reUp.exitCode !== 0) {
+      await teardown(composeFile, worktreePath, timeoutMs);
+      return fail(steps.join('; ') + `; stderr: ${reUp.stderr.slice(0, 400)}`);
     }
   }
 

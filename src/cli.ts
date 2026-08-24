@@ -472,6 +472,9 @@ program
   )
   .option('--concurrency <n>', 'parallel executor slots', Number, 2)
   .option('--max-task-retries <n>', 'scheduler retry budget per task', Number, 1)
+  .option('--max-recoveries <n>', 'planner-written recovery re-contracts per task before terminal failure (0 disables)', Number, 1)
+  .option('--plan-only', 'persist and print the plan (with contracts), then exit before any executor spend', false)
+  .option('--max-waves <n>', 'hard cap on dispatch waves; unfinished tasks stay pending for --resume', Number)
   .option('--resume', 'continue an existing board instead of re-planning', false)
   // NOTE: no explicit default — commander negates --no-merge to opts.merge=true
   .option('--no-merge', 'skip merge-back even when all tasks are done')
@@ -482,7 +485,7 @@ program
     logger.info('task', `Orchestration run ${logger.runId} starting`, { repo: opts.repo });
 
     try {
-      const { loadBoard, saveBoard, createBoard, applyHumanAnswer } = await import('./orchestrator/store.js');
+      const { loadBoard, saveBoard, createBoard, formatPlanOnly, applyHumanAnswer } = await import('./orchestrator/store.js');
       const { runScheduler } = await import('./orchestrator/scheduler.js');
       const { executeTask } = await import('./orchestrator/executor.js');
       const { runAudit } = await import('./orchestrator/auditor.js');
@@ -507,6 +510,14 @@ program
         }
       }
 
+      // Validate-before-spend (CrewAI/LangGraph plan-preview lesson): show the
+      // full contracts and stop before executors burn tokens.
+      if (opts.planOnly) {
+        console.log(formatPlanOnly(board));
+        console.log(`\nPlan-only: board saved at ${join(opts.repo, '.devagent-project.json')}. Execute later with --resume.`);
+        return;
+      }
+
       // Human-in-the-loop: resolve tasks the auditor paused with verdict 'ask'
       for (const a of (opts.answer ?? []) as string[]) {
         const eq = a.indexOf('=');
@@ -525,6 +536,8 @@ program
           executor: executorName,
           concurrency: opts.concurrency,
           maxTaskRetries: opts.maxTaskRetries,
+          maxRecoveries: opts.maxRecoveries,
+          maxWaves: opts.maxWaves,
           timeoutMs,
           // persist after every wave so resume never re-runs done work
           onWavePersisted: (b) => saveBoard(opts.repo, b),
@@ -534,6 +547,13 @@ program
           auditTask: auditorName
             ? (a) => runAudit({ board: a.board, task: a.task, worktreePath: a.task.worktreePath ?? a.repoPath, timeoutMs: a.timeoutMs, auditor: auditorName })
             : undefined,
+          planRecovery:
+            opts.maxRecoveries > 0
+              ? (a) =>
+                  import('./orchestrator/planner.js').then(({ runRecoveryPlanner }) =>
+                    runRecoveryPlanner({ goal: board!.goal, task: a.task, repoPath: opts.repo, plannerWorker: plannerName, timeoutMs }),
+                  )
+              : undefined,
         },
         logger,
       );
@@ -580,6 +600,7 @@ program
   .option('--repo <path>', 'target repository', process.cwd())
   .action(async (opts) => {
     const { loadBoard } = await import('./orchestrator/store.js');
+    const { ledgerTailFor } = await import('./orchestrator/ledger.js');
     const board = loadBoard(opts.repo);
     if (!board) {
       console.log('No project board. Start one: devagent orchestrate --goal "..."');
@@ -614,11 +635,46 @@ program
       console.log(
         ` ${mark} [${t.status}] ${t.id}: ${t.title}${auditNote}${gapNote}${!gapNote && t.failureDetail ? ` — ${t.failureDetail.slice(0, 80)}` : ''}`,
       );
+      // Ledger evidence history (loop 49 L4): verdict trends at a glance
+      const tail = ledgerTailFor(opts.repo, t.id);
+      if (tail.length > 1 || (tail.length === 1 && tail[0]!.verdict !== 'pass')) {
+        console.log(`    history: ${tail.map((r) => `${r.verdict}/${r.integrity}@a${r.attempt}`).join(' -> ')}`);
+      }
     }
     console.log(`Updated: ${board.updatedAt}`);
     const allDone = board.tasks.length > 0 && board.tasks.every((t) => t.status === 'done');
     if (allDone) console.log('Ready to integrate: devagent orchestrate --goal "" --resume');
     else console.log('Resume: devagent orchestrate --goal "" --resume');
+  });
+
+program
+  .command('ledger')
+  .description('Show the orchestration run ledger (persisted audit verdicts)')
+  .option('--repo <path>', 'target repository', process.cwd())
+  .option('--task <id>', 'filter to one task id')
+  .option('--summary', 'print aggregate outcome stats instead of the record list')
+  .action(async (opts) => {
+    if (opts.summary) {
+      const { summarizeLedger } = await import('./orchestrator/ledger.js');
+      const sum = summarizeLedger(opts.repo);
+      console.log(
+        `tasks: ${sum.tasks} | audits: ${sum.audits} | resolved: ${sum.resolved} | unresolved: ${sum.unresolved}` +
+          (sum.meanAttemptsToPass !== null ? ` | mean attempts-to-pass: ${sum.meanAttemptsToPass}` : ''),
+      );
+      return;
+    }
+    const { readLedger } = await import('./orchestrator/ledger.js');
+    const records = readLedger(opts.repo, { taskId: opts.task });
+    if (records.length === 0) {
+      console.log('No ledger records. Audits append to .devagent/runs/orchestration/events.jsonl.');
+      return;
+    }
+    for (const r of records) {
+      if (r.kind !== 'audit') continue;
+      const icon = r.verdict === 'pass' ? '+' : r.verdict === 'ask' ? '?' : 'x';
+      const detail = `${r.verdict}/${r.integrity}${r.unmetCriteria.length ? ` unmet:${r.unmetCriteria.length}` : ''} — ${r.summary.slice(0, 90)}`;
+      console.log(`${icon} ${r.ts} [${r.kind}] ${r.taskId} (attempt ${r.attempt}) ${detail}`);
+    }
   });
 
 program

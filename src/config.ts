@@ -15,6 +15,7 @@ export interface DevAgentConfig {
   githubBaseBranch?: string;
   /** Opt out of manual review: DevAgent auto-reviews and auto-merges its own PRs. */
   autoMerge?: boolean;
+  testCommand?: string;
 }
 
 export interface Credentials {
