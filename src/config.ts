@@ -13,6 +13,8 @@ export interface DevAgentConfig {
   pinnedVersions?: Partial<Record<WorkerName, string>>;
   linearTeamId?: string;
   githubBaseBranch?: string;
+  /** Opt out of manual review: DevAgent auto-reviews and auto-merges its own PRs. */
+  autoMerge?: boolean;
   testCommand?: string;
 }
 

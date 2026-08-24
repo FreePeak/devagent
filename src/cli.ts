@@ -26,6 +26,7 @@ program
   .option('--max-loops <n>', 'test-failure retry budget', Number)
   .option('--timeout <minutes>', 'wall-clock cap per run', Number)
   .option('--dry-run', 'plan only; no workers, no remotes', false)
+  .option('--auto-merge', 'auto review + merge the PR once CI is green (default from config autoMerge)', false)
   .action(async (opts) => {
     const config = loadConfig(opts.repo);
     const creds = loadCredentials();
@@ -33,6 +34,7 @@ program
 
     const cfg = {
       ticketId: opts.ticket,
+      autoMerge: opts.autoMerge || config.autoMerge || undefined,
       repoPath: opts.repo,
       worker: opts.worker ?? config.worker,
       autoPr: opts.autoPr ?? false,
@@ -369,6 +371,7 @@ program
   .option('--repo <path>', 'target repository', process.cwd())
   .option('--worker <name>', 'claude-code | opencode | both')
   .option('--auto-pr', 'push branch and open PR when green', false)
+  .option('--auto-merge', 'auto review + merge the PR once CI is green (default from config autoMerge)', false)
   .option('--max-loops <n>', 'test-failure retry budget', Number)
   .action(async (opts) => {
     const config = loadConfig(opts.repo);
@@ -377,6 +380,7 @@ program
 
     const cfg = {
       prompt: opts.prompt as string,
+      autoMerge: opts.autoMerge || config.autoMerge || undefined,
       repoPath: opts.repo,
       autoPr: opts.autoPr ?? false,
       maxLoops: opts.maxLoops ?? config.maxLoops,
@@ -415,12 +419,26 @@ program
           const { pushBranch, createPr } = await import('./integrations/github.js');
           await pushBranch(impl.worktreePath, branch);
           void loadConfig(c.repoPath).githubBaseBranch; // base defaults via gh when omitted
-          return createPr({
+          const prUrl = await createPr({
             repoPath: c.repoPath,
             branch,
             title: cfg.prompt.split('\n')[0]!.slice(0, 80),
             body: `Automated task via \`devagent task\`.\n\n## Prompt\n${cfg.prompt}`,
           });
+          if (c.autoMerge) {
+            const n = /pull\/(\d+)/.exec(prUrl)?.[1];
+            if (n) {
+              void import('./integrations/autopr.js')
+                .then((m) =>
+                  m.autoReviewAndMergeOne(c.repoPath, Number(n), {
+                    baseBranch: loadConfig(c.repoPath).githubBaseBranch ?? 'main',
+                  }),
+                )
+                .then((o) => logger.info('task', `auto-merge PR #${n}: ${o.action} (${o.detail.slice(0, 120)})`, {}))
+                .catch((err) => logger.warn('task', `auto-merge PR #${n} failed: ${(err as Error).message}`));
+            }
+          }
+          return prUrl;
         },
       };
 
@@ -801,6 +819,35 @@ program
     const config = loadConfig(process.cwd());
     const status = credentialStatus(loadCredentials());
     console.log(JSON.stringify({ config, credentials: status }, null, 2));
+  });
+
+program
+  .command('automerge')
+  .description('Auto review + merge open PRs against objective gates (CI green, mergeable, hazard scan)')
+  .option('--repo <path>', 'target repository (used for gh context)', process.cwd())
+  .option('--pr <n>', 'specific PR number (repeat to target a set)', (v: string, acc: number[]) => { acc.push(Number(v)); return acc; }, [] as number[])
+  .option('--base <branch>', 'only PRs targeting this base branch')
+  .option('--method <method>', 'squash | merge | rebase', 'squash')
+  .option('--timeout <seconds>', 'max seconds to wait for pending checks', Number, 300)
+  .option('--dry-run', 'evaluate and print verdicts without reviewing or merging', false)
+  .action(async (opts) => {
+    const { autoReviewAndMerge } = await import('./integrations/autopr.js');
+    try {
+      const outcomes = await autoReviewAndMerge(opts.repo, {
+        prNumbers: opts.pr.length ? (opts.pr as number[]) : undefined,
+        baseBranch: opts.base,
+        method: opts.method,
+        dryRun: opts.dryRun,
+        waitForChecksSec: opts.timeout,
+        log: (msg) => console.log(msg),
+      });
+      const merged = outcomes.filter((o) => o.action === 'merged').length;
+      console.log(`\n${merged}/${outcomes.length} merged`);
+      if (merged < outcomes.length && !opts.dryRun) process.exitCode = 1;
+    } catch (err) {
+      console.error((err as Error).message);
+      process.exitCode = 1;
+    }
   });
 
 program.parseAsync();

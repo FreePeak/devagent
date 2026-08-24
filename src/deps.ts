@@ -17,6 +17,7 @@ export interface StageConfig {
   timeoutMs: number;
   worker: RunConfig['worker'];
   autoPr: boolean;
+  autoMerge?: boolean;
 }
 
 /**
@@ -85,7 +86,8 @@ export function buildDeps(creds: Credentials, cfg: StageConfig, log: RunLogger):
       if (!impl.worktreePath) return undefined;
       const branch = `devagent/${plan.ticket.id}`;
       const { pushBranch } = await import('./integrations/github.js');
-      const baseBranch = (await import('./config.js')).loadConfig(impl.worktreePath).githubBaseBranch ?? 'main';
+      const repoCfg = (await import('./config.js')).loadConfig(impl.worktreePath);
+      const baseBranch = repoCfg.githubBaseBranch ?? 'main';
 
       // GitLab path: GITLAB_* env wins when no GitHub credentials present
       const gitlabToken = process.env.GITLAB_TOKEN;
@@ -132,12 +134,23 @@ export function buildDeps(creds: Credentials, cfg: StageConfig, log: RunLogger):
       } catch {
         // evidence is best-effort; never block publishing on it
       }
-      return createPr({
+      const prUrl = await createPr({
         repoPath: cfg.repoPath,
         branch,
         title: `[${plan.ticket.id}] ${plan.ticket.title}`,
         body: buildPrBody(plan, changedFiles),
       });
+      if (cfg.autoMerge ?? repoCfg.autoMerge) {
+        const n = /pull\/(\d+)/.exec(prUrl)?.[1];
+        if (n) {
+          // Fire-and-forget: auto-merge waits on CI and must not block the run report.
+          void import('./integrations/autopr.js')
+            .then((m) => m.autoReviewAndMergeOne(cfg.repoPath, Number(n), { baseBranch }))
+            .then((o) => log.info('publish', `auto-merge PR #${n}: ${o.action} (${o.detail.slice(0, 120)})`, {}))
+            .catch((err) => log.warn('publish', `auto-merge PR #${n} failed: ${(err as Error).message}`));
+        }
+      }
+      return prUrl;
     },
   };
 }
