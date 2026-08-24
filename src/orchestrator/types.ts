@@ -72,6 +72,13 @@ export interface OrchestratorTask {
    * the retry closes the gap instead of redoing blind work.
    */
   evidenceGaps?: string[];
+  /** How many planner-written recovery contracts this task has been granted */
+  recoveries?: number;
+}
+
+/** Branch/worktree attempt suffix; recovery grants extend it to stay collision-free. */
+export function attemptSuffix(attempts: number, recoveries = 0): string {
+  return `a${attempts}${recoveries > 0 ? `r${recoveries}` : ''}`;
 }
 
 export interface ProjectBoard {
