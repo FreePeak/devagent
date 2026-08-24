@@ -653,7 +653,29 @@ program
   .option('--repo <path>', 'target repository', process.cwd())
   .option('--task <id>', 'filter to one task id')
   .option('--summary', 'print aggregate outcome stats instead of the record list')
+  .option('--clusters [n]', 'print ranked failure clusters (recurring unmet criteria), top N (default 5)')
   .action(async (opts) => {
+    if (opts.clusters !== undefined) {
+      const { clusterFailures } = await import('./orchestrator/ledger.js');
+      const top = typeof opts.clusters === 'string' ? parseInt(opts.clusters, 10) : 5;
+      const clusters = clusterFailures(opts.repo);
+      if (!Number.isFinite(top) || top <= 0 || clusters.length === 0) {
+        console.log(
+          clusters.length === 0
+            ? 'No failure clusters. Failed audits with unmet criteria cluster here once the ledger has records.'
+            : `Nothing to show for --clusters ${opts.clusters}.`,
+        );
+        return;
+      }
+      console.log(`failure clusters (top ${Math.min(top, clusters.length)} of ${clusters.length}):`);
+      for (const c of clusters.slice(0, top)) {
+        console.log(
+          `- "${c.criterion}" — ${c.occurrences} occurrence(s) across ${c.tasks.length} task(s)` +
+            ` (${c.openTasks} still open): ${c.tasks.join(', ')}`,
+        );
+      }
+      return;
+    }
     if (opts.summary) {
       const { summarizeLedger } = await import('./orchestrator/ledger.js');
       const sum = summarizeLedger(opts.repo);

@@ -141,3 +141,45 @@ export function summarizeLedger(repoPath: string): LedgerSummary {
     unresolved: byTask.size - resolved,
   };
 }
+
+/** One recurring gap category across failed audits. */
+export interface FailureCluster {
+  /** First-seen original wording; grouping itself is normalized. */
+  criterion: string;
+  /** Failed audits citing this criterion. */
+  occurrences: number;
+  /** Distinct tasks whose failed audits cite it, in first-seen order. */
+  tasks: string[];
+  /** Tasks in `tasks` with no passing audit anywhere in the ledger. */
+  openTasks: number;
+}
+
+/**
+ * Failure-cluster reporting (Phase 4): recurring unmet acceptance criteria
+ * should surface as an actionable ranked view, not just queryable rows.
+ * Grouping normalizes case and whitespace so trivial rewording does not
+ * fragment a cluster; semantic variants stay separate by design.
+ */
+export function clusterFailures(repoPath: string): FailureCluster[] {
+  const records = readLedger(repoPath);
+  const passedTasks = new Set(
+    records.filter((r) => r.verdict === 'pass' && r.integrity === 'clean').map((r) => r.taskId),
+  );
+  const clusters = new Map<string, FailureCluster & { _key: string }>();
+  for (const r of records) {
+    if (r.verdict === 'pass') continue;
+    for (const criterion of r.unmetCriteria) {
+      const key = criterion.toLowerCase().replace(/\s+/g, ' ').trim();
+      let c = clusters.get(key);
+      if (!c) {
+        c = { _key: key, criterion, occurrences: 0, tasks: [], openTasks: 0 };
+        clusters.set(key, c);
+      }
+      c.occurrences += 1;
+      if (!c.tasks.includes(r.taskId)) c.tasks.push(r.taskId);
+    }
+  }
+  return [...clusters.values()]
+    .map(({ _key, ...c }) => ({ ...c, openTasks: c.tasks.filter((t) => !passedTasks.has(t)).length }))
+    .sort((a, b) => b.occurrences - a.occurrences || b.tasks.length - a.tasks.length);
+}
