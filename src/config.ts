@@ -13,6 +13,7 @@ export interface DevAgentConfig {
   pinnedVersions?: Partial<Record<WorkerName, string>>;
   linearTeamId?: string;
   githubBaseBranch?: string;
+  testCommand?: string;
 }
 
 export interface Credentials {

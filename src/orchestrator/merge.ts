@@ -1,5 +1,6 @@
 import { join } from 'node:path';
 import { spawnCli } from '../workers/spawn-utils.js';
+import { sanitizeTicketId } from '../git/worktree.js';
 import type { ProjectBoard } from './types.js';
 import type { RunLogger } from '../logger.js';
 
@@ -43,6 +44,7 @@ export async function mergeProjectBranches(
   log: RunLogger,
 ): Promise<MergeResult> {
   const doneIds = new Set(board.tasks.filter((t) => t.status === 'done').map((t) => t.id));
+  const { attemptSuffix } = await import('./types.js');
   // Ensure base exists locally and is checked out in the main worktree
   const checkout = await git(['checkout', baseBranch], repoPath);
   if (checkout.exitCode !== 0) {
@@ -57,7 +59,7 @@ export async function mergeProjectBranches(
   for (const id of topoOrder(board)) {
     if (!doneIds.has(id)) continue;
     const task = board.tasks.find((t) => t.id === id)!;
-    const branch = `devagent/${id}-a${task.attempts}`;
+    const branch = `devagent/${sanitizeTicketId(id)}-${attemptSuffix(task.attempts, task.recoveries)}`;
     const m = await git(['merge', '--no-ff', '--no-edit', branch], repoPath);
     if (m.exitCode !== 0) {
       await git(['merge', '--abort'], repoPath); // leave the tree clean

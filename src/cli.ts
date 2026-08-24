@@ -454,6 +454,8 @@ program
   )
   .option('--concurrency <n>', 'parallel executor slots', Number, 2)
   .option('--max-task-retries <n>', 'scheduler retry budget per task', Number, 1)
+  .option('--max-recoveries <n>', 'planner-written recovery re-contracts per task before terminal failure (0 disables)', Number, 1)
+  .option('--plan-only', 'persist and print the plan (with contracts), then exit before any executor spend', false)
   .option('--resume', 'continue an existing board instead of re-planning', false)
   // NOTE: no explicit default — commander negates --no-merge to opts.merge=true
   .option('--no-merge', 'skip merge-back even when all tasks are done')
@@ -464,7 +466,7 @@ program
     logger.info('task', `Orchestration run ${logger.runId} starting`, { repo: opts.repo });
 
     try {
-      const { loadBoard, saveBoard, createBoard } = await import('./orchestrator/store.js');
+      const { loadBoard, saveBoard, createBoard, formatPlanOnly, applyHumanAnswer } = await import('./orchestrator/store.js');
       const { runScheduler } = await import('./orchestrator/scheduler.js');
       const { executeTask } = await import('./orchestrator/executor.js');
       const { runAudit } = await import('./orchestrator/auditor.js');
@@ -489,22 +491,23 @@ program
         }
       }
 
+      // Validate-before-spend (CrewAI/LangGraph plan-preview lesson): show the
+      // full contracts and stop before executors burn tokens.
+      if (opts.planOnly) {
+        console.log(formatPlanOnly(board));
+        console.log(`\nPlan-only: board saved at ${join(opts.repo, '.devagent-project.json')}. Execute later with --resume.`);
+        return;
+      }
+
       // Human-in-the-loop: resolve tasks the auditor paused with verdict 'ask'
       for (const a of (opts.answer ?? []) as string[]) {
         const eq = a.indexOf('=');
-        const id = eq > 0 ? a.slice(0, eq).trim() : '';
-        const text = eq > 0 ? a.slice(eq + 1).trim() : '';
-        const t = id ? board.tasks.find((x) => x.id === id) : undefined;
-        if (!t || t.status !== 'ask' || !text) {
-          console.error(`--answer ${a}: no task '${id || '?'}' paused for input (or empty answer); ignored`);
+        if (eq <= 0) {
+          console.error(`--answer ${a}: expected <taskId>=<answer>; ignored`);
           continue;
         }
-        // The answer becomes part of the contract; audit state resets so the
-        // next attempt is re-verified against it.
-        t.prompt += `\n\nHuman answer to "${t.failureDetail ?? 'prior question'}": ${text}`;
-        t.evidenceGaps = undefined;
-        t.status = 'pending';
-        console.log(`Answered ${id}; task back in queue.`);
+        const r = applyHumanAnswer(board!, a.slice(0, eq), a.slice(eq + 1));
+        (r.ok ? console.log : console.error)(`${r.ok ? '' : `--answer ${a}: `}${r.note}`);
       }
 
       const result = await runScheduler(
@@ -514,6 +517,7 @@ program
           executor: executorName,
           concurrency: opts.concurrency,
           maxTaskRetries: opts.maxTaskRetries,
+          maxRecoveries: opts.maxRecoveries,
           timeoutMs,
           // persist after every wave so resume never re-runs done work
           onWavePersisted: (b) => saveBoard(opts.repo, b),
@@ -523,6 +527,13 @@ program
           auditTask: auditorName
             ? (a) => runAudit({ board: a.board, task: a.task, worktreePath: a.task.worktreePath ?? a.repoPath, timeoutMs: a.timeoutMs, auditor: auditorName })
             : undefined,
+          planRecovery:
+            opts.maxRecoveries > 0
+              ? (a) =>
+                  import('./orchestrator/planner.js').then(({ runRecoveryPlanner }) =>
+                    runRecoveryPlanner({ goal: board!.goal, task: a.task, repoPath: opts.repo, plannerWorker: plannerName, timeoutMs }),
+                  )
+              : undefined,
         },
         logger,
       );

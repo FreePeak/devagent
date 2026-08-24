@@ -36,6 +36,12 @@ export interface SchedulerDeps {
    * retryable, never as pass.
    */
   auditTask?(args: { task: OrchestratorTask; board: ProjectBoard; repoPath: string; timeoutMs: number; log: RunLogger }): Promise<AuditVerdict | null>;
+  /**
+   * Planner-written recovery contract granted when a task exhausts its retry
+   * budget (LH manager lesson: re-contract around the failure instead of
+   * blocking the subtree). Return null to let the failure go terminal.
+   */
+  planRecovery?(args: { task: OrchestratorTask; board: ProjectBoard }): Promise<{ prompt: string; acceptanceCriteria?: string[] } | null>;
 }
 
 export interface SchedulerOptions {
@@ -43,6 +49,8 @@ export interface SchedulerOptions {
   executor: WorkerName;
   concurrency: number;
   maxTaskRetries: number;
+  /** Recovery-contract grants per task before a failure goes terminal */
+  maxRecoveries?: number;
   timeoutMs: number;
   /** Called after each wave with terminal task transitions persisted (LangGraph pending-writes lesson). */
   onWavePersisted?: (board: ProjectBoard) => void;
@@ -54,6 +62,31 @@ export async function runScheduler(
   deps: SchedulerDeps,
   log: RunLogger,
 ): Promise<ProjectBoard> {
+  const maxRecoveries = opts.maxRecoveries ?? 1;
+  /** Grant one planner-written re-contract before a failure goes terminal. */
+  const grantRecovery = async (task: OrchestratorTask): Promise<boolean> => {
+    if (!deps.planRecovery || (task.recoveries ?? 0) >= maxRecoveries) return false;
+    let rec: { prompt: string; acceptanceCriteria?: string[] } | null = null;
+    try {
+      rec = await deps.planRecovery({ task, board });
+    } catch (err) {
+      log.warn('task', `${task.id} recovery planning crashed: ${(err as Error).message}`, {});
+      return false;
+    }
+    if (!rec?.prompt) return false;
+    task.recoveries = (task.recoveries ?? 0) + 1;
+    task.prompt = rec.prompt;
+    if (rec.acceptanceCriteria?.length) task.acceptanceCriteria = rec.acceptanceCriteria.slice(0, 10);
+    // fresh budget on the new contract; attemptSuffix keeps worktrees collision-free
+    task.attempts = 0;
+    task.status = 'pending';
+    task.evidenceGaps = undefined;
+    task.audit = undefined;
+    task.failureDetail = undefined;
+    log.info('task', `${task.id} granted recovery contract #${task.recoveries}`, {});
+    return true;
+  };
+
   for (;;) {
     board.tasks = recomputeReadiness(board.tasks);
     const queue = board.tasks.filter(
@@ -109,7 +142,8 @@ export async function runScheduler(
               if (!v) gaps.push('audit inconclusive: worker crashed or report unparsable');
               task.evidenceGaps = gaps;
               if (v) task.audit = v;
-              task.status = task.attempts < opts.maxTaskRetries ? 'pending' : 'failed';
+              task.status =
+                task.attempts < opts.maxTaskRetries ? 'pending' : (await grantRecovery(task)) ? 'pending' : 'failed';
               task.failureDetail = gaps[0] ?? 'audit failed';
               log.warn('task', `${task.id} audit rejected (${v ? v.verdict + '/' + v.integrity : 'inconclusive'})`, {
                 attempt: task.attempts,
@@ -118,8 +152,10 @@ export async function runScheduler(
             }
           } else {
             task.failureDetail = r.detail;
-            // retryable within budget -> pending for the next wave; else failed
-            task.status = task.attempts < opts.maxTaskRetries ? 'pending' : 'failed';
+            // retryable within budget -> pending for the next wave; else one
+            // recovery re-contract, then terminal failure
+            task.status =
+              task.attempts < opts.maxTaskRetries ? 'pending' : (await grantRecovery(task)) ? 'pending' : 'failed';
             log.warn('task', `${task.id} failed (attempt ${task.attempts})`, { detail: r.detail?.slice(0, 200) });
           }
         } catch (err) {

@@ -42,3 +42,41 @@ export function createBoard(
     tasks,
   };
 }
+
+/**
+ * Validate-before-spend rendering for `orchestrate --plan-only`: the full
+ * contracts (prompt, acceptance criteria, boundary constraints) so an
+ * operator can review the plan before any executor spend.
+ */
+export function formatPlanOnly(board: ProjectBoard): string {
+  const lines: string[] = ['Contracts:'];
+  for (const t of board.tasks) {
+    lines.push('', `[${t.id}] ${t.title} (${t.status})`, t.prompt);
+    if (t.acceptanceCriteria?.length) lines.push(`  criteria:\n    ${t.acceptanceCriteria.join('\n    ')}`);
+    if (t.boundaryConstraints?.length) lines.push(`  constraints:\n    ${t.boundaryConstraints.join('\n    ')}`);
+  }
+  return lines.join('\n');
+}
+
+/**
+ * Human-in-the-loop: resolve a task the auditor paused with verdict 'ask'.
+ * The answer folds into the contract and audit state resets so the next
+ * attempt is re-verified against it. Shared by the CLI (--answer) and the
+ * devagent_answer MCP tool.
+ */
+export function applyHumanAnswer(
+  board: ProjectBoard,
+  taskId: string,
+  answer: string,
+): { ok: boolean; note: string } {
+  const id = taskId.trim();
+  const text = answer.trim();
+  const t = board.tasks.find((x) => x.id === id);
+  if (!t || t.status !== 'ask' || !text) {
+    return { ok: false, note: `no task '${id}' paused for input (or empty answer)` };
+  }
+  t.prompt += `\n\nHuman answer to "${t.failureDetail ?? 'prior question'}": ${text}`;
+  t.evidenceGaps = undefined;
+  t.status = 'pending';
+  return { ok: true, note: `Answered ${id}; task back in queue.` };
+}
