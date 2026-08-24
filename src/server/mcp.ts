@@ -181,8 +181,9 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<st
       });
     }
     case 'devagent_ledger': {
-      const { readLedger } = await import('../orchestrator/ledger.js');
+      const { readLedger, summarizeLedger } = await import('../orchestrator/ledger.js');
       return JSON.stringify({
+        summary: summarizeLedger(String(args.repoPath)),
         records: readLedger(String(args.repoPath), { taskId: args.taskId ? String(args.taskId) : undefined }),
       });
     }

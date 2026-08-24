@@ -50,7 +50,9 @@ describe('devagent_ledger MCP tool', () => {
     });
     const out = JSON.parse((res.result as { content: Array<{ text: string }> }).content[0].text) as {
       records: Array<{ taskId: string; attempt: number; verdict: string; unmetCriteria?: string[] }>;
+      summary: { tasks: number; audits: number; resolved: number; meanAttemptsToPass: number | null };
     };
+    expect(out.summary).toEqual({ tasks: 1, audits: 2, resolved: 1, meanAttemptsToPass: 2, unresolved: 0 });
     expect(out.records).toHaveLength(2);
     expect(out.records[0]).toMatchObject({ taskId: 'T1', attempt: 1, verdict: 'fail' });
     expect(out.records[0]!.unmetCriteria).toEqual(['b holds']);
@@ -78,6 +80,7 @@ describe('devagent_ledger MCP tool', () => {
       method: 'tools/call',
       params: { name: 'devagent_ledger', arguments: { repoPath: repo } },
     });
-    expect(JSON.parse((res.result as { content: Array<{ text: string }> }).content[0].text)).toEqual({ records: [] });
+    const empty = JSON.parse((res.result as { content: Array<{ text: string }> }).content[0].text) as { records: unknown[] };
+    expect(empty.records).toEqual([]);
   });
 });
