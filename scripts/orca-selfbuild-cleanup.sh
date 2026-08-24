@@ -24,7 +24,7 @@ export PATH
 REPO_SELECTOR="${ORCA_SELFBUILD_REPO:-name:devagent}"
 MIN_AGE_SECS="${ORCA_MIN_AGE_SECS:-3600}"
 MAIN_REPO="${ORCA_MAIN_REPO:-$(cd "$(dirname "$0")/.." && pwd)}"
-PATTERN='auto-devagent-selfbuild-run-'
+PATTERN='auto-devagent-'
 APPLY=0
 ACTION="none"
 
