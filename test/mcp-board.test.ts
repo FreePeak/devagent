@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { PassThrough } from 'node:stream';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { startMcpServer } from '../src/server/mcp.js';
@@ -148,6 +148,98 @@ describe('devagent_board MCP tool', () => {
     expect(board.tasks[0]!.evidenceGaps).toBeUndefined();
     expect(board.tasks[1]!.audit).toBeUndefined();
     expect(board.tasks[1]!.evidenceGaps![0]).toContain('unmet: b holds');
+  });
+
+  it('lists pendingQuestions and answers them via devagent_answer', async () => {
+    const repo = tempRepo();
+    writeFileSync(
+      join(repo, '.devagent-project.json'),
+      JSON.stringify({
+        goal: 'needs input',
+        createdAt: '2026-08-24T00:00:00Z',
+        updatedAt: '2026-08-24T01:00:00Z',
+        roles: { planner: 'claude-code', executor: 'claude-code' },
+        tasks: [
+          {
+            id: 'T1',
+            title: 'blocked on human',
+            prompt: 'p',
+            dependsOn: [],
+            status: 'ask',
+            attempts: 1,
+            failureDetail: 'needs human input: which DB should the migration target?',
+          },
+        ],
+      }),
+    );
+    const { input, output } = start();
+
+    const boardRes = await rpc(input, output, {
+      jsonrpc: '2.0',
+      id: 6,
+      method: 'tools/call',
+      params: { name: 'devagent_board', arguments: { repoPath: repo } },
+    });
+    const before = JSON.parse((boardRes.result as { content: Array<{ text: string }> }).content[0].text) as {
+      pendingQuestions: Array<{ taskId: string; title: string; question: string }>;
+    };
+    expect(before.pendingQuestions).toEqual([
+      { taskId: 'T1', title: 'blocked on human', question: 'which DB should the migration target?' },
+    ]);
+
+    const ansRes = await rpc(input, output, {
+      jsonrpc: '2.0',
+      id: 7,
+      method: 'tools/call',
+      params: { name: 'devagent_answer', arguments: { repoPath: repo, taskId: 'T1', answer: 'target the analytics replica' } },
+    });
+    const answered = JSON.parse((ansRes.result as { content: Array<{ text: string }> }).content[0].text) as { ok: boolean; note: string };
+    expect(answered.ok).toBe(true);
+    expect(answered.note).toContain('back in queue');
+
+    // board reflects the requeue and the persisted answer context
+    const after = JSON.parse(readFileSync(join(repo, '.devagent-project.json'), 'utf8')) as {
+      tasks: Array<{ status: string; prompt: string }>;
+    };
+    // saveBoard recomputes readiness: no deps -> immediately ready again
+    expect(after.tasks[0]!.status).toBe('ready');
+    expect(after.tasks[0]!.prompt).toContain('analytics replica');
+  });
+
+  it('devagent_answer fails cleanly with no board or wrong task state', async () => {
+    const empty = tempRepo();
+    const { input, output } = start();
+    const noBoard = await rpc(input, output, {
+      jsonrpc: '2.0',
+      id: 8,
+      method: 'tools/call',
+      params: { name: 'devagent_answer', arguments: { repoPath: empty, taskId: 'T1', answer: 'yes' } },
+    });
+    expect(JSON.parse((noBoard.result as { content: Array<{ text: string }> }).content[0].text)).toEqual({
+      ok: false,
+      note: 'no project board for this repo',
+    });
+
+    const repo = tempRepo();
+    writeFileSync(
+      join(repo, '.devagent-project.json'),
+      JSON.stringify({
+        goal: 'g',
+        createdAt: '2026-08-24T00:00:00Z',
+        updatedAt: '2026-08-24T01:00:00Z',
+        roles: { planner: 'claude-code', executor: 'claude-code' },
+        tasks: [{ id: 'T1', title: 't', prompt: 'p', dependsOn: [], status: 'done', attempts: 1 }],
+      }),
+    );
+    const notAsk = await rpc(input, output, {
+      jsonrpc: '2.0',
+      id: 9,
+      method: 'tools/call',
+      params: { name: 'devagent_answer', arguments: { repoPath: repo, taskId: 'T1', answer: 'yes' } },
+    });
+    const r = JSON.parse((notAsk.result as { content: Array<{ text: string }> }).content[0].text) as { ok: boolean; note: string };
+    expect(r.ok).toBe(false);
+    expect(r.note).toContain("no task 'T1'");
   });
 
   it('reports tool error for a nonexistent repo path', async () => {
