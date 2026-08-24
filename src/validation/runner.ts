@@ -53,7 +53,7 @@ export function findUnpairedUpMigrations(files: MigrationFile[]): string[] {
 /** Gate G3: static migration analysis over the diff/repo's migration directories. */
 export function runMigrationStaticGate(ctx: GateContext): GateResult {
   if (ctx.classification !== 'migration-required') {
-    return { gate: 'G3-migration-static', passed: true, findings: [], detail: 'skipped: no migrations in this ticket' };
+    return { gate: 'G3-migration-static', passed: true, skipped: true, findings: [], detail: 'skipped: no migrations in this ticket' };
   }
 
   const dirs = ctx.migrationDirs ?? MIGRATION_DIR_DEFAULTS.filter((d) => existsInRepo(ctx.repoPath, d));

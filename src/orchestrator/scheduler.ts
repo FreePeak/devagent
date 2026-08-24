@@ -57,6 +57,7 @@ export interface SchedulerOptions {
    * identical attempt rarely recovers).
    */
   repeatGapThreshold?: number;
+
   timeoutMs: number;
   /**
    * Hard cap on dispatch waves (SWE-agent L1: unresolved runs average 2x the
@@ -77,6 +78,7 @@ export async function runScheduler(
 ): Promise<ProjectBoard> {
   const maxRecoveries = opts.maxRecoveries ?? 1;
   const repeatGapThreshold = opts.repeatGapThreshold ?? 2;
+
   /** Grant one planner-written re-contract before a failure goes terminal. */
   const grantRecovery = async (task: OrchestratorTask): Promise<boolean> => {
     if (!deps.planRecovery || (task.recoveries ?? 0) >= maxRecoveries) return false;
@@ -98,6 +100,7 @@ export async function runScheduler(
     task.audit = undefined;
     task.failureDetail = undefined;
     task.repeatGaps = 0; // new contract, fresh streak
+
     log.info('task', `${task.id} granted recovery contract #${task.recoveries}`, {});
     return true;
   };
@@ -181,6 +184,7 @@ export async function runScheduler(
                   : (await grantRecovery(task))
                     ? 'pending'
                     : 'failed';
+
               task.failureDetail = gaps[0] ?? 'audit failed';
               log.warn('task', `${task.id} audit rejected (${v ? v.verdict + '/' + v.integrity : 'inconclusive'})`, {
                 attempt: task.attempts,
