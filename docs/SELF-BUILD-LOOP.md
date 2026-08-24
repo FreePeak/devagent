@@ -25,6 +25,21 @@ All loop state lives in `.selfbuild/` (gitignored):
 The next loop number is `ledger lines + 1`. Crash recovery is implicit: an unfinished
 iteration simply reruns under its own number.
 
+**Durable state across workspaces.** `.selfbuild/` is gitignored and Orca spawns each
+run in a fresh workspace, so without help every run would restart at loop 1 (this
+actually happened on 2026-08-24: runs improvised loop numbers from ambient context).
+`scripts/selfbuild-state.sh` mirrors `ledger.jsonl` + `lessons.md` to the orphan branch
+`selfbuild/state` on origin:
+
+```sh
+scripts/selfbuild-state.sh pull   # merge origin state into local .selfbuild/ before numbering
+scripts/selfbuild-state.sh push   # publish after every recorded iteration (failures included)
+```
+
+Merge policy: ledger is keyed by loop number, later `ts` wins on collision; lessons are
+a ratchet-only union. `selfbuild-loop.sh` calls both automatically; hand-run iterations
+(one-shot automation prompts) MUST call `pull` first and `push` after recording.
+
 ## Phases
 
 1. **Research** — Headless agent scans competitor landscape (Devin, Copilot coding agent,
@@ -93,16 +108,45 @@ each run is an isolated worktree session:
 ```sh
 orca automations create \
   --name devagent-selfbuild \
-  --trigger '15 */2 * * *' \
+  --trigger '23 */2 * * *' \
   --provider claude \
   --repo name:devagent \
   --workspace-mode new-per-run \
   --base-branch main \
-  --prompt "Execute exactly ONE iteration of the DevAgent self-build loop per docs/SELF-BUILD-LOOP.md. Read .selfbuild/ledger.jsonl for the next loop number, then run phases 1-7 end to end. Do not start a second iteration." \
+  --prompt "Execute exactly ONE iteration of the DevAgent self-build loop per docs/SELF-BUILD-LOOP.md. FIRST run scripts/selfbuild-state.sh pull, then read .selfbuild/ledger.jsonl for the next loop number (ledger lines + 1), then run phases 1-7 end to end. Pick ONE item from docs/PRD.md section 17 Phase 4 backlog (kept fresh by the prd-curator automation). After recording the iteration outcome in the ledger, run scripts/selfbuild-state.sh push. PUSH CODE AS A PULL REQUEST; never direct to origin/main for product code. Do not start a second iteration." \
   --enabled --json
 ```
 
 Manage with `orca automations list|show|runs|remove`.
+
+**PRD curation loop.** The build loop consumes `docs/PRD.md` section 17 as its goal
+backlog, so that backlog must stay current or iterations starve/repeat.
+`scripts/prd-curator.sh` runs ONE curation pass: research what shipped (recent merged
+PRs, ledger failures, lessons), verify claimed capabilities against the repo, then
+refresh section 17 (mark shipped items, re-rank/add backlog items) and section 18
+(retire answered questions). The diff ships as a docs PR:
+
+```sh
+npm run prdcurate                 # one pass, opens a PR when the PRD changes
+SELFBUILD_DRY_RUN=1 npm run prdcurate   # preview only
+```
+
+Schedule it alongside the build loop so goals never go stale:
+
+```sh
+orca automations create \
+  --name devagent-prd-curator \
+  --trigger '47 6 * * *' \
+  --provider claude \
+  --repo name:devagent \
+  --workspace-mode new-per-run \
+  --base-branch main \
+  --prompt "Run bash scripts/prd-curator.sh once. It researches recent delivery history and updates docs/PRD.md sections 17-18, then pushes a branch and opens a PR. Do not merge it yourself unless repo tests are green." \
+  --enabled --json
+```
+
+The two loops are loosely coupled through the PRD: curator writes goals, build loop
+consumes them. Neither depends on the other's schedule.
 
 **Spawned-session auto-cleanup.** Mode A leaves one Orca workspace
 (`auto-devagent-selfbuild-run-N-<ts>`) plus a live terminal behind per run, forever.

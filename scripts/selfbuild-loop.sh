@@ -21,6 +21,9 @@ DEVAGENT=(npx tsx "$REPO/src/cli.ts")
 mkdir -p "$STATE/research" "$STATE/goals" "$STATE/logs"
 cd "$REPO"
 
+# Restore durable loop state (ledger + lessons) from origin before numbering.
+bash "$REPO/scripts/selfbuild-state.sh" pull || echo "[state] pull failed, starting from local state"
+
 ledger_lines() {
   if [ -f "$STATE/ledger.jsonl" ]; then wc -l < "$STATE/ledger.jsonl"; else echo 0; fi
 }
@@ -29,6 +32,8 @@ record() { # record <loop> <status> <goal>
   printf '{"loop":%s,"ts":"%s","status":"%s","goal":"%s"}\n' \
     "$1" "$(date -u +%FT%TZ)" "$2" \
     "$(printf '%s' "$3" | tr -d '"' | cut -c1-160)" >> "$STATE/ledger.jsonl"
+  # Publish immediately (even for failures) so the next run continues here.
+  bash "$REPO/scripts/selfbuild-state.sh" push || echo "[state] push deferred"
 }
 
 # Starvation gate: consecutive non-productive iterations across ALL runs.
