@@ -15,8 +15,9 @@ parent lands; verified conflict-free including the #7 -> #12 extension, 2026-08-
 | 5 | #9 | run ledger (persisted audit verdicts) | main |
 | 6 | #10 | `devagent_ledger` MCP tool | #9 |
 | 7 | #11 | audit history in `devagent project` | #10 |
-| 8 | #12 | repeat-gap escalation to recovery contracts | #7 |
-| 9 | #13 | wave budget ceiling (`--max-waves`) | #12 |
+| 8 | #14 | ledger outcome analytics (`--summary`, MCP summary block) | #11 |
+| 9 | #12 | repeat-gap escalation to recovery contracts | #7 |
+| 10 | #13 | wave budget ceiling (`--max-waves`) | #12 |
 | any | #8 | orchestration guide docs | main |
 
 Re-verified post-#6 (loop 54) and extended in loop 55/56: all remaining
