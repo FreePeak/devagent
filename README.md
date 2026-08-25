@@ -84,8 +84,9 @@ Key properties:
   vars (`GITHUB_TOKEN`, cloud credentials, ...); an allowlist keeps only what
   the CLIs need (extend with `DEVAGENT_WORKER_ENV_ALLOWLIST`). On macOS,
   `DEVAGENT_SANDBOX=seatbelt` additionally runs workers under `sandbox-exec`
-  with writes confined to the worktree and temp dirs. Git, Docker, and test
-  runner processes are unaffected.
+  with writes confined to the worktree and temp dirs, and
+  `DEVAGENT_SANDBOX_NETWORK=deny` blocks all socket creation for fully
+  offline worker runs. Git, Docker, and test runner processes are unaffected.
 
 ## Documentation
 
