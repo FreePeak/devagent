@@ -57,7 +57,6 @@ describe('board store', () => {
   });
 });
 
-<<<<<<< HEAD
 describe('formatPlanOnly (orchestrate --plan-only)', () => {
   it('renders full contracts with criteria and constraints for review', () => {
     const board = createBoard('ship export button', [

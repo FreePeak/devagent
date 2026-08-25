@@ -141,7 +141,7 @@ api_branch_merged() {
             --json number --jq 'length' 2>/dev/null) || return 2 ;;
     gitlab)
       [ "$HAVE_GLAB" = 1 ] || return 2
-      n=$(cd "$repo" && glab mr list --source-branch="$br" -M --per-page 20 \
+      n=$(cd "$repo" && glab mr list --source-branch="$br" -M --per-page 100 \
             -F json --jq 'length' 2>/dev/null) || return 2 ;;
     *) return 2 ;;
   esac

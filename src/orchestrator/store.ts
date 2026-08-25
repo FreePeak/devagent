@@ -109,4 +109,3 @@ export function applyAnswerToRepo(repoPath: string, taskId: string, answer: stri
   saveBoard(repoPath, board);
   return { status: 200, body: { ok: true, note: r.note } };
 }
->>>>>>> devagent/loop44-mcp-answer
