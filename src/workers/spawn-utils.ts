@@ -68,9 +68,10 @@ export function spawnCli(cmd: string, args: string[], opts: SpawnCliOptions): Pr
         }
         // Non-timeout failure (non-zero exit): error.code holds the numeric exit code.
         // Spawn failures like ENOENT carry a string code; normalize those to -1 so we
-        // never leak errno details through the result shape.
+        // never leak errno details through the result shape (and never read as success).
+        // A null error is genuine success -> 0.
         const rawCode = (error as { code?: unknown } | null)?.code;
-        const exitCode = typeof rawCode === 'number' ? rawCode : 0;
+        const exitCode = error === null ? 0 : typeof rawCode === 'number' ? rawCode : -1;
         resolve({
           exitCode: timedOut ? -1 : exitCode,
           stdout: String(stdout ?? ''),

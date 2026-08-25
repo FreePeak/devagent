@@ -92,6 +92,10 @@ export function buildDeps(creds: Credentials, cfg: StageConfig, log: RunLogger):
     publishStage: async (_c, planRaw, impl) => {
       const plan = planRaw as ImplementationPlan;
       if (!impl.worktreePath) return undefined;
+      // Commit whatever the worker left uncommitted before pushing — otherwise
+      // the change set silently ships as an empty PR (production-readiness P0 #6).
+      const { commitAllChanges } = await import('./git/worktree.js');
+      await commitAllChanges(impl.worktreePath, `devagent(${plan.ticket.id}): ${plan.ticket.title.slice(0, 72)}`);
       const branch = `devagent/${plan.ticket.id}`;
       const { pushBranch } = await import('./integrations/github.js');
       const repoCfg = (await import('./config.js')).loadConfig(impl.worktreePath);

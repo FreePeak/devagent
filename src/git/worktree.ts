@@ -116,6 +116,20 @@ export async function commitAllChanges(worktreePath: string, message: string): P
   }
 }
 
+/**
+ * Name of the branch checked out in worktreePath — ground truth for
+ * publishing (never guess a refspec). Throws on a detached HEAD, where
+ * "branch" is meaningless and pushing would silently do the wrong thing.
+ */
+export async function currentBranch(worktreePath: string): Promise<string> {
+  const r = await run('git', ['rev-parse', '--abbrev-ref', 'HEAD'], worktreePath);
+  const name = r.stdout.trim();
+  if (!name || name === 'HEAD') {
+    throw new Error(`detached HEAD in ${worktreePath}: no branch to publish`);
+  }
+  return name;
+}
+
 /** Rename the currently checked-out branch inside a worktree. */
 export async function renameCurrentBranch(worktreePath: string, newBranch: string): Promise<void> {
   await run('git', ['branch', '-m', newBranch], worktreePath);
