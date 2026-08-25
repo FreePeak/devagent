@@ -1,0 +1,2548 @@
+- generic [ref=e1]:
+  - heading "DevAgent Runs (339 runs)" [level=1] [ref=e2]
+  - generic [ref=e3]:
+    - button "Board" [ref=e4] [cursor=pointer]
+    - button "Runs by date" [active] [ref=e5] [cursor=pointer]
+    - button "Features" [ref=e6] [cursor=pointer]
+  - generic [ref=e7]:
+    - generic [ref=e8]:
+      - generic [ref=e9]: "339"
+      - generic [ref=e10]: runs
+    - generic [ref=e11]:
+      - generic [ref=e12]: "334"
+      - generic [ref=e13]: ok
+    - generic [ref=e14]:
+      - generic [ref=e15]: "5"
+      - generic [ref=e16]: failed
+    - generic [ref=e17]:
+      - generic [ref=e18]: "153"
+      - generic [ref=e19]: runs since 2026-08-24
+    - generic [ref=e20]:
+      - generic [ref=e21]: 6m29s
+      - generic [ref=e22]: median duration
+  - heading "Activity" [level=2] [ref=e23]
+  - generic [ref=e24]:
+    - 'generic "2026-08-11: no runs" [ref=e25]'
+    - 'generic "2026-08-12: no runs" [ref=e26]'
+    - 'generic "2026-08-13: no runs" [ref=e27]'
+    - 'generic "2026-08-14: no runs" [ref=e28]'
+    - 'generic "2026-08-15: no runs" [ref=e29]'
+    - 'generic "2026-08-16: no runs" [ref=e30]'
+    - 'generic "2026-08-17: no runs" [ref=e31]'
+    - 'generic "2026-08-18: no runs" [ref=e32]'
+    - 'generic "2026-08-19: no runs" [ref=e33]'
+    - 'generic "2026-08-20: no runs" [ref=e34]'
+    - 'generic "2026-08-21: no runs" [ref=e35]'
+    - 'generic "2026-08-22: 1 run(s), 1 failed" [ref=e36]'
+    - 'generic "2026-08-23: 185 run(s), 2 failed" [ref=e37]'
+    - 'generic "2026-08-24: 153 run(s), 2 failed" [ref=e38]'
+    - generic [ref=e39]: 2026-08-24, trailing 14d
+  - generic [ref=e1074]:
+    - paragraph [ref=e1075]:
+      - searchbox "filter runs..." [ref=e1076]
+      - button "all" [ref=e1077] [cursor=pointer]
+      - button "ok" [ref=e1078] [cursor=pointer]
+      - button "failed" [ref=e1079] [cursor=pointer]
+    - generic [ref=e1080]:
+      - heading "2026-08-24 153 run(s), 2 failed" [level=2] [ref=e1081]
+      - generic [ref=e1082]:
+        - group [ref=e1083]:
+          - generic "5fe2c28b todo T2 done 2026-08-24 00:28:13 open" [ref=e1084] [cursor=pointer]:
+            - generic [ref=e1085]: 5fe2c28b
+            - generic [ref=e1086]: todo
+            - generic [ref=e1087]: T2 done
+            - generic [ref=e1088]: 2026-08-24 00:28:13
+            - button "open" [ref=e1089]
+        - group [ref=e1090]:
+          - generic "6ca333cd todo T1 done 2026-08-24 00:28:13 open" [ref=e1091] [cursor=pointer]:
+            - generic [ref=e1092]: 6ca333cd
+            - generic [ref=e1093]: todo
+            - generic [ref=e1094]: T1 done
+            - generic [ref=e1095]: 2026-08-24 00:28:13
+            - button "open" [ref=e1096]
+        - group [ref=e1097]:
+          - 'generic "a0adb35a todo Dry-run: stopping before implement ANY-42 2026-08-24 00:28:14 open" [ref=e1098] [cursor=pointer]':
+            - generic [ref=e1099]: a0adb35a
+            - generic [ref=e1100]: todo
+            - generic [ref=e1101]: "Dry-run: stopping before implement"
+            - generic [ref=e1102]: ANY-42
+            - generic [ref=e1103]: 2026-08-24 00:28:14
+            - button "open" [ref=e1104]
+        - group [ref=e1105]:
+          - generic "59fb0271 — do thing todo Task starting 2026-08-24 00:28:14 open" [ref=e1106] [cursor=pointer]:
+            - generic [ref=e1107]: 59fb0271 — do thing
+            - generic [ref=e1108]: todo
+            - generic [ref=e1109]: Task starting
+            - generic [ref=e1110]: 2026-08-24 00:28:14
+            - button "open" [ref=e1111]
+        - group [ref=e1112]:
+          - generic "6f29143b todo T1 done 2026-08-24 00:28:28 open" [ref=e1113] [cursor=pointer]:
+            - generic [ref=e1114]: 6f29143b
+            - generic [ref=e1115]: todo
+            - generic [ref=e1116]: T1 done
+            - generic [ref=e1117]: 2026-08-24 00:28:28
+            - button "open" [ref=e1118]
+        - group [ref=e1119]:
+          - generic "340ea96b todo T2 done 2026-08-24 00:28:28 open" [ref=e1120] [cursor=pointer]:
+            - generic [ref=e1121]: 340ea96b
+            - generic [ref=e1122]: todo
+            - generic [ref=e1123]: T2 done
+            - generic [ref=e1124]: 2026-08-24 00:28:28
+            - button "open" [ref=e1125]
+        - group [ref=e1126]:
+          - 'generic "5ff25e1b todo Dry-run: stopping before implement ANY-42 2026-08-24 00:28:28 open" [ref=e1127] [cursor=pointer]':
+            - generic [ref=e1128]: 5ff25e1b
+            - generic [ref=e1129]: todo
+            - generic [ref=e1130]: "Dry-run: stopping before implement"
+            - generic [ref=e1131]: ANY-42
+            - generic [ref=e1132]: 2026-08-24 00:28:28
+            - button "open" [ref=e1133]
+        - group [ref=e1134]:
+          - generic "1b99a725 — do thing todo Task starting 2026-08-24 00:28:29 open" [ref=e1135] [cursor=pointer]:
+            - generic [ref=e1136]: 1b99a725 — do thing
+            - generic [ref=e1137]: todo
+            - generic [ref=e1138]: Task starting
+            - generic [ref=e1139]: 2026-08-24 00:28:29
+            - button "open" [ref=e1140]
+        - group [ref=e1141]:
+          - generic "e7be5a11 todo T1 done 2026-08-24 00:28:44 open" [ref=e1142] [cursor=pointer]:
+            - generic [ref=e1143]: e7be5a11
+            - generic [ref=e1144]: todo
+            - generic [ref=e1145]: T1 done
+            - generic [ref=e1146]: 2026-08-24 00:28:44
+            - button "open" [ref=e1147]
+        - group [ref=e1148]:
+          - generic "a5183585 todo T1 done 2026-08-24 00:28:56 open" [ref=e1149] [cursor=pointer]:
+            - generic [ref=e1150]: a5183585
+            - generic [ref=e1151]: todo
+            - generic [ref=e1152]: T1 done
+            - generic [ref=e1153]: 2026-08-24 00:28:56
+            - button "open" [ref=e1154]
+        - group [ref=e1155]:
+          - generic "1df4299c todo T2 done 2026-08-24 00:28:56 open" [ref=e1156] [cursor=pointer]:
+            - generic [ref=e1157]: 1df4299c
+            - generic [ref=e1158]: todo
+            - generic [ref=e1159]: T2 done
+            - generic [ref=e1160]: 2026-08-24 00:28:56
+            - button "open" [ref=e1161]
+        - group [ref=e1162]:
+          - generic "0cf812af todo T1 done 2026-08-24 00:28:57 open" [ref=e1163] [cursor=pointer]:
+            - generic [ref=e1164]: 0cf812af
+            - generic [ref=e1165]: todo
+            - generic [ref=e1166]: T1 done
+            - generic [ref=e1167]: 2026-08-24 00:28:57
+            - button "open" [ref=e1168]
+        - group [ref=e1169]:
+          - generic "2863e130 — do thing todo Task starting 2026-08-24 00:29:05 open" [ref=e1170] [cursor=pointer]:
+            - generic [ref=e1171]: 2863e130 — do thing
+            - generic [ref=e1172]: todo
+            - generic [ref=e1173]: Task starting
+            - generic [ref=e1174]: 2026-08-24 00:29:05
+            - button "open" [ref=e1175]
+        - group [ref=e1176]:
+          - 'generic "360819c7 todo Dry-run: stopping before implement ANY-42 2026-08-24 00:29:06 open" [ref=e1177] [cursor=pointer]':
+            - generic [ref=e1178]: 360819c7
+            - generic [ref=e1179]: todo
+            - generic [ref=e1180]: "Dry-run: stopping before implement"
+            - generic [ref=e1181]: ANY-42
+            - generic [ref=e1182]: 2026-08-24 00:29:06
+            - button "open" [ref=e1183]
+        - group [ref=e1184]:
+          - generic "cf98a384 todo T2 done 2026-08-24 00:29:14 open" [ref=e1185] [cursor=pointer]:
+            - generic [ref=e1186]: cf98a384
+            - generic [ref=e1187]: todo
+            - generic [ref=e1188]: T2 done
+            - generic [ref=e1189]: 2026-08-24 00:29:14
+            - button "open" [ref=e1190]
+        - group [ref=e1191]:
+          - generic "2a828a49 todo T1 done 2026-08-24 00:29:14 open" [ref=e1192] [cursor=pointer]:
+            - generic [ref=e1193]: 2a828a49
+            - generic [ref=e1194]: todo
+            - generic [ref=e1195]: T1 done
+            - generic [ref=e1196]: 2026-08-24 00:29:14
+            - button "open" [ref=e1197]
+        - group [ref=e1198]:
+          - generic "d8a52d99 — do thing todo Task starting 2026-08-24 00:29:20 open" [ref=e1199] [cursor=pointer]:
+            - generic [ref=e1200]: d8a52d99 — do thing
+            - generic [ref=e1201]: todo
+            - generic [ref=e1202]: Task starting
+            - generic [ref=e1203]: 2026-08-24 00:29:20
+            - button "open" [ref=e1204]
+        - group [ref=e1205]:
+          - 'generic "bf302c61 todo Dry-run: stopping before implement ANY-42 2026-08-24 00:29:21 open" [ref=e1206] [cursor=pointer]':
+            - generic [ref=e1207]: bf302c61
+            - generic [ref=e1208]: todo
+            - generic [ref=e1209]: "Dry-run: stopping before implement"
+            - generic [ref=e1210]: ANY-42
+            - generic [ref=e1211]: 2026-08-24 00:29:21
+            - button "open" [ref=e1212]
+        - group [ref=e1213]:
+          - generic "790f0613 todo T1 done 2026-08-24 00:29:30 open" [ref=e1214] [cursor=pointer]:
+            - generic [ref=e1215]: 790f0613
+            - generic [ref=e1216]: todo
+            - generic [ref=e1217]: T1 done
+            - generic [ref=e1218]: 2026-08-24 00:29:30
+            - button "open" [ref=e1219]
+        - group [ref=e1220]:
+          - generic "79cf7e70 todo T2 done 2026-08-24 00:54:51 open" [ref=e1221] [cursor=pointer]:
+            - generic [ref=e1222]: 79cf7e70
+            - generic [ref=e1223]: todo
+            - generic [ref=e1224]: T2 done
+            - generic [ref=e1225]: 2026-08-24 00:54:51
+            - button "open" [ref=e1226]
+        - group [ref=e1227]:
+          - generic "32bfb6bf todo T1 done 2026-08-24 00:54:51 open" [ref=e1228] [cursor=pointer]:
+            - generic [ref=e1229]: 32bfb6bf
+            - generic [ref=e1230]: todo
+            - generic [ref=e1231]: T1 done
+            - generic [ref=e1232]: 2026-08-24 00:54:51
+            - button "open" [ref=e1233]
+        - group [ref=e1234]:
+          - generic "5acec077 — do thing todo Task starting 2026-08-24 00:54:57 open" [ref=e1235] [cursor=pointer]:
+            - generic [ref=e1236]: 5acec077 — do thing
+            - generic [ref=e1237]: todo
+            - generic [ref=e1238]: Task starting
+            - generic [ref=e1239]: 2026-08-24 00:54:57
+            - button "open" [ref=e1240]
+        - group [ref=e1241]:
+          - 'generic "4f45a487 todo Dry-run: stopping before implement ANY-42 2026-08-24 00:54:58 open" [ref=e1242] [cursor=pointer]':
+            - generic [ref=e1243]: 4f45a487
+            - generic [ref=e1244]: todo
+            - generic [ref=e1245]: "Dry-run: stopping before implement"
+            - generic [ref=e1246]: ANY-42
+            - generic [ref=e1247]: 2026-08-24 00:54:58
+            - button "open" [ref=e1248]
+        - group [ref=e1249]:
+          - generic "72783bb5 todo T1 done 2026-08-24 01:59:43 open" [ref=e1250] [cursor=pointer]:
+            - generic [ref=e1251]: 72783bb5
+            - generic [ref=e1252]: todo
+            - generic [ref=e1253]: T1 done
+            - generic [ref=e1254]: 2026-08-24 01:59:43
+            - button "open" [ref=e1255]
+        - group [ref=e1256]:
+          - generic "22ccea43 todo T1 done 2026-08-24 01:59:44 open" [ref=e1257] [cursor=pointer]:
+            - generic [ref=e1258]: 22ccea43
+            - generic [ref=e1259]: todo
+            - generic [ref=e1260]: T1 done
+            - generic [ref=e1261]: 2026-08-24 01:59:44
+            - button "open" [ref=e1262]
+        - group [ref=e1263]:
+          - generic "55623d21 todo T2 done 2026-08-24 01:59:44 open" [ref=e1264] [cursor=pointer]:
+            - generic [ref=e1265]: 55623d21
+            - generic [ref=e1266]: todo
+            - generic [ref=e1267]: T2 done
+            - generic [ref=e1268]: 2026-08-24 01:59:44
+            - button "open" [ref=e1269]
+        - group [ref=e1270]:
+          - 'generic "d52c1390 todo Dry-run: stopping before implement ANY-42 2026-08-24 01:59:45 open" [ref=e1271] [cursor=pointer]':
+            - generic [ref=e1272]: d52c1390
+            - generic [ref=e1273]: todo
+            - generic [ref=e1274]: "Dry-run: stopping before implement"
+            - generic [ref=e1275]: ANY-42
+            - generic [ref=e1276]: 2026-08-24 01:59:45
+            - button "open" [ref=e1277]
+        - group [ref=e1278]:
+          - generic "82142f10 — do thing todo Task starting 2026-08-24 01:59:45 open" [ref=e1279] [cursor=pointer]:
+            - generic [ref=e1280]: 82142f10 — do thing
+            - generic [ref=e1281]: todo
+            - generic [ref=e1282]: Task starting
+            - generic [ref=e1283]: 2026-08-24 01:59:45
+            - button "open" [ref=e1284]
+        - group [ref=e1285]:
+          - generic "9d0a0977 todo T1 done 2026-08-24 01:59:59 open" [ref=e1286] [cursor=pointer]:
+            - generic [ref=e1287]: 9d0a0977
+            - generic [ref=e1288]: todo
+            - generic [ref=e1289]: T1 done
+            - generic [ref=e1290]: 2026-08-24 01:59:59
+            - button "open" [ref=e1291]
+        - group [ref=e1292]:
+          - generic "e504a8d2 todo T2 done 2026-08-24 01:59:59 open" [ref=e1293] [cursor=pointer]:
+            - generic [ref=e1294]: e504a8d2
+            - generic [ref=e1295]: todo
+            - generic [ref=e1296]: T2 done
+            - generic [ref=e1297]: 2026-08-24 01:59:59
+            - button "open" [ref=e1298]
+        - group [ref=e1299]:
+          - 'generic "28626110 todo Dry-run: stopping before implement ANY-42 2026-08-24 02:00:00 open" [ref=e1300] [cursor=pointer]':
+            - generic [ref=e1301]: "28626110"
+            - generic [ref=e1302]: todo
+            - generic [ref=e1303]: "Dry-run: stopping before implement"
+            - generic [ref=e1304]: ANY-42
+            - generic [ref=e1305]: 2026-08-24 02:00:00
+            - button "open" [ref=e1306]
+        - group [ref=e1307]:
+          - generic "f0b89756 — do thing todo Task starting 2026-08-24 02:00:00 open" [ref=e1308] [cursor=pointer]:
+            - generic [ref=e1309]: f0b89756 — do thing
+            - generic [ref=e1310]: todo
+            - generic [ref=e1311]: Task starting
+            - generic [ref=e1312]: 2026-08-24 02:00:00
+            - button "open" [ref=e1313]
+        - group [ref=e1314]:
+          - generic "99ba67ed todo T2 done 2026-08-24 02:00:49 open" [ref=e1315] [cursor=pointer]:
+            - generic [ref=e1316]: 99ba67ed
+            - generic [ref=e1317]: todo
+            - generic [ref=e1318]: T2 done
+            - generic [ref=e1319]: 2026-08-24 02:00:49
+            - button "open" [ref=e1320]
+        - group [ref=e1321]:
+          - generic "71bf6901 todo T1 done 2026-08-24 02:00:49 open" [ref=e1322] [cursor=pointer]:
+            - generic [ref=e1323]: 71bf6901
+            - generic [ref=e1324]: todo
+            - generic [ref=e1325]: T1 done
+            - generic [ref=e1326]: 2026-08-24 02:00:49
+            - button "open" [ref=e1327]
+        - group [ref=e1328]:
+          - 'generic "142fbcf2 todo Dry-run: stopping before implement ANY-42 2026-08-24 02:00:50 open" [ref=e1329] [cursor=pointer]':
+            - generic [ref=e1330]: 142fbcf2
+            - generic [ref=e1331]: todo
+            - generic [ref=e1332]: "Dry-run: stopping before implement"
+            - generic [ref=e1333]: ANY-42
+            - generic [ref=e1334]: 2026-08-24 02:00:50
+            - button "open" [ref=e1335]
+        - group [ref=e1336]:
+          - generic "9580f763 — do thing todo Task starting 2026-08-24 02:00:50 open" [ref=e1337] [cursor=pointer]:
+            - generic [ref=e1338]: 9580f763 — do thing
+            - generic [ref=e1339]: todo
+            - generic [ref=e1340]: Task starting
+            - generic [ref=e1341]: 2026-08-24 02:00:50
+            - button "open" [ref=e1342]
+        - group [ref=e1343]:
+          - generic "d5027aba todo T1 done 2026-08-24 02:02:46 open" [ref=e1344] [cursor=pointer]:
+            - generic [ref=e1345]: d5027aba
+            - generic [ref=e1346]: todo
+            - generic [ref=e1347]: T1 done
+            - generic [ref=e1348]: 2026-08-24 02:02:46
+            - button "open" [ref=e1349]
+        - group [ref=e1350]:
+          - generic "1c7f08fa todo T2 done 2026-08-24 02:02:46 open" [ref=e1351] [cursor=pointer]:
+            - generic [ref=e1352]: 1c7f08fa
+            - generic [ref=e1353]: todo
+            - generic [ref=e1354]: T2 done
+            - generic [ref=e1355]: 2026-08-24 02:02:46
+            - button "open" [ref=e1356]
+        - group [ref=e1357]:
+          - 'generic "a671a732 todo Dry-run: stopping before implement ANY-42 2026-08-24 02:02:49 open" [ref=e1358] [cursor=pointer]':
+            - generic [ref=e1359]: a671a732
+            - generic [ref=e1360]: todo
+            - generic [ref=e1361]: "Dry-run: stopping before implement"
+            - generic [ref=e1362]: ANY-42
+            - generic [ref=e1363]: 2026-08-24 02:02:49
+            - button "open" [ref=e1364]
+        - group [ref=e1365]:
+          - generic "f4b259ba — do thing todo Task starting 2026-08-24 02:02:49 open" [ref=e1366] [cursor=pointer]:
+            - generic [ref=e1367]: f4b259ba — do thing
+            - generic [ref=e1368]: todo
+            - generic [ref=e1369]: Task starting
+            - generic [ref=e1370]: 2026-08-24 02:02:49
+            - button "open" [ref=e1371]
+        - group [ref=e1372]:
+          - generic "956f18f0 todo T2 done 2026-08-24 02:06:41 open" [ref=e1373] [cursor=pointer]:
+            - generic [ref=e1374]: 956f18f0
+            - generic [ref=e1375]: todo
+            - generic [ref=e1376]: T2 done
+            - generic [ref=e1377]: 2026-08-24 02:06:41
+            - button "open" [ref=e1378]
+        - group [ref=e1379]:
+          - generic "8cd285f2 todo T1 done 2026-08-24 02:06:41 open" [ref=e1380] [cursor=pointer]:
+            - generic [ref=e1381]: 8cd285f2
+            - generic [ref=e1382]: todo
+            - generic [ref=e1383]: T1 done
+            - generic [ref=e1384]: 2026-08-24 02:06:41
+            - button "open" [ref=e1385]
+        - group [ref=e1386]:
+          - 'generic "d235f9e9 todo Dry-run: stopping before implement ANY-42 2026-08-24 02:06:42 open" [ref=e1387] [cursor=pointer]':
+            - generic [ref=e1388]: d235f9e9
+            - generic [ref=e1389]: todo
+            - generic [ref=e1390]: "Dry-run: stopping before implement"
+            - generic [ref=e1391]: ANY-42
+            - generic [ref=e1392]: 2026-08-24 02:06:42
+            - button "open" [ref=e1393]
+        - group [ref=e1394]:
+          - generic "a19a55cf — do thing todo Task starting 2026-08-24 02:06:42 open" [ref=e1395] [cursor=pointer]:
+            - generic [ref=e1396]: a19a55cf — do thing
+            - generic [ref=e1397]: todo
+            - generic [ref=e1398]: Task starting
+            - generic [ref=e1399]: 2026-08-24 02:06:42
+            - button "open" [ref=e1400]
+        - group [ref=e1401]:
+          - generic "5a5df590 todo T2 done 2026-08-24 02:08:00 open" [ref=e1402] [cursor=pointer]:
+            - generic [ref=e1403]: 5a5df590
+            - generic [ref=e1404]: todo
+            - generic [ref=e1405]: T2 done
+            - generic [ref=e1406]: 2026-08-24 02:08:00
+            - button "open" [ref=e1407]
+        - group [ref=e1408]:
+          - generic "2e00e113 todo T1 done 2026-08-24 02:08:00 open" [ref=e1409] [cursor=pointer]:
+            - generic [ref=e1410]: 2e00e113
+            - generic [ref=e1411]: todo
+            - generic [ref=e1412]: T1 done
+            - generic [ref=e1413]: 2026-08-24 02:08:00
+            - button "open" [ref=e1414]
+        - group [ref=e1415]:
+          - 'generic "9978af0d todo Dry-run: stopping before implement ANY-42 2026-08-24 02:08:00 open" [ref=e1416] [cursor=pointer]':
+            - generic [ref=e1417]: 9978af0d
+            - generic [ref=e1418]: todo
+            - generic [ref=e1419]: "Dry-run: stopping before implement"
+            - generic [ref=e1420]: ANY-42
+            - generic [ref=e1421]: 2026-08-24 02:08:00
+            - button "open" [ref=e1422]
+        - group [ref=e1423]:
+          - generic "21fe554f — do thing todo Task starting 2026-08-24 02:08:01 open" [ref=e1424] [cursor=pointer]:
+            - generic [ref=e1425]: 21fe554f — do thing
+            - generic [ref=e1426]: todo
+            - generic [ref=e1427]: Task starting
+            - generic [ref=e1428]: 2026-08-24 02:08:01
+            - button "open" [ref=e1429]
+        - group [ref=e1430]:
+          - generic "48646f2c todo T2 done 2026-08-24 02:08:07 open" [ref=e1431] [cursor=pointer]:
+            - generic [ref=e1432]: 48646f2c
+            - generic [ref=e1433]: todo
+            - generic [ref=e1434]: T2 done
+            - generic [ref=e1435]: 2026-08-24 02:08:07
+            - button "open" [ref=e1436]
+        - group [ref=e1437]:
+          - generic "66ddee59 todo T1 done 2026-08-24 02:08:07 open" [ref=e1438] [cursor=pointer]:
+            - generic [ref=e1439]: 66ddee59
+            - generic [ref=e1440]: todo
+            - generic [ref=e1441]: T1 done
+            - generic [ref=e1442]: 2026-08-24 02:08:07
+            - button "open" [ref=e1443]
+        - group [ref=e1444]:
+          - generic "e8c30dab — do thing todo Task starting 2026-08-24 02:08:07 open" [ref=e1445] [cursor=pointer]:
+            - generic [ref=e1446]: e8c30dab — do thing
+            - generic [ref=e1447]: todo
+            - generic [ref=e1448]: Task starting
+            - generic [ref=e1449]: 2026-08-24 02:08:07
+            - button "open" [ref=e1450]
+        - group [ref=e1451]:
+          - 'generic "04381b92 todo Dry-run: stopping before implement ANY-42 2026-08-24 02:08:07 open" [ref=e1452] [cursor=pointer]':
+            - generic [ref=e1453]: 04381b92
+            - generic [ref=e1454]: todo
+            - generic [ref=e1455]: "Dry-run: stopping before implement"
+            - generic [ref=e1456]: ANY-42
+            - generic [ref=e1457]: 2026-08-24 02:08:07
+            - button "open" [ref=e1458]
+        - group [ref=e1459]:
+          - 'generic "12799121 — GitHub Issues ingestion: add fetchGithubIssue to src/integrations/github.ts that failed Aborting run: worktree creation failed: Command failed: git worktree add /Users/linh.doan/orca/workspaces/auto-devagent-selfbuild-run-5-20260824T0123/.devagent-worktrees/TASK devagent/TASK Preparing worktree (checking out ''devagent/TASK'') fatal: ''devagent/TASK'' is already used by worktree at ''/Users/linh.doan/orca/workspaces/auto-devagent-selfbuild-run-4-20260823T2323/.devagent-worktrees/TASK'' orca/workspaces/auto-devagent-selfbuild-run-5-20260824T0123 2026-08-24 02:08:42 open" [ref=e1460] [cursor=pointer]':
+            - generic [ref=e1461]: "12799121 — GitHub Issues ingestion: add fetchGithubIssue to src/integrations/github.ts that"
+            - generic [ref=e1462]: failed
+            - generic [ref=e1463]: "Aborting run: worktree creation failed: Command failed: git worktree add /Users/linh.doan/orca/workspaces/auto-devagent-selfbuild-run-5-20260824T0123/.devagent-worktrees/TASK devagent/TASK Preparing worktree (checking out 'devagent/TASK') fatal: 'devagent/TASK' is already used by worktree at '/Users/linh.doan/orca/workspaces/auto-devagent-selfbuild-run-4-20260823T2323/.devagent-worktrees/TASK'"
+            - generic [ref=e1464]: orca/workspaces/auto-devagent-selfbuild-run-5-20260824T0123
+            - generic [ref=e1465]: 2026-08-24 02:08:42
+            - button "open" [ref=e1466]
+        - group [ref=e1467]:
+          - generic "68b2e8da todo T1 failed (attempt 1) 2026-08-24 02:13:27 open" [ref=e1468] [cursor=pointer]:
+            - generic [ref=e1469]: 68b2e8da
+            - generic [ref=e1470]: todo
+            - generic [ref=e1471]: T1 failed (attempt 1)
+            - generic [ref=e1472]: 2026-08-24 02:13:27
+            - button "open" [ref=e1473]
+        - group [ref=e1474]:
+          - generic "4bb5406b todo T2 done 2026-08-24 02:13:27 open" [ref=e1475] [cursor=pointer]:
+            - generic [ref=e1476]: 4bb5406b
+            - generic [ref=e1477]: todo
+            - generic [ref=e1478]: T2 done
+            - generic [ref=e1479]: 2026-08-24 02:13:27
+            - button "open" [ref=e1480]
+        - group [ref=e1481]:
+          - 'generic "d61695cf todo Dry-run: stopping before implement ANY-42 2026-08-24 02:13:28 open" [ref=e1482] [cursor=pointer]':
+            - generic [ref=e1483]: d61695cf
+            - generic [ref=e1484]: todo
+            - generic [ref=e1485]: "Dry-run: stopping before implement"
+            - generic [ref=e1486]: ANY-42
+            - generic [ref=e1487]: 2026-08-24 02:13:28
+            - button "open" [ref=e1488]
+        - group [ref=e1489]:
+          - generic "9449c4da — do thing todo Task starting 2026-08-24 02:13:28 open" [ref=e1490] [cursor=pointer]:
+            - generic [ref=e1491]: 9449c4da — do thing
+            - generic [ref=e1492]: todo
+            - generic [ref=e1493]: Task starting
+            - generic [ref=e1494]: 2026-08-24 02:13:28
+            - button "open" [ref=e1495]
+        - group [ref=e1496]:
+          - generic "8d07dbff todo T2 done 2026-08-24 02:14:12 open" [ref=e1497] [cursor=pointer]:
+            - generic [ref=e1498]: 8d07dbff
+            - generic [ref=e1499]: todo
+            - generic [ref=e1500]: T2 done
+            - generic [ref=e1501]: 2026-08-24 02:14:12
+            - button "open" [ref=e1502]
+        - group [ref=e1503]:
+          - generic "88fce2be todo T1 failed (attempt 1) 2026-08-24 02:14:12 open" [ref=e1504] [cursor=pointer]:
+            - generic [ref=e1505]: 88fce2be
+            - generic [ref=e1506]: todo
+            - generic [ref=e1507]: T1 failed (attempt 1)
+            - generic [ref=e1508]: 2026-08-24 02:14:12
+            - button "open" [ref=e1509]
+        - group [ref=e1510]:
+          - 'generic "225ef685 todo Dry-run: stopping before implement ANY-42 2026-08-24 02:14:12 open" [ref=e1511] [cursor=pointer]':
+            - generic [ref=e1512]: 225ef685
+            - generic [ref=e1513]: todo
+            - generic [ref=e1514]: "Dry-run: stopping before implement"
+            - generic [ref=e1515]: ANY-42
+            - generic [ref=e1516]: 2026-08-24 02:14:12
+            - button "open" [ref=e1517]
+        - group [ref=e1518]:
+          - generic "f24fd6e2 — do thing todo Task starting 2026-08-24 02:14:13 open" [ref=e1519] [cursor=pointer]:
+            - generic [ref=e1520]: f24fd6e2 — do thing
+            - generic [ref=e1521]: todo
+            - generic [ref=e1522]: Task starting
+            - generic [ref=e1523]: 2026-08-24 02:14:13
+            - button "open" [ref=e1524]
+        - group [ref=e1525]:
+          - generic "cbdd6252 todo T2 done 2026-08-24 02:15:05 open" [ref=e1526] [cursor=pointer]:
+            - generic [ref=e1527]: cbdd6252
+            - generic [ref=e1528]: todo
+            - generic [ref=e1529]: T2 done
+            - generic [ref=e1530]: 2026-08-24 02:15:05
+            - button "open" [ref=e1531]
+        - group [ref=e1532]:
+          - generic "6bcc2bdc todo T1 failed (attempt 1) 2026-08-24 02:15:05 open" [ref=e1533] [cursor=pointer]:
+            - generic [ref=e1534]: 6bcc2bdc
+            - generic [ref=e1535]: todo
+            - generic [ref=e1536]: T1 failed (attempt 1)
+            - generic [ref=e1537]: 2026-08-24 02:15:05
+            - button "open" [ref=e1538]
+        - group [ref=e1539]:
+          - 'generic "abe8b9c2 todo Dry-run: stopping before implement ANY-42 2026-08-24 02:15:06 open" [ref=e1540] [cursor=pointer]':
+            - generic [ref=e1541]: abe8b9c2
+            - generic [ref=e1542]: todo
+            - generic [ref=e1543]: "Dry-run: stopping before implement"
+            - generic [ref=e1544]: ANY-42
+            - generic [ref=e1545]: 2026-08-24 02:15:06
+            - button "open" [ref=e1546]
+        - group [ref=e1547]:
+          - generic "719dd4e5 — do thing todo Task starting 2026-08-24 02:15:06 open" [ref=e1548] [cursor=pointer]:
+            - generic [ref=e1549]: 719dd4e5 — do thing
+            - generic [ref=e1550]: todo
+            - generic [ref=e1551]: Task starting
+            - generic [ref=e1552]: 2026-08-24 02:15:06
+            - button "open" [ref=e1553]
+        - group [ref=e1554]:
+          - generic "2ae7c48d todo T1 failed (attempt 1) 2026-08-24 02:15:24 open" [ref=e1555] [cursor=pointer]:
+            - generic [ref=e1556]: 2ae7c48d
+            - generic [ref=e1557]: todo
+            - generic [ref=e1558]: T1 failed (attempt 1)
+            - generic [ref=e1559]: 2026-08-24 02:15:24
+            - button "open" [ref=e1560]
+        - group [ref=e1561]:
+          - generic "a0dd445c todo T2 done 2026-08-24 02:15:24 open" [ref=e1562] [cursor=pointer]:
+            - generic [ref=e1563]: a0dd445c
+            - generic [ref=e1564]: todo
+            - generic [ref=e1565]: T2 done
+            - generic [ref=e1566]: 2026-08-24 02:15:24
+            - button "open" [ref=e1567]
+        - group [ref=e1568]:
+          - 'generic "36c30915 todo Dry-run: stopping before implement ANY-42 2026-08-24 02:15:25 open" [ref=e1569] [cursor=pointer]':
+            - generic [ref=e1570]: 36c30915
+            - generic [ref=e1571]: todo
+            - generic [ref=e1572]: "Dry-run: stopping before implement"
+            - generic [ref=e1573]: ANY-42
+            - generic [ref=e1574]: 2026-08-24 02:15:25
+            - button "open" [ref=e1575]
+        - group [ref=e1576]:
+          - generic "3d6ac0b0 — do thing todo Task starting 2026-08-24 02:15:25 open" [ref=e1577] [cursor=pointer]:
+            - generic [ref=e1578]: 3d6ac0b0 — do thing
+            - generic [ref=e1579]: todo
+            - generic [ref=e1580]: Task starting
+            - generic [ref=e1581]: 2026-08-24 02:15:25
+            - button "open" [ref=e1582]
+        - group [ref=e1583]:
+          - 'generic "671fe30f — GitHub Issues ingestion (PRD Phase 4): add a fetchGithubIssue function that fetc in progress Worktree preserved for inspection: /Users/linh.doan/orca/workspaces/auto-devagent-selfbuild-run-5-20260824T0123/.devagent-worktrees/TASK exit 0 · 6m29s · orca/workspaces/auto-devagent-selfbuild-run-5-20260824T0123 2026-08-24 02:15:46 open" [ref=e1584] [cursor=pointer]':
+            - generic [ref=e1585]: "671fe30f — GitHub Issues ingestion (PRD Phase 4): add a fetchGithubIssue function that fetc"
+            - generic [ref=e1586]: in progress
+            - generic [ref=e1587]: "Worktree preserved for inspection: /Users/linh.doan/orca/workspaces/auto-devagent-selfbuild-run-5-20260824T0123/.devagent-worktrees/TASK"
+            - generic [ref=e1588]: exit 0 · 6m29s · orca/workspaces/auto-devagent-selfbuild-run-5-20260824T0123
+            - generic [ref=e1589]: 2026-08-24 02:15:46
+            - button "open" [ref=e1590]
+        - group [ref=e1591]:
+          - generic "5cbee8a3 todo T2 done 2026-08-24 02:21:55 open" [ref=e1592] [cursor=pointer]:
+            - generic [ref=e1593]: 5cbee8a3
+            - generic [ref=e1594]: todo
+            - generic [ref=e1595]: T2 done
+            - generic [ref=e1596]: 2026-08-24 02:21:55
+            - button "open" [ref=e1597]
+        - group [ref=e1598]:
+          - generic "7914c300 todo T1 done 2026-08-24 02:21:55 open" [ref=e1599] [cursor=pointer]:
+            - generic [ref=e1600]: 7914c300
+            - generic [ref=e1601]: todo
+            - generic [ref=e1602]: T1 done
+            - generic [ref=e1603]: 2026-08-24 02:21:55
+            - button "open" [ref=e1604]
+        - group [ref=e1605]:
+          - 'generic "41a5c4e3 todo Dry-run: stopping before implement ANY-42 2026-08-24 02:21:56 open" [ref=e1606] [cursor=pointer]':
+            - generic [ref=e1607]: 41a5c4e3
+            - generic [ref=e1608]: todo
+            - generic [ref=e1609]: "Dry-run: stopping before implement"
+            - generic [ref=e1610]: ANY-42
+            - generic [ref=e1611]: 2026-08-24 02:21:56
+            - button "open" [ref=e1612]
+        - group [ref=e1613]:
+          - generic "7985f930 — do thing todo Task starting 2026-08-24 02:21:56 open" [ref=e1614] [cursor=pointer]:
+            - generic [ref=e1615]: 7985f930 — do thing
+            - generic [ref=e1616]: todo
+            - generic [ref=e1617]: Task starting
+            - generic [ref=e1618]: 2026-08-24 02:21:56
+            - button "open" [ref=e1619]
+        - group [ref=e1620]:
+          - generic "a47648f6 todo T1 done 2026-08-24 02:22:16 open" [ref=e1621] [cursor=pointer]:
+            - generic [ref=e1622]: a47648f6
+            - generic [ref=e1623]: todo
+            - generic [ref=e1624]: T1 done
+            - generic [ref=e1625]: 2026-08-24 02:22:16
+            - button "open" [ref=e1626]
+        - group [ref=e1627]:
+          - generic "0976153c todo T2 done 2026-08-24 02:22:16 open" [ref=e1628] [cursor=pointer]:
+            - generic [ref=e1629]: 0976153c
+            - generic [ref=e1630]: todo
+            - generic [ref=e1631]: T2 done
+            - generic [ref=e1632]: 2026-08-24 02:22:16
+            - button "open" [ref=e1633]
+        - group [ref=e1634]:
+          - 'generic "4dce0c5e todo Dry-run: stopping before implement ANY-42 2026-08-24 02:22:17 open" [ref=e1635] [cursor=pointer]':
+            - generic [ref=e1636]: 4dce0c5e
+            - generic [ref=e1637]: todo
+            - generic [ref=e1638]: "Dry-run: stopping before implement"
+            - generic [ref=e1639]: ANY-42
+            - generic [ref=e1640]: 2026-08-24 02:22:17
+            - button "open" [ref=e1641]
+        - group [ref=e1642]:
+          - generic "8ae43e1a — do thing todo Task starting 2026-08-24 02:22:18 open" [ref=e1643] [cursor=pointer]:
+            - generic [ref=e1644]: 8ae43e1a — do thing
+            - generic [ref=e1645]: todo
+            - generic [ref=e1646]: Task starting
+            - generic [ref=e1647]: 2026-08-24 02:22:18
+            - button "open" [ref=e1648]
+        - group [ref=e1649]:
+          - generic "7e1df7f5 todo T2 done 2026-08-24 02:25:09 open" [ref=e1650] [cursor=pointer]:
+            - generic [ref=e1651]: 7e1df7f5
+            - generic [ref=e1652]: todo
+            - generic [ref=e1653]: T2 done
+            - generic [ref=e1654]: 2026-08-24 02:25:09
+            - button "open" [ref=e1655]
+        - group [ref=e1656]:
+          - generic "2aaea424 todo T1 done 2026-08-24 02:25:09 open" [ref=e1657] [cursor=pointer]:
+            - generic [ref=e1658]: 2aaea424
+            - generic [ref=e1659]: todo
+            - generic [ref=e1660]: T1 done
+            - generic [ref=e1661]: 2026-08-24 02:25:09
+            - button "open" [ref=e1662]
+        - group [ref=e1663]:
+          - 'generic "ea932aef todo Dry-run: stopping before implement ANY-42 2026-08-24 02:25:10 open" [ref=e1664] [cursor=pointer]':
+            - generic [ref=e1665]: ea932aef
+            - generic [ref=e1666]: todo
+            - generic [ref=e1667]: "Dry-run: stopping before implement"
+            - generic [ref=e1668]: ANY-42
+            - generic [ref=e1669]: 2026-08-24 02:25:10
+            - button "open" [ref=e1670]
+        - group [ref=e1671]:
+          - generic "ba66acaf — do thing todo Task starting 2026-08-24 02:25:10 open" [ref=e1672] [cursor=pointer]:
+            - generic [ref=e1673]: ba66acaf — do thing
+            - generic [ref=e1674]: todo
+            - generic [ref=e1675]: Task starting
+            - generic [ref=e1676]: 2026-08-24 02:25:10
+            - button "open" [ref=e1677]
+        - group [ref=e1678]:
+          - generic "da1dbbee todo T1 done 2026-08-24 02:31:08 open" [ref=e1679] [cursor=pointer]:
+            - generic [ref=e1680]: da1dbbee
+            - generic [ref=e1681]: todo
+            - generic [ref=e1682]: T1 done
+            - generic [ref=e1683]: 2026-08-24 02:31:08
+            - button "open" [ref=e1684]
+        - group [ref=e1685]:
+          - generic "8f5b6a1b todo T2 done 2026-08-24 02:31:08 open" [ref=e1686] [cursor=pointer]:
+            - generic [ref=e1687]: 8f5b6a1b
+            - generic [ref=e1688]: todo
+            - generic [ref=e1689]: T2 done
+            - generic [ref=e1690]: 2026-08-24 02:31:08
+            - button "open" [ref=e1691]
+        - group [ref=e1692]:
+          - 'generic "6897aba7 todo Dry-run: stopping before implement ANY-42 2026-08-24 02:31:10 open" [ref=e1693] [cursor=pointer]':
+            - generic [ref=e1694]: 6897aba7
+            - generic [ref=e1695]: todo
+            - generic [ref=e1696]: "Dry-run: stopping before implement"
+            - generic [ref=e1697]: ANY-42
+            - generic [ref=e1698]: 2026-08-24 02:31:10
+            - button "open" [ref=e1699]
+        - group [ref=e1700]:
+          - generic "3f634cb5 — do thing todo Task starting 2026-08-24 02:31:10 open" [ref=e1701] [cursor=pointer]:
+            - generic [ref=e1702]: 3f634cb5 — do thing
+            - generic [ref=e1703]: todo
+            - generic [ref=e1704]: Task starting
+            - generic [ref=e1705]: 2026-08-24 02:31:10
+            - button "open" [ref=e1706]
+        - group [ref=e1707]:
+          - generic "d9e77939 todo T2 done 2026-08-24 02:31:50 open" [ref=e1708] [cursor=pointer]:
+            - generic [ref=e1709]: d9e77939
+            - generic [ref=e1710]: todo
+            - generic [ref=e1711]: T2 done
+            - generic [ref=e1712]: 2026-08-24 02:31:50
+            - button "open" [ref=e1713]
+        - group [ref=e1714]:
+          - generic "fe77dc44 todo T1 done 2026-08-24 02:31:50 open" [ref=e1715] [cursor=pointer]:
+            - generic [ref=e1716]: fe77dc44
+            - generic [ref=e1717]: todo
+            - generic [ref=e1718]: T1 done
+            - generic [ref=e1719]: 2026-08-24 02:31:50
+            - button "open" [ref=e1720]
+        - group [ref=e1721]:
+          - 'generic "e15ada02 todo Dry-run: stopping before implement ANY-42 2026-08-24 02:31:51 open" [ref=e1722] [cursor=pointer]':
+            - generic [ref=e1723]: e15ada02
+            - generic [ref=e1724]: todo
+            - generic [ref=e1725]: "Dry-run: stopping before implement"
+            - generic [ref=e1726]: ANY-42
+            - generic [ref=e1727]: 2026-08-24 02:31:51
+            - button "open" [ref=e1728]
+        - group [ref=e1729]:
+          - generic "e9336f03 — do thing todo Task starting 2026-08-24 02:31:51 open" [ref=e1730] [cursor=pointer]:
+            - generic [ref=e1731]: e9336f03 — do thing
+            - generic [ref=e1732]: todo
+            - generic [ref=e1733]: Task starting
+            - generic [ref=e1734]: 2026-08-24 02:31:51
+            - button "open" [ref=e1735]
+        - group [ref=e1736]:
+          - generic "3fe702c2 todo T2 done 2026-08-24 02:32:29 open" [ref=e1737] [cursor=pointer]:
+            - generic [ref=e1738]: 3fe702c2
+            - generic [ref=e1739]: todo
+            - generic [ref=e1740]: T2 done
+            - generic [ref=e1741]: 2026-08-24 02:32:29
+            - button "open" [ref=e1742]
+        - group [ref=e1743]:
+          - generic "124bd4e5 todo T1 done 2026-08-24 02:32:29 open" [ref=e1744] [cursor=pointer]:
+            - generic [ref=e1745]: 124bd4e5
+            - generic [ref=e1746]: todo
+            - generic [ref=e1747]: T1 done
+            - generic [ref=e1748]: 2026-08-24 02:32:29
+            - button "open" [ref=e1749]
+        - group [ref=e1750]:
+          - 'generic "d1e7f2a5 todo Dry-run: stopping before implement ANY-42 2026-08-24 02:32:30 open" [ref=e1751] [cursor=pointer]':
+            - generic [ref=e1752]: d1e7f2a5
+            - generic [ref=e1753]: todo
+            - generic [ref=e1754]: "Dry-run: stopping before implement"
+            - generic [ref=e1755]: ANY-42
+            - generic [ref=e1756]: 2026-08-24 02:32:30
+            - button "open" [ref=e1757]
+        - group [ref=e1758]:
+          - generic "05810cd6 — do thing todo Task starting 2026-08-24 02:32:30 open" [ref=e1759] [cursor=pointer]:
+            - generic [ref=e1760]: 05810cd6 — do thing
+            - generic [ref=e1761]: todo
+            - generic [ref=e1762]: Task starting
+            - generic [ref=e1763]: 2026-08-24 02:32:30
+            - button "open" [ref=e1764]
+        - group [ref=e1765]:
+          - generic "6d13fbf9 todo T2 done 2026-08-24 02:35:26 open" [ref=e1766] [cursor=pointer]:
+            - generic [ref=e1767]: 6d13fbf9
+            - generic [ref=e1768]: todo
+            - generic [ref=e1769]: T2 done
+            - generic [ref=e1770]: 2026-08-24 02:35:26
+            - button "open" [ref=e1771]
+        - group [ref=e1772]:
+          - generic "a9847b8c todo T1 done 2026-08-24 02:35:26 open" [ref=e1773] [cursor=pointer]:
+            - generic [ref=e1774]: a9847b8c
+            - generic [ref=e1775]: todo
+            - generic [ref=e1776]: T1 done
+            - generic [ref=e1777]: 2026-08-24 02:35:26
+            - button "open" [ref=e1778]
+        - group [ref=e1779]:
+          - 'generic "60d1d0ac todo Dry-run: stopping before implement ANY-42 2026-08-24 02:35:27 open" [ref=e1780] [cursor=pointer]':
+            - generic [ref=e1781]: 60d1d0ac
+            - generic [ref=e1782]: todo
+            - generic [ref=e1783]: "Dry-run: stopping before implement"
+            - generic [ref=e1784]: ANY-42
+            - generic [ref=e1785]: 2026-08-24 02:35:27
+            - button "open" [ref=e1786]
+        - group [ref=e1787]:
+          - generic "58403360 — do thing todo Task starting 2026-08-24 02:35:27 open" [ref=e1788] [cursor=pointer]:
+            - generic [ref=e1789]: 58403360 — do thing
+            - generic [ref=e1790]: todo
+            - generic [ref=e1791]: Task starting
+            - generic [ref=e1792]: 2026-08-24 02:35:27
+            - button "open" [ref=e1793]
+        - group [ref=e1794]:
+          - generic "88fdcdc3 todo T1 audit rejected (fail/clean) 2026-08-24 03:19:58 open" [ref=e1795] [cursor=pointer]:
+            - generic [ref=e1796]: 88fdcdc3
+            - generic [ref=e1797]: todo
+            - generic [ref=e1798]: T1 audit rejected (fail/clean)
+            - generic [ref=e1799]: 2026-08-24 03:19:58
+            - button "open" [ref=e1800]
+        - group [ref=e1801]:
+          - generic "65f4dcfb todo T1 audit rejected (fail/clean) 2026-08-24 03:20:15 open" [ref=e1802] [cursor=pointer]:
+            - generic [ref=e1803]: 65f4dcfb
+            - generic [ref=e1804]: todo
+            - generic [ref=e1805]: T1 audit rejected (fail/clean)
+            - generic [ref=e1806]: 2026-08-24 03:20:15
+            - button "open" [ref=e1807]
+        - group [ref=e1808]:
+          - generic "41cc1d56 todo T1 done (audited) 2026-08-24 03:20:57 open" [ref=e1809] [cursor=pointer]:
+            - generic [ref=e1810]: 41cc1d56
+            - generic [ref=e1811]: todo
+            - generic [ref=e1812]: T1 done (audited)
+            - generic [ref=e1813]: 2026-08-24 03:20:57
+            - button "open" [ref=e1814]
+        - group [ref=e1815]:
+          - generic "5750d5b4 todo T1 done (audited) 2026-08-24 03:21:09 open" [ref=e1816] [cursor=pointer]:
+            - generic [ref=e1817]: 5750d5b4
+            - generic [ref=e1818]: todo
+            - generic [ref=e1819]: T1 done (audited)
+            - generic [ref=e1820]: 2026-08-24 03:21:09
+            - button "open" [ref=e1821]
+        - group [ref=e1822]:
+          - generic "4859e3f9 todo T2 done 2026-08-24 03:21:11 open" [ref=e1823] [cursor=pointer]:
+            - generic [ref=e1824]: 4859e3f9
+            - generic [ref=e1825]: todo
+            - generic [ref=e1826]: T2 done
+            - generic [ref=e1827]: 2026-08-24 03:21:11
+            - button "open" [ref=e1828]
+        - group [ref=e1829]:
+          - generic "8bf03fd6 todo T1 done (audited) 2026-08-24 03:21:11 open" [ref=e1830] [cursor=pointer]:
+            - generic [ref=e1831]: 8bf03fd6
+            - generic [ref=e1832]: todo
+            - generic [ref=e1833]: T1 done (audited)
+            - generic [ref=e1834]: 2026-08-24 03:21:11
+            - button "open" [ref=e1835]
+        - group [ref=e1836]:
+          - 'generic "494f22ec todo Dry-run: stopping before implement ANY-42 2026-08-24 03:21:13 open" [ref=e1837] [cursor=pointer]':
+            - generic [ref=e1838]: 494f22ec
+            - generic [ref=e1839]: todo
+            - generic [ref=e1840]: "Dry-run: stopping before implement"
+            - generic [ref=e1841]: ANY-42
+            - generic [ref=e1842]: 2026-08-24 03:21:13
+            - button "open" [ref=e1843]
+        - group [ref=e1844]:
+          - generic "df8dc5ff — do thing todo Task starting 2026-08-24 03:21:13 open" [ref=e1845] [cursor=pointer]:
+            - generic [ref=e1846]: df8dc5ff — do thing
+            - generic [ref=e1847]: todo
+            - generic [ref=e1848]: Task starting
+            - generic [ref=e1849]: 2026-08-24 03:21:13
+            - button "open" [ref=e1850]
+        - group [ref=e1851]:
+          - generic "b1c3111b todo T2 done 2026-08-24 03:27:20 open" [ref=e1852] [cursor=pointer]:
+            - generic [ref=e1853]: b1c3111b
+            - generic [ref=e1854]: todo
+            - generic [ref=e1855]: T2 done
+            - generic [ref=e1856]: 2026-08-24 03:27:20
+            - button "open" [ref=e1857]
+        - group [ref=e1858]:
+          - generic "3cce5c4a todo T1 done 2026-08-24 03:27:20 open" [ref=e1859] [cursor=pointer]:
+            - generic [ref=e1860]: 3cce5c4a
+            - generic [ref=e1861]: todo
+            - generic [ref=e1862]: T1 done
+            - generic [ref=e1863]: 2026-08-24 03:27:20
+            - button "open" [ref=e1864]
+        - group [ref=e1865]:
+          - generic "03a9e71f — do thing todo Task starting 2026-08-24 03:27:21 open" [ref=e1866] [cursor=pointer]:
+            - generic [ref=e1867]: 03a9e71f — do thing
+            - generic [ref=e1868]: todo
+            - generic [ref=e1869]: Task starting
+            - generic [ref=e1870]: 2026-08-24 03:27:21
+            - button "open" [ref=e1871]
+        - group [ref=e1872]:
+          - 'generic "fc38c510 todo Dry-run: stopping before implement ANY-42 2026-08-24 03:27:22 open" [ref=e1873] [cursor=pointer]':
+            - generic [ref=e1874]: fc38c510
+            - generic [ref=e1875]: todo
+            - generic [ref=e1876]: "Dry-run: stopping before implement"
+            - generic [ref=e1877]: ANY-42
+            - generic [ref=e1878]: 2026-08-24 03:27:22
+            - button "open" [ref=e1879]
+        - group [ref=e1880]:
+          - generic "48520db9 todo T2 audit rejected (fail/clean) 2026-08-24 03:28:11 open" [ref=e1881] [cursor=pointer]:
+            - generic [ref=e1882]: 48520db9
+            - generic [ref=e1883]: todo
+            - generic [ref=e1884]: T2 audit rejected (fail/clean)
+            - generic [ref=e1885]: 2026-08-24 03:28:11
+            - button "open" [ref=e1886]
+        - group [ref=e1887]:
+          - generic "3c9b8c40 todo T2 audit rejected (fail/clean) 2026-08-24 03:28:26 open" [ref=e1888] [cursor=pointer]:
+            - generic [ref=e1889]: 3c9b8c40
+            - generic [ref=e1890]: todo
+            - generic [ref=e1891]: T2 audit rejected (fail/clean)
+            - generic [ref=e1892]: 2026-08-24 03:28:26
+            - button "open" [ref=e1893]
+        - group [ref=e1894]:
+          - generic "fe709453 todo T2 audit rejected (fail/clean) 2026-08-24 03:28:26 open" [ref=e1895] [cursor=pointer]:
+            - generic [ref=e1896]: fe709453
+            - generic [ref=e1897]: todo
+            - generic [ref=e1898]: T2 audit rejected (fail/clean)
+            - generic [ref=e1899]: 2026-08-24 03:28:26
+            - button "open" [ref=e1900]
+        - group [ref=e1901]:
+          - generic "aa161f80 todo T2 done 2026-08-24 03:28:26 open" [ref=e1902] [cursor=pointer]:
+            - generic [ref=e1903]: aa161f80
+            - generic [ref=e1904]: todo
+            - generic [ref=e1905]: T2 done
+            - generic [ref=e1906]: 2026-08-24 03:28:26
+            - button "open" [ref=e1907]
+        - group [ref=e1908]:
+          - 'generic "0a69ac73 todo Dry-run: stopping before implement ANY-42 2026-08-24 03:28:28 open" [ref=e1909] [cursor=pointer]':
+            - generic [ref=e1910]: 0a69ac73
+            - generic [ref=e1911]: todo
+            - generic [ref=e1912]: "Dry-run: stopping before implement"
+            - generic [ref=e1913]: ANY-42
+            - generic [ref=e1914]: 2026-08-24 03:28:28
+            - button "open" [ref=e1915]
+        - group [ref=e1916]:
+          - generic "c3bcac88 — do thing todo Task starting 2026-08-24 03:28:28 open" [ref=e1917] [cursor=pointer]:
+            - generic [ref=e1918]: c3bcac88 — do thing
+            - generic [ref=e1919]: todo
+            - generic [ref=e1920]: Task starting
+            - generic [ref=e1921]: 2026-08-24 03:28:28
+            - button "open" [ref=e1922]
+        - group [ref=e1923]:
+          - generic "49bfbba5 todo T2 audit rejected (fail/clean) 2026-08-24 03:28:45 open" [ref=e1924] [cursor=pointer]:
+            - generic [ref=e1925]: 49bfbba5
+            - generic [ref=e1926]: todo
+            - generic [ref=e1927]: T2 audit rejected (fail/clean)
+            - generic [ref=e1928]: 2026-08-24 03:28:45
+            - button "open" [ref=e1929]
+        - group [ref=e1930]:
+          - generic "717cd6aa todo T2 done 2026-08-24 03:29:12 open" [ref=e1931] [cursor=pointer]:
+            - generic [ref=e1932]: 717cd6aa
+            - generic [ref=e1933]: todo
+            - generic [ref=e1934]: T2 done
+            - generic [ref=e1935]: 2026-08-24 03:29:12
+            - button "open" [ref=e1936]
+        - group [ref=e1937]:
+          - generic "4dcc132a todo T2 audit rejected (fail/clean) 2026-08-24 03:29:12 open" [ref=e1938] [cursor=pointer]:
+            - generic [ref=e1939]: 4dcc132a
+            - generic [ref=e1940]: todo
+            - generic [ref=e1941]: T2 audit rejected (fail/clean)
+            - generic [ref=e1942]: 2026-08-24 03:29:12
+            - button "open" [ref=e1943]
+        - group [ref=e1944]:
+          - 'generic "5d7cf1f6 todo Dry-run: stopping before implement ANY-42 2026-08-24 03:29:13 open" [ref=e1945] [cursor=pointer]':
+            - generic [ref=e1946]: 5d7cf1f6
+            - generic [ref=e1947]: todo
+            - generic [ref=e1948]: "Dry-run: stopping before implement"
+            - generic [ref=e1949]: ANY-42
+            - generic [ref=e1950]: 2026-08-24 03:29:13
+            - button "open" [ref=e1951]
+        - group [ref=e1952]:
+          - generic "554707d3 — do thing todo Task starting 2026-08-24 03:29:13 open" [ref=e1953] [cursor=pointer]:
+            - generic [ref=e1954]: 554707d3 — do thing
+            - generic [ref=e1955]: todo
+            - generic [ref=e1956]: Task starting
+            - generic [ref=e1957]: 2026-08-24 03:29:13
+            - button "open" [ref=e1958]
+        - group [ref=e1959]:
+          - generic "dd9b41cc todo T2 audit rejected (fail/clean) 2026-08-24 03:29:33 open" [ref=e1960] [cursor=pointer]:
+            - generic [ref=e1961]: dd9b41cc
+            - generic [ref=e1962]: todo
+            - generic [ref=e1963]: T2 audit rejected (fail/clean)
+            - generic [ref=e1964]: 2026-08-24 03:29:33
+            - button "open" [ref=e1965]
+        - group [ref=e1966]:
+          - generic "bc41ef0d todo T2 audit rejected (fail/clean) 2026-08-24 03:30:22 open" [ref=e1967] [cursor=pointer]:
+            - generic [ref=e1968]: bc41ef0d
+            - generic [ref=e1969]: todo
+            - generic [ref=e1970]: T2 audit rejected (fail/clean)
+            - generic [ref=e1971]: 2026-08-24 03:30:22
+            - button "open" [ref=e1972]
+        - group [ref=e1973]:
+          - generic "a11a3ba9 todo T2 done 2026-08-24 03:30:22 open" [ref=e1974] [cursor=pointer]:
+            - generic [ref=e1975]: a11a3ba9
+            - generic [ref=e1976]: todo
+            - generic [ref=e1977]: T2 done
+            - generic [ref=e1978]: 2026-08-24 03:30:22
+            - button "open" [ref=e1979]
+        - group [ref=e1980]:
+          - 'generic "d1a8eccb todo Dry-run: stopping before implement ANY-42 2026-08-24 03:30:23 open" [ref=e1981] [cursor=pointer]':
+            - generic [ref=e1982]: d1a8eccb
+            - generic [ref=e1983]: todo
+            - generic [ref=e1984]: "Dry-run: stopping before implement"
+            - generic [ref=e1985]: ANY-42
+            - generic [ref=e1986]: 2026-08-24 03:30:23
+            - button "open" [ref=e1987]
+        - group [ref=e1988]:
+          - generic "fce6e2d6 — do thing todo Task starting 2026-08-24 03:30:24 open" [ref=e1989] [cursor=pointer]:
+            - generic [ref=e1990]: fce6e2d6 — do thing
+            - generic [ref=e1991]: todo
+            - generic [ref=e1992]: Task starting
+            - generic [ref=e1993]: 2026-08-24 03:30:24
+            - button "open" [ref=e1994]
+        - group [ref=e1995]:
+          - 'generic "0b1a5e52 — Declarative testCommand override + Python detection for validation gate G1 failed Aborting run: worktree creation failed: Command failed: git worktree add /Users/linh.doan/orca/workspaces/auto-devagent-selfbuild-run-6-20260824T0323/.devagent-worktrees/TASK devagent/TASK Preparing worktree (checking out ''devagent/TASK'') fatal: ''devagent/TASK'' is already used by worktree at ''/Users/linh.doan/orca/workspaces/auto-devagent-selfbuild-run-5-20260824T0123/.devagent-worktrees/TASK'' orca/workspaces/auto-devagent-selfbuild-run-6-20260824T0323 2026-08-24 03:30:33 open" [ref=e1996] [cursor=pointer]':
+            - generic [ref=e1997]: 0b1a5e52 — Declarative testCommand override + Python detection for validation gate G1
+            - generic [ref=e1998]: failed
+            - generic [ref=e1999]: "Aborting run: worktree creation failed: Command failed: git worktree add /Users/linh.doan/orca/workspaces/auto-devagent-selfbuild-run-6-20260824T0323/.devagent-worktrees/TASK devagent/TASK Preparing worktree (checking out 'devagent/TASK') fatal: 'devagent/TASK' is already used by worktree at '/Users/linh.doan/orca/workspaces/auto-devagent-selfbuild-run-5-20260824T0123/.devagent-worktrees/TASK'"
+            - generic [ref=e2000]: orca/workspaces/auto-devagent-selfbuild-run-6-20260824T0323
+            - generic [ref=e2001]: 2026-08-24 03:30:33
+            - button "open" [ref=e2002]
+        - group [ref=e2003]:
+          - generic "946f4ae3 todo T2 audit rejected (fail/clean) 2026-08-24 03:30:40 open" [ref=e2004] [cursor=pointer]:
+            - generic [ref=e2005]: 946f4ae3
+            - generic [ref=e2006]: todo
+            - generic [ref=e2007]: T2 audit rejected (fail/clean)
+            - generic [ref=e2008]: 2026-08-24 03:30:40
+            - button "open" [ref=e2009]
+        - group [ref=e2010]:
+          - generic "dfe9688a todo T2 done 2026-08-24 03:31:24 open" [ref=e2011] [cursor=pointer]:
+            - generic [ref=e2012]: dfe9688a
+            - generic [ref=e2013]: todo
+            - generic [ref=e2014]: T2 done
+            - generic [ref=e2015]: 2026-08-24 03:31:24
+            - button "open" [ref=e2016]
+        - group [ref=e2017]:
+          - generic "10539956 todo wave budget exhausted after 2 wave(s); 2 task(s) still queued 2026-08-24 03:31:24 open" [ref=e2018] [cursor=pointer]:
+            - generic [ref=e2019]: "10539956"
+            - generic [ref=e2020]: todo
+            - generic [ref=e2021]: wave budget exhausted after 2 wave(s); 2 task(s) still queued
+            - generic [ref=e2022]: 2026-08-24 03:31:24
+            - button "open" [ref=e2023]
+        - group [ref=e2024]:
+          - 'generic "414abcaa todo Dry-run: stopping before implement ANY-42 2026-08-24 03:31:25 open" [ref=e2025] [cursor=pointer]':
+            - generic [ref=e2026]: 414abcaa
+            - generic [ref=e2027]: todo
+            - generic [ref=e2028]: "Dry-run: stopping before implement"
+            - generic [ref=e2029]: ANY-42
+            - generic [ref=e2030]: 2026-08-24 03:31:25
+            - button "open" [ref=e2031]
+        - group [ref=e2032]:
+          - generic "53544725 — do thing todo Task starting 2026-08-24 03:31:25 open" [ref=e2033] [cursor=pointer]:
+            - generic [ref=e2034]: 53544725 — do thing
+            - generic [ref=e2035]: todo
+            - generic [ref=e2036]: Task starting
+            - generic [ref=e2037]: 2026-08-24 03:31:25
+            - button "open" [ref=e2038]
+        - group [ref=e2039]:
+          - 'generic "6da6be6d — Declarative testCommand override + Python detection for validation gate G1 in progress Worktree preserved for inspection: /Users/linh.doan/orca/workspaces/auto-devagent-selfbuild-run-6-20260824T0323/.devagent-worktrees/TASK exit 0 · 3m5s · orca/workspaces/auto-devagent-selfbuild-run-6-20260824T0323 2026-08-24 03:35:46 open" [ref=e2040] [cursor=pointer]':
+            - generic [ref=e2041]: 6da6be6d — Declarative testCommand override + Python detection for validation gate G1
+            - generic [ref=e2042]: in progress
+            - generic [ref=e2043]: "Worktree preserved for inspection: /Users/linh.doan/orca/workspaces/auto-devagent-selfbuild-run-6-20260824T0323/.devagent-worktrees/TASK"
+            - generic [ref=e2044]: exit 0 · 3m5s · orca/workspaces/auto-devagent-selfbuild-run-6-20260824T0323
+            - generic [ref=e2045]: 2026-08-24 03:35:46
+            - button "open" [ref=e2046]
+        - group [ref=e2047]:
+          - generic "72244082 todo T2 done 2026-08-24 03:38:33 open" [ref=e2048] [cursor=pointer]:
+            - generic [ref=e2049]: "72244082"
+            - generic [ref=e2050]: todo
+            - generic [ref=e2051]: T2 done
+            - generic [ref=e2052]: 2026-08-24 03:38:33
+            - button "open" [ref=e2053]
+        - group [ref=e2054]:
+          - generic "eb2e8743 todo T1 done 2026-08-24 03:38:33 open" [ref=e2055] [cursor=pointer]:
+            - generic [ref=e2056]: eb2e8743
+            - generic [ref=e2057]: todo
+            - generic [ref=e2058]: T1 done
+            - generic [ref=e2059]: 2026-08-24 03:38:33
+            - button "open" [ref=e2060]
+        - group [ref=e2061]:
+          - generic "9a2d13a8 — do thing todo Task starting 2026-08-24 03:38:34 open" [ref=e2062] [cursor=pointer]:
+            - generic [ref=e2063]: 9a2d13a8 — do thing
+            - generic [ref=e2064]: todo
+            - generic [ref=e2065]: Task starting
+            - generic [ref=e2066]: 2026-08-24 03:38:34
+            - button "open" [ref=e2067]
+        - group [ref=e2068]:
+          - 'generic "d72192c2 todo Dry-run: stopping before implement ANY-42 2026-08-24 03:38:34 open" [ref=e2069] [cursor=pointer]':
+            - generic [ref=e2070]: d72192c2
+            - generic [ref=e2071]: todo
+            - generic [ref=e2072]: "Dry-run: stopping before implement"
+            - generic [ref=e2073]: ANY-42
+            - generic [ref=e2074]: 2026-08-24 03:38:34
+            - button "open" [ref=e2075]
+        - group [ref=e2076]:
+          - generic "00fff79e todo T2 done 2026-08-24 03:38:52 open" [ref=e2077] [cursor=pointer]:
+            - generic [ref=e2078]: 00fff79e
+            - generic [ref=e2079]: todo
+            - generic [ref=e2080]: T2 done
+            - generic [ref=e2081]: 2026-08-24 03:38:52
+            - button "open" [ref=e2082]
+        - group [ref=e2083]:
+          - generic "3fbd6c23 todo T1 done 2026-08-24 03:38:52 open" [ref=e2084] [cursor=pointer]:
+            - generic [ref=e2085]: 3fbd6c23
+            - generic [ref=e2086]: todo
+            - generic [ref=e2087]: T1 done
+            - generic [ref=e2088]: 2026-08-24 03:38:52
+            - button "open" [ref=e2089]
+        - group [ref=e2090]:
+          - generic "0586629d — do thing todo Task starting 2026-08-24 03:38:53 open" [ref=e2091] [cursor=pointer]:
+            - generic [ref=e2092]: 0586629d — do thing
+            - generic [ref=e2093]: todo
+            - generic [ref=e2094]: Task starting
+            - generic [ref=e2095]: 2026-08-24 03:38:53
+            - button "open" [ref=e2096]
+        - group [ref=e2097]:
+          - 'generic "26f3bd69 todo Dry-run: stopping before implement ANY-42 2026-08-24 03:38:53 open" [ref=e2098] [cursor=pointer]':
+            - generic [ref=e2099]: 26f3bd69
+            - generic [ref=e2100]: todo
+            - generic [ref=e2101]: "Dry-run: stopping before implement"
+            - generic [ref=e2102]: ANY-42
+            - generic [ref=e2103]: 2026-08-24 03:38:53
+            - button "open" [ref=e2104]
+        - group [ref=e2105]:
+          - generic "2ce8a8c0 todo T2 done 2026-08-24 03:40:44 open" [ref=e2106] [cursor=pointer]:
+            - generic [ref=e2107]: 2ce8a8c0
+            - generic [ref=e2108]: todo
+            - generic [ref=e2109]: T2 done
+            - generic [ref=e2110]: 2026-08-24 03:40:44
+            - button "open" [ref=e2111]
+        - group [ref=e2112]:
+          - generic "a2cc3901 todo T1 done 2026-08-24 03:40:44 open" [ref=e2113] [cursor=pointer]:
+            - generic [ref=e2114]: a2cc3901
+            - generic [ref=e2115]: todo
+            - generic [ref=e2116]: T1 done
+            - generic [ref=e2117]: 2026-08-24 03:40:44
+            - button "open" [ref=e2118]
+        - group [ref=e2119]:
+          - 'generic "46c6251c todo Dry-run: stopping before implement ANY-42 2026-08-24 03:40:45 open" [ref=e2120] [cursor=pointer]':
+            - generic [ref=e2121]: 46c6251c
+            - generic [ref=e2122]: todo
+            - generic [ref=e2123]: "Dry-run: stopping before implement"
+            - generic [ref=e2124]: ANY-42
+            - generic [ref=e2125]: 2026-08-24 03:40:45
+            - button "open" [ref=e2126]
+        - group [ref=e2127]:
+          - generic "26bd544f — do thing todo Task starting 2026-08-24 03:40:45 open" [ref=e2128] [cursor=pointer]:
+            - generic [ref=e2129]: 26bd544f — do thing
+            - generic [ref=e2130]: todo
+            - generic [ref=e2131]: Task starting
+            - generic [ref=e2132]: 2026-08-24 03:40:45
+            - button "open" [ref=e2133]
+        - group [ref=e2134]:
+          - generic "135ee574 todo T2 done 2026-08-24 03:44:37 open" [ref=e2135] [cursor=pointer]:
+            - generic [ref=e2136]: 135ee574
+            - generic [ref=e2137]: todo
+            - generic [ref=e2138]: T2 done
+            - generic [ref=e2139]: 2026-08-24 03:44:37
+            - button "open" [ref=e2140]
+        - group [ref=e2141]:
+          - generic "b18796c0 todo T1 done 2026-08-24 03:44:37 open" [ref=e2142] [cursor=pointer]:
+            - generic [ref=e2143]: b18796c0
+            - generic [ref=e2144]: todo
+            - generic [ref=e2145]: T1 done
+            - generic [ref=e2146]: 2026-08-24 03:44:37
+            - button "open" [ref=e2147]
+        - group [ref=e2148]:
+          - generic "59c9722b — do thing todo Task starting 2026-08-24 03:44:38 open" [ref=e2149] [cursor=pointer]:
+            - generic [ref=e2150]: 59c9722b — do thing
+            - generic [ref=e2151]: todo
+            - generic [ref=e2152]: Task starting
+            - generic [ref=e2153]: 2026-08-24 03:44:38
+            - button "open" [ref=e2154]
+        - group [ref=e2155]:
+          - 'generic "9c8f495b todo Dry-run: stopping before implement ANY-42 2026-08-24 03:44:38 open" [ref=e2156] [cursor=pointer]':
+            - generic [ref=e2157]: 9c8f495b
+            - generic [ref=e2158]: todo
+            - generic [ref=e2159]: "Dry-run: stopping before implement"
+            - generic [ref=e2160]: ANY-42
+            - generic [ref=e2161]: 2026-08-24 03:44:38
+            - button "open" [ref=e2162]
+        - group [ref=e2163]:
+          - generic "0efa481f todo T1 done 2026-08-24 03:53:51 open" [ref=e2164] [cursor=pointer]:
+            - generic [ref=e2165]: 0efa481f
+            - generic [ref=e2166]: todo
+            - generic [ref=e2167]: T1 done
+            - generic [ref=e2168]: 2026-08-24 03:53:51
+            - button "open" [ref=e2169]
+        - group [ref=e2170]:
+          - generic "5a79b211 todo T2 done 2026-08-24 03:53:51 open" [ref=e2171] [cursor=pointer]:
+            - generic [ref=e2172]: 5a79b211
+            - generic [ref=e2173]: todo
+            - generic [ref=e2174]: T2 done
+            - generic [ref=e2175]: 2026-08-24 03:53:51
+            - button "open" [ref=e2176]
+        - group [ref=e2177]:
+          - 'generic "bfad6e37 todo Dry-run: stopping before implement ANY-42 2026-08-24 03:53:52 open" [ref=e2178] [cursor=pointer]':
+            - generic [ref=e2179]: bfad6e37
+            - generic [ref=e2180]: todo
+            - generic [ref=e2181]: "Dry-run: stopping before implement"
+            - generic [ref=e2182]: ANY-42
+            - generic [ref=e2183]: 2026-08-24 03:53:52
+            - button "open" [ref=e2184]
+        - group [ref=e2185]:
+          - generic "8a8bb745 — do thing todo Task starting 2026-08-24 03:53:52 open" [ref=e2186] [cursor=pointer]:
+            - generic [ref=e2187]: 8a8bb745 — do thing
+            - generic [ref=e2188]: todo
+            - generic [ref=e2189]: Task starting
+            - generic [ref=e2190]: 2026-08-24 03:53:52
+            - button "open" [ref=e2191]
+      - heading "2026-08-23 185 run(s), 2 failed" [level=2] [ref=e2192]
+      - generic [ref=e2193]:
+        - group [ref=e2194]:
+          - 'generic "54100fc6 failed Worktree preserved for inspection: /Users/linh.doan/work/harvey/freepeak/devagent//.devagent-worktrees/DA-DOG-01 exit -1 · timed out · 10m0s · DA-DOG-01 2026-08-23 01:57:46 open" [ref=e2195] [cursor=pointer]':
+            - generic [ref=e2196]: 54100fc6
+            - generic [ref=e2197]: failed
+            - generic [ref=e2198]: "Worktree preserved for inspection: /Users/linh.doan/work/harvey/freepeak/devagent//.devagent-worktrees/DA-DOG-01"
+            - generic [ref=e2199]: exit -1 · timed out · 10m0s · DA-DOG-01
+            - generic [ref=e2200]: 2026-08-23 01:57:46
+            - button "open" [ref=e2201]
+        - group [ref=e2202]:
+          - 'generic "228021bf in progress G3 passed: skipped: no migrations in this ticket exit 0 · 10m26s · DA-DOG-01 2026-08-23 02:18:40 open" [ref=e2203] [cursor=pointer]':
+            - generic [ref=e2204]: 228021bf
+            - generic [ref=e2205]: in progress
+            - generic [ref=e2206]: "G3 passed: skipped: no migrations in this ticket"
+            - generic [ref=e2207]: exit 0 · 10m26s · DA-DOG-01
+            - generic [ref=e2208]: 2026-08-23 02:18:40
+            - button "open" [ref=e2209]
+        - group [ref=e2210]:
+          - 'generic "d45e7411 todo Dry-run: stopping before implement ANY-42 2026-08-23 02:28:31 open" [ref=e2211] [cursor=pointer]':
+            - generic [ref=e2212]: d45e7411
+            - generic [ref=e2213]: todo
+            - generic [ref=e2214]: "Dry-run: stopping before implement"
+            - generic [ref=e2215]: ANY-42
+            - generic [ref=e2216]: 2026-08-23 02:28:31
+            - button "open" [ref=e2217]
+        - group [ref=e2218]:
+          - 'generic "f25ff1e4 todo Dry-run: stopping before implement ANY-42 2026-08-23 02:28:44 open" [ref=e2219] [cursor=pointer]':
+            - generic [ref=e2220]: f25ff1e4
+            - generic [ref=e2221]: todo
+            - generic [ref=e2222]: "Dry-run: stopping before implement"
+            - generic [ref=e2223]: ANY-42
+            - generic [ref=e2224]: 2026-08-23 02:28:44
+            - button "open" [ref=e2225]
+        - group [ref=e2226]:
+          - 'generic "992834ea todo Dry-run: stopping before implement ANY-42 2026-08-23 02:29:07 open" [ref=e2227] [cursor=pointer]':
+            - generic [ref=e2228]: 992834ea
+            - generic [ref=e2229]: todo
+            - generic [ref=e2230]: "Dry-run: stopping before implement"
+            - generic [ref=e2231]: ANY-42
+            - generic [ref=e2232]: 2026-08-23 02:29:07
+            - button "open" [ref=e2233]
+        - group [ref=e2234]:
+          - 'generic "ee0cc45b todo Dry-run: stopping before implement ANY-42 2026-08-23 02:29:09 open" [ref=e2235] [cursor=pointer]':
+            - generic [ref=e2236]: ee0cc45b
+            - generic [ref=e2237]: todo
+            - generic [ref=e2238]: "Dry-run: stopping before implement"
+            - generic [ref=e2239]: ANY-42
+            - generic [ref=e2240]: 2026-08-23 02:29:09
+            - button "open" [ref=e2241]
+        - group [ref=e2242]:
+          - 'generic "cc7830e7 todo Dry-run: stopping before implement ANY-42 2026-08-23 02:32:47 open" [ref=e2243] [cursor=pointer]':
+            - generic [ref=e2244]: cc7830e7
+            - generic [ref=e2245]: todo
+            - generic [ref=e2246]: "Dry-run: stopping before implement"
+            - generic [ref=e2247]: ANY-42
+            - generic [ref=e2248]: 2026-08-23 02:32:47
+            - button "open" [ref=e2249]
+        - group [ref=e2250]:
+          - 'generic "2c2f34e6 todo Dry-run: stopping before implement ANY-42 2026-08-23 02:33:16 open" [ref=e2251] [cursor=pointer]':
+            - generic [ref=e2252]: 2c2f34e6
+            - generic [ref=e2253]: todo
+            - generic [ref=e2254]: "Dry-run: stopping before implement"
+            - generic [ref=e2255]: ANY-42
+            - generic [ref=e2256]: 2026-08-23 02:33:16
+            - button "open" [ref=e2257]
+        - group [ref=e2258]:
+          - 'generic "b799b112 todo Dry-run: stopping before implement ANY 2026-08-23 02:34:05 open" [ref=e2259] [cursor=pointer]':
+            - generic [ref=e2260]: b799b112
+            - generic [ref=e2261]: todo
+            - generic [ref=e2262]: "Dry-run: stopping before implement"
+            - generic [ref=e2263]: ANY
+            - generic [ref=e2264]: 2026-08-23 02:34:05
+            - button "open" [ref=e2265]
+        - group [ref=e2266]:
+          - 'generic "7bf51780 todo Dry-run: stopping before implement ANY-42 2026-08-23 02:34:51 open" [ref=e2267] [cursor=pointer]':
+            - generic [ref=e2268]: 7bf51780
+            - generic [ref=e2269]: todo
+            - generic [ref=e2270]: "Dry-run: stopping before implement"
+            - generic [ref=e2271]: ANY-42
+            - generic [ref=e2272]: 2026-08-23 02:34:51
+            - button "open" [ref=e2273]
+        - group [ref=e2274]:
+          - 'generic "fd29ffd2 in progress G3 passed: skipped: no migrations in this ticket exit 0 · 2m29s · DA-DOG-02 2026-08-23 02:35:26 open" [ref=e2275] [cursor=pointer]':
+            - generic [ref=e2276]: fd29ffd2
+            - generic [ref=e2277]: in progress
+            - generic [ref=e2278]: "G3 passed: skipped: no migrations in this ticket"
+            - generic [ref=e2279]: exit 0 · 2m29s · DA-DOG-02
+            - generic [ref=e2280]: 2026-08-23 02:35:26
+            - button "open" [ref=e2281]
+        - group [ref=e2282]:
+          - 'generic "eb50799f todo Dry-run: stopping before implement ANY-42 2026-08-23 02:37:41 open" [ref=e2283] [cursor=pointer]':
+            - generic [ref=e2284]: eb50799f
+            - generic [ref=e2285]: todo
+            - generic [ref=e2286]: "Dry-run: stopping before implement"
+            - generic [ref=e2287]: ANY-42
+            - generic [ref=e2288]: 2026-08-23 02:37:41
+            - button "open" [ref=e2289]
+        - group [ref=e2290]:
+          - 'generic "761d0145 todo Dry-run: stopping before implement ANY-42 2026-08-23 02:37:56 open" [ref=e2291] [cursor=pointer]':
+            - generic [ref=e2292]: 761d0145
+            - generic [ref=e2293]: todo
+            - generic [ref=e2294]: "Dry-run: stopping before implement"
+            - generic [ref=e2295]: ANY-42
+            - generic [ref=e2296]: 2026-08-23 02:37:56
+            - button "open" [ref=e2297]
+        - group [ref=e2298]:
+          - 'generic "90c268a1 todo Dry-run: stopping before implement ANY-42 2026-08-23 02:37:58 open" [ref=e2299] [cursor=pointer]':
+            - generic [ref=e2300]: 90c268a1
+            - generic [ref=e2301]: todo
+            - generic [ref=e2302]: "Dry-run: stopping before implement"
+            - generic [ref=e2303]: ANY-42
+            - generic [ref=e2304]: 2026-08-23 02:37:58
+            - button "open" [ref=e2305]
+        - group [ref=e2306]:
+          - 'generic "cffb67fe todo Dry-run: stopping before implement ANY-42 2026-08-23 02:43:23 open" [ref=e2307] [cursor=pointer]':
+            - generic [ref=e2308]: cffb67fe
+            - generic [ref=e2309]: todo
+            - generic [ref=e2310]: "Dry-run: stopping before implement"
+            - generic [ref=e2311]: ANY-42
+            - generic [ref=e2312]: 2026-08-23 02:43:23
+            - button "open" [ref=e2313]
+        - group [ref=e2314]:
+          - 'generic "aaa90b5f todo Dry-run: stopping before implement ANY-42 2026-08-23 02:44:40 open" [ref=e2315] [cursor=pointer]':
+            - generic [ref=e2316]: aaa90b5f
+            - generic [ref=e2317]: todo
+            - generic [ref=e2318]: "Dry-run: stopping before implement"
+            - generic [ref=e2319]: ANY-42
+            - generic [ref=e2320]: 2026-08-23 02:44:40
+            - button "open" [ref=e2321]
+        - group [ref=e2322]:
+          - 'generic "5b71e445 in progress G3 passed: skipped: no migrations in this ticket exit 0 · 7m56s · DA-DOG-03 2026-08-23 02:45:23 open" [ref=e2323] [cursor=pointer]':
+            - generic [ref=e2324]: 5b71e445
+            - generic [ref=e2325]: in progress
+            - generic [ref=e2326]: "G3 passed: skipped: no migrations in this ticket"
+            - generic [ref=e2327]: exit 0 · 7m56s · DA-DOG-03
+            - generic [ref=e2328]: 2026-08-23 02:45:23
+            - button "open" [ref=e2329]
+        - group [ref=e2330]:
+          - 'generic "a744fc6c todo Dry-run: stopping before implement ANY-42 2026-08-23 02:51:57 open" [ref=e2331] [cursor=pointer]':
+            - generic [ref=e2332]: a744fc6c
+            - generic [ref=e2333]: todo
+            - generic [ref=e2334]: "Dry-run: stopping before implement"
+            - generic [ref=e2335]: ANY-42
+            - generic [ref=e2336]: 2026-08-23 02:51:57
+            - button "open" [ref=e2337]
+        - group [ref=e2338]:
+          - 'generic "391812a5 todo Dry-run: stopping before implement ANY-42 2026-08-23 02:53:00 open" [ref=e2339] [cursor=pointer]':
+            - generic [ref=e2340]: 391812a5
+            - generic [ref=e2341]: todo
+            - generic [ref=e2342]: "Dry-run: stopping before implement"
+            - generic [ref=e2343]: ANY-42
+            - generic [ref=e2344]: 2026-08-23 02:53:00
+            - button "open" [ref=e2345]
+        - group [ref=e2346]:
+          - 'generic "3d6cfa48 todo Dry-run: stopping before implement ANY-42 2026-08-23 02:53:21 open" [ref=e2347] [cursor=pointer]':
+            - generic [ref=e2348]: 3d6cfa48
+            - generic [ref=e2349]: todo
+            - generic [ref=e2350]: "Dry-run: stopping before implement"
+            - generic [ref=e2351]: ANY-42
+            - generic [ref=e2352]: 2026-08-23 02:53:21
+            - button "open" [ref=e2353]
+        - group [ref=e2354]:
+          - 'generic "b17ea962 todo Dry-run: stopping before implement ANY-42 2026-08-23 02:53:23 open" [ref=e2355] [cursor=pointer]':
+            - generic [ref=e2356]: b17ea962
+            - generic [ref=e2357]: todo
+            - generic [ref=e2358]: "Dry-run: stopping before implement"
+            - generic [ref=e2359]: ANY-42
+            - generic [ref=e2360]: 2026-08-23 02:53:23
+            - button "open" [ref=e2361]
+        - group [ref=e2362]:
+          - 'generic "4903e9e2 todo Dry-run: stopping before implement ANY-42 2026-08-23 02:56:22 open" [ref=e2363] [cursor=pointer]':
+            - generic [ref=e2364]: 4903e9e2
+            - generic [ref=e2365]: todo
+            - generic [ref=e2366]: "Dry-run: stopping before implement"
+            - generic [ref=e2367]: ANY-42
+            - generic [ref=e2368]: 2026-08-23 02:56:22
+            - button "open" [ref=e2369]
+        - group [ref=e2370]:
+          - 'generic "bd571ef2 todo Dry-run: stopping before implement ANY-42 2026-08-23 02:56:44 open" [ref=e2371] [cursor=pointer]':
+            - generic [ref=e2372]: bd571ef2
+            - generic [ref=e2373]: todo
+            - generic [ref=e2374]: "Dry-run: stopping before implement"
+            - generic [ref=e2375]: ANY-42
+            - generic [ref=e2376]: 2026-08-23 02:56:44
+            - button "open" [ref=e2377]
+        - group [ref=e2378]:
+          - 'generic "e4adb56f in progress G3 passed: skipped: no migrations in this ticket exit 0 · 6m15s · DA-DOG-04 2026-08-23 02:57:16 open" [ref=e2379] [cursor=pointer]':
+            - generic [ref=e2380]: e4adb56f
+            - generic [ref=e2381]: in progress
+            - generic [ref=e2382]: "G3 passed: skipped: no migrations in this ticket"
+            - generic [ref=e2383]: exit 0 · 6m15s · DA-DOG-04
+            - generic [ref=e2384]: 2026-08-23 02:57:16
+            - button "open" [ref=e2385]
+        - group [ref=e2386]:
+          - 'generic "26bfa763 todo Dry-run: stopping before implement ANY-42 2026-08-23 03:03:01 open" [ref=e2387] [cursor=pointer]':
+            - generic [ref=e2388]: 26bfa763
+            - generic [ref=e2389]: todo
+            - generic [ref=e2390]: "Dry-run: stopping before implement"
+            - generic [ref=e2391]: ANY-42
+            - generic [ref=e2392]: 2026-08-23 03:03:01
+            - button "open" [ref=e2393]
+        - group [ref=e2394]:
+          - 'generic "97376168 todo Dry-run: stopping before implement ANY-42 2026-08-23 03:03:33 open" [ref=e2395] [cursor=pointer]':
+            - generic [ref=e2396]: "97376168"
+            - generic [ref=e2397]: todo
+            - generic [ref=e2398]: "Dry-run: stopping before implement"
+            - generic [ref=e2399]: ANY-42
+            - generic [ref=e2400]: 2026-08-23 03:03:33
+            - button "open" [ref=e2401]
+        - group [ref=e2402]:
+          - 'generic "c46fe7bf todo Dry-run: stopping before implement ANY-42 2026-08-23 03:03:36 open" [ref=e2403] [cursor=pointer]':
+            - generic [ref=e2404]: c46fe7bf
+            - generic [ref=e2405]: todo
+            - generic [ref=e2406]: "Dry-run: stopping before implement"
+            - generic [ref=e2407]: ANY-42
+            - generic [ref=e2408]: 2026-08-23 03:03:36
+            - button "open" [ref=e2409]
+        - group [ref=e2410]:
+          - 'generic "7a8ffcb8 todo Dry-run: stopping before implement ANY-42 2026-08-23 03:04:09 open" [ref=e2411] [cursor=pointer]':
+            - generic [ref=e2412]: 7a8ffcb8
+            - generic [ref=e2413]: todo
+            - generic [ref=e2414]: "Dry-run: stopping before implement"
+            - generic [ref=e2415]: ANY-42
+            - generic [ref=e2416]: 2026-08-23 03:04:09
+            - button "open" [ref=e2417]
+        - group [ref=e2418]:
+          - 'generic "5bc48c34 todo Dry-run: stopping before implement ANY-42 2026-08-23 03:04:29 open" [ref=e2419] [cursor=pointer]':
+            - generic [ref=e2420]: 5bc48c34
+            - generic [ref=e2421]: todo
+            - generic [ref=e2422]: "Dry-run: stopping before implement"
+            - generic [ref=e2423]: ANY-42
+            - generic [ref=e2424]: 2026-08-23 03:04:29
+            - button "open" [ref=e2425]
+        - group [ref=e2426]:
+          - 'generic "48f42a56 todo Dry-run: stopping before implement ANY 2026-08-23 03:04:45 open" [ref=e2427] [cursor=pointer]':
+            - generic [ref=e2428]: 48f42a56
+            - generic [ref=e2429]: todo
+            - generic [ref=e2430]: "Dry-run: stopping before implement"
+            - generic [ref=e2431]: ANY
+            - generic [ref=e2432]: 2026-08-23 03:04:45
+            - button "open" [ref=e2433]
+        - group [ref=e2434]:
+          - generic "7d6fbdfa — do thing todo Task starting 2026-08-23 11:55:30 open" [ref=e2435] [cursor=pointer]:
+            - generic [ref=e2436]: 7d6fbdfa — do thing
+            - generic [ref=e2437]: todo
+            - generic [ref=e2438]: Task starting
+            - generic [ref=e2439]: 2026-08-23 11:55:30
+            - button "open" [ref=e2440]
+        - group [ref=e2441]:
+          - generic "bc4d5f7f — do thing todo Task starting 2026-08-23 11:55:32 open" [ref=e2442] [cursor=pointer]:
+            - generic [ref=e2443]: bc4d5f7f — do thing
+            - generic [ref=e2444]: todo
+            - generic [ref=e2445]: Task starting
+            - generic [ref=e2446]: 2026-08-23 11:55:32
+            - button "open" [ref=e2447]
+        - group [ref=e2448]:
+          - 'generic "b6d094a7 todo Dry-run: stopping before implement ANY-42 2026-08-23 11:55:32 open" [ref=e2449] [cursor=pointer]':
+            - generic [ref=e2450]: b6d094a7
+            - generic [ref=e2451]: todo
+            - generic [ref=e2452]: "Dry-run: stopping before implement"
+            - generic [ref=e2453]: ANY-42
+            - generic [ref=e2454]: 2026-08-23 11:55:32
+            - button "open" [ref=e2455]
+        - group [ref=e2456]:
+          - generic "7cf569c0 — do thing todo Task starting 2026-08-23 11:56:28 open" [ref=e2457] [cursor=pointer]:
+            - generic [ref=e2458]: 7cf569c0 — do thing
+            - generic [ref=e2459]: todo
+            - generic [ref=e2460]: Task starting
+            - generic [ref=e2461]: 2026-08-23 11:56:28
+            - button "open" [ref=e2462]
+        - group [ref=e2463]:
+          - 'generic "c54651ab todo Dry-run: stopping before implement ANY-42 2026-08-23 11:56:28 open" [ref=e2464] [cursor=pointer]':
+            - generic [ref=e2465]: c54651ab
+            - generic [ref=e2466]: todo
+            - generic [ref=e2467]: "Dry-run: stopping before implement"
+            - generic [ref=e2468]: ANY-42
+            - generic [ref=e2469]: 2026-08-23 11:56:28
+            - button "open" [ref=e2470]
+        - group [ref=e2471]:
+          - generic "f0aec4f9 — do thing todo Task starting 2026-08-23 12:00:30 open" [ref=e2472] [cursor=pointer]:
+            - generic [ref=e2473]: f0aec4f9 — do thing
+            - generic [ref=e2474]: todo
+            - generic [ref=e2475]: Task starting
+            - generic [ref=e2476]: 2026-08-23 12:00:30
+            - button "open" [ref=e2477]
+        - group [ref=e2478]:
+          - 'generic "d4673c28 todo Dry-run: stopping before implement ANY-42 2026-08-23 12:00:30 open" [ref=e2479] [cursor=pointer]':
+            - generic [ref=e2480]: d4673c28
+            - generic [ref=e2481]: todo
+            - generic [ref=e2482]: "Dry-run: stopping before implement"
+            - generic [ref=e2483]: ANY-42
+            - generic [ref=e2484]: 2026-08-23 12:00:30
+            - button "open" [ref=e2485]
+        - group [ref=e2486]:
+          - generic "c3756bd8 todo C done 2026-08-23 13:11:14 open" [ref=e2487] [cursor=pointer]:
+            - generic [ref=e2488]: c3756bd8
+            - generic [ref=e2489]: todo
+            - generic [ref=e2490]: C done
+            - generic [ref=e2491]: 2026-08-23 13:11:14
+            - button "open" [ref=e2492]
+        - group [ref=e2493]:
+          - generic "5b2742c1 todo C done 2026-08-23 13:11:35 open" [ref=e2494] [cursor=pointer]:
+            - generic [ref=e2495]: 5b2742c1
+            - generic [ref=e2496]: todo
+            - generic [ref=e2497]: C done
+            - generic [ref=e2498]: 2026-08-23 13:11:35
+            - button "open" [ref=e2499]
+        - group [ref=e2500]:
+          - generic "dae0804f — do thing todo Task starting 2026-08-23 13:11:36 open" [ref=e2501] [cursor=pointer]:
+            - generic [ref=e2502]: dae0804f — do thing
+            - generic [ref=e2503]: todo
+            - generic [ref=e2504]: Task starting
+            - generic [ref=e2505]: 2026-08-23 13:11:36
+            - button "open" [ref=e2506]
+        - group [ref=e2507]:
+          - 'generic "38310d04 todo Dry-run: stopping before implement ANY-42 2026-08-23 13:11:36 open" [ref=e2508] [cursor=pointer]':
+            - generic [ref=e2509]: 38310d04
+            - generic [ref=e2510]: todo
+            - generic [ref=e2511]: "Dry-run: stopping before implement"
+            - generic [ref=e2512]: ANY-42
+            - generic [ref=e2513]: 2026-08-23 13:11:36
+            - button "open" [ref=e2514]
+        - group [ref=e2515]:
+          - generic "7dd2584d todo T2 done 2026-08-23 13:14:07 open" [ref=e2516] [cursor=pointer]:
+            - generic [ref=e2517]: 7dd2584d
+            - generic [ref=e2518]: todo
+            - generic [ref=e2519]: T2 done
+            - generic [ref=e2520]: 2026-08-23 13:14:07
+            - button "open" [ref=e2521]
+        - group [ref=e2522]:
+          - generic "3f67c0e3 todo T2 done 2026-08-23 13:16:15 open" [ref=e2523] [cursor=pointer]:
+            - generic [ref=e2524]: 3f67c0e3
+            - generic [ref=e2525]: todo
+            - generic [ref=e2526]: T2 done
+            - generic [ref=e2527]: 2026-08-23 13:16:15
+            - button "open" [ref=e2528]
+        - group [ref=e2529]:
+          - generic "2c9d1033 — do thing todo Task starting 2026-08-23 13:16:16 open" [ref=e2530] [cursor=pointer]:
+            - generic [ref=e2531]: 2c9d1033 — do thing
+            - generic [ref=e2532]: todo
+            - generic [ref=e2533]: Task starting
+            - generic [ref=e2534]: 2026-08-23 13:16:16
+            - button "open" [ref=e2535]
+        - group [ref=e2536]:
+          - 'generic "baee90c3 todo Dry-run: stopping before implement ANY-42 2026-08-23 13:16:16 open" [ref=e2537] [cursor=pointer]':
+            - generic [ref=e2538]: baee90c3
+            - generic [ref=e2539]: todo
+            - generic [ref=e2540]: "Dry-run: stopping before implement"
+            - generic [ref=e2541]: ANY-42
+            - generic [ref=e2542]: 2026-08-23 13:16:16
+            - button "open" [ref=e2543]
+        - group [ref=e2544]:
+          - generic "53900018 todo T2 done 2026-08-23 13:20:39 open" [ref=e2545] [cursor=pointer]:
+            - generic [ref=e2546]: "53900018"
+            - generic [ref=e2547]: todo
+            - generic [ref=e2548]: T2 done
+            - generic [ref=e2549]: 2026-08-23 13:20:39
+            - button "open" [ref=e2550]
+        - group [ref=e2551]:
+          - generic "de4f5c8a — do thing todo Task starting 2026-08-23 13:20:40 open" [ref=e2552] [cursor=pointer]:
+            - generic [ref=e2553]: de4f5c8a — do thing
+            - generic [ref=e2554]: todo
+            - generic [ref=e2555]: Task starting
+            - generic [ref=e2556]: 2026-08-23 13:20:40
+            - button "open" [ref=e2557]
+        - group [ref=e2558]:
+          - 'generic "57f65f89 todo Dry-run: stopping before implement ANY-42 2026-08-23 13:20:40 open" [ref=e2559] [cursor=pointer]':
+            - generic [ref=e2560]: 57f65f89
+            - generic [ref=e2561]: todo
+            - generic [ref=e2562]: "Dry-run: stopping before implement"
+            - generic [ref=e2563]: ANY-42
+            - generic [ref=e2564]: 2026-08-23 13:20:40
+            - button "open" [ref=e2565]
+        - group [ref=e2566]:
+          - generic "a18c84a4 todo T1 done private/tmp/orch-smoke 2026-08-23 13:28:38 open" [ref=e2567] [cursor=pointer]:
+            - generic [ref=e2568]: a18c84a4
+            - generic [ref=e2569]: todo
+            - generic [ref=e2570]: T1 done
+            - generic [ref=e2571]: private/tmp/orch-smoke
+            - generic [ref=e2572]: 2026-08-23 13:28:38
+            - button "open" [ref=e2573]
+        - group [ref=e2574]:
+          - generic "ccb78e4b todo T2 done 2026-08-23 13:35:20 open" [ref=e2575] [cursor=pointer]:
+            - generic [ref=e2576]: ccb78e4b
+            - generic [ref=e2577]: todo
+            - generic [ref=e2578]: T2 done
+            - generic [ref=e2579]: 2026-08-23 13:35:20
+            - button "open" [ref=e2580]
+        - group [ref=e2581]:
+          - generic "7a82480b todo T2 done 2026-08-23 13:35:36 open" [ref=e2582] [cursor=pointer]:
+            - generic [ref=e2583]: 7a82480b
+            - generic [ref=e2584]: todo
+            - generic [ref=e2585]: T2 done
+            - generic [ref=e2586]: 2026-08-23 13:35:36
+            - button "open" [ref=e2587]
+        - group [ref=e2588]:
+          - generic "c754a503 — do thing todo Task starting 2026-08-23 13:35:36 open" [ref=e2589] [cursor=pointer]:
+            - generic [ref=e2590]: c754a503 — do thing
+            - generic [ref=e2591]: todo
+            - generic [ref=e2592]: Task starting
+            - generic [ref=e2593]: 2026-08-23 13:35:36
+            - button "open" [ref=e2594]
+        - group [ref=e2595]:
+          - 'generic "c936c00d todo Dry-run: stopping before implement ANY-42 2026-08-23 13:35:36 open" [ref=e2596] [cursor=pointer]':
+            - generic [ref=e2597]: c936c00d
+            - generic [ref=e2598]: todo
+            - generic [ref=e2599]: "Dry-run: stopping before implement"
+            - generic [ref=e2600]: ANY-42
+            - generic [ref=e2601]: 2026-08-23 13:35:36
+            - button "open" [ref=e2602]
+        - group [ref=e2603]:
+          - generic "3b56d08a todo T1 failed (attempt 1) private/tmp/orch-smoke 2026-08-23 13:36:10 open" [ref=e2604] [cursor=pointer]:
+            - generic [ref=e2605]: 3b56d08a
+            - generic [ref=e2606]: todo
+            - generic [ref=e2607]: T1 failed (attempt 1)
+            - generic [ref=e2608]: private/tmp/orch-smoke
+            - generic [ref=e2609]: 2026-08-23 13:36:10
+            - button "open" [ref=e2610]
+        - group [ref=e2611]:
+          - generic "8e08890c todo T1 failed (attempt 1) /tmp/orch-smoke 2026-08-23 13:41:19 open" [ref=e2612] [cursor=pointer]:
+            - generic [ref=e2613]: 8e08890c
+            - generic [ref=e2614]: todo
+            - generic [ref=e2615]: T1 failed (attempt 1)
+            - generic [ref=e2616]: /tmp/orch-smoke
+            - generic [ref=e2617]: 2026-08-23 13:41:19
+            - button "open" [ref=e2618]
+        - group [ref=e2619]:
+          - generic "bac865e5 todo T2 done 2026-08-23 13:44:19 open" [ref=e2620] [cursor=pointer]:
+            - generic [ref=e2621]: bac865e5
+            - generic [ref=e2622]: todo
+            - generic [ref=e2623]: T2 done
+            - generic [ref=e2624]: 2026-08-23 13:44:19
+            - button "open" [ref=e2625]
+        - group [ref=e2626]:
+          - generic "f97ebaa5 — do thing todo Task starting 2026-08-23 13:44:20 open" [ref=e2627] [cursor=pointer]:
+            - generic [ref=e2628]: f97ebaa5 — do thing
+            - generic [ref=e2629]: todo
+            - generic [ref=e2630]: Task starting
+            - generic [ref=e2631]: 2026-08-23 13:44:20
+            - button "open" [ref=e2632]
+        - group [ref=e2633]:
+          - generic "d6072447 todo T2 done 2026-08-23 13:44:41 open" [ref=e2634] [cursor=pointer]:
+            - generic [ref=e2635]: d6072447
+            - generic [ref=e2636]: todo
+            - generic [ref=e2637]: T2 done
+            - generic [ref=e2638]: 2026-08-23 13:44:41
+            - button "open" [ref=e2639]
+        - group [ref=e2640]:
+          - generic "64c96855 — do thing todo Task starting 2026-08-23 13:44:42 open" [ref=e2641] [cursor=pointer]:
+            - generic [ref=e2642]: 64c96855 — do thing
+            - generic [ref=e2643]: todo
+            - generic [ref=e2644]: Task starting
+            - generic [ref=e2645]: 2026-08-23 13:44:42
+            - button "open" [ref=e2646]
+        - group [ref=e2647]:
+          - generic "198f8aae todo T2 done 2026-08-23 13:44:45 open" [ref=e2648] [cursor=pointer]:
+            - generic [ref=e2649]: 198f8aae
+            - generic [ref=e2650]: todo
+            - generic [ref=e2651]: T2 done
+            - generic [ref=e2652]: 2026-08-23 13:44:45
+            - button "open" [ref=e2653]
+        - group [ref=e2654]:
+          - generic "5a761eef — do thing todo Task starting 2026-08-23 13:44:45 open" [ref=e2655] [cursor=pointer]:
+            - generic [ref=e2656]: 5a761eef — do thing
+            - generic [ref=e2657]: todo
+            - generic [ref=e2658]: Task starting
+            - generic [ref=e2659]: 2026-08-23 13:44:45
+            - button "open" [ref=e2660]
+        - group [ref=e2661]:
+          - generic "7ed3cecf todo T2 done 2026-08-23 13:45:11 open" [ref=e2662] [cursor=pointer]:
+            - generic [ref=e2663]: 7ed3cecf
+            - generic [ref=e2664]: todo
+            - generic [ref=e2665]: T2 done
+            - generic [ref=e2666]: 2026-08-23 13:45:11
+            - button "open" [ref=e2667]
+        - group [ref=e2668]:
+          - generic "2d86cbec — do thing todo Task starting 2026-08-23 13:45:12 open" [ref=e2669] [cursor=pointer]:
+            - generic [ref=e2670]: 2d86cbec — do thing
+            - generic [ref=e2671]: todo
+            - generic [ref=e2672]: Task starting
+            - generic [ref=e2673]: 2026-08-23 13:45:12
+            - button "open" [ref=e2674]
+        - group [ref=e2675]:
+          - 'generic "86dace41 todo Dry-run: stopping before implement ANY-42 2026-08-23 13:45:12 open" [ref=e2676] [cursor=pointer]':
+            - generic [ref=e2677]: 86dace41
+            - generic [ref=e2678]: todo
+            - generic [ref=e2679]: "Dry-run: stopping before implement"
+            - generic [ref=e2680]: ANY-42
+            - generic [ref=e2681]: 2026-08-23 13:45:12
+            - button "open" [ref=e2682]
+        - group [ref=e2683]:
+          - generic "8c95eb89 todo T2 done 2026-08-23 13:45:35 open" [ref=e2684] [cursor=pointer]:
+            - generic [ref=e2685]: 8c95eb89
+            - generic [ref=e2686]: todo
+            - generic [ref=e2687]: T2 done
+            - generic [ref=e2688]: 2026-08-23 13:45:35
+            - button "open" [ref=e2689]
+        - group [ref=e2690]:
+          - generic "cdc33453 — do thing todo Task starting 2026-08-23 13:45:36 open" [ref=e2691] [cursor=pointer]:
+            - generic [ref=e2692]: cdc33453 — do thing
+            - generic [ref=e2693]: todo
+            - generic [ref=e2694]: Task starting
+            - generic [ref=e2695]: 2026-08-23 13:45:36
+            - button "open" [ref=e2696]
+        - group [ref=e2697]:
+          - generic "5660f101 todo T2 done 2026-08-23 13:45:49 open" [ref=e2698] [cursor=pointer]:
+            - generic [ref=e2699]: 5660f101
+            - generic [ref=e2700]: todo
+            - generic [ref=e2701]: T2 done
+            - generic [ref=e2702]: 2026-08-23 13:45:49
+            - button "open" [ref=e2703]
+        - group [ref=e2704]:
+          - generic "85ea5495 — do thing todo Task starting 2026-08-23 13:45:50 open" [ref=e2705] [cursor=pointer]:
+            - generic [ref=e2706]: 85ea5495 — do thing
+            - generic [ref=e2707]: todo
+            - generic [ref=e2708]: Task starting
+            - generic [ref=e2709]: 2026-08-23 13:45:50
+            - button "open" [ref=e2710]
+        - group [ref=e2711]:
+          - generic "e731ce70 todo T2 done 2026-08-23 13:46:23 open" [ref=e2712] [cursor=pointer]:
+            - generic [ref=e2713]: e731ce70
+            - generic [ref=e2714]: todo
+            - generic [ref=e2715]: T2 done
+            - generic [ref=e2716]: 2026-08-23 13:46:23
+            - button "open" [ref=e2717]
+        - group [ref=e2718]:
+          - generic "b6f21085 — do thing todo Task starting 2026-08-23 13:46:24 open" [ref=e2719] [cursor=pointer]:
+            - generic [ref=e2720]: b6f21085 — do thing
+            - generic [ref=e2721]: todo
+            - generic [ref=e2722]: Task starting
+            - generic [ref=e2723]: 2026-08-23 13:46:24
+            - button "open" [ref=e2724]
+        - group [ref=e2725]:
+          - 'generic "20deb958 todo Dry-run: stopping before implement ANY-42 2026-08-23 13:46:24 open" [ref=e2726] [cursor=pointer]':
+            - generic [ref=e2727]: 20deb958
+            - generic [ref=e2728]: todo
+            - generic [ref=e2729]: "Dry-run: stopping before implement"
+            - generic [ref=e2730]: ANY-42
+            - generic [ref=e2731]: 2026-08-23 13:46:24
+            - button "open" [ref=e2732]
+        - group [ref=e2733]:
+          - 'generic "bde5a5fa todo Dry-run: stopping before implement ANY-42 2026-08-23 13:47:10 open" [ref=e2734] [cursor=pointer]':
+            - generic [ref=e2735]: bde5a5fa
+            - generic [ref=e2736]: todo
+            - generic [ref=e2737]: "Dry-run: stopping before implement"
+            - generic [ref=e2738]: ANY-42
+            - generic [ref=e2739]: 2026-08-23 13:47:10
+            - button "open" [ref=e2740]
+        - group [ref=e2741]:
+          - generic "b6d8457e todo T2 done 2026-08-23 13:48:12 open" [ref=e2742] [cursor=pointer]:
+            - generic [ref=e2743]: b6d8457e
+            - generic [ref=e2744]: todo
+            - generic [ref=e2745]: T2 done
+            - generic [ref=e2746]: 2026-08-23 13:48:12
+            - button "open" [ref=e2747]
+        - group [ref=e2748]:
+          - generic "277ac5a5 — do thing todo Task starting 2026-08-23 13:48:13 open" [ref=e2749] [cursor=pointer]:
+            - generic [ref=e2750]: 277ac5a5 — do thing
+            - generic [ref=e2751]: todo
+            - generic [ref=e2752]: Task starting
+            - generic [ref=e2753]: 2026-08-23 13:48:13
+            - button "open" [ref=e2754]
+        - group [ref=e2755]:
+          - 'generic "704090ca todo Dry-run: stopping before implement ANY-42 2026-08-23 13:48:13 open" [ref=e2756] [cursor=pointer]':
+            - generic [ref=e2757]: 704090ca
+            - generic [ref=e2758]: todo
+            - generic [ref=e2759]: "Dry-run: stopping before implement"
+            - generic [ref=e2760]: ANY-42
+            - generic [ref=e2761]: 2026-08-23 13:48:13
+            - button "open" [ref=e2762]
+        - group [ref=e2763]:
+          - generic "9000e215 todo T1 done private/tmp/orch-smoke 2026-08-23 13:49:41 open" [ref=e2764] [cursor=pointer]:
+            - generic [ref=e2765]: "9000e215"
+            - generic [ref=e2766]: todo
+            - generic [ref=e2767]: T1 done
+            - generic [ref=e2768]: private/tmp/orch-smoke
+            - generic [ref=e2769]: 2026-08-23 13:49:41
+            - button "open" [ref=e2770]
+        - group [ref=e2771]:
+          - generic "0cf40d23 todo T2 done 2026-08-23 13:51:42 open" [ref=e2772] [cursor=pointer]:
+            - generic [ref=e2773]: 0cf40d23
+            - generic [ref=e2774]: todo
+            - generic [ref=e2775]: T2 done
+            - generic [ref=e2776]: 2026-08-23 13:51:42
+            - button "open" [ref=e2777]
+        - group [ref=e2778]:
+          - generic "b0bcc607 — do thing todo Task starting 2026-08-23 13:51:43 open" [ref=e2779] [cursor=pointer]:
+            - generic [ref=e2780]: b0bcc607 — do thing
+            - generic [ref=e2781]: todo
+            - generic [ref=e2782]: Task starting
+            - generic [ref=e2783]: 2026-08-23 13:51:43
+            - button "open" [ref=e2784]
+        - group [ref=e2785]:
+          - 'generic "cde13007 todo Dry-run: stopping before implement ANY-42 2026-08-23 13:51:43 open" [ref=e2786] [cursor=pointer]':
+            - generic [ref=e2787]: cde13007
+            - generic [ref=e2788]: todo
+            - generic [ref=e2789]: "Dry-run: stopping before implement"
+            - generic [ref=e2790]: ANY-42
+            - generic [ref=e2791]: 2026-08-23 13:51:43
+            - button "open" [ref=e2792]
+        - group [ref=e2793]:
+          - generic "16ee53a4 todo T2 done 2026-08-23 13:56:54 open" [ref=e2794] [cursor=pointer]:
+            - generic [ref=e2795]: 16ee53a4
+            - generic [ref=e2796]: todo
+            - generic [ref=e2797]: T2 done
+            - generic [ref=e2798]: 2026-08-23 13:56:54
+            - button "open" [ref=e2799]
+        - group [ref=e2800]:
+          - generic "9b8c8d7d — do thing todo Task starting 2026-08-23 13:56:55 open" [ref=e2801] [cursor=pointer]:
+            - generic [ref=e2802]: 9b8c8d7d — do thing
+            - generic [ref=e2803]: todo
+            - generic [ref=e2804]: Task starting
+            - generic [ref=e2805]: 2026-08-23 13:56:55
+            - button "open" [ref=e2806]
+        - group [ref=e2807]:
+          - 'generic "c9f6ecd8 todo Dry-run: stopping before implement ANY-42 2026-08-23 13:56:55 open" [ref=e2808] [cursor=pointer]':
+            - generic [ref=e2809]: c9f6ecd8
+            - generic [ref=e2810]: todo
+            - generic [ref=e2811]: "Dry-run: stopping before implement"
+            - generic [ref=e2812]: ANY-42
+            - generic [ref=e2813]: 2026-08-23 13:56:55
+            - button "open" [ref=e2814]
+        - group [ref=e2815]:
+          - generic "817d756f todo T2 done 2026-08-23 14:07:19 open" [ref=e2816] [cursor=pointer]:
+            - generic [ref=e2817]: 817d756f
+            - generic [ref=e2818]: todo
+            - generic [ref=e2819]: T2 done
+            - generic [ref=e2820]: 2026-08-23 14:07:19
+            - button "open" [ref=e2821]
+        - group [ref=e2822]:
+          - generic "7e7f3836 — do thing todo Task starting 2026-08-23 14:07:20 open" [ref=e2823] [cursor=pointer]:
+            - generic [ref=e2824]: 7e7f3836 — do thing
+            - generic [ref=e2825]: todo
+            - generic [ref=e2826]: Task starting
+            - generic [ref=e2827]: 2026-08-23 14:07:20
+            - button "open" [ref=e2828]
+        - group [ref=e2829]:
+          - 'generic "5b53ec9d todo Dry-run: stopping before implement ANY-42 2026-08-23 14:07:20 open" [ref=e2830] [cursor=pointer]':
+            - generic [ref=e2831]: 5b53ec9d
+            - generic [ref=e2832]: todo
+            - generic [ref=e2833]: "Dry-run: stopping before implement"
+            - generic [ref=e2834]: ANY-42
+            - generic [ref=e2835]: 2026-08-23 14:07:20
+            - button "open" [ref=e2836]
+        - group [ref=e2837]:
+          - generic "bb3943a1 todo T2 done 2026-08-23 14:07:31 open" [ref=e2838] [cursor=pointer]:
+            - generic [ref=e2839]: bb3943a1
+            - generic [ref=e2840]: todo
+            - generic [ref=e2841]: T2 done
+            - generic [ref=e2842]: 2026-08-23 14:07:31
+            - button "open" [ref=e2843]
+        - group [ref=e2844]:
+          - generic "73fa61f8 — do thing todo Task starting 2026-08-23 14:07:31 open" [ref=e2845] [cursor=pointer]:
+            - generic [ref=e2846]: 73fa61f8 — do thing
+            - generic [ref=e2847]: todo
+            - generic [ref=e2848]: Task starting
+            - generic [ref=e2849]: 2026-08-23 14:07:31
+            - button "open" [ref=e2850]
+        - group [ref=e2851]:
+          - 'generic "4e8aafc3 todo Dry-run: stopping before implement ANY-42 2026-08-23 14:07:31 open" [ref=e2852] [cursor=pointer]':
+            - generic [ref=e2853]: 4e8aafc3
+            - generic [ref=e2854]: todo
+            - generic [ref=e2855]: "Dry-run: stopping before implement"
+            - generic [ref=e2856]: ANY-42
+            - generic [ref=e2857]: 2026-08-23 14:07:31
+            - button "open" [ref=e2858]
+        - group [ref=e2859]:
+          - generic "c5ecce61 todo T2 done 2026-08-23 14:08:51 open" [ref=e2860] [cursor=pointer]:
+            - generic [ref=e2861]: c5ecce61
+            - generic [ref=e2862]: todo
+            - generic [ref=e2863]: T2 done
+            - generic [ref=e2864]: 2026-08-23 14:08:51
+            - button "open" [ref=e2865]
+        - group [ref=e2866]:
+          - generic "e988f077 — do thing todo Task starting 2026-08-23 14:08:52 open" [ref=e2867] [cursor=pointer]:
+            - generic [ref=e2868]: e988f077 — do thing
+            - generic [ref=e2869]: todo
+            - generic [ref=e2870]: Task starting
+            - generic [ref=e2871]: 2026-08-23 14:08:52
+            - button "open" [ref=e2872]
+        - group [ref=e2873]:
+          - 'generic "37c05d28 todo Dry-run: stopping before implement ANY-42 2026-08-23 14:08:52 open" [ref=e2874] [cursor=pointer]':
+            - generic [ref=e2875]: 37c05d28
+            - generic [ref=e2876]: todo
+            - generic [ref=e2877]: "Dry-run: stopping before implement"
+            - generic [ref=e2878]: ANY-42
+            - generic [ref=e2879]: 2026-08-23 14:08:52
+            - button "open" [ref=e2880]
+        - group [ref=e2881]:
+          - generic "3e242c0d todo T1 done private/tmp/orch-smoke 2026-08-23 14:10:42 open" [ref=e2882] [cursor=pointer]:
+            - generic [ref=e2883]: 3e242c0d
+            - generic [ref=e2884]: todo
+            - generic [ref=e2885]: T1 done
+            - generic [ref=e2886]: private/tmp/orch-smoke
+            - generic [ref=e2887]: 2026-08-23 14:10:42
+            - button "open" [ref=e2888]
+        - group [ref=e2889]:
+          - generic "8b457422 todo T2 done 2026-08-23 14:12:08 open" [ref=e2890] [cursor=pointer]:
+            - generic [ref=e2891]: 8b457422
+            - generic [ref=e2892]: todo
+            - generic [ref=e2893]: T2 done
+            - generic [ref=e2894]: 2026-08-23 14:12:08
+            - button "open" [ref=e2895]
+        - group [ref=e2896]:
+          - generic "eba45491 — do thing todo Task starting 2026-08-23 14:12:09 open" [ref=e2897] [cursor=pointer]:
+            - generic [ref=e2898]: eba45491 — do thing
+            - generic [ref=e2899]: todo
+            - generic [ref=e2900]: Task starting
+            - generic [ref=e2901]: 2026-08-23 14:12:09
+            - button "open" [ref=e2902]
+        - group [ref=e2903]:
+          - 'generic "c8c8dbe4 todo Dry-run: stopping before implement ANY-42 2026-08-23 14:12:09 open" [ref=e2904] [cursor=pointer]':
+            - generic [ref=e2905]: c8c8dbe4
+            - generic [ref=e2906]: todo
+            - generic [ref=e2907]: "Dry-run: stopping before implement"
+            - generic [ref=e2908]: ANY-42
+            - generic [ref=e2909]: 2026-08-23 14:12:09
+            - button "open" [ref=e2910]
+        - group [ref=e2911]:
+          - generic "4a68a60d todo T2 done 2026-08-23 14:40:59 open" [ref=e2912] [cursor=pointer]:
+            - generic [ref=e2913]: 4a68a60d
+            - generic [ref=e2914]: todo
+            - generic [ref=e2915]: T2 done
+            - generic [ref=e2916]: 2026-08-23 14:40:59
+            - button "open" [ref=e2917]
+        - group [ref=e2918]:
+          - generic "2b451c7b — do thing todo Task starting 2026-08-23 14:40:59 open" [ref=e2919] [cursor=pointer]:
+            - generic [ref=e2920]: 2b451c7b — do thing
+            - generic [ref=e2921]: todo
+            - generic [ref=e2922]: Task starting
+            - generic [ref=e2923]: 2026-08-23 14:40:59
+            - button "open" [ref=e2924]
+        - group [ref=e2925]:
+          - 'generic "4217ee92 todo Dry-run: stopping before implement ANY-42 2026-08-23 14:41:00 open" [ref=e2926] [cursor=pointer]':
+            - generic [ref=e2927]: 4217ee92
+            - generic [ref=e2928]: todo
+            - generic [ref=e2929]: "Dry-run: stopping before implement"
+            - generic [ref=e2930]: ANY-42
+            - generic [ref=e2931]: 2026-08-23 14:41:00
+            - button "open" [ref=e2932]
+        - group [ref=e2933]:
+          - generic "1d5f997d todo Merged devagent/T1-a1 into main private/tmp/orch-smoke 2026-08-23 14:42:15 open" [ref=e2934] [cursor=pointer]:
+            - generic [ref=e2935]: 1d5f997d
+            - generic [ref=e2936]: todo
+            - generic [ref=e2937]: Merged devagent/T1-a1 into main
+            - generic [ref=e2938]: private/tmp/orch-smoke
+            - generic [ref=e2939]: 2026-08-23 14:42:15
+            - button "open" [ref=e2940]
+        - group [ref=e2941]:
+          - generic "81c5a8d4 todo T2 done 2026-08-23 14:50:09 open" [ref=e2942] [cursor=pointer]:
+            - generic [ref=e2943]: 81c5a8d4
+            - generic [ref=e2944]: todo
+            - generic [ref=e2945]: T2 done
+            - generic [ref=e2946]: 2026-08-23 14:50:09
+            - button "open" [ref=e2947]
+        - group [ref=e2948]:
+          - generic "f80be1e9 — do thing todo Task starting 2026-08-23 14:50:09 open" [ref=e2949] [cursor=pointer]:
+            - generic [ref=e2950]: f80be1e9 — do thing
+            - generic [ref=e2951]: todo
+            - generic [ref=e2952]: Task starting
+            - generic [ref=e2953]: 2026-08-23 14:50:09
+            - button "open" [ref=e2954]
+        - group [ref=e2955]:
+          - 'generic "c6b04d3f todo Dry-run: stopping before implement ANY-42 2026-08-23 14:50:09 open" [ref=e2956] [cursor=pointer]':
+            - generic [ref=e2957]: c6b04d3f
+            - generic [ref=e2958]: todo
+            - generic [ref=e2959]: "Dry-run: stopping before implement"
+            - generic [ref=e2960]: ANY-42
+            - generic [ref=e2961]: 2026-08-23 14:50:09
+            - button "open" [ref=e2962]
+        - group [ref=e2963]:
+          - generic "9a43c266 todo T2 done 2026-08-23 15:18:47 open" [ref=e2964] [cursor=pointer]:
+            - generic [ref=e2965]: 9a43c266
+            - generic [ref=e2966]: todo
+            - generic [ref=e2967]: T2 done
+            - generic [ref=e2968]: 2026-08-23 15:18:47
+            - button "open" [ref=e2969]
+        - group [ref=e2970]:
+          - generic "17b3a9cc — do thing todo Task starting 2026-08-23 15:18:48 open" [ref=e2971] [cursor=pointer]:
+            - generic [ref=e2972]: 17b3a9cc — do thing
+            - generic [ref=e2973]: todo
+            - generic [ref=e2974]: Task starting
+            - generic [ref=e2975]: 2026-08-23 15:18:48
+            - button "open" [ref=e2976]
+        - group [ref=e2977]:
+          - 'generic "c9699822 todo Dry-run: stopping before implement ANY-42 2026-08-23 15:18:48 open" [ref=e2978] [cursor=pointer]':
+            - generic [ref=e2979]: c9699822
+            - generic [ref=e2980]: todo
+            - generic [ref=e2981]: "Dry-run: stopping before implement"
+            - generic [ref=e2982]: ANY-42
+            - generic [ref=e2983]: 2026-08-23 15:18:48
+            - button "open" [ref=e2984]
+        - group [ref=e2985]:
+          - generic "a02459d6 todo T2 done 2026-08-23 17:07:19 open" [ref=e2986] [cursor=pointer]:
+            - generic [ref=e2987]: a02459d6
+            - generic [ref=e2988]: todo
+            - generic [ref=e2989]: T2 done
+            - generic [ref=e2990]: 2026-08-23 17:07:19
+            - button "open" [ref=e2991]
+        - group [ref=e2992]:
+          - generic "e82663b9 — do thing todo Task starting 2026-08-23 17:07:20 open" [ref=e2993] [cursor=pointer]:
+            - generic [ref=e2994]: e82663b9 — do thing
+            - generic [ref=e2995]: todo
+            - generic [ref=e2996]: Task starting
+            - generic [ref=e2997]: 2026-08-23 17:07:20
+            - button "open" [ref=e2998]
+        - group [ref=e2999]:
+          - 'generic "d492bef2 todo Dry-run: stopping before implement ANY-42 2026-08-23 17:07:20 open" [ref=e3000] [cursor=pointer]':
+            - generic [ref=e3001]: d492bef2
+            - generic [ref=e3002]: todo
+            - generic [ref=e3003]: "Dry-run: stopping before implement"
+            - generic [ref=e3004]: ANY-42
+            - generic [ref=e3005]: 2026-08-23 17:07:20
+            - button "open" [ref=e3006]
+        - group [ref=e3007]:
+          - generic "5de97f80 todo T2 done 2026-08-23 17:29:58 open" [ref=e3008] [cursor=pointer]:
+            - generic [ref=e3009]: 5de97f80
+            - generic [ref=e3010]: todo
+            - generic [ref=e3011]: T2 done
+            - generic [ref=e3012]: 2026-08-23 17:29:58
+            - button "open" [ref=e3013]
+        - group [ref=e3014]:
+          - generic "be11687c — do thing todo Task starting 2026-08-23 17:29:59 open" [ref=e3015] [cursor=pointer]:
+            - generic [ref=e3016]: be11687c — do thing
+            - generic [ref=e3017]: todo
+            - generic [ref=e3018]: Task starting
+            - generic [ref=e3019]: 2026-08-23 17:29:59
+            - button "open" [ref=e3020]
+        - group [ref=e3021]:
+          - 'generic "fd2c49dc todo Dry-run: stopping before implement ANY-42 2026-08-23 17:29:59 open" [ref=e3022] [cursor=pointer]':
+            - generic [ref=e3023]: fd2c49dc
+            - generic [ref=e3024]: todo
+            - generic [ref=e3025]: "Dry-run: stopping before implement"
+            - generic [ref=e3026]: ANY-42
+            - generic [ref=e3027]: 2026-08-23 17:29:59
+            - button "open" [ref=e3028]
+        - group [ref=e3029]:
+          - 'generic "9a4081bc — # Loop 1 — Validated goal in progress Worktree preserved for inspection: /Users/linh.doan/orca/workspaces/auto-devagent-selfbuild-run-1-20260823T1723/.devagent-worktrees/TASK exit 0 · 9m28s · orca/workspaces/auto-devagent-selfbuild-run-1-20260823T1723 2026-08-23 17:31:31 open" [ref=e3030] [cursor=pointer]':
+            - generic [ref=e3031]: "9a4081bc — # Loop 1 — Validated goal"
+            - generic [ref=e3032]: in progress
+            - generic [ref=e3033]: "Worktree preserved for inspection: /Users/linh.doan/orca/workspaces/auto-devagent-selfbuild-run-1-20260823T1723/.devagent-worktrees/TASK"
+            - generic [ref=e3034]: exit 0 · 9m28s · orca/workspaces/auto-devagent-selfbuild-run-1-20260823T1723
+            - generic [ref=e3035]: 2026-08-23 17:31:31
+            - button "open" [ref=e3036]
+        - group [ref=e3037]:
+          - generic "90a5a938 todo T2 done 2026-08-23 17:33:41 open" [ref=e3038] [cursor=pointer]:
+            - generic [ref=e3039]: 90a5a938
+            - generic [ref=e3040]: todo
+            - generic [ref=e3041]: T2 done
+            - generic [ref=e3042]: 2026-08-23 17:33:41
+            - button "open" [ref=e3043]
+        - group [ref=e3044]:
+          - generic "33073fb0 — do thing todo Task starting 2026-08-23 17:33:42 open" [ref=e3045] [cursor=pointer]:
+            - generic [ref=e3046]: 33073fb0 — do thing
+            - generic [ref=e3047]: todo
+            - generic [ref=e3048]: Task starting
+            - generic [ref=e3049]: 2026-08-23 17:33:42
+            - button "open" [ref=e3050]
+        - group [ref=e3051]:
+          - 'generic "9bdbc588 todo Dry-run: stopping before implement ANY-42 2026-08-23 17:33:42 open" [ref=e3052] [cursor=pointer]':
+            - generic [ref=e3053]: 9bdbc588
+            - generic [ref=e3054]: todo
+            - generic [ref=e3055]: "Dry-run: stopping before implement"
+            - generic [ref=e3056]: ANY-42
+            - generic [ref=e3057]: 2026-08-23 17:33:42
+            - button "open" [ref=e3058]
+        - group [ref=e3059]:
+          - generic "006beb7a todo T2 done 2026-08-23 17:34:01 open" [ref=e3060] [cursor=pointer]:
+            - generic [ref=e3061]: 006beb7a
+            - generic [ref=e3062]: todo
+            - generic [ref=e3063]: T2 done
+            - generic [ref=e3064]: 2026-08-23 17:34:01
+            - button "open" [ref=e3065]
+        - group [ref=e3066]:
+          - generic "f92a6531 — do thing todo Task starting 2026-08-23 17:34:02 open" [ref=e3067] [cursor=pointer]:
+            - generic [ref=e3068]: f92a6531 — do thing
+            - generic [ref=e3069]: todo
+            - generic [ref=e3070]: Task starting
+            - generic [ref=e3071]: 2026-08-23 17:34:02
+            - button "open" [ref=e3072]
+        - group [ref=e3073]:
+          - 'generic "5ceadd32 todo Dry-run: stopping before implement ANY-42 2026-08-23 17:34:02 open" [ref=e3074] [cursor=pointer]':
+            - generic [ref=e3075]: 5ceadd32
+            - generic [ref=e3076]: todo
+            - generic [ref=e3077]: "Dry-run: stopping before implement"
+            - generic [ref=e3078]: ANY-42
+            - generic [ref=e3079]: 2026-08-23 17:34:02
+            - button "open" [ref=e3080]
+        - group [ref=e3081]:
+          - generic "2cde49bd todo T2 done 2026-08-23 17:35:15 open" [ref=e3082] [cursor=pointer]:
+            - generic [ref=e3083]: 2cde49bd
+            - generic [ref=e3084]: todo
+            - generic [ref=e3085]: T2 done
+            - generic [ref=e3086]: 2026-08-23 17:35:15
+            - button "open" [ref=e3087]
+        - group [ref=e3088]:
+          - generic "4104e934 — do thing todo Task starting 2026-08-23 17:35:16 open" [ref=e3089] [cursor=pointer]:
+            - generic [ref=e3090]: 4104e934 — do thing
+            - generic [ref=e3091]: todo
+            - generic [ref=e3092]: Task starting
+            - generic [ref=e3093]: 2026-08-23 17:35:16
+            - button "open" [ref=e3094]
+        - group [ref=e3095]:
+          - 'generic "4ea0085d todo Dry-run: stopping before implement ANY-42 2026-08-23 17:35:16 open" [ref=e3096] [cursor=pointer]':
+            - generic [ref=e3097]: 4ea0085d
+            - generic [ref=e3098]: todo
+            - generic [ref=e3099]: "Dry-run: stopping before implement"
+            - generic [ref=e3100]: ANY-42
+            - generic [ref=e3101]: 2026-08-23 17:35:16
+            - button "open" [ref=e3102]
+        - group [ref=e3103]:
+          - generic "c4a9ab71 todo T2 done 2026-08-23 17:40:34 open" [ref=e3104] [cursor=pointer]:
+            - generic [ref=e3105]: c4a9ab71
+            - generic [ref=e3106]: todo
+            - generic [ref=e3107]: T2 done
+            - generic [ref=e3108]: 2026-08-23 17:40:34
+            - button "open" [ref=e3109]
+        - group [ref=e3110]:
+          - generic "187e8eeb — do thing todo Task starting 2026-08-23 17:40:35 open" [ref=e3111] [cursor=pointer]:
+            - generic [ref=e3112]: 187e8eeb — do thing
+            - generic [ref=e3113]: todo
+            - generic [ref=e3114]: Task starting
+            - generic [ref=e3115]: 2026-08-23 17:40:35
+            - button "open" [ref=e3116]
+        - group [ref=e3117]:
+          - 'generic "4eda7d5c todo Dry-run: stopping before implement ANY-42 2026-08-23 17:40:35 open" [ref=e3118] [cursor=pointer]':
+            - generic [ref=e3119]: 4eda7d5c
+            - generic [ref=e3120]: todo
+            - generic [ref=e3121]: "Dry-run: stopping before implement"
+            - generic [ref=e3122]: ANY-42
+            - generic [ref=e3123]: 2026-08-23 17:40:35
+            - button "open" [ref=e3124]
+        - group [ref=e3125]:
+          - generic "e9b04e73 todo T2 done 2026-08-23 17:40:59 open" [ref=e3126] [cursor=pointer]:
+            - generic [ref=e3127]: e9b04e73
+            - generic [ref=e3128]: todo
+            - generic [ref=e3129]: T2 done
+            - generic [ref=e3130]: 2026-08-23 17:40:59
+            - button "open" [ref=e3131]
+        - group [ref=e3132]:
+          - 'generic "90dd121b todo Dry-run: stopping before implement ANY-42 2026-08-23 17:41:01 open" [ref=e3133] [cursor=pointer]':
+            - generic [ref=e3134]: 90dd121b
+            - generic [ref=e3135]: todo
+            - generic [ref=e3136]: "Dry-run: stopping before implement"
+            - generic [ref=e3137]: ANY-42
+            - generic [ref=e3138]: 2026-08-23 17:41:01
+            - button "open" [ref=e3139]
+        - group [ref=e3140]:
+          - generic "7ca1679c — do thing todo Task starting 2026-08-23 17:41:01 open" [ref=e3141] [cursor=pointer]:
+            - generic [ref=e3142]: 7ca1679c — do thing
+            - generic [ref=e3143]: todo
+            - generic [ref=e3144]: Task starting
+            - generic [ref=e3145]: 2026-08-23 17:41:01
+            - button "open" [ref=e3146]
+        - group [ref=e3147]:
+          - generic "7838e7c7 todo T2 done 2026-08-23 17:45:57 open" [ref=e3148] [cursor=pointer]:
+            - generic [ref=e3149]: 7838e7c7
+            - generic [ref=e3150]: todo
+            - generic [ref=e3151]: T2 done
+            - generic [ref=e3152]: 2026-08-23 17:45:57
+            - button "open" [ref=e3153]
+        - group [ref=e3154]:
+          - generic "fedbc550 — do thing todo Task starting 2026-08-23 17:45:58 open" [ref=e3155] [cursor=pointer]:
+            - generic [ref=e3156]: fedbc550 — do thing
+            - generic [ref=e3157]: todo
+            - generic [ref=e3158]: Task starting
+            - generic [ref=e3159]: 2026-08-23 17:45:58
+            - button "open" [ref=e3160]
+        - group [ref=e3161]:
+          - 'generic "476c7e00 todo Dry-run: stopping before implement ANY-42 2026-08-23 17:45:59 open" [ref=e3162] [cursor=pointer]':
+            - generic [ref=e3163]: 476c7e00
+            - generic [ref=e3164]: todo
+            - generic [ref=e3165]: "Dry-run: stopping before implement"
+            - generic [ref=e3166]: ANY-42
+            - generic [ref=e3167]: 2026-08-23 17:45:59
+            - button "open" [ref=e3168]
+        - group [ref=e3169]:
+          - generic "3dfcd1e9 todo T2 done 2026-08-23 17:47:22 open" [ref=e3170] [cursor=pointer]:
+            - generic [ref=e3171]: 3dfcd1e9
+            - generic [ref=e3172]: todo
+            - generic [ref=e3173]: T2 done
+            - generic [ref=e3174]: 2026-08-23 17:47:22
+            - button "open" [ref=e3175]
+        - group [ref=e3176]:
+          - generic "79ebcae8 — do thing todo Task starting 2026-08-23 17:47:23 open" [ref=e3177] [cursor=pointer]:
+            - generic [ref=e3178]: 79ebcae8 — do thing
+            - generic [ref=e3179]: todo
+            - generic [ref=e3180]: Task starting
+            - generic [ref=e3181]: 2026-08-23 17:47:23
+            - button "open" [ref=e3182]
+        - group [ref=e3183]:
+          - 'generic "590485fc todo Dry-run: stopping before implement ANY-42 2026-08-23 17:47:23 open" [ref=e3184] [cursor=pointer]':
+            - generic [ref=e3185]: 590485fc
+            - generic [ref=e3186]: todo
+            - generic [ref=e3187]: "Dry-run: stopping before implement"
+            - generic [ref=e3188]: ANY-42
+            - generic [ref=e3189]: 2026-08-23 17:47:23
+            - button "open" [ref=e3190]
+        - group [ref=e3191]:
+          - generic "a92dfe45 todo T2 done 2026-08-23 17:57:21 open" [ref=e3192] [cursor=pointer]:
+            - generic [ref=e3193]: a92dfe45
+            - generic [ref=e3194]: todo
+            - generic [ref=e3195]: T2 done
+            - generic [ref=e3196]: 2026-08-23 17:57:21
+            - button "open" [ref=e3197]
+        - group [ref=e3198]:
+          - generic "fc87a5d2 — do thing todo Task starting 2026-08-23 17:57:22 open" [ref=e3199] [cursor=pointer]:
+            - generic [ref=e3200]: fc87a5d2 — do thing
+            - generic [ref=e3201]: todo
+            - generic [ref=e3202]: Task starting
+            - generic [ref=e3203]: 2026-08-23 17:57:22
+            - button "open" [ref=e3204]
+        - group [ref=e3205]:
+          - 'generic "a62cf153 todo Dry-run: stopping before implement ANY-42 2026-08-23 17:57:22 open" [ref=e3206] [cursor=pointer]':
+            - generic [ref=e3207]: a62cf153
+            - generic [ref=e3208]: todo
+            - generic [ref=e3209]: "Dry-run: stopping before implement"
+            - generic [ref=e3210]: ANY-42
+            - generic [ref=e3211]: 2026-08-23 17:57:22
+            - button "open" [ref=e3212]
+        - group [ref=e3213]:
+          - generic "a2e85fa0 todo T2 done 2026-08-23 17:57:33 open" [ref=e3214] [cursor=pointer]:
+            - generic [ref=e3215]: a2e85fa0
+            - generic [ref=e3216]: todo
+            - generic [ref=e3217]: T2 done
+            - generic [ref=e3218]: 2026-08-23 17:57:33
+            - button "open" [ref=e3219]
+        - group [ref=e3220]:
+          - generic "f6ba24ea — do thing todo Task starting 2026-08-23 17:57:33 open" [ref=e3221] [cursor=pointer]:
+            - generic [ref=e3222]: f6ba24ea — do thing
+            - generic [ref=e3223]: todo
+            - generic [ref=e3224]: Task starting
+            - generic [ref=e3225]: 2026-08-23 17:57:33
+            - button "open" [ref=e3226]
+        - group [ref=e3227]:
+          - 'generic "364a8887 todo Dry-run: stopping before implement ANY-42 2026-08-23 17:57:33 open" [ref=e3228] [cursor=pointer]':
+            - generic [ref=e3229]: 364a8887
+            - generic [ref=e3230]: todo
+            - generic [ref=e3231]: "Dry-run: stopping before implement"
+            - generic [ref=e3232]: ANY-42
+            - generic [ref=e3233]: 2026-08-23 17:57:33
+            - button "open" [ref=e3234]
+        - group [ref=e3235]:
+          - generic "91e6e997 todo T2 done 2026-08-23 17:57:59 open" [ref=e3236] [cursor=pointer]:
+            - generic [ref=e3237]: 91e6e997
+            - generic [ref=e3238]: todo
+            - generic [ref=e3239]: T2 done
+            - generic [ref=e3240]: 2026-08-23 17:57:59
+            - button "open" [ref=e3241]
+        - group [ref=e3242]:
+          - generic "8e0f04f6 — do thing todo Task starting 2026-08-23 17:58:00 open" [ref=e3243] [cursor=pointer]:
+            - generic [ref=e3244]: 8e0f04f6 — do thing
+            - generic [ref=e3245]: todo
+            - generic [ref=e3246]: Task starting
+            - generic [ref=e3247]: 2026-08-23 17:58:00
+            - button "open" [ref=e3248]
+        - group [ref=e3249]:
+          - 'generic "4acebe0a todo Dry-run: stopping before implement ANY-42 2026-08-23 17:58:00 open" [ref=e3250] [cursor=pointer]':
+            - generic [ref=e3251]: 4acebe0a
+            - generic [ref=e3252]: todo
+            - generic [ref=e3253]: "Dry-run: stopping before implement"
+            - generic [ref=e3254]: ANY-42
+            - generic [ref=e3255]: 2026-08-23 17:58:00
+            - button "open" [ref=e3256]
+        - group [ref=e3257]:
+          - generic "c3a7a241 todo T2 done 2026-08-23 17:59:33 open" [ref=e3258] [cursor=pointer]:
+            - generic [ref=e3259]: c3a7a241
+            - generic [ref=e3260]: todo
+            - generic [ref=e3261]: T2 done
+            - generic [ref=e3262]: 2026-08-23 17:59:33
+            - button "open" [ref=e3263]
+        - group [ref=e3264]:
+          - generic "6bfb5bd7 — do thing todo Task starting 2026-08-23 17:59:34 open" [ref=e3265] [cursor=pointer]:
+            - generic [ref=e3266]: 6bfb5bd7 — do thing
+            - generic [ref=e3267]: todo
+            - generic [ref=e3268]: Task starting
+            - generic [ref=e3269]: 2026-08-23 17:59:34
+            - button "open" [ref=e3270]
+        - group [ref=e3271]:
+          - 'generic "2be350d3 todo Dry-run: stopping before implement ANY-42 2026-08-23 17:59:34 open" [ref=e3272] [cursor=pointer]':
+            - generic [ref=e3273]: 2be350d3
+            - generic [ref=e3274]: todo
+            - generic [ref=e3275]: "Dry-run: stopping before implement"
+            - generic [ref=e3276]: ANY-42
+            - generic [ref=e3277]: 2026-08-23 17:59:34
+            - button "open" [ref=e3278]
+        - group [ref=e3279]:
+          - 'generic "190c963b — GitHub Issues pull-path ingestion (PRD Phase 4 backlog item). Create src/integra in progress Worktree preserved for inspection: /Users/linh.doan/orca/workspaces/auto-devagent-selfbuild-run-2-20260823T1923/.devagent-worktrees/TASK exit 0 · 4m52s · orca/workspaces/auto-devagent-selfbuild-run-2-20260823T1923 2026-08-23 19:34:16 open" [ref=e3280] [cursor=pointer]':
+            - generic [ref=e3281]: 190c963b — GitHub Issues pull-path ingestion (PRD Phase 4 backlog item). Create src/integra
+            - generic [ref=e3282]: in progress
+            - generic [ref=e3283]: "Worktree preserved for inspection: /Users/linh.doan/orca/workspaces/auto-devagent-selfbuild-run-2-20260823T1923/.devagent-worktrees/TASK"
+            - generic [ref=e3284]: exit 0 · 4m52s · orca/workspaces/auto-devagent-selfbuild-run-2-20260823T1923
+            - generic [ref=e3285]: 2026-08-23 19:34:16
+            - button "open" [ref=e3286]
+        - group [ref=e3287]:
+          - generic "7ab9968c todo T2 done 2026-08-23 19:38:26 open" [ref=e3288] [cursor=pointer]:
+            - generic [ref=e3289]: 7ab9968c
+            - generic [ref=e3290]: todo
+            - generic [ref=e3291]: T2 done
+            - generic [ref=e3292]: 2026-08-23 19:38:26
+            - button "open" [ref=e3293]
+        - group [ref=e3294]:
+          - 'generic "f66f0393 todo Dry-run: stopping before implement ANY-42 2026-08-23 19:38:27 open" [ref=e3295] [cursor=pointer]':
+            - generic [ref=e3296]: f66f0393
+            - generic [ref=e3297]: todo
+            - generic [ref=e3298]: "Dry-run: stopping before implement"
+            - generic [ref=e3299]: ANY-42
+            - generic [ref=e3300]: 2026-08-23 19:38:27
+            - button "open" [ref=e3301]
+        - group [ref=e3302]:
+          - generic "5979c2fd — do thing todo Task starting 2026-08-23 19:38:27 open" [ref=e3303] [cursor=pointer]:
+            - generic [ref=e3304]: 5979c2fd — do thing
+            - generic [ref=e3305]: todo
+            - generic [ref=e3306]: Task starting
+            - generic [ref=e3307]: 2026-08-23 19:38:27
+            - button "open" [ref=e3308]
+        - group [ref=e3309]:
+          - generic "61e6946d todo T2 done 2026-08-23 19:39:09 open" [ref=e3310] [cursor=pointer]:
+            - generic [ref=e3311]: 61e6946d
+            - generic [ref=e3312]: todo
+            - generic [ref=e3313]: T2 done
+            - generic [ref=e3314]: 2026-08-23 19:39:09
+            - button "open" [ref=e3315]
+        - group [ref=e3316]:
+          - 'generic "dd187399 todo Dry-run: stopping before implement ANY-42 2026-08-23 19:39:11 open" [ref=e3317] [cursor=pointer]':
+            - generic [ref=e3318]: dd187399
+            - generic [ref=e3319]: todo
+            - generic [ref=e3320]: "Dry-run: stopping before implement"
+            - generic [ref=e3321]: ANY-42
+            - generic [ref=e3322]: 2026-08-23 19:39:11
+            - button "open" [ref=e3323]
+        - group [ref=e3324]:
+          - generic "2519608c — do thing todo Task starting 2026-08-23 19:39:11 open" [ref=e3325] [cursor=pointer]:
+            - generic [ref=e3326]: 2519608c — do thing
+            - generic [ref=e3327]: todo
+            - generic [ref=e3328]: Task starting
+            - generic [ref=e3329]: 2026-08-23 19:39:11
+            - button "open" [ref=e3330]
+        - group [ref=e3331]:
+          - 'generic "4c0c468c — OS-level sandbox for gated command execution (PRD Phase 4: deeper sandbox isolat failed Aborting run: worktree creation failed: Command failed: git worktree add ./.devagent-worktrees/TASK devagent/TASK Preparing worktree (checking out ''devagent/TASK'') fatal: ''devagent/TASK'' is already used by worktree at ''/Users/linh.doan/orca/workspaces/auto-devagent-selfbuild-run-2-20260823T1923/.devagent-worktrees/TASK'' . 2026-08-23 21:31:44 open" [ref=e3332] [cursor=pointer]':
+            - generic [ref=e3333]: "4c0c468c — OS-level sandbox for gated command execution (PRD Phase 4: deeper sandbox isolat"
+            - generic [ref=e3334]: failed
+            - generic [ref=e3335]: "Aborting run: worktree creation failed: Command failed: git worktree add ./.devagent-worktrees/TASK devagent/TASK Preparing worktree (checking out 'devagent/TASK') fatal: 'devagent/TASK' is already used by worktree at '/Users/linh.doan/orca/workspaces/auto-devagent-selfbuild-run-2-20260823T1923/.devagent-worktrees/TASK'"
+            - generic [ref=e3336]: .
+            - generic [ref=e3337]: 2026-08-23 21:31:44
+            - button "open" [ref=e3338]
+        - group [ref=e3339]:
+          - 'generic "cfbd5778 — OS-level sandbox for gated command execution (PRD Phase 4: deeper sandbox isolat in progress Attempt 1 finished exit 0 · 9m2s · . 2026-08-23 21:34:30 open" [ref=e3340] [cursor=pointer]':
+            - generic [ref=e3341]: "cfbd5778 — OS-level sandbox for gated command execution (PRD Phase 4: deeper sandbox isolat"
+            - generic [ref=e3342]: in progress
+            - generic [ref=e3343]: Attempt 1 finished
+            - generic [ref=e3344]: exit 0 · 9m2s · .
+            - generic [ref=e3345]: 2026-08-23 21:34:30
+            - button "open" [ref=e3346]
+        - group [ref=e3347]:
+          - generic "151986d7 todo T2 done 2026-08-23 21:43:05 open" [ref=e3348] [cursor=pointer]:
+            - generic [ref=e3349]: 151986d7
+            - generic [ref=e3350]: todo
+            - generic [ref=e3351]: T2 done
+            - generic [ref=e3352]: 2026-08-23 21:43:05
+            - button "open" [ref=e3353]
+        - group [ref=e3354]:
+          - generic "ec543b5f — do thing todo Task starting 2026-08-23 21:43:06 open" [ref=e3355] [cursor=pointer]:
+            - generic [ref=e3356]: ec543b5f — do thing
+            - generic [ref=e3357]: todo
+            - generic [ref=e3358]: Task starting
+            - generic [ref=e3359]: 2026-08-23 21:43:06
+            - button "open" [ref=e3360]
+        - group [ref=e3361]:
+          - 'generic "f1bc2a52 todo Dry-run: stopping before implement ANY-42 2026-08-23 21:43:07 open" [ref=e3362] [cursor=pointer]':
+            - generic [ref=e3363]: f1bc2a52
+            - generic [ref=e3364]: todo
+            - generic [ref=e3365]: "Dry-run: stopping before implement"
+            - generic [ref=e3366]: ANY-42
+            - generic [ref=e3367]: 2026-08-23 21:43:07
+            - button "open" [ref=e3368]
+        - group [ref=e3369]:
+          - generic "8a446575 todo T2 done 2026-08-23 21:43:33 open" [ref=e3370] [cursor=pointer]:
+            - generic [ref=e3371]: 8a446575
+            - generic [ref=e3372]: todo
+            - generic [ref=e3373]: T2 done
+            - generic [ref=e3374]: 2026-08-23 21:43:33
+            - button "open" [ref=e3375]
+        - group [ref=e3376]:
+          - 'generic "ceb79c06 todo Dry-run: stopping before implement ANY-42 2026-08-23 21:43:34 open" [ref=e3377] [cursor=pointer]':
+            - generic [ref=e3378]: ceb79c06
+            - generic [ref=e3379]: todo
+            - generic [ref=e3380]: "Dry-run: stopping before implement"
+            - generic [ref=e3381]: ANY-42
+            - generic [ref=e3382]: 2026-08-23 21:43:34
+            - button "open" [ref=e3383]
+        - group [ref=e3384]:
+          - generic "11521b23 — do thing todo Task starting 2026-08-23 21:43:34 open" [ref=e3385] [cursor=pointer]:
+            - generic [ref=e3386]: 11521b23 — do thing
+            - generic [ref=e3387]: todo
+            - generic [ref=e3388]: Task starting
+            - generic [ref=e3389]: 2026-08-23 21:43:34
+            - button "open" [ref=e3390]
+        - group [ref=e3391]:
+          - 'generic "9a80a8f0 — Add GitHub Issues ingestion as a third ticket source alongside Linear and Jira ( failed Aborting run: worktree creation failed: Command failed: git worktree add /Users/linh.doan/orca/workspaces/auto-devagent-selfbuild-run-4-20260823T2323/.devagent-worktrees/TASK devagent/TASK Preparing worktree (checking out ''devagent/TASK'') fatal: ''devagent/TASK'' is already used by worktree at ''/Users/linh.doan/orca/workspaces/auto-devagent-selfbuild-run-3-20260823T2123/.devagent-worktrees/TASK'' orca/workspaces/auto-devagent-selfbuild-run-4-20260823T2323 2026-08-23 23:27:44 open" [ref=e3392] [cursor=pointer]':
+            - generic [ref=e3393]: 9a80a8f0 — Add GitHub Issues ingestion as a third ticket source alongside Linear and Jira (
+            - generic [ref=e3394]: failed
+            - generic [ref=e3395]: "Aborting run: worktree creation failed: Command failed: git worktree add /Users/linh.doan/orca/workspaces/auto-devagent-selfbuild-run-4-20260823T2323/.devagent-worktrees/TASK devagent/TASK Preparing worktree (checking out 'devagent/TASK') fatal: 'devagent/TASK' is already used by worktree at '/Users/linh.doan/orca/workspaces/auto-devagent-selfbuild-run-3-20260823T2123/.devagent-worktrees/TASK'"
+            - generic [ref=e3396]: orca/workspaces/auto-devagent-selfbuild-run-4-20260823T2323
+            - generic [ref=e3397]: 2026-08-23 23:27:44
+            - button "open" [ref=e3398]
+        - group [ref=e3399]:
+          - generic "6f55d5d3 — Add GitHub Issues ingestion as a third ticket source alongside Linear and Jira ( in progress Attempt 1 finished exit 0 · 5m52s · orca/workspaces/auto-devagent-selfbuild-run-4-20260823T2323 2026-08-23 23:28:23 open" [ref=e3400] [cursor=pointer]:
+            - generic [ref=e3401]: 6f55d5d3 — Add GitHub Issues ingestion as a third ticket source alongside Linear and Jira (
+            - generic [ref=e3402]: in progress
+            - generic [ref=e3403]: Attempt 1 finished
+            - generic [ref=e3404]: exit 0 · 5m52s · orca/workspaces/auto-devagent-selfbuild-run-4-20260823T2323
+            - generic [ref=e3405]: 2026-08-23 23:28:23
+            - button "open" [ref=e3406]
+        - group [ref=e3407]:
+          - generic "52b48dae todo T2 done 2026-08-23 23:33:38 open" [ref=e3408] [cursor=pointer]:
+            - generic [ref=e3409]: 52b48dae
+            - generic [ref=e3410]: todo
+            - generic [ref=e3411]: T2 done
+            - generic [ref=e3412]: 2026-08-23 23:33:38
+            - button "open" [ref=e3413]
+        - group [ref=e3414]:
+          - 'generic "ae22f2bc todo Dry-run: stopping before implement ANY-42 2026-08-23 23:33:39 open" [ref=e3415] [cursor=pointer]':
+            - generic [ref=e3416]: ae22f2bc
+            - generic [ref=e3417]: todo
+            - generic [ref=e3418]: "Dry-run: stopping before implement"
+            - generic [ref=e3419]: ANY-42
+            - generic [ref=e3420]: 2026-08-23 23:33:39
+            - button "open" [ref=e3421]
+        - group [ref=e3422]:
+          - generic "b7258237 — do thing todo Task starting 2026-08-23 23:33:39 open" [ref=e3423] [cursor=pointer]:
+            - generic [ref=e3424]: b7258237 — do thing
+            - generic [ref=e3425]: todo
+            - generic [ref=e3426]: Task starting
+            - generic [ref=e3427]: 2026-08-23 23:33:39
+            - button "open" [ref=e3428]
+        - group [ref=e3429]:
+          - generic "58d69de1 todo T2 done 2026-08-23 23:34:16 open" [ref=e3430] [cursor=pointer]:
+            - generic [ref=e3431]: 58d69de1
+            - generic [ref=e3432]: todo
+            - generic [ref=e3433]: T2 done
+            - generic [ref=e3434]: 2026-08-23 23:34:16
+            - button "open" [ref=e3435]
+        - group [ref=e3436]:
+          - 'generic "557876a2 todo Dry-run: stopping before implement ANY-42 2026-08-23 23:34:17 open" [ref=e3437] [cursor=pointer]':
+            - generic [ref=e3438]: 557876a2
+            - generic [ref=e3439]: todo
+            - generic [ref=e3440]: "Dry-run: stopping before implement"
+            - generic [ref=e3441]: ANY-42
+            - generic [ref=e3442]: 2026-08-23 23:34:17
+            - button "open" [ref=e3443]
+        - group [ref=e3444]:
+          - generic "73f7fb2d — do thing todo Task starting 2026-08-23 23:34:17 open" [ref=e3445] [cursor=pointer]:
+            - generic [ref=e3446]: 73f7fb2d — do thing
+            - generic [ref=e3447]: todo
+            - generic [ref=e3448]: Task starting
+            - generic [ref=e3449]: 2026-08-23 23:34:17
+            - button "open" [ref=e3450]
+        - group [ref=e3451]:
+          - generic "3e26234e todo T1 done 2026-08-23 23:42:50 open" [ref=e3452] [cursor=pointer]:
+            - generic [ref=e3453]: 3e26234e
+            - generic [ref=e3454]: todo
+            - generic [ref=e3455]: T1 done
+            - generic [ref=e3456]: 2026-08-23 23:42:50
+            - button "open" [ref=e3457]
+        - group [ref=e3458]:
+          - generic "f1d835c7 todo T1 done 2026-08-23 23:43:28 open" [ref=e3459] [cursor=pointer]:
+            - generic [ref=e3460]: f1d835c7
+            - generic [ref=e3461]: todo
+            - generic [ref=e3462]: T1 done
+            - generic [ref=e3463]: 2026-08-23 23:43:28
+            - button "open" [ref=e3464]
+        - group [ref=e3465]:
+          - generic "2c1e1de9 todo T2 done 2026-08-23 23:43:28 open" [ref=e3466] [cursor=pointer]:
+            - generic [ref=e3467]: 2c1e1de9
+            - generic [ref=e3468]: todo
+            - generic [ref=e3469]: T2 done
+            - generic [ref=e3470]: 2026-08-23 23:43:28
+            - button "open" [ref=e3471]
+        - group [ref=e3472]:
+          - 'generic "081b8b39 todo Dry-run: stopping before implement ANY-42 2026-08-23 23:43:29 open" [ref=e3473] [cursor=pointer]':
+            - generic [ref=e3474]: 081b8b39
+            - generic [ref=e3475]: todo
+            - generic [ref=e3476]: "Dry-run: stopping before implement"
+            - generic [ref=e3477]: ANY-42
+            - generic [ref=e3478]: 2026-08-23 23:43:29
+            - button "open" [ref=e3479]
+        - group [ref=e3480]:
+          - generic "c8fa2485 — do thing todo Task starting 2026-08-23 23:43:29 open" [ref=e3481] [cursor=pointer]:
+            - generic [ref=e3482]: c8fa2485 — do thing
+            - generic [ref=e3483]: todo
+            - generic [ref=e3484]: Task starting
+            - generic [ref=e3485]: 2026-08-23 23:43:29
+            - button "open" [ref=e3486]
+        - group [ref=e3487]:
+          - generic "4324f6f4 todo T2 done 2026-08-23 23:46:26 open" [ref=e3488] [cursor=pointer]:
+            - generic [ref=e3489]: 4324f6f4
+            - generic [ref=e3490]: todo
+            - generic [ref=e3491]: T2 done
+            - generic [ref=e3492]: 2026-08-23 23:46:26
+            - button "open" [ref=e3493]
+        - group [ref=e3494]:
+          - generic "58f77174 todo T1 done 2026-08-23 23:46:26 open" [ref=e3495] [cursor=pointer]:
+            - generic [ref=e3496]: 58f77174
+            - generic [ref=e3497]: todo
+            - generic [ref=e3498]: T1 done
+            - generic [ref=e3499]: 2026-08-23 23:46:26
+            - button "open" [ref=e3500]
+        - group [ref=e3501]:
+          - 'generic "3473c28c todo Dry-run: stopping before implement ANY-42 2026-08-23 23:46:27 open" [ref=e3502] [cursor=pointer]':
+            - generic [ref=e3503]: 3473c28c
+            - generic [ref=e3504]: todo
+            - generic [ref=e3505]: "Dry-run: stopping before implement"
+            - generic [ref=e3506]: ANY-42
+            - generic [ref=e3507]: 2026-08-23 23:46:27
+            - button "open" [ref=e3508]
+        - group [ref=e3509]:
+          - generic "9f558636 — do thing todo Task starting 2026-08-23 23:46:27 open" [ref=e3510] [cursor=pointer]:
+            - generic [ref=e3511]: 9f558636 — do thing
+            - generic [ref=e3512]: todo
+            - generic [ref=e3513]: Task starting
+            - generic [ref=e3514]: 2026-08-23 23:46:27
+            - button "open" [ref=e3515]
+        - group [ref=e3516]:
+          - generic "524245a0 todo T1 done 2026-08-23 23:49:16 open" [ref=e3517] [cursor=pointer]:
+            - generic [ref=e3518]: 524245a0
+            - generic [ref=e3519]: todo
+            - generic [ref=e3520]: T1 done
+            - generic [ref=e3521]: 2026-08-23 23:49:16
+            - button "open" [ref=e3522]
+        - group [ref=e3523]:
+          - generic "f3a36095 todo T2 done 2026-08-23 23:49:16 open" [ref=e3524] [cursor=pointer]:
+            - generic [ref=e3525]: f3a36095
+            - generic [ref=e3526]: todo
+            - generic [ref=e3527]: T2 done
+            - generic [ref=e3528]: 2026-08-23 23:49:16
+            - button "open" [ref=e3529]
+        - group [ref=e3530]:
+          - generic "89039bac — do thing todo Task starting 2026-08-23 23:49:17 open" [ref=e3531] [cursor=pointer]:
+            - generic [ref=e3532]: 89039bac — do thing
+            - generic [ref=e3533]: todo
+            - generic [ref=e3534]: Task starting
+            - generic [ref=e3535]: 2026-08-23 23:49:17
+            - button "open" [ref=e3536]
+        - group [ref=e3537]:
+          - 'generic "123e93e1 todo Dry-run: stopping before implement ANY-42 2026-08-23 23:49:17 open" [ref=e3538] [cursor=pointer]':
+            - generic [ref=e3539]: 123e93e1
+            - generic [ref=e3540]: todo
+            - generic [ref=e3541]: "Dry-run: stopping before implement"
+            - generic [ref=e3542]: ANY-42
+            - generic [ref=e3543]: 2026-08-23 23:49:17
+            - button "open" [ref=e3544]
+        - group [ref=e3545]:
+          - generic "937d2976 todo T2 done 2026-08-23 23:55:40 open" [ref=e3546] [cursor=pointer]:
+            - generic [ref=e3547]: 937d2976
+            - generic [ref=e3548]: todo
+            - generic [ref=e3549]: T2 done
+            - generic [ref=e3550]: 2026-08-23 23:55:40
+            - button "open" [ref=e3551]
+        - group [ref=e3552]:
+          - generic "61779631 todo T1 failed (attempt 1) 2026-08-23 23:55:40 open" [ref=e3553] [cursor=pointer]:
+            - generic [ref=e3554]: "61779631"
+            - generic [ref=e3555]: todo
+            - generic [ref=e3556]: T1 failed (attempt 1)
+            - generic [ref=e3557]: 2026-08-23 23:55:40
+            - button "open" [ref=e3558]
+        - group [ref=e3559]:
+          - 'generic "f391d650 todo Dry-run: stopping before implement ANY-42 2026-08-23 23:55:41 open" [ref=e3560] [cursor=pointer]':
+            - generic [ref=e3561]: f391d650
+            - generic [ref=e3562]: todo
+            - generic [ref=e3563]: "Dry-run: stopping before implement"
+            - generic [ref=e3564]: ANY-42
+            - generic [ref=e3565]: 2026-08-23 23:55:41
+            - button "open" [ref=e3566]
+        - group [ref=e3567]:
+          - generic "c544452a — do thing todo Task starting 2026-08-23 23:55:41 open" [ref=e3568] [cursor=pointer]:
+            - generic [ref=e3569]: c544452a — do thing
+            - generic [ref=e3570]: todo
+            - generic [ref=e3571]: Task starting
+            - generic [ref=e3572]: 2026-08-23 23:55:41
+            - button "open" [ref=e3573]
+      - heading "2026-08-22 1 run(s), 1 failed" [level=2] [ref=e3574]
+      - group [ref=e3576]:
+        - 'generic "53e1fbc9 failed Linear API request failed: HTTP 401 LINEAR-204 2026-08-22 16:07:51 open" [ref=e3577] [cursor=pointer]':
+          - generic [ref=e3578]: 53e1fbc9
+          - generic [ref=e3579]: failed
+          - generic [ref=e3580]: "Linear API request failed: HTTP 401"
+          - generic [ref=e3581]: LINEAR-204
+          - generic [ref=e3582]: 2026-08-22 16:07:51
+          - button "open" [ref=e3583]

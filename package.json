@@ -5,7 +5,7 @@
   "license": "MIT",
   "type": "module",
   "bin": {
-    "devagent": "./dist/cli.js"
+    "devagent": "./dist/src/cli.js"
   },
   "engines": {
     "node": ">=20"
@@ -19,6 +19,7 @@
     "warroom": "bash scripts/warroom-loop.sh",
     "prdcurate": "bash scripts/prd-curator.sh",
     "selfstate": "bash scripts/selfbuild-state.sh",
+    "reclaim": "bash scripts/reclaim-disk.sh clean",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

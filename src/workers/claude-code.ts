@@ -5,7 +5,7 @@ import { backoffDelay } from '../sessionguard/backoff.js';
 import { isNonRetryableApiError } from '../sessionguard/events.js';
 
 const RESUME_PROMPT = 'Continue';
-const DEFAULT_API_MAX_ATTEMPTS = 3;
+const DEFAULT_API_MAX_ATTEMPTS = Infinity;
 
 /**
  * Adapter over the Claude Code headless CLI:

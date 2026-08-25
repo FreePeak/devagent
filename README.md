@@ -102,10 +102,26 @@ Key properties:
 | [War Room mode](docs/WAR-ROOM.md) | Markdown | Goal-driven infinity loop: abstract idea → research → spec-until-clear → implement-until-evidenced. Built for new products and hackathons (`npm run warroom`) |
 | [cc-guard: auto-resume for headless sessions](docs/cc-guard.md) | Markdown | Supervisor that restarts Claude Code sessions killed by API failures ("Connection lost mid-response") via `devagent guard` |
 | [LongHorizon-Harness analysis](docs/research/longhorizon-harness.md) | Markdown | Research backing evidence-gated orchestration: MEA loop, audit economics, recovery strategy (arXiv:2608.01964) |
+| [Scout + Factory (24/7)](docs/SCOUT.md) | Markdown | 24/7 scout (opencode research → PRD → queue) + Orca workers (queue → PR → auto-merge → self-update) on macOS |
+| [Scout + Factory PRD](docs/SCOUT-CREATE-PRD.md) | Markdown | Factory requirements: queue, scout daemon, `devagent create`, LaunchAgent, auto-merge, self-update |
+| [Self-Build Loop](docs/SELF-BUILD-LOOP.md) | Markdown | Infinity loop driver (`scripts/selfbuild-loop.sh`) + Orca automation modes |
+| [Git cleanup of merged MRs/PRs](docs/cleanup-merged.md) | Markdown | `scripts/git-cleanup-merged.sh`: delete local branches + worktrees whose GitLab MR / GitHub PR was merged, across all nested repos in `~/work` (dry-run default, launchd automation) |
 
 Research sources backing the PRD are cited inline and collected in the [research appendix](docs/PRD.md#19-research-appendix).
 
 ## Status
+
+v0.4.0 — factory (scout + Orca workers) landed (2026-08-25):
+
+- **Factory bootstrap**: `devagent create --repo . --scout --workers N [--auto-merge] [--self-update]` creates `.devagent/queue` + `.devagent/prds`, merges `devagent.json`, registers repo with `orca`, provisions Orca worktrees, installs scout LaunchAgent. `--dry-run` prints plan.
+- **Scout (24/7 researcher)**: `devagent scout [--once] [--dry-run] [--interval <min>] [--worker opencode|claude-code]` researches `docs/PRD.md §4+§17` + ledger + lessons, writes markdown PRD to `.devagent/prds/<id>.md` and task to `.devagent/queue/<id>.json`; heartbeat at `.devagent/scout.heartbeat.json`, `devagent scout-status` surfaces it. Live mode uses `opencode run --format json`; unparseable output or missing binary falls back deterministically so the queue never starves. `maxQueued` caps depth.
+- **Queue**: `devagent queue list [--status] [--json]`, `queue show <id>`; filesystem store `.devagent/queue/*.json`, no DB.
+- **Workers**: `devagent consume --auto-pr [--auto-merge]` claims oldest `pending` task, creates `.devagent-worktrees/<id>` worktree, runs pipeline (synthetic ticket, no tracker creds), validates G1/G3/G4, pushes `devagent/<id>` and opens PR via `gh`, optionally `gh pr merge --auto --squash` (see [SCOUT.md](docs/SCOUT.md)).
+- **Orca fleet provisioner**: `src/integrations/orca.ts` now exposes `ensureOrcaRepo`, `createOrcaWorktree`, `listOrcaWorktrees` (best-effort, degrades when Orca absent); `dropOrcaWorkspace` already existed.
+- **Auto-merge**: `src/integrations/github.ts: autoMergePr(repo, prRef)` via `gh pr merge --auto --squash`; controlled by `config.autoMerge` / `create --auto-merge`.
+- **Self-update**: `src/self-update.ts: runSelfUpdate` + `scripts/self-update.sh` — `git pull --ff-only` + `npm ci|install` + `build` + `launchctl kickstart com.devagent.scout`, guarded on dirty worktree, secrets redacted in error details.
+- **Persistence (macOS)**: LaunchAgent plist `~/Library/LaunchAgents/com.devagent.scout.plist` running `node dist/src/cli.js scout --interval <n>` with `KeepAlive` + `RunAtLoad`, `plutil -lint` clean; `scripts/install-scout-launchagent.sh [--validate|--uninstall]`.
+- 314 tests green (was 276) incl. `test/queue.test.ts`, `test/scout.test.ts`, `test/create-consume.test.ts`, `test/self-update.test.ts`.
 
 v0.3.0 — v1 complete, fleet + observability landed (2026-08); evidence-gated
 orchestration landed 2026-08-24 (loops 40-46):
@@ -113,6 +129,7 @@ orchestration landed 2026-08-24 (loops 40-46):
 - **CLI**: `devagent run|serve|validate|log|status|dashboard|fleet|config|orchestrate|project|mcp`
 - **Workers**: headless Claude Code (`claude -p`) and OpenCode (`opencode run`); fan-out mode (`--worker both`) runs parallel legs and picks the test-passing winner; retries carry gate evidence back as repair prompts
 - **Gates**: G1 repo-native tests, G2 up/down migration apply (compose; honest skips without Docker), G3 static migration analysis (8 rules), G4 concurrency review scoped to the run's own diff
+- **Auto-cleanup**: after every `run`/`task`/`fleet` run the worktree is finalized per `--cleanup auto|keep|always` (default `auto`: on success uncommitted output is snapshotted to the run branch, then the tree is removed; failed runs are preserved for debugging). `--drop-orca-workspace` additionally removes an enclosing Orca-managed workspace via orca-cli. Applies identically to Claude Code and OpenCode workers
 - **Fleet**: `devagent fleet --ticket A --ticket B --repo api=/repos/api ...` runs the ticket×repo matrix over a bounded pool with per-job failure isolation
 - **Triggers**: CLI plus webhook server (`serve`) — HMAC verification, delivery dedup, latest-wins per ticket via lock registry
 - **Delivery**: branch push + gh PR with plan, changed-file evidence, acceptance criteria (`--auto-pr`)
@@ -121,9 +138,33 @@ orchestration landed 2026-08-24 (loops 40-46):
   contracts, human-in-the-loop ask/answer (CLI/MCP/HTTP), plan-only preview,
   topological merge-back (see [Orchestration](#orchestration))
 - **MCP**: stdio server (`devagent mcp`) exposing dispatch/status/log/board/answer tools
+- **Observability**: JSONL run logs, `status`, `log`, and a static HTML `dashboard`
 - 250+ tests green incl. end-to-end over real git fixtures
 
 Deferred to later: deeper sandbox isolation beyond compose conventions, remote execution. See the [roadmap](docs/PRD.md#17-roadmap).
+
+## Factory (24/7 scout + Orca workers)
+
+```bash
+# Bootstrap once (idempotent): scout on LaunchAgent + Orca workers + queue
+devagent create --repo . --scout --workers 3 --auto-merge --self-update
+devagent create --repo . --scout --workers 2 --dry-run   # preview without mutating
+
+# Scout
+devagent scout --once --dry-run                            # one deterministic cycle (no LLM)
+devagent scout --once                                      # one live cycle (opencode)
+devagent scout --interval 30                               # daemon: loop every 30m until SIGINT
+devagent scout-status                                      # heartbeat + queue depth
+
+# Queue
+devagent queue list --status pending
+devagent queue show SCOUT-20260825-xxxx
+
+# Workers: claim + implement + test + PR (+ auto-merge)
+devagent consume --auto-pr --auto-merge
+```
+
+See [docs/SCOUT.md](docs/SCOUT.md) for the full factory runbook (LaunchAgent management, self-update, Orca provisioner).
 
 ## Development
 

@@ -18,6 +18,10 @@ export interface TaskOptions {
   autoMerge?: boolean;
   maxLoops: number;
   timeoutMs: number;
+  /** Post-run worktree disposal policy; default 'auto'. */
+  cleanup?: 'auto' | 'keep' | 'always';
+  /** Drop the enclosing Orca workspace after done when repoPath is Orca-managed. */
+  dropOrcaWorkspace?: boolean;
   log: RunLogger;
 }
 

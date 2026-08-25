@@ -8,9 +8,11 @@ import type { FanoutLeg } from './workers/fanout.js';
 import { fetchTicket, postTicketComment } from './integrations/linear.js';
 import { GITHUB_ISSUE_REF } from './integrations/github-issues.js';
 import { runMigrationStaticGate } from './validation/runner.js';
-import { createWorktree, isGitRepository } from './git/worktree.js';
+import { createWorktree, isGitRepository, finalizeRunWorktree } from './git/worktree.js';
 import { getWorker } from './workers/index.js';
 import { buildImplementationPrompt, buildRepairPrompt, loadLessons } from './prompt.js';
+import type { CleanupMode } from './config.js';
+import { findOrcaWorktreeByPath, dropOrcaWorkspace } from './integrations/orca.js';
 
 export interface StageConfig {
   repoPath: string;
@@ -19,6 +21,10 @@ export interface StageConfig {
   worker: RunConfig['worker'];
   autoPr: boolean;
   autoMerge?: boolean;
+  /** Post-run worktree disposal policy; default 'auto'. */
+  cleanup?: CleanupMode;
+  /** Drop the enclosing Orca workspace after done when repoPath is Orca-managed. */
+  dropOrcaWorkspace?: boolean;
 }
 /**
  * Offline PipelineDeps for --dry-run (plan-only): synthetic ticket, no
@@ -232,6 +238,7 @@ export async function implementStage(
   const prompt = buildImplementationPrompt(plan, lessons);
   let repairPrompt = prompt;
   const maxAttempts = Math.max(1, cfg.maxLoops);
+  let succeeded = false;
 
   // Isolated worktree + branch per run (FR-IMPL-01); aborts for git repos instead
   // of silently executing in repo root
@@ -273,13 +280,49 @@ export async function implementStage(
         detail: g1.detail?.split('\n')[0],
       });
       if (g1.passed) {
+        succeeded = true;
         return { ok: true, worker: workerName, attempts: attempt, worktreePath };
       }
       repairPrompt = buildRepairPrompt(plan, attempt, g1.detail ?? 'test suite failed', lessons);
     }
     return { ok: false, worker: workerName, attempts: maxAttempts, worktreePath };
   } finally {
-    if (worktreePath) log.info('implement', `Worktree preserved for inspection: ${worktreePath}`, {});
+    if (worktreePath) {
+      const mode = cfg.cleanup ?? 'auto';
+      const shouldRemove = mode === 'always' || (mode === 'auto' && succeeded);
+      const fin = await finalizeRunWorktree({
+        repoPath: cfg.repoPath,
+        worktreePath,
+        ticketId: plan.ticket.id,
+        mode: shouldRemove ? 'remove' : 'preserve',
+      });
+      if (fin.action === 'removed') {
+        log.info('implement', `Auto-cleanup: worktree removed${fin.committed ? ' (changes snapshotted to run branch)' : ''}: ${worktreePath}`, {});
+      } else if (fin.error) {
+        log.warn('implement', `Auto-cleanup failed, tree preserved (${fin.error}): ${worktreePath}`, {});
+      } else {
+        log.info('implement', `Worktree preserved for inspection: ${worktreePath}`, {});
+      }
+    }
+    await dropEnclosingOrcaWorkspaceIfRequested(cfg, log);
+  }
+}
+
+ /**
+  * Opt-in post-run disposal of the enclosing Orca workspace (--drop-orca-workspace /
+  * dropOrcaWorkspace). When repoPath is an Orca-managed worktree, remove card+dir
+  * through orca-cli so the app stays consistent. Best-effort; never fails the run.
+  */
+async function dropEnclosingOrcaWorkspaceIfRequested(cfg: StageConfig, log: RunLogger): Promise<void> {
+  if (!cfg.dropOrcaWorkspace) return;
+  try {
+    const id = await findOrcaWorktreeByPath(cfg.repoPath);
+    if (!id) return; // not Orca-managed: nothing to drop
+    const dropped = await dropOrcaWorkspace(id, cfg.repoPath);
+    if (dropped) log.info('implement', `Orca workspace dropped: ${id}`, {});
+    else log.warn('implement', `Failed to drop Orca workspace ${id} (kept)`, {});
+  } catch (err) {
+    log.warn('implement', `Orca workspace drop skipped: ${(err as Error).message}`, {});
   }
 }
 

@@ -124,3 +124,17 @@ export async function branchExists(
     return false;
   }
 }
+
+/**
+ * Auto-merge a PR after green gates via `gh pr merge --auto --squash`.
+ * Best-effort: returns the gh output or throws with the stderr.
+ */
+export async function autoMergePr(
+  repoPath: string,
+  prRef: string,
+  strategy: 'squash' | 'merge' | 'rebase' = 'squash',
+): Promise<string> {
+  const flag = strategy === 'merge' ? '--merge' : strategy === 'rebase' ? '--rebase' : '--squash';
+  const { stdout } = await withRateLimitRetry(() => run('gh', ['pr', 'merge', prRef, '--auto', flag], repoPath));
+  return stdout.trim();
+}

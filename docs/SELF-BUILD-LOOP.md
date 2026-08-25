@@ -170,6 +170,12 @@ Other knobs: `ORCA_SELFBUILD_REPO` (repo selector, default `name:devagent`),
 (`orca terminal create`); the script loops internally. Pair with cc-guard
 (`devagent guard-status --resume`) for API-failure recovery.
 
+**C. Factory (scout + Orca workers).** `devagent create --repo . --scout --workers 3` supersedes the single-process loop with a decoupled factory:
+
+- `devagent scout --interval 30` (24/7 LaunchAgent, `opencode` worker) researches `docs/PRD.md §4+§17` + ledger + lessons, writes PRD + task to `.devagent/prds/` + `.devagent/queue/`, heartbeats to `.devagent/scout.heartbeat.json`.
+- Multiple `devagent consume --auto-pr [--auto-merge]` workers (each in its own Orca worktree from `orca worktree create`) claim tasks, implement in isolated `.devagent-worktrees/<id>`, validate G1/G3/G4, push `devagent/<id>` and open PR via `gh`, optionally auto-merge and `self-update`.
+- See [docs/SCOUT.md](SCOUT.md) and `docs/SCOUT-CREATE-PRD.md` for the full runbook.
+
 ## Guardrails (operational)
 
 - Circuit breaker stops the loop after repeated failures instead of thrashing.

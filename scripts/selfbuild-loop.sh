@@ -11,6 +11,7 @@ STATE="$REPO/.selfbuild"
 MAX_ITERS="${SELFBUILD_MAX_ITERATIONS:-0}"
 MAX_FAILS="${SELFBUILD_MAX_CONSECUTIVE_FAILURES:-3}"
 STARVATION_LIMIT="${SELFBUILD_STARVATION_LIMIT:-5}"
+CLEANUP_DELAY="${SELFBUILD_CLEANUP_DELAY_SECS:-1800}"
 DRY_RUN="${SELFBUILD_DRY_RUN:-0}"
 LESSONS="$STATE/lessons.md"
 WORKER="${SELFBUILD_WORKER:-claude-code}"
@@ -58,6 +59,50 @@ starved() {
   [ "${count:-0}" -ge "$STARVATION_LIMIT" ]
 }
 
+# Deferred cleanup of auto-pr leftovers. `devagent task --auto-pr` pushes the
+# branch and opens a PR but leaves the worktree (.devagent-worktrees/TASK) and
+# branch (devagent/TASK) behind. After each successful pr-mode iteration the
+# pair is queued here; the next iteration sweeps entries older than
+# CLEANUP_DELAY seconds. Crash-safe: pending entries survive driver restarts.
+PENDING="$STATE/cleanup-pending.jsonl"
+
+schedule_cleanup() { # schedule_cleanup <loop>
+  printf '{"loop":"%s","ts":%s,"branch":"%s","worktree":"%s"}\n' \
+    "$1" "$(date +%s)" "devagent/TASK" "$REPO/.devagent-worktrees/TASK" >> "$PENDING"
+}
+
+sweep_cleanup() {
+  [ -f "$PENDING" ] || return 0
+  local now ts line keep="" branch wt local_tip remote_tip
+  now=$(date +%s)
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    ts=$(sed -n 's/.*"ts":\([0-9][0-9]*\).*/\1/p' <<<"$line")
+    if [ -z "$ts" ] || [ $((now - ts)) -lt "$CLEANUP_DELAY" ]; then
+      keep+="$line"$'\n'; continue
+    fi
+    branch=$(sed -n 's/.*"branch":"\([^"]*\)".*/\1/p' <<<"$line")
+    wt=$(sed -n 's/.*"worktree":"\([^"]*\)".*/\1/p' <<<"$line")
+    if ! git show-ref --verify --quiet "refs/heads/$branch"; then
+      echo "[cleanup] $branch already gone"
+      git worktree remove --force "$wt" 2>/dev/null || true
+      continue
+    fi
+    # Only delete once the branch tip is verified on the remote, i.e. the PR
+    # was actually created; unpushed work is preserved for manual recovery.
+    local_tip=$(git rev-parse "refs/heads/$branch")
+    remote_tip=$(git ls-remote origin "refs/heads/$branch" | cut -f1)
+    if [ -n "$remote_tip" ] && [ "$local_tip" = "$remote_tip" ]; then
+      git worktree remove --force "$wt" && git branch -D "$branch" >/dev/null \
+        && echo "[cleanup] removed $branch + $wt"
+    else
+      echo "[cleanup] deferring $branch (tip not on origin — no PR yet)"
+      keep+="$line"$'\n'
+    fi
+  done < "$PENDING"
+  printf '%s' "$keep" > "$PENDING"
+}
+
 fails=0
 while :; do
   N=$(( $(ledger_lines | tr -d ' ') + 1 ))
@@ -70,6 +115,9 @@ while :; do
       echo "[starvation] $STARVATION_LIMIT consecutive non-productive iterations — halting loop"
       exit 1
     fi
+
+    # Sweep auto-pr leftovers whose 30-min grace period has elapsed.
+    sweep_cleanup
 
     # Sync with remote; tolerate offline / diverged states.
     git pull --ff-only || echo "[sync] skipped (pull failed)"
@@ -134,6 +182,7 @@ Output ONLY the goal statement (max 120 words), starting with 'Goal:' — this t
       fi
 
       record "$N" ok "$GOAL"
+      [ "$PUSH_MODE" = pr ] && schedule_cleanup "$N"
       echo "[ok] loop $N complete"
       fi # DRY_RUN
     fi

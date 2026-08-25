@@ -130,7 +130,7 @@ describe('implementStage fan-out merge-assist (PRD section 17 Phase 4)', () => {
     expect(existsSync(join(repo, '.devagent-worktrees', 'ENG-77-opencode'))).toBe(false);
   });
 
-  it('leaves the non-fanout path untouched: single worker still uses canonical worktree', async () => {
+  it('single worker: default auto-cleanup removes the tree on success, snapshotting to the branch', async () => {
     const repo = initRepo();
     const claude = workerMock('claude-code', 'single.txt');
     mockGetWorker.mockReturnValue(claude as never);
@@ -142,6 +142,36 @@ describe('implementStage fan-out merge-assist (PRD section 17 Phase 4)', () => {
 
     expect(result.ok).toBe(true);
     const wt = join(repo, '.devagent-worktrees', 'ENG-77');
+    // Cleanup 'auto' (default): success removes the run worktree...
+    expect(existsSync(wt)).toBe(false);
+    // ...but nothing was lost: uncommitted output was snapshotted onto the
+    // canonical branch before removal.
+    expect(
+      execFileSync('git', ['branch', '--list', 'devagent/ENG-77'], { cwd: repo }).toString(),
+    ).toContain('devagent/ENG-77');
+    const subject = execFileSync('git', ['log', '-1', '--format=%s', 'devagent/ENG-77'], {
+      cwd: repo,
+    }).toString().trim();
+    expect(subject).toContain('auto-cleanup snapshot');
+    const files = execFileSync('git', ['show', '--name-only', '--format=', 'devagent/ENG-77'], {
+      cwd: repo,
+    }).toString().trim();
+    expect(files).toContain('single.txt');
+  });
+
+  it("single worker: cleanup 'keep' preserves the worktree for inspection", async () => {
+    const repo = initRepo();
+    const claude = workerMock('claude-code', 'single.txt');
+    mockGetWorker.mockReturnValue(claude as never);
+    const cfg = { ...fanoutCfg(repo), worker: 'claude-code' as const, cleanup: 'keep' as const };
+    const log = logger(logDir());
+
+    const d = buildDeps({ linearApiKey: 'x' }, cfg, log);
+    const result = await d.implementStage!(cfg, plan, log);
+
+    expect(result.ok).toBe(true);
+    const wt = join(repo, '.devagent-worktrees', 'ENG-77');
+    expect(existsSync(wt)).toBe(true);
     const currentBranch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
       cwd: wt,
     }).toString().trim();
