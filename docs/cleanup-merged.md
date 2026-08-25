@@ -71,8 +71,11 @@ Always dry-run manually first to review what would go.
 - Repos with no candidate local branches never touch the network.
 - Per-branch targeted API queries (~0.5–1s each) instead of paginating all merged
   MRs per repo (a busy GitLab repo can have 1500+ merged MRs → 30s+ just paging).
-- First full dry-run over `~/work` without `--fetch` takes a few minutes;
-  the LaunchAgent run adds fetch time but runs in the background.
+- Build-artifact mirrors of repos (`.build/`, `dist/`, `out/`, …) are pruned and
+  never scanned.
+- First full dry-run over `~/work` without `--fetch` (2026-08-25):
+  **52 repos with candidates, 305 merged branches found, 285 kept, 17 dirty-worktree
+  skips, 337s**. Weekly LaunchAgent runs add fetch time but run in the background.
 
 ## Env overrides
 

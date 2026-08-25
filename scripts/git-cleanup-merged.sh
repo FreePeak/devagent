@@ -259,7 +259,8 @@ while IFS= read -r repo; do
     git -C "$repo" fetch --prune --quiet origin 2>/dev/null || true
   fi
   process_repo "$repo" || true
-done < <(find "$ROOT" -type d \( -name node_modules -o -name .venv -o -name target -o -name vendor \) -prune -o \
+done < <(find "$ROOT" -type d \( -name node_modules -o -name .venv -o -name target -o -name vendor \
+     -o -name .build -o -name dist -o -name build -o -name out \) -prune -o \
      -type d -name .git -print 2>/dev/null | sed 's|/.git$||' | sort)
 
 ELAPSED=$(( $(date +%s) - START ))
