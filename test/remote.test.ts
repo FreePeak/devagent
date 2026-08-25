@@ -105,6 +105,18 @@ describe('runRemoteTask', () => {
     expect(timeoutMs).toBe(60_000);
   });
 
+  it('forwards taskId as a quoted --id flag in the dispatch command', async () => {
+    const deps = {
+      run: vi.fn().mockResolvedValue({ exitCode: 0, stdout: 'done\n' }),
+    };
+    await runRemoteTask(
+      { target: 'host:/srv/app', prompt: 'x', taskId: "loop-66-a'b", timeoutMs: 60_000, log: new RunLogger() },
+      deps,
+    );
+    const cmd = deps.run.mock.calls[1]![0].at(-1) as string;
+    expect(cmd).toContain(`--id 'loop-66-a'\\''b'`);
+  });
+
   it('reports non-zero dispatch exits and keeps a PR URL if one appeared', async () => {
     const prUrl = 'https://github.com/org/repo/pull/7';
     const res = await runRemoteTask(
