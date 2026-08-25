@@ -5,3 +5,5 @@ dist/
 *.log
 .env
 .selfbuild/
+.playwright-mcp/
+dashboard-board.png
