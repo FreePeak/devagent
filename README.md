@@ -80,6 +80,12 @@ Key properties:
   (`POST /api/answer` on `serve`, Bearer `DEVAGENT_ANSWER_TOKEN`).
 - **Merge-back** — completed branches integrate topologically onto the base
   branch with gates re-run per merge.
+- **Worker sandboxing** — agent-CLI workers never inherit secret-shaped env
+  vars (`GITHUB_TOKEN`, cloud credentials, ...); an allowlist keeps only what
+  the CLIs need (extend with `DEVAGENT_WORKER_ENV_ALLOWLIST`). On macOS,
+  `DEVAGENT_SANDBOX=seatbelt` additionally runs workers under `sandbox-exec`
+  with writes confined to the worktree and temp dirs. Git, Docker, and test
+  runner processes are unaffected.
 
 ## Documentation
 

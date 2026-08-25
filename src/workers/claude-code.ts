@@ -1,5 +1,6 @@
 import type { WorkerAdapter, WorkerEvent, WorkerResult, WorkerSpawnOptions } from '../types.js';
 import { spawnCli, type SpawnCliResult } from './spawn-utils.js';
+import { prepareWorkerSpawn } from './sandbox.js';
 import { backoffDelay } from '../sessionguard/backoff.js';
 import { isNonRetryableApiError } from '../sessionguard/events.js';
 
@@ -33,11 +34,12 @@ export class ClaudeCodeAdapter implements WorkerAdapter {
     let last: SpawnCliResult | null = null;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      last = await spawnCli('claude', args, {
+      const prepared = await prepareWorkerSpawn('claude', args, {
         cwd: opts.cwd,
         timeoutMs: opts.timeoutMs,
         ...(opts.env ? { env: opts.env } : {}),
       });
+      last = await spawnCli(prepared.cmd, prepared.args, prepared.opts);
 
       const outcome = interpret(last);
       if (outcome.sessionId) sessionId = outcome.sessionId;
