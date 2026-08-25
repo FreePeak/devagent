@@ -80,6 +80,7 @@ function baseArgs(opts: WorkerSpawnOptions): string[] {
     opts.prompt,
     '--output-format',
     'json',
+    ...(opts.model ? ['--model', opts.model] : []),
     ...(opts.maxSteps !== undefined ? ['--max-turns', String(opts.maxSteps)] : []),
   ];
 }

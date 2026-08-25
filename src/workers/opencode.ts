@@ -12,7 +12,8 @@ export class OpenCodeAdapter implements WorkerAdapter {
 
   async spawn(opts: WorkerSpawnOptions): Promise<WorkerResult> {
     const start = Date.now();
-    const prepared = await prepareWorkerSpawn('opencode', ['run', '--format', 'json', opts.prompt], {
+    const args = ['run', '--format', 'json', ...(opts.model ? ['--model', opts.model] : []), opts.prompt];
+    const prepared = await prepareWorkerSpawn('opencode', args, {
       cwd: opts.cwd,
       timeoutMs: opts.timeoutMs,
       ...(opts.env ? { env: opts.env } : {}),

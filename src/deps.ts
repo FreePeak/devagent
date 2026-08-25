@@ -20,7 +20,6 @@ export interface StageConfig {
   autoPr: boolean;
   autoMerge?: boolean;
 }
-
 /**
  * Offline PipelineDeps for --dry-run (plan-only): synthetic ticket, no
  * credentials, and none of the network-touching stages. The pipeline stops
@@ -169,7 +168,7 @@ export function buildDeps(creds: Credentials, cfg: StageConfig, log: RunLogger):
 
 /** Dispatch a worker inside an isolated worktree with the retry loop (FR-IMPL-01..04). */
 export async function implementStage(
-  cfg: StageConfig & Pick<RunConfig, 'worker' | 'maxLoops'> & { lessonsFile?: string },
+  cfg: StageConfig & Pick<RunConfig, 'worker' | 'maxLoops' | 'model'> & { lessonsFile?: string },
   plan: ImplementationPlan,
   log: RunLogger,
 ): Promise<ImplementResult> {
@@ -216,6 +215,7 @@ export async function implementStage(
       repoPath: cfg.repoPath,
       timeoutMs: cfg.timeoutMs,
       lessonsFile: cfg.lessonsFile,
+      ...(cfg.model ? { model: cfg.model } : {}),
       scoreLeg: (wt, ms) => runTestGate(wt, ms).then((r) => r.passed),
       onSelected: mergeAssistWinner,
     });
@@ -255,7 +255,7 @@ export async function implementStage(
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       const attemptPrompt = attempt === 1 ? prompt : repairPrompt;
       log.info('implement', `Worker ${workerName} attempt ${attempt}/${maxAttempts}`, {});
-      const result = await worker.spawn({ prompt: attemptPrompt, cwd, timeoutMs: cfg.timeoutMs });
+      const result = await worker.spawn({ prompt: attemptPrompt, cwd, timeoutMs: cfg.timeoutMs, ...(cfg.model ? { model: cfg.model } : {}) });
       log.info('implement', `Attempt ${attempt} finished`, {
         exitCode: result.exitCode,
         timedOut: result.timedOut,

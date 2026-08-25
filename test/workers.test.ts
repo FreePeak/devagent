@@ -264,3 +264,37 @@ describe('factory', () => {
     expect(() => getWorker('codex' as never)).toThrow(/Unknown worker/);
   });
 });
+
+describe('worker model passthrough', () => {
+  it('opencode: adds --model provider/id when model is given', async () => {
+    const { OpenCodeAdapter } = await import('../src/workers/opencode.js');
+    ok('{}');
+    await new OpenCodeAdapter().spawn({ ...baseOpts, prompt: 'p', model: 'opencode-go/ox-alpha-free' });
+    expect(execFileMock).toHaveBeenCalledWith(
+      'opencode',
+      ['run', '--format', 'json', '--model', 'opencode-go/ox-alpha-free', 'p'],
+      expect.anything(),
+      expect.any(Function),
+    );
+  });
+
+  it('opencode: omits --model when unset (back-compat)', async () => {
+    const { OpenCodeAdapter } = await import('../src/workers/opencode.js');
+    ok('{}');
+    await new OpenCodeAdapter().spawn({ ...baseOpts, prompt: 'p' });
+    const args = execFileMock.mock.calls.at(-1)![1] as string[];
+    expect(args).toEqual(['run', '--format', 'json', 'p']);
+  });
+
+  it('claude-code: adds --model when given (resume attempts keep it)', async () => {
+    const { ClaudeCodeAdapter } = await import('../src/workers/claude-code.js');
+    ok('{}');
+    await new ClaudeCodeAdapter().spawn({ ...baseOpts, prompt: 'p', model: 'claude-opus-4-6' });
+    expect(execFileMock).toHaveBeenCalledWith(
+      'claude',
+      ['-p', 'p', '--output-format', 'json', '--model', 'claude-opus-4-6'],
+      expect.anything(),
+      expect.any(Function),
+    );
+  });
+});
