@@ -1,5 +1,7 @@
+import { promises as dnsPromises } from 'node:dns';
 import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { homedir, platform, tmpdir } from 'node:os';
+import { isIP } from 'node:net';
 import { join } from 'node:path';
 import type { SpawnCliOptions } from './spawn-utils.js';
 
@@ -18,7 +20,10 @@ import type { SpawnCliOptions } from './spawn-utils.js';
  *    denies writes outside the worktree cwd and temp dirs. Network defaults
  *    to allow (workers must reach LLM APIs) and can be tightened with
  *    DEVAGENT_SANDBOX_NETWORK=deny, which emits `(deny network*)` in the
- *    profile for fully offline worker runs.
+ *    profile for fully offline worker runs, or with
+ *    DEVAGENT_SANDBOX_NETWORK=allowlist, which denies all sockets then
+ *    re-allows exactly the resolved endpoints from
+ *    DEVAGENT_SANDBOX_NETWORK_ALLOWLIST.
  */
 
 /** Env vars the agent CLIs need to authenticate and run; never stripped. */
@@ -101,9 +106,79 @@ export interface SandboxPolicy {
   writablePaths: string[];
   /**
    * Network policy. 'allow' (default) leaves socket creation open so workers
-   * can reach LLM APIs; 'deny' emits `(deny network*)` for fully offline runs.
+   * can reach LLM APIs; 'deny' emits `(deny network*)` for fully offline runs;
+   * 'allowlist' denies all sockets then re-allows exactly the resolved
+   * endpoints in networkAllowlist (SBPL is last-match-wins).
    */
-  network: 'allow' | 'deny';
+  network: 'allow' | 'deny' | 'allowlist';
+  /**
+   * Already-resolved `ip:port` endpoint literals for the 'allowlist' mode.
+   * Hostnames must be resolved before reaching this layer — SBPL cannot DNS.
+   */
+  networkAllowlist?: string[];
+}
+
+/** Default port when a DEVAGENT_SANDBOX_NETWORK_ALLOWLIST entry omits one. */
+const DEFAULT_ALLOWLIST_PORT = 443;
+
+/** Split an `host[:port]` allowlist entry, defaulting the port to 443. */
+function splitHostPort(entry: string): { host: string; port: number } {
+  if (isIP(entry)) return { host: entry, port: DEFAULT_ALLOWLIST_PORT };
+  const bracketed = entry.match(/^\[(.+)\](?::(\d+))?$/);
+  if (bracketed) {
+    return {
+      host: bracketed[1]!,
+      port: bracketed[2] ? Number(bracketed[2]) : DEFAULT_ALLOWLIST_PORT,
+    };
+  }
+  const colon = entry.lastIndexOf(':');
+  if (colon > -1 && /^\d+$/.test(entry.slice(colon + 1))) {
+    return { host: entry.slice(0, colon), port: Number(entry.slice(colon + 1)) };
+  }
+  return { host: entry, port: DEFAULT_ALLOWLIST_PORT };
+}
+
+/**
+ * Resolve DEVAGENT_SANDBOX_NETWORK_ALLOWLIST entries to literal `ip:port`
+ * endpoints. Hostnames go through node:dns lookup (all addresses); entries
+ * that are already IPv4/IPv6 literals pass through untouched.
+ */
+export async function resolveNetworkAllowlist(raw: string): Promise<string[]> {
+  const entries = raw
+    .split(',')
+    .map((e) => e.trim())
+    .filter(Boolean);
+  if (!entries.length) {
+    throw new Error(
+      'DEVAGENT_SANDBOX_NETWORK=allowlist requires a non-empty ' +
+        'DEVAGENT_SANDBOX_NETWORK_ALLOWLIST (comma-separated host[:port] entries)',
+    );
+  }
+  const endpoints: string[] = [];
+  for (const entry of entries) {
+    const { host, port } = splitHostPort(entry);
+    if (isIP(host)) {
+      endpoints.push(`${host}:${port}`);
+      continue;
+    }
+    let addresses;
+    try {
+      addresses = await dnsPromises.lookup(host, { all: true });
+    } catch {
+      throw new Error(
+        `DEVAGENT_SANDBOX_NETWORK_ALLOWLIST: unresolvable host "${host}" ` +
+          '(from entry "' + entry + '")',
+      );
+    }
+    if (!addresses.length) {
+      throw new Error(
+        `DEVAGENT_SANDBOX_NETWORK_ALLOWLIST: unresolvable host "${host}" ` +
+          '(from entry "' + entry + '")',
+      );
+    }
+    for (const { address } of addresses) endpoints.push(`${address}:${port}`);
+  }
+  return endpoints;
 }
 
 /**
@@ -129,11 +204,19 @@ export function buildSeatbeltProfile(policy: SandboxPolicy): string {
     '(allow file-write*',
     clauses,
     ')',
-    // named knob: SBPL is last-match-wins, so the deny clause must come after
-    // (allow default) to take effect.
+    // named knob: SBPL is last-match-wins, so network clauses must come after
+    // (allow default) to take effect; allowlist re-allows must come after the
+    // blanket deny.
     ...(policy.network === 'allow'
       ? ['(allow network)']
-      : ['(deny network*)']),
+      : policy.network === 'deny'
+        ? ['(deny network*)']
+        : [
+            '(deny network*)',
+            ...(policy.networkAllowlist ?? []).map(
+              (endpoint) => `(allow network-outbound (remote ip "${endpoint}"))`,
+            ),
+          ]),
     '',
   ].join('\n');
 }
@@ -172,9 +255,20 @@ export async function prepareWorkerSpawn(
     if (!existsSync(seatbeltBin)) {
       throw new Error('DEVAGENT_SANDBOX=seatbelt requested but ' + seatbeltBin + ' is missing');
     }
+    const network = process.env.DEVAGENT_SANDBOX_NETWORK ?? 'allow';
     const profile = buildSeatbeltProfile({
       writablePaths: [opts.cwd],
-      network: process.env.DEVAGENT_SANDBOX_NETWORK === 'deny' ? 'deny' : 'allow',
+      network:
+        network === 'deny' || network === 'allowlist'
+          ? network
+          : 'allow',
+      ...(network === 'allowlist'
+        ? {
+            networkAllowlist: await resolveNetworkAllowlist(
+              process.env.DEVAGENT_SANDBOX_NETWORK_ALLOWLIST ?? '',
+            ),
+          }
+        : {}),
     });
     const dir = mkdtempSync(join(tmpdir(), 'devagent-sb-'));
     const profilePath = join(dir, 'worker.sb');

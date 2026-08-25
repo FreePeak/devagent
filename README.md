@@ -86,7 +86,12 @@ Key properties:
   `DEVAGENT_SANDBOX=seatbelt` additionally runs workers under `sandbox-exec`
   with writes confined to the worktree and temp dirs, and
   `DEVAGENT_SANDBOX_NETWORK=deny` blocks all socket creation for fully
-  offline worker runs. Git, Docker, and test runner processes are unaffected.
+  offline worker runs. For tighter egress control,
+  `DEVAGENT_SANDBOX_NETWORK=allowlist` denies all sockets except the resolved
+  endpoints in `DEVAGENT_SANDBOX_NETWORK_ALLOWLIST` (comma-separated
+  `host[:port]`, default port 443), e.g.
+  `DEVAGENT_SANDBOX_NETWORK_ALLOWLIST="api.anthropic.com, registry.npmjs.org"`.
+  Git, Docker, and test runner processes are unaffected.
 
 ## Documentation
 

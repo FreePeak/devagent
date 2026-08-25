@@ -31,12 +31,27 @@ vi.mock('node:child_process', () => ({
   execFile: (...args: unknown[]) => (execFileMock as unknown)(...(args as [])),
 }));
 
+// Controllable DNS for allowlist-resolution cases.
+const dnsLookupMock = vi.fn();
+vi.mock('node:dns', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:dns')>();
+  return {
+    ...actual,
+    promises: {
+      ...actual.promises,
+      lookup: (...args: unknown[]) =>
+        (dnsLookupMock as unknown)(...(args as [])),
+    },
+  };
+});
+
 import { readFileSync } from 'node:fs';
 import { ClaudeCodeAdapter } from '../src/workers/claude-code.js';
 import { OpenCodeAdapter } from '../src/workers/opencode.js';
 import {
   buildSeatbeltProfile,
   prepareWorkerSpawn,
+  resolveNetworkAllowlist,
   sanitizeWorkerEnv,
 } from '../src/workers/sandbox.js';
 import type { SpawnCliOptions } from '../src/workers/spawn-utils.js';
@@ -135,6 +150,80 @@ describe('buildSeatbeltProfile', () => {
     expect(profile).toContain('(subpath "/repo/wt")');
     expect(profile).toContain('(deny network*)');
   });
+
+  it('allowlist mode denies all sockets, then re-allows each endpoint after it', () => {
+    const endpoints = ['140.82.121.3:443', '104.16.26.34:443'];
+    const profile = buildSeatbeltProfile({
+      writablePaths: [],
+      network: 'allowlist',
+      networkAllowlist: endpoints,
+    });
+    expect(profile).toContain('(deny network*)');
+    // SBPL is last-match-wins: re-allow clauses must come after the blanket deny.
+    const denyIdx = profile.indexOf('(deny network*)');
+    const allowIdxs = endpoints.map((e) =>
+      profile.indexOf(`(allow network-outbound (remote ip "${e}"))`),
+    );
+    expect(allowIdxs[0]).toBeGreaterThan(-1);
+    expect(allowIdxs[1]).toBeGreaterThan(-1);
+    expect(denyIdx).toBeLessThan(allowIdxs[0]!);
+    expect(allowIdxs[0]!).toBeLessThan(allowIdxs[1]!);
+    // one clause per endpoint, no bare network allow
+    expect(profile.match(/allow network-outbound/g)).toHaveLength(endpoints.length);
+    expect(profile).not.toContain('(allow network)');
+  });
+});
+
+describe('resolveNetworkAllowlist', () => {
+  afterEach(() => {
+    dnsLookupMock.mockReset();
+  });
+
+  it('resolves hostnames via dns lookup(all) with default port 443', async () => {
+    dnsLookupMock.mockResolvedValue([
+      { address: '140.82.121.3', family: 4 },
+      { address: '2606:50c0:8000::153', family: 6 },
+    ]);
+    await expect(resolveNetworkAllowlist('api.github.com')).resolves.toEqual([
+      '140.82.121.3:443',
+      '2606:50c0:8000::153:443',
+    ]);
+    expect(dnsLookupMock).toHaveBeenCalledWith('api.github.com', { all: true });
+  });
+
+  it('applies default port 443 when an entry omits the port', async () => {
+    dnsLookupMock.mockResolvedValue([{ address: '108.128.1.5', family: 4 }]);
+    await expect(resolveNetworkAllowlist('api.anthropic.com')).resolves.toEqual([
+      '108.128.1.5:443',
+    ]);
+  });
+
+  it('honors explicit ports on hostname entries', async () => {
+    dnsLookupMock.mockResolvedValue([{ address: '192.168.1.10', family: 4 }]);
+    await expect(resolveNetworkAllowlist('registry.npmjs.org:8443')).resolves.toEqual([
+      '192.168.1.10:8443',
+    ]);
+  });
+
+  it('passes literal IPv4 and IPv6 entries through without touching dns', async () => {
+    await expect(resolveNetworkAllowlist('10.0.0.5:8443, fd00::7')).resolves.toEqual([
+      '10.0.0.5:8443',
+      'fd00::7:443',
+    ]);
+    expect(dnsLookupMock).not.toHaveBeenCalled();
+  });
+
+  it('throws loudly naming an unresolvable host', async () => {
+    dnsLookupMock.mockRejectedValue(new Error('lookup failed: ENOTFOUND'));
+    await expect(resolveNetworkAllowlist('nope.invalid')).rejects.toThrow(/nope\.invalid/);
+    expect(dnsLookupMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('throws loudly when every entry is blank', async () => {
+    await expect(resolveNetworkAllowlist(' , ,')).rejects.toThrow(
+      /DEVAGENT_SANDBOX_NETWORK_ALLOWLIST/,
+    );
+  });
 });
 
 describe('prepareWorkerSpawn', () => {
@@ -145,6 +234,7 @@ describe('prepareWorkerSpawn', () => {
   afterEach(() => {
     vi.unstubAllEnvs();
     platformOverride = null;
+    dnsLookupMock.mockReset();
   });
 
   it('scrubs the worker env by default and flags replaceEnv', async () => {
@@ -198,6 +288,65 @@ describe('prepareWorkerSpawn', () => {
       const denyProfile = readFileSync(denyPrepared.args[1], 'utf8');
       expect(denyProfile).toContain('(deny network*)');
       expect(denyProfile).not.toContain('(allow network)');
+    },
+  );
+
+  it.runIf(process.platform === 'darwin')(
+    'throws loudly when allowlist mode has an empty or missing allowlist var',
+    async () => {
+    platformOverride = 'darwin';
+    vi.stubEnv('DEVAGENT_SANDBOX', 'seatbelt');
+    vi.stubEnv('DEVAGENT_SANDBOX_NETWORK', 'allowlist');
+    vi.stubEnv('DEVAGENT_SANDBOX_NETWORK_ALLOWLIST', '');
+    await expect(prepareWorkerSpawn('claude', ['-p'], SPAWN_OPTS)).rejects.toThrow(
+      /DEVAGENT_SANDBOX_NETWORK_ALLOWLIST/,
+    );
+    vi.stubEnv('DEVAGENT_SANDBOX_NETWORK_ALLOWLIST', '   ');
+    await expect(prepareWorkerSpawn('claude', ['-p'], SPAWN_OPTS)).rejects.toThrow(
+      /DEVAGENT_SANDBOX_NETWORK_ALLOWLIST/,
+    );
+    },
+  );
+
+  it.runIf(process.platform === 'darwin')(
+    'allowlist mode writes a profile with deny-then-resolved-endpoint clauses',
+    async () => {
+      dnsLookupMock.mockImplementation(async (host: string) => {
+        if (host === 'api.anthropic.com') {
+          return [{ address: '108.128.1.5', family: 4 }];
+        }
+        return [{ address: '151.101.0.1', family: 4 }];
+      });
+      platformOverride = 'darwin';
+      vi.stubEnv('DEVAGENT_SANDBOX', 'seatbelt');
+      vi.stubEnv('DEVAGENT_SANDBOX_NETWORK', 'allowlist');
+      vi.stubEnv(
+        'DEVAGENT_SANDBOX_NETWORK_ALLOWLIST',
+        'api.anthropic.com, registry.npmjs.org:443',
+      );
+      const prepared = await prepareWorkerSpawn('claude', ['-p'], SPAWN_OPTS);
+      expect(prepared.cmd).toBe('/usr/bin/sandbox-exec');
+      const profile = readFileSync(prepared.args[1], 'utf8');
+      const denyIdx = profile.indexOf('(deny network*)');
+      const anthropicIdx = profile.indexOf('(allow network-outbound (remote ip "108.128.1.5:443"))');
+      const npmIdx = profile.indexOf('(allow network-outbound (remote ip "151.101.0.1:443"))');
+      expect(denyIdx).toBeGreaterThan(-1);
+      expect(anthropicIdx).toBeGreaterThan(denyIdx);
+      expect(npmIdx).toBeGreaterThan(anthropicIdx);
+    },
+  );
+
+  it.runIf(process.platform === 'darwin')(
+    'allowlist mode surfaces unresolvable hosts with the host named',
+    async () => {
+      dnsLookupMock.mockRejectedValue(new Error('lookup failed: ENOTFOUND'));
+      platformOverride = 'darwin';
+      vi.stubEnv('DEVAGENT_SANDBOX', 'seatbelt');
+      vi.stubEnv('DEVAGENT_SANDBOX_NETWORK', 'allowlist');
+      vi.stubEnv('DEVAGENT_SANDBOX_NETWORK_ALLOWLIST', 'dead.internal:443');
+      await expect(prepareWorkerSpawn('claude', ['-p'], SPAWN_OPTS)).rejects.toThrow(
+        /dead\.internal/,
+      );
     },
   );
 });
