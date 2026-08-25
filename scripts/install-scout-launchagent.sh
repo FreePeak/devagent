@@ -93,4 +93,12 @@ plutil -lint "$PLIST"
 
 launchctl bootout "$GUI_TARGET/$LABEL" >/dev/null 2>&1 || true
 launchctl bootstrap "$GUI_TARGET" "$PLIST"
+
+# Read back and assert this install actually won the shared label slot.
+if ! grep -q "<string>${REPO}</string>" "$PLIST"; then
+  echo "warning: plist no longer points at ${REPO} (concurrent install?); reinstalling" >&2
+  launchctl bootout "$GUI_TARGET/$LABEL" >/dev/null 2>&1 || true
+  launchctl bootstrap "$GUI_TARGET" "$PLIST"
+fi
+
 echo "installed + started $LABEL (scout ${WORKER} every ${INTERVAL}m, repo ${REPO})"

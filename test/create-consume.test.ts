@@ -114,6 +114,18 @@ describe('launchAgent plist', () => {
 });
 
 describe('createOrcaWorktree + orca integration helpers', () => {
+  it('refuses LaunchAgent install for ephemeral (tmp) repos, allows real paths', async () => {
+    const { shouldInstallLaunchAgent } = await import('../src/create.js');
+    const tmpRepoDir = mkdtempSync(join(tmpdir(), 'da-ephemeral-'));
+    try {
+      expect(shouldInstallLaunchAgent(tmpRepoDir)).toBe(false);
+      expect(shouldInstallLaunchAgent('/tmp/da-cc-nonexistent')).toBe(false);
+      expect(shouldInstallLaunchAgent(process.cwd())).toBe(true);
+    } finally {
+      rmSync(tmpRepoDir, { recursive: true, force: true });
+    }
+  });
+
   it('parses path from orca worktree create JSON', async () => {
     const runner = async () => ({ exitCode: 0, stdout: JSON.stringify({ result: { path: '/tmp/wt' } }), timedOut: false });
     expect(await createOrcaWorktree('/tmp/repo', 'w1', runner as never)).toBe('/tmp/wt');

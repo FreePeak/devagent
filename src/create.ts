@@ -1,5 +1,6 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { ensureQueueDirs, queueDir, prdsDir } from './queue.js';
 import { loadConfig, type DevAgentConfig } from './config.js';
 import { spawnCli } from './workers/spawn-utils.js';
@@ -162,8 +163,11 @@ export async function runCreate(opts: CreateOptions, runner: CliRunner = default
   }
 
   // 4) LaunchAgent (macOS only; skip gracefully elsewhere)
+  // Never install the persistent user agent for an ephemeral repo: tmp-dir
+  // factories would hijack com.devagent.scout and crash-loop (EX_CONFIG)
+  // once the temp checkout is deleted.
   let plistPath: string | undefined;
-  if (opts.scout && process.platform === 'darwin') {
+  if (opts.scout && process.platform === 'darwin' && shouldInstallLaunchAgent(repoPath)) {
     const plist = buildLaunchAgentPlist({ repoPath, intervalMinutes, worker: scoutWorker });
     const home = process.env.HOME ?? '/tmp';
     plistPath = join(home, 'Library/LaunchAgents/com.devagent.scout.plist');
@@ -188,4 +192,17 @@ export async function runCreate(opts: CreateOptions, runner: CliRunner = default
 
 export function launchAgentPlistContent(repoPath: string, intervalMinutes = 30, worker: string = 'opencode'): string {
   return buildLaunchAgentPlist({ repoPath, intervalMinutes, worker });
+}
+
+/**
+ * Guard for the shared com.devagent.scout LaunchAgent slot: only repos that
+ * live outside the OS temp dir (and exist) may claim it.
+ */
+export function shouldInstallLaunchAgent(repoPath: string): boolean {
+  if (!existsSync(repoPath)) return false;
+  const resolved = realpathSync(repoPath);
+  // macOS tmpdir() (/var/folders/...) resolves to /private/var/folders/...
+  let realTmp = '';
+  try { realTmp = realpathSync(tmpdir()); } catch { realTmp = tmpdir(); }
+  return !resolved.startsWith(realTmp) && !resolved.startsWith(tmpdir());
 }
