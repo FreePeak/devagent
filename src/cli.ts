@@ -900,4 +900,20 @@ program
     }
   });
 
+program
+  .command('rebase-stack')
+  .description('Rebase stacked branches onto their updated parents (merge-queue refresh)')
+  .option('--repo <path>', 'target repository', process.cwd())
+  .option('--onto <branch>', 'base of the bottom-most stacked branch', 'main')
+  .option('--push', 'force-push updated branches to origin with lease', false)
+  .argument('<branches...>', 'stack bottom to top, e.g. devagent/loop60 devagent/loop61')
+  .action(async (branches: string[], opts) => {
+    const { rebaseStack } = await import('./git/rebase-stack.js');
+    const r = await rebaseStack(opts.repo, branches, { onto: opts.onto, push: opts.push });
+    for (const b of r.results) {
+      console.log(`${b.outcome === 'up-to-date' ? '=' : b.outcome === 'rebased' || b.outcome === 'pushed' ? '+' : 'x'} ${b.branch}: ${b.outcome}${b.detail ? ` — ${b.detail}` : ''}`);
+    }
+    if (!r.ok) process.exitCode = 1;
+  });
+
 program.parseAsync();
