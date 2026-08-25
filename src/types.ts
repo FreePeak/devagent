@@ -29,6 +29,8 @@ export interface WorkerSpawnOptions {
   cwd: string;
   timeoutMs: number;
   maxSteps?: number;
+  /** Model override forwarded to the worker CLI (provider/model). */
+  model?: string;
   env?: Record<string, string>;
   /**
    * Total launches allowed when the worker auto-resumes a session killed by
@@ -105,6 +107,8 @@ export interface RunConfig {
   maxLoops: number;
   timeoutMs: number;
   dryRun: boolean;
+  /** Model override forwarded to worker CLIs (provider/model). */
+  model?: string;
 }
 
 export interface LogEntry {

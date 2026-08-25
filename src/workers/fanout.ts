@@ -25,6 +25,8 @@ export interface FanoutLeg {
 export interface FanoutOptions {
   repoPath: string;
   timeoutMs: number;
+  /** Model override forwarded to both worker CLIs (provider/model). */
+  model?: string;
   /** Repo-local lessons file override (see loadLessons). */
   lessonsFile?: string;
   scoreLeg?(worktreePath: string, timeoutMs: number): Promise<boolean | null>;
@@ -59,7 +61,7 @@ export async function runFanout(
         log.warn('implement', `Fanout ${workerName}: worktree failed (${(err as Error).message})`);
       }
       const started = Date.now();
-      const result = await worker.spawn({ prompt, cwd, timeoutMs: opts.timeoutMs });
+      const result = await worker.spawn({ prompt, cwd, timeoutMs: opts.timeoutMs, ...(opts.model ? { model: opts.model } : {}) });
       const ok = !result.timedOut && result.exitCode === 0;
       log.info('implement', `Fanout ${workerName} finished`, {
         exitCode: result.exitCode,

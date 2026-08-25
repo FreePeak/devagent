@@ -21,6 +21,7 @@ program
   .requiredOption('--ticket <id>', 'tracker ticket identifier')
   .option('--repo <path>', 'target repository', process.cwd())
   .option('--worker <name>', 'claude-code | opencode | both')
+  .option('--model <id>', 'model override passed to the worker CLI (provider/model)')
   .option('--auto-pr', 'skip approval gates', false)
   .option('--interactive', 'pause at human gates')
   .option('--max-loops <n>', 'test-failure retry budget', Number)
@@ -37,6 +38,7 @@ program
       autoMerge: opts.autoMerge || config.autoMerge || undefined,
       repoPath: opts.repo,
       worker: opts.worker ?? config.worker,
+      model: opts.model ?? config.model,
       autoPr: opts.autoPr ?? false,
       interactive: opts.interactive ?? !opts.autoPr,
       maxLoops: opts.maxLoops ?? config.maxLoops,
@@ -370,6 +372,7 @@ program
   .requiredOption('--prompt <text>', 'task description (first line becomes the title)')
   .option('--repo <path>', 'target repository', process.cwd())
   .option('--worker <name>', 'claude-code | opencode | both')
+  .option('--model <id>', 'model override passed to the worker CLI (provider/model)')
   .option('--auto-pr', 'push branch and open PR when green', false)
   .option('--auto-merge', 'auto review + merge the PR once CI is green (default from config autoMerge)', false)
   .option('--max-loops <n>', 'test-failure retry budget', Number)
@@ -434,8 +437,17 @@ program
         },
         implementStage: async (c, ticket, lg) => {
           const plan = { ticket, classification: 'endpoint-only' as const, tasks: [], summary: ticket.title };
+          const model = opts.model ?? config.model;
           return implementStage(
-            { repoPath: c.repoPath, maxLoops: c.maxLoops, timeoutMs: c.timeoutMs, worker: workerName, autoPr: c.autoPr, lessonsFile: config.lessonsFile },
+            {
+              repoPath: c.repoPath,
+              maxLoops: c.maxLoops,
+              timeoutMs: c.timeoutMs,
+              worker: workerName,
+              autoPr: c.autoPr,
+              lessonsFile: config.lessonsFile,
+              ...(model ? { model } : {}),
+            },
             plan,
             lg,
           );

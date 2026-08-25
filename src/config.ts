@@ -15,6 +15,8 @@ export interface DevAgentConfig {
   githubBaseBranch?: string;
   /** Opt out of manual review: DevAgent auto-reviews and auto-merges its own PRs. */
   autoMerge?: boolean;
+  /** Model override forwarded to the worker CLI (provider/model, e.g. opencode-go/ox-alpha-free). */
+  model?: string;
   testCommand?: string;
   /** Repo-local lessons file injected into worker prompts (defaults to .devagent/lessons.md). */
   lessonsFile?: string;

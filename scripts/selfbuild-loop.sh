@@ -118,6 +118,7 @@ Output ONLY the goal statement (max 120 words), starting with 'Goal:' — this t
 
       # Phases 4-5-6: Plan + Implement + internal validation gates via DevAgent itself.
       TASK_ARGS=(task --prompt "$GOAL" --repo "$REPO" --worker "$WORKER")
+      [ -n "${SELFBUILD_MODEL:-}" ] && TASK_ARGS+=(--model "$SELFBUILD_MODEL")
       [ "$PUSH_MODE" = pr ] && TASK_ARGS+=(--auto-pr)
       "${DEVAGENT[@]}" "${TASK_ARGS[@]}" || { echo "[implement] task failed" ; record "$N" failed "$GOAL" ; fails=$(( fails + 1 )) ;
         [ "$fails" -ge "$MAX_FAILS" ] && { echo "circuit breaker: $fails consecutive failures" ; exit 1 ; } ; continue ; }
