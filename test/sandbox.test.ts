@@ -121,6 +121,20 @@ describe('buildSeatbeltProfile', () => {
     const profile = buildSeatbeltProfile({ writablePaths: [], network: 'allow' });
     expect(profile).toContain('(allow network)');
   });
+
+  it('deny policy emits (deny network*) after the default allow, last-match-wins', () => {
+    const profile = buildSeatbeltProfile({ writablePaths: [], network: 'deny' });
+    expect(profile).toContain('(deny network*)');
+    expect(profile.indexOf('(allow default)')).toBeLessThan(profile.indexOf('(deny network*)'));
+    expect(profile).not.toContain('(allow network)');
+  });
+
+  it('network deny composes with the write allowlist instead of replacing it', () => {
+    const profile = buildSeatbeltProfile({ writablePaths: ['/repo/wt'], network: 'deny' });
+    expect(profile).toContain('(deny file-write*)');
+    expect(profile).toContain('(subpath "/repo/wt")');
+    expect(profile).toContain('(deny network*)');
+  });
 });
 
 describe('prepareWorkerSpawn', () => {
@@ -169,6 +183,21 @@ describe('prepareWorkerSpawn', () => {
       expect(profileText).toContain('(subpath "/repo/worktree")');
       expect(prepared.args.slice(2)).toEqual(['claude', '-p', 'hi']);
       expect(prepared.opts.replaceEnv).toBe(true);
+    },
+  );
+
+  it.runIf(process.platform === 'darwin')(
+    'DEVAGENT_SANDBOX_NETWORK=deny lands in the generated profile; unset keeps allow',
+    async () => {
+      vi.stubEnv('DEVAGENT_SANDBOX', 'seatbelt');
+      const allowPrepared = await prepareWorkerSpawn('claude', ['-p'], SPAWN_OPTS);
+      expect(readFileSync(allowPrepared.args[1], 'utf8')).toContain('(allow network)');
+
+      vi.stubEnv('DEVAGENT_SANDBOX_NETWORK', 'deny');
+      const denyPrepared = await prepareWorkerSpawn('claude', ['-p'], SPAWN_OPTS);
+      const denyProfile = readFileSync(denyPrepared.args[1], 'utf8');
+      expect(denyProfile).toContain('(deny network*)');
+      expect(denyProfile).not.toContain('(allow network)');
     },
   );
 });

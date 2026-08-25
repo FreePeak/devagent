@@ -15,9 +15,10 @@ import type { SpawnCliOptions } from './spawn-utils.js';
  *    the untouched parent env — they legitimately need credentials.
  * 2. Seatbelt confinement (opt-in via DEVAGENT_SANDBOX=seatbelt, darwin only):
  *    worker commands run under sandbox-exec with a generated profile that
- *    denies writes outside the worktree cwd and temp dirs. Network stays
- *    default-allow this loop (workers must reach LLM APIs) but is a named
- *    policy knob so a future loop can tighten it.
+ *    denies writes outside the worktree cwd and temp dirs. Network defaults
+ *    to allow (workers must reach LLM APIs) and can be tightened with
+ *    DEVAGENT_SANDBOX_NETWORK=deny, which emits `(deny network*)` in the
+ *    profile for fully offline worker runs.
  */
 
 /** Env vars the agent CLIs need to authenticate and run; never stripped. */
@@ -99,10 +100,10 @@ export interface SandboxPolicy {
   /** Paths workers may write to (the worktree cwd goes here). */
   writablePaths: string[];
   /**
-   * Network policy. Only 'allow' is implemented this loop — workers must reach
-   * LLM APIs — but it is a named field so egress tightening is additive.
+   * Network policy. 'allow' (default) leaves socket creation open so workers
+   * can reach LLM APIs; 'deny' emits `(deny network*)` for fully offline runs.
    */
-  network: 'allow';
+  network: 'allow' | 'deny';
 }
 
 /**
@@ -128,8 +129,11 @@ export function buildSeatbeltProfile(policy: SandboxPolicy): string {
     '(allow file-write*',
     clauses,
     ')',
-    // named knob: network stays open for LLM API traffic this loop
-    ...(policy.network === 'allow' ? ['(allow network)'] : []),
+    // named knob: SBPL is last-match-wins, so the deny clause must come after
+    // (allow default) to take effect.
+    ...(policy.network === 'allow'
+      ? ['(allow network)']
+      : ['(deny network*)']),
     '',
   ].join('\n');
 }
@@ -170,7 +174,7 @@ export async function prepareWorkerSpawn(
     }
     const profile = buildSeatbeltProfile({
       writablePaths: [opts.cwd],
-      network: 'allow',
+      network: process.env.DEVAGENT_SANDBOX_NETWORK === 'deny' ? 'deny' : 'allow',
     });
     const dir = mkdtempSync(join(tmpdir(), 'devagent-sb-'));
     const profilePath = join(dir, 'worker.sb');
