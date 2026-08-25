@@ -39,6 +39,9 @@ record() { # record <loop> <status> <goal>
 # Starvation gate: consecutive non-productive iterations across ALL runs.
 # Unlike the circuit breaker (in-process failures), this catches a loop that
 # has been thrashing for days without shipping anything (Kitchen Loop 7.2).
+# Productive = shipped or handed to review; the ledger's richer statuses
+# ("pr-open", "merged", "pushed" — written by the Orca-driven runs) all count,
+# otherwise a healthy streak reads as starvation and halts the loop.
 starved() {
   [ -f "$STATE/ledger.jsonl" ] || return 1
   local count
@@ -47,7 +50,7 @@ starved() {
     END {
       c = 0
       for (i = NR; i >= 1; i--) {
-        if (lines[i] ~ /"status":"ok"/) break
+        if (lines[i] ~ /"status":"(ok|pr-open|merged|pushed)"/) break
         if (++c >= lim) break
       }
       print c
