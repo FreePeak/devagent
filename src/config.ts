@@ -20,6 +20,8 @@ export interface DevAgentConfig {
   testCommand?: string;
   /** Repo-local lessons file injected into worker prompts (defaults to .devagent/lessons.md). */
   lessonsFile?: string;
+  /** Character budget for injected lessons; oldest entries are dropped whole (default 4000). */
+  lessonsMaxChars?: number;
 }
 
 export interface Credentials {

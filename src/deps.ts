@@ -168,7 +168,7 @@ export function buildDeps(creds: Credentials, cfg: StageConfig, log: RunLogger):
 
 /** Dispatch a worker inside an isolated worktree with the retry loop (FR-IMPL-01..04). */
 export async function implementStage(
-  cfg: StageConfig & Pick<RunConfig, 'worker' | 'maxLoops' | 'model'> & { lessonsFile?: string },
+  cfg: StageConfig & Pick<RunConfig, 'worker' | 'maxLoops' | 'model'> & { lessonsFile?: string; lessonsMaxChars?: number },
   plan: ImplementationPlan,
   log: RunLogger,
 ): Promise<ImplementResult> {
@@ -215,6 +215,7 @@ export async function implementStage(
       repoPath: cfg.repoPath,
       timeoutMs: cfg.timeoutMs,
       lessonsFile: cfg.lessonsFile,
+      lessonsMaxChars: cfg.lessonsMaxChars,
       ...(cfg.model ? { model: cfg.model } : {}),
       scoreLeg: (wt, ms) => runTestGate(wt, ms).then((r) => r.passed),
       onSelected: mergeAssistWinner,
@@ -228,7 +229,7 @@ export async function implementStage(
 
   const workerName = cfg.worker;
   const worker = getWorker(workerName);
-  const lessons = loadLessons(cfg.repoPath, cfg.lessonsFile);
+  const lessons = loadLessons(cfg.repoPath, cfg.lessonsFile, cfg.lessonsMaxChars);
   const prompt = buildImplementationPrompt(plan, lessons);
   let repairPrompt = prompt;
   const maxAttempts = Math.max(1, cfg.maxLoops);
