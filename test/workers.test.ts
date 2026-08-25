@@ -232,6 +232,101 @@ describe('opencode adapter', () => {
     expect(res.resultText).toBeNull();
     expect(res.events.length).toBe(1);
   });
+
+  it('retries on provider error with session resume and eventually succeeds (infinite retry)', async () => {
+    const noSleep = async () => {};
+    const retryAdapter = new OpenCodeAdapter(noSleep);
+    resultQueue = [
+      {
+        error: Object.assign(new Error('boom'), { code: 1 }),
+        stdout: JSON.stringify({
+          type: 'error',
+          error: { message: 'Error from provider (Console Go): Upstream request failed: Endpoint is unavailable.', status: 503 },
+          sessionID: 'ses_retry_1',
+        }),
+        stderr: '',
+      },
+      {
+        error: Object.assign(new Error('boom'), { code: 1 }),
+        stdout: JSON.stringify({
+          type: 'error',
+          error: { message: 'Error from provider (Console Go): Upstream request failed: Endpoint is unavailable.', status: 503 },
+          sessionID: 'ses_retry_1',
+        }),
+        stderr: '',
+      },
+      {
+        error: null,
+        stdout: JSON.stringify({ type: 'text', text: 'done after retry', sessionID: 'ses_retry_1' }),
+        stderr: '',
+      },
+    ];
+    const res = await retryAdapter.spawn({ ...baseOpts, prompt: 'ship it' });
+    expect(execFileMock).toHaveBeenCalledTimes(3);
+    const resumeCall = (execFileMock.mock.calls[1] as unknown[])[1] as string[];
+    expect(resumeCall).toEqual(['run', '--format', 'json', '--session', 'ses_retry_1', 'Continue']);
+    expect(res.exitCode).toBe(0);
+    expect(res.resultText).toBe('done after retry');
+    expect(res.sessionId).toBe('ses_retry_1');
+  });
+
+  it('aborts immediately on non-retryable auth errors', async () => {
+    const noSleep = async () => {};
+    const retryAdapter = new OpenCodeAdapter(noSleep);
+    resultQueue = [
+      {
+        error: Object.assign(new Error('boom'), { code: 1 }),
+        stdout: JSON.stringify({
+          type: 'error',
+          error: { message: 'Invalid API key provided' },
+          sessionID: 'ses_auth',
+        }),
+        stderr: '',
+      },
+      { error: null, stdout: JSON.stringify({ type: 'text', text: 'should not reach', sessionID: 'ses_auth' }), stderr: '' },
+    ];
+    await retryAdapter.spawn({ ...baseOpts, prompt: 'x' });
+    expect(execFileMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-detects opencode Console Go error via exitCode non-zero even without error event', async () => {
+    const noSleep = async () => {};
+    const retryAdapter = new OpenCodeAdapter(noSleep);
+    resultQueue = [
+      {
+        error: Object.assign(new Error('boom'), { code: 1 }),
+        stdout: JSON.stringify({ type: 'step_start', sessionID: 'ses_x' }),
+        stderr: 'Error from provider (Console Go): Upstream request failed: Endpoint is unavailable.',
+      },
+      {
+        error: null,
+        stdout: JSON.stringify({ type: 'text', text: 'recovered', sessionID: 'ses_x' }),
+        stderr: '',
+      },
+    ];
+    const res = await retryAdapter.spawn({ ...baseOpts, prompt: 'x' });
+    expect(execFileMock).toHaveBeenCalledTimes(2);
+    expect(res.exitCode).toBe(0);
+    expect(res.resultText).toBe('recovered');
+  });
+
+  it('retries many times to prove Infinity default (not just 3)', async () => {
+    const noSleep = async () => {};
+    const retryAdapter = new OpenCodeAdapter(noSleep);
+    const fail = {
+      error: Object.assign(new Error('boom'), { code: 1 }),
+      stdout: JSON.stringify({
+        type: 'error',
+        error: { message: 'Error from provider: transient' },
+        sessionID: 'ses_long',
+      }),
+      stderr: '',
+    };
+    resultQueue = [fail, fail, fail, fail, fail, { error: null, stdout: JSON.stringify({ type: 'text', text: 'finally', sessionID: 'ses_long' }), stderr: '' }];
+    const res = await retryAdapter.spawn({ ...baseOpts, prompt: 'x' });
+    expect(execFileMock).toHaveBeenCalledTimes(6);
+    expect(res.resultText).toBe('finally');
+  });
 });
 
 describe('timeout handling', () => {

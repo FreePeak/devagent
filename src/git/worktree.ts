@@ -82,6 +82,51 @@ export async function createWorktree(
 }
 
 /**
+ * Post-run disposal of a run's worktree (auto-cleanup stage).
+ *
+ * 'remove' mode snapshots any uncommitted worker output onto the run branch
+ * first (nothing is ever lost), then removes the worktree registration and
+ * directory. The branch itself is kept: it holds the snapshot and stays cheap.
+ * 'preserve' keeps the tree untouched for inspection (failure debugging).
+ */
+export interface FinalizeWorktreeOptions {
+  repoPath: string;
+  worktreePath: string;
+  ticketId: string;
+  mode: 'remove' | 'preserve';
+}
+
+export interface FinalizeResult {
+  action: 'removed' | 'preserved';
+  /** True when uncommitted changes were snapshotted onto the branch pre-removal */
+  committed: boolean;
+  /** Present when removal was requested but failed (tree left in place) */
+  error?: string;
+}
+
+export async function finalizeRunWorktree(opts: FinalizeWorktreeOptions): Promise<FinalizeResult> {
+  if (opts.mode === 'preserve') {
+    return { action: 'preserved', committed: false };
+  }
+  let committed = false;
+  try {
+    committed = await commitAllChanges(
+      opts.worktreePath,
+      `devagent(${sanitizeTicketId(opts.ticketId)}): auto-cleanup snapshot`,
+    );
+  } catch {
+    // Snapshot is best-effort; removal below still proceeds for a clean tree.
+  }
+  try {
+    await run('git', ['worktree', 'remove', '--force', opts.worktreePath], opts.repoPath);
+    await run('git', ['worktree', 'prune'], opts.repoPath);
+    return { action: 'removed', committed };
+  } catch (err) {
+    return { action: 'preserved', committed, error: (err as Error).message };
+  }
+}
+
+/**
  * Remove a ticket's worktree with `git worktree remove --force`.
  * Best-effort: any failure (e.g. already removed) is swallowed.
  */

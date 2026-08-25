@@ -7,6 +7,7 @@ vi.mock('../src/workers/index.js', () => ({ getWorker: vi.fn() }));
 vi.mock('../src/git/worktree.js', () => ({
   createWorktree: vi.fn(),
   isGitRepository: vi.fn(),
+  finalizeRunWorktree: vi.fn().mockResolvedValue({ action: 'preserved', committed: false }),
 }));
 
 import { getWorker } from '../src/workers/index.js';

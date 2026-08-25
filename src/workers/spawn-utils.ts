@@ -64,7 +64,7 @@ export function spawnCli(cmd: string, args: string[], opts: SpawnCliOptions): Pr
         // Spawn failures like ENOENT carry a string code; normalize those to -1 so we
         // never leak errno details through the result shape.
         const rawCode = (error as { code?: unknown } | null)?.code;
-        const exitCode = typeof rawCode === 'number' ? rawCode : 0;
+        const exitCode = typeof rawCode === 'number' ? rawCode : error ? -1 : 0;
         resolve({
           exitCode: timedOut ? -1 : exitCode,
           stdout: String(stdout ?? ''),

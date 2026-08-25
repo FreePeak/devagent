@@ -104,9 +104,33 @@ orca automations create \
 
 Manage with `orca automations list|show|runs|remove`.
 
+**Spawned-session auto-cleanup.** Mode A leaves one Orca workspace
+(`auto-devagent-selfbuild-run-N-<ts>`) plus a live terminal behind per run, forever.
+`scripts/orca-selfbuild-cleanup.sh` reclaims them automatically (macOS):
+
+```sh
+scripts/orca-selfbuild-cleanup.sh                        # dry-run: show what would go
+scripts/orca-selfbuild-cleanup.sh --apply                # close terminals + delete worktrees
+scripts/orca-selfbuild-cleanup.sh --install-launchagent  # schedule hourly via LaunchAgent
+```
+
+Deletion is gated on two safety checks per workspace: nothing modified within
+`ORCA_MIN_AGE_SECS` (default 3600) and HEAD already merged into origin/main (or pushed
+verbatim to origin), so no unpushed work is ever destroyed. Nested
+`.devagent-worktrees/TASK` registrations are detached first; `orca worktree rm` refuses
+the parent otherwise. The LaunchAgent writes `~/Library/Logs/orca-selfbuild-cleanup.log`.
+Other knobs: `ORCA_SELFBUILD_REPO` (repo selector, default `name:devagent`),
+`ORCA_MAIN_REPO` (git context for merge checks).
+
 **B. Long-lived terminal.** Run `npm run selfbuild` inside an Orca terminal tab
 (`orca terminal create`); the script loops internally. Pair with cc-guard
 (`devagent guard-status --resume`) for API-failure recovery.
+
+**C. Factory (scout + Orca workers).** `devagent create --repo . --scout --workers 3` supersedes the single-process loop with a decoupled factory:
+
+- `devagent scout --interval 30` (24/7 LaunchAgent, `opencode` worker) researches `docs/PRD.md §4+§17` + ledger + lessons, writes PRD + task to `.devagent/prds/` + `.devagent/queue/`, heartbeats to `.devagent/scout.heartbeat.json`.
+- Multiple `devagent consume --auto-pr [--auto-merge]` workers (each in its own Orca worktree from `orca worktree create`) claim tasks, implement in isolated `.devagent-worktrees/<id>`, validate G1/G3/G4, push `devagent/<id>` and open PR via `gh`, optionally auto-merge and `self-update`.
+- See [docs/SCOUT.md](SCOUT.md) and `docs/SCOUT-CREATE-PRD.md` for the full runbook.
 
 ## Guardrails (operational)
 

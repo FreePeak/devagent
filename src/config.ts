@@ -6,6 +6,22 @@ import type { WorkerName } from './types.js';
  * Effective configuration: defaults <- devagent.json (repo or cwd) <- env credentials.
  * Credentials come exclusively from the environment (FR-OPS-02).
  */
+/**
+ * Post-run worktree disposal policy (auto-cleanup stage).
+ * - 'auto'   (default): success -> snapshot+remove the run worktree;
+ *            failure -> preserve it for debugging.
+ * - 'keep':  never remove (pre-2.0 preserve-for-inspection behavior).
+ * - 'always': snapshot+remove even when the run failed.
+ */
+export type CleanupMode = 'auto' | 'keep' | 'always';
+
+export interface ScoutConfig {
+  enabled?: boolean;
+  worker?: WorkerName;
+  intervalMinutes?: number;
+  maxQueued?: number;
+}
+
 export interface DevAgentConfig {
   worker: WorkerName | 'both';
   maxLoops: number;
@@ -13,6 +29,17 @@ export interface DevAgentConfig {
   pinnedVersions?: Partial<Record<WorkerName, string>>;
   linearTeamId?: string;
   githubBaseBranch?: string;
+  cleanup?: CleanupMode;
+  /** When repoPath is an Orca-managed workspace, drop card+dir via orca-cli after done. Opt-in. */
+  dropOrcaWorkspace?: boolean;
+  /** 24/7 scout: research → PRD → queue (FR-SCOUT-01). Absent = disabled. */
+  scout?: ScoutConfig;
+  /** Queue storage locations; defaults .devagent/queue + .devagent/prds */
+  queue?: { dir?: string; prdsDir?: string };
+  /** Auto-merge green PRs after gates (FR-MERGE-01). Opt-in. */
+  autoMerge?: boolean;
+  /** Self-update devagent after successful merge (FR-SELF-01). Opt-in. */
+  selfUpdate?: boolean;
 }
 
 export interface Credentials {
@@ -51,6 +78,20 @@ export function loadConfig(repoPath: string = process.cwd()): DevAgentConfig {
 
   if (!['claude-code', 'opencode', 'both'].includes(config.worker)) {
     throw new Error(`Invalid worker "${config.worker}" in config; expected claude-code, opencode, or both`);
+  }
+  if (config.cleanup !== undefined && !['auto', 'keep', 'always'].includes(config.cleanup)) {
+    throw new Error(`Invalid cleanup "${config.cleanup}" in config; expected auto, keep, or always`);
+  }
+  if (config.scout !== undefined) {
+    if (config.scout.worker !== undefined && !['claude-code', 'opencode'].includes(config.scout.worker)) {
+      throw new Error(`Invalid scout.worker "${config.scout.worker}"; expected claude-code or opencode`);
+    }
+    if (config.scout.intervalMinutes !== undefined && (!Number.isFinite(config.scout.intervalMinutes) || config.scout.intervalMinutes < 1)) {
+      throw new Error(`Invalid scout.intervalMinutes "${config.scout.intervalMinutes}"; expected >= 1`);
+    }
+    if (config.scout.maxQueued !== undefined && (!Number.isFinite(config.scout.maxQueued) || config.scout.maxQueued < 1)) {
+      throw new Error(`Invalid scout.maxQueued "${config.scout.maxQueued}"; expected >= 1`);
+    }
   }
   return config;
 }

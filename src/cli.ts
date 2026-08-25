@@ -2,7 +2,7 @@
 import { Command } from 'commander';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { loadConfig, loadCredentials, credentialStatus } from './config.js';
+import { loadConfig, loadCredentials, credentialStatus, type CleanupMode } from './config.js';
 import { RunLogger } from './logger.js';
 import { runPipeline } from './pipeline.js';
 import { buildDeps, buildDryRunDeps } from './deps.js';
@@ -21,6 +21,8 @@ program
   .requiredOption('--ticket <id>', 'tracker ticket identifier')
   .option('--repo <path>', 'target repository', process.cwd())
   .option('--worker <name>', 'claude-code | opencode | both')
+  .option('--cleanup <mode>', "post-run worktree disposal: auto | keep | always")
+  .option('--drop-orca-workspace', 'drop the enclosing Orca workspace after done (when repoPath is Orca-managed)', false)
   .option('--auto-pr', 'skip approval gates', false)
   .option('--interactive', 'pause at human gates')
   .option('--max-loops <n>', 'test-failure retry budget', Number)
@@ -40,6 +42,8 @@ program
       maxLoops: opts.maxLoops ?? config.maxLoops,
       timeoutMs: (opts.timeout ?? config.timeoutMinutes) * 60_000,
       dryRun: opts.dryRun ?? false,
+      cleanup: resolveCleanup(opts.cleanup, config.cleanup),
+      dropOrcaWorkspace: opts.dropOrcaWorkspace ?? config.dropOrcaWorkspace ?? false,
     };
 
     // Dry-run plans offline against a synthetic ticket; no credentials needed
@@ -97,6 +101,8 @@ program
   .requiredOption('--repo <entries...>', 'repo entries as name=path (one or more)')
   .option('--concurrency <n>', 'max parallel runs', Number, 2)
   .option('--worker <name>', 'claude-code | opencode | both')
+  .option('--cleanup <mode>', "post-run worktree disposal: auto | keep | always")
+  .option('--drop-orca-workspace', 'drop the enclosing Orca workspace after done (when repoPath is Orca-managed)', false)
   .option('--auto-pr', 'publish PRs without approval gates', false)
   .option('--max-loops <n>', 'test-failure retry budget', Number)
   .action(async (opts) => {
@@ -139,6 +145,8 @@ program
           maxLoops,
           timeoutMs,
           dryRun: false,
+          cleanup: resolveCleanup(opts.cleanup, config.cleanup),
+          dropOrcaWorkspace: opts.dropOrcaWorkspace ?? config.dropOrcaWorkspace ?? false,
         };
         const outcomes = await runPipeline(cfg, buildDeps(creds, cfg, log), log);
         const failed = outcomes.find((o) => o.stage === 'failed') as { reason?: string } | undefined;
@@ -269,6 +277,8 @@ async function dispatchRun(
       maxLoops: config.maxLoops,
       timeoutMs: config.timeoutMinutes * 60_000,
       dryRun: false,
+      cleanup: resolveCleanup(undefined, config.cleanup),
+      dropOrcaWorkspace: config.dropOrcaWorkspace ?? false,
     };
     const outcomes = await runPipeline(cfg, buildDeps(creds, cfg, logger), logger);
     printOutcomes(outcomes);
@@ -277,6 +287,15 @@ async function dispatchRun(
   } finally {
     lock.release();
   }
+}
+
+/** CLI --cleanup flag wins over devagent.json; final default is 'auto'. */
+function resolveCleanup(flag: string | undefined, fileConfig: CleanupMode | undefined): CleanupMode {
+  const value = (flag ?? fileConfig ?? 'auto') as CleanupMode;
+  if (!['auto', 'keep', 'always'].includes(value)) {
+    throw new Error(`Invalid --cleanup "${value}"; expected auto, keep, or always`);
+  }
+  return value;
 }
 
 function printOutcomes(outcomes: Array<{ stage: string } & Record<string, unknown>>): void {
@@ -409,6 +428,8 @@ program
   .requiredOption('--prompt <text>', 'task description (first line becomes the title)')
   .option('--repo <path>', 'target repository', process.cwd())
   .option('--worker <name>', 'claude-code | opencode | both')
+  .option('--cleanup <mode>', "post-run worktree disposal: auto | keep | always")
+  .option('--drop-orca-workspace', 'drop the enclosing Orca workspace after done (when repoPath is Orca-managed)', false)
   .option('--auto-pr', 'push branch and open PR when green', false)
   .option('--max-loops <n>', 'test-failure retry budget', Number)
   .action(async (opts) => {
@@ -422,6 +443,8 @@ program
       autoPr: opts.autoPr ?? false,
       maxLoops: opts.maxLoops ?? config.maxLoops,
       timeoutMs: config.timeoutMinutes * 60_000,
+      cleanup: resolveCleanup(opts.cleanup, config.cleanup),
+      dropOrcaWorkspace: opts.dropOrcaWorkspace ?? config.dropOrcaWorkspace ?? false,
       log: logger,
     };
     logger.info('task', `Task run ${logger.runId} starting`, { repo: cfg.repoPath, autoPr: cfg.autoPr });
@@ -445,7 +468,15 @@ program
         implementStage: async (c, ticket, lg) => {
           const plan = { ticket, classification: 'endpoint-only' as const, tasks: [], summary: ticket.title };
           return implementStage(
-            { repoPath: c.repoPath, maxLoops: c.maxLoops, timeoutMs: c.timeoutMs, worker: workerName, autoPr: c.autoPr },
+            {
+              repoPath: c.repoPath,
+              maxLoops: c.maxLoops,
+              timeoutMs: c.timeoutMs,
+              worker: workerName,
+              autoPr: c.autoPr,
+              cleanup: c.cleanup,
+              dropOrcaWorkspace: c.dropOrcaWorkspace,
+            },
             plan,
             lg,
           );
@@ -786,6 +817,161 @@ program
     const config = loadConfig(process.cwd());
     const status = credentialStatus(loadCredentials());
     console.log(JSON.stringify({ config, credentials: status }, null, 2));
+  });
+
+program
+  .command('scout')
+  .description('24/7 opencode scout: research backlog -> PRD -> queue (FR-SCOUT-01)')
+  .option('--repo <path>', 'target repository', process.cwd())
+  .option('--worker <name>', 'opencode | claude-code')
+  .option('--interval <minutes>', 'cycle interval minutes (loop mode only)', Number)
+  .option('--timeout <minutes>', 'per-cycle wall-clock cap', Number)
+  .option('--once', 'run exactly one cycle then exit (default in non-daemon mode)', false)
+  .option('--dry-run', 'enqueue deterministic fallback task without calling LLM', false)
+  .action(async (opts) => {
+    const { runScoutOnce, runScoutLoop } = await import('./scout.js');
+    const config = loadConfig(opts.repo);
+    const worker = (opts.worker ?? config.scout?.worker ?? 'opencode') as 'opencode' | 'claude-code';
+    const intervalMinutes = opts.interval ?? config.scout?.intervalMinutes ?? 30;
+    const timeoutMs = (opts.timeout ?? 5) * 60_000;
+    if (opts.once || opts.dryRun) {
+      const r = await runScoutOnce({ repoPath: opts.repo, worker, intervalMinutes, dryRun: Boolean(opts.dryRun), timeoutMs }, config);
+      console.log(r.detail);
+      if (r.taskId) console.log(`task ${r.taskId} -> ${r.prdPath} + ${r.queuePath}`);
+      console.log(`heartbeat: ${r.heartbeatPath}`);
+      if (!r.ok) process.exitCode = 1;
+      return;
+    }
+    console.log(`Scout loop started: ${worker} every ${intervalMinutes}m in ${opts.repo} (Ctrl+C to stop)`);
+    const ac = new AbortController();
+    process.on('SIGINT', () => ac.abort());
+    process.on('SIGTERM', () => ac.abort());
+    await runScoutLoop({ repoPath: opts.repo, worker, intervalMinutes, timeoutMs, signal: ac.signal }, config, (r) => {
+      console.log(`[scout] ${r.detail}`);
+    });
+  });
+
+program
+  .command('scout-status')
+  .description('Show scout heartbeat + queue depth')
+  .option('--repo <path>', 'target repository', process.cwd())
+  .option('--json', 'emit JSON', false)
+  .action(async (opts) => {
+    const { readHeartbeat } = await import('./scout.js');
+    const { taskCount } = await import('./queue.js');
+    const hb = readHeartbeat(opts.repo);
+    const counts = taskCount(opts.repo);
+    if (opts.json) {
+      console.log(JSON.stringify({ heartbeat: hb, queue: counts }, null, 2));
+      return;
+    }
+    if (!hb) console.log('No scout heartbeat yet. Run: devagent scout --once --dry-run');
+    else {
+      const ageMs = Date.now() - Date.parse(hb.lastRunAt);
+      const age = ageMs < 60_000 ? `${Math.round(ageMs / 1000)}s ago` : `${Math.round(ageMs / 60_000)}m ago`;
+      console.log(`Scout: ${hb.worker} interval ${hb.intervalMinutes}m last ${hb.lastStatus} ${age}`);
+      console.log(`  lastTask: ${hb.lastTaskId ?? '(none)'}  detail: ${hb.lastDetail}`);
+      console.log(`  at: ${hb.lastRunAt}`);
+    }
+    console.log(`Queue: total ${counts.total} (pending:${counts.pending} claimed:${counts.claimed} done:${counts.done} failed:${counts.failed})`);
+  });
+
+program
+  .command('create')
+  .description('Bootstrap the factory: queue dirs, config, optional scout LaunchAgent + Orca worktrees (FR-CREATE-01)')
+  .requiredOption('--repo <path>', 'repository to bootstrap')
+  .option('--scout', 'enable scout daemon', false)
+  .option('--workers <n>', 'number of Orca worker worktrees to provision', Number, 0)
+  .option('--auto-merge', 'enable auto-merge of green PRs', false)
+  .option('--self-update', 'enable self-update after merges', false)
+  .option('--interval <minutes>', 'scout interval minutes', Number)
+  .option('--scout-worker <name>', 'scout worker: opencode | claude-code')
+  .option('--dry-run', 'print plan without mutating', false)
+  .action(async (opts) => {
+    const { runCreate } = await import('./create.js');
+    const r = await runCreate({
+      repoPath: opts.repo,
+      scout: Boolean(opts.scout),
+      workers: Number(opts.workers) || 0,
+      autoMerge: Boolean(opts.autoMerge),
+      selfUpdate: Boolean(opts.selfUpdate),
+      dryRun: Boolean(opts.dryRun),
+      intervalMinutes: opts.interval ? Number(opts.interval) : undefined,
+      scoutWorker: opts.scoutWorker as 'opencode' | 'claude-code' | undefined,
+    });
+    console.log(r.detail);
+    if (r.configPath) console.log(`config: ${r.configPath}`);
+    if (r.launchAgentPlist) console.log(`LaunchAgent: ${r.launchAgentPlist}`);
+    if (r.orcaWorktrees?.length) for (const p of r.orcaWorktrees) console.log(`  worktree: ${p}`);
+    if (!r.ok) process.exitCode = 1;
+  });
+
+program
+  .command('queue')
+  .description('Queue operations (FR-QUEUE-01)')
+  .action(() => {
+    // subcommands handle dispatch; bare `queue` prints help
+    program.commands.find((c) => c.name() === 'queue')!.outputHelp();
+  });
+
+const queueCmd = program.commands.find((c) => c.name() === 'queue')!;
+queueCmd
+  .command('list')
+  .description('List queued tasks')
+  .option('--repo <path>', 'repository', process.cwd())
+  .option('--status <s>', 'filter: pending | claimed | done | failed')
+  .option('--json', 'emit JSON', false)
+  .action(async (opts) => {
+    const { listTasks } = await import('./queue.js');
+    const tasks = listTasks(opts.repo, opts.status ? { status: opts.status } : undefined);
+    if (opts.json) console.log(JSON.stringify(tasks, null, 2));
+    else {
+      if (tasks.length === 0) console.log('No tasks' + (opts.status ? ` with status ${opts.status}` : '') + '.');
+      else for (const t of tasks) console.log(`${t.status.padEnd(8)} ${t.id}  ${t.title}${t.lastError ? ` — ${t.lastError.slice(0, 60)}` : ''}`);
+    }
+  });
+
+queueCmd
+  .command('show')
+  .description('Show one queued task + PRD head')
+  .argument('<id>', 'task id')
+  .option('--repo <path>', 'repository', process.cwd())
+  .option('--json', 'emit JSON', false)
+  .action(async (id: string, opts) => {
+    const { readTask, readPrd } = await import('./queue.js');
+    const t = readTask(opts.repo, id);
+    if (!t) { console.error(`Task ${id} not found`); process.exitCode = 1; return; }
+    if (opts.json) console.log(JSON.stringify(t, null, 2));
+    else {
+      console.log(`${t.status} ${t.id}: ${t.title}`);
+      console.log(`  goal: ${t.goal}`);
+      if (t.acceptanceCriteria.length) console.log(`  criteria: ${t.acceptanceCriteria.join('; ')}`);
+      if (t.prdPath) { const prd = readPrd(opts.repo, id); if (prd) console.log(`\n--- PRD head ---\n${prd.slice(0, 600)}`); }
+    }
+  });
+
+program
+  .command('consume')
+  .description('Claim one queued task and run it through devagent task + validation -> PR (FR-WORKER-02)')
+  .option('--repo <path>', 'repository', process.cwd())
+  .option('--once', 'consume exactly one task then exit', true)
+  .option('--auto-pr', 'push branch and open PR when green', false)
+  .option('--auto-merge', 'auto-merge the PR when checks pass (--auto-pr required)', false)
+  .option('--max-loops <n>', 'retry budget per task', Number)
+  .action(async (opts) => {
+    const { consumeOnce } = await import('./consume.js');
+    const config = loadConfig(opts.repo);
+    const r = await consumeOnce({
+      repoPath: opts.repo,
+      autoPr: Boolean(opts.autoPr),
+      autoMerge: Boolean(opts.autoMerge) || Boolean(config.autoMerge),
+      maxLoops: opts.maxLoops ?? config.maxLoops,
+      timeoutMs: config.timeoutMinutes * 60_000,
+    });
+    console.log(r.detail);
+    if (r.prUrl) console.log(`PR: ${r.prUrl}`);
+    if (!r.ok && r.taskId) process.exitCode = 1;
+    if (!r.taskId) console.log('No pending tasks.');
   });
 
 program.parseAsync();

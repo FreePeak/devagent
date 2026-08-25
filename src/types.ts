@@ -89,7 +89,12 @@ export type RunStage =
   | 'failed'
   | 'clarify'
   | 'task'
-  | 'audit';
+  | 'audit'
+  | 'consume'
+  | 'self-update'
+  | 'scout'
+  | 'queue'
+  | 'create';
 
 export interface RunConfig {
   ticketId: string;
@@ -100,6 +105,10 @@ export interface RunConfig {
   maxLoops: number;
   timeoutMs: number;
   dryRun: boolean;
+  /** Post-run worktree disposal policy; default 'auto' (remove on success). */
+  cleanup?: 'auto' | 'keep' | 'always';
+  /** Drop the enclosing Orca workspace via orca-cli when repoPath is Orca-managed. */
+  dropOrcaWorkspace?: boolean;
 }
 
 export interface LogEntry {
