@@ -8,12 +8,17 @@ import { spawnCli } from './workers/spawn-utils.js';
 export interface CreateOptions {
   repoPath: string;
   scout?: boolean;
+  /** Progress-tracker agent: devagent track --interval (role 2 of self-build factory) */
+  tracker?: boolean;
+  /** Builder agent: scripts/build-loop.sh consuming the queue (role 3) */
+  builder?: boolean;
   workers?: number;
   autoMerge?: boolean;
   selfUpdate?: boolean;
   dryRun?: boolean;
   intervalMinutes?: number;
   scoutWorker?: 'opencode' | 'claude-code';
+  trackIntervalMinutes?: number;
 }
 
 export interface CreateResult {
@@ -22,6 +27,8 @@ export interface CreateResult {
   dirs: string[];
   configPath?: string;
   launchAgentPlist?: string;
+  /** All installed LaunchAgent plists (scout/tracker/builder), when requested */
+  launchAgentPlists?: string[];
   orcaWorktrees?: string[];
 }
 
@@ -62,14 +69,18 @@ export async function createOrcaWorktree(
   }
 }
 
-function buildLaunchAgentPlist(opts: { repoPath: string; intervalMinutes: number; worker: string }): string {
-  const label = 'com.devagent.scout';
-  const logPath = join(process.env.HOME ?? '/tmp', 'Library/Logs/devagent-scout.log');
-  const devagentBin = join(opts.repoPath, 'dist/src/cli.js');
-  // Use node to run the built CLI so LaunchAgent does not depend on npx
-  const nodePath = process.execPath;
-  // launchd default PATH is minimal; embed the current PATH so the scout can
-  // find opencode/claude/git installed in user locations.
+interface PlistSpec {
+  label: string;
+  logName: string;
+  programArgs: string[];
+  repoPath: string;
+}
+
+function buildLaunchAgentPlist(spec: PlistSpec): string {
+  const { label, logName, programArgs, repoPath } = spec;
+  const logPath = join(process.env.HOME ?? '/tmp', 'Library/Logs', logName);
+  // launchd default PATH is minimal; embed the current PATH so agents can
+  // find opencode/claude/git/node installed in user locations.
   const installPath = process.env.PATH ?? '/usr/bin:/bin';
   const xmlEsc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   return [
@@ -85,14 +96,9 @@ function buildLaunchAgentPlist(opts: { repoPath: string; intervalMinutes: number
     '  </dict>',
     '  <key>ProgramArguments</key>',
     '  <array>',
-    `    <string>${nodePath}</string>`,
-    `    <string>${devagentBin}</string>`,
-    '    <string>scout</string>',
-    `    <string>--repo</string><string>${opts.repoPath}</string>`,
-    `    <string>--interval</string><string>${String(opts.intervalMinutes)}</string>`,
-    `    <string>--worker</string><string>${opts.worker}</string>`,
+    ...programArgs.map((a) => `    <string>${xmlEsc(a)}</string>`),
     '  </array>',
-    `  <key>WorkingDirectory</key><string>${opts.repoPath}</string>`,
+    `  <key>WorkingDirectory</key><string>${repoPath}</string>`,
     '  <key>RunAtLoad</key><true/>',
     '  <key>KeepAlive</key><true/>',
     '  <key>StandardOutPath</key><string>' + logPath + '</string>',
@@ -102,6 +108,64 @@ function buildLaunchAgentPlist(opts: { repoPath: string; intervalMinutes: number
     '</plist>',
     '',
   ].join('\n');
+}
+
+/** Role → plist spec for the self-build factory (scout / tracker / builder). */
+export function rolePlistSpecs(opts: {
+  repoPath: string;
+  scout?: boolean;
+  tracker?: boolean;
+  builder?: boolean;
+  intervalMinutes: number;
+  scoutWorker: string;
+  trackIntervalMinutes: number;
+}): PlistSpec[] {
+  const specs: PlistSpec[] = [];
+  const nodePath = process.execPath;
+  const devagentBin = join(opts.repoPath, 'dist/src/cli.js');
+  if (opts.scout) {
+    specs.push({
+      label: 'com.devagent.scout',
+      logName: 'devagent-scout.log',
+      repoPath: opts.repoPath,
+      programArgs: [nodePath, devagentBin, 'scout', '--repo', opts.repoPath, '--interval', String(opts.intervalMinutes), '--worker', opts.scoutWorker],
+    });
+  }
+  if (opts.tracker) {
+    specs.push({
+      label: 'com.devagent.tracker',
+      logName: 'devagent-tracker.log',
+      repoPath: opts.repoPath,
+      programArgs: [nodePath, devagentBin, 'track', '--repo', opts.repoPath, '--interval', String(opts.trackIntervalMinutes)],
+    });
+  }
+  if (opts.builder) {
+    specs.push({
+      label: 'com.devagent.builder',
+      logName: 'devagent-builder.log',
+      repoPath: opts.repoPath,
+      programArgs: ['/bin/bash', join(opts.repoPath, 'scripts', 'build-loop.sh')],
+    });
+  }
+  return specs;
+}
+
+/** Install one plist + best-effort launchctl bootstrap. Returns the plist path or null when skipped. */
+async function installPlist(spec: PlistSpec, repoPath: string): Promise<string | null> {
+  const home = process.env.HOME ?? '/tmp';
+  const plistPath = join(home, 'Library/LaunchAgents', `${spec.label}.plist`);
+  mkdirSync(join(home, 'Library/LaunchAgents'), { recursive: true });
+  mkdirSync(join(home, 'Library/Logs'), { recursive: true });
+  writeFileSync(plistPath, buildLaunchAgentPlist(spec));
+  try {
+    const uid = process.getuid?.() ?? 501;
+    await spawnCli('launchctl', ['bootout', `gui/${uid}/${spec.label}`], { cwd: repoPath, timeoutMs: 5_000 });
+  } catch { /* not loaded yet — fine */ }
+  try {
+    const uid = process.getuid?.() ?? 501;
+    await spawnCli('launchctl', ['bootstrap', `gui/${uid}`, plistPath], { cwd: repoPath, timeoutMs: 5_000 });
+  } catch { /* best-effort; user can bootstrap manually */ }
+  return plistPath;
 }
 
 export async function runCreate(opts: CreateOptions, runner: CliRunner = defaultRunner): Promise<CreateResult> {
@@ -119,6 +183,8 @@ export async function runCreate(opts: CreateOptions, runner: CliRunner = default
     plan.push(`would ensure ${queueDir(repoPath)} and ${prdsDir(repoPath)}`);
     plan.push(`would merge ${resolveConfigPath(repoPath)} with ${JSON.stringify({ scout: opts.scout ? { enabled: true, worker: scoutWorker, intervalMinutes } : undefined, autoMerge: opts.autoMerge, selfUpdate: opts.selfUpdate })}`);
     if (opts.scout) plan.push(`would install LaunchAgent plist for scout (${scoutWorker} every ${intervalMinutes}m)`);
+    if (opts.tracker) plan.push(`would install LaunchAgent plist for tracker (every ${opts.trackIntervalMinutes ?? 15}m)`);
+    if (opts.builder) plan.push(`would install LaunchAgent plist for builder (scripts/build-loop.sh, poll 300s)`);
     if (opts.workers && opts.workers > 0) plan.push(`would provision ${opts.workers} Orca worktree(s) via orca worktree create`);
     return { ok: true, detail: plan.join('; '), dirs: [queueDir(repoPath), prdsDir(repoPath)] };
   }
@@ -162,36 +228,39 @@ export async function runCreate(opts: CreateOptions, runner: CliRunner = default
     }
   }
 
-  // 4) LaunchAgent (macOS only; skip gracefully elsewhere)
-  // Never install the persistent user agent for an ephemeral repo: tmp-dir
-  // factories would hijack com.devagent.scout and crash-loop (EX_CONFIG)
-  // once the temp checkout is deleted.
+  // 4) LaunchAgents (macOS only; skip gracefully elsewhere). Never install the
+  // persistent user agents for an ephemeral repo: tmp-dir factories would
+  // hijack com.devagent.* slots and crash-loop (EX_CONFIG) once the temp
+  // checkout is deleted.
+  const launchAgentPlists: string[] = [];
   let plistPath: string | undefined;
-  if (opts.scout && process.platform === 'darwin' && shouldInstallLaunchAgent(repoPath)) {
-    const plist = buildLaunchAgentPlist({ repoPath, intervalMinutes, worker: scoutWorker });
-    const home = process.env.HOME ?? '/tmp';
-    plistPath = join(home, 'Library/LaunchAgents/com.devagent.scout.plist');
+  if ((opts.scout || opts.tracker || opts.builder) && process.platform === 'darwin' && shouldInstallLaunchAgent(repoPath)) {
+    const specs = rolePlistSpecs({
+      repoPath,
+      scout: opts.scout,
+      tracker: opts.tracker,
+      builder: opts.builder,
+      intervalMinutes,
+      scoutWorker,
+      trackIntervalMinutes: opts.trackIntervalMinutes ?? 15,
+    });
     try {
-      mkdirSync(join(home, 'Library/LaunchAgents'), { recursive: true });
-      mkdirSync(join(home, 'Library/Logs'), { recursive: true });
-      writeFileSync(plistPath, plist);
-      // Best-effort bootstrap (requires orca not needed)
-      try {
-        const { spawnCli: sc } = await import('./workers/spawn-utils.js');
-        await sc('launchctl', ['bootout', `gui/${process.getuid?.() ?? 501}/${'com.devagent.scout'}`], { cwd: repoPath, timeoutMs: 5_000 }).catch(() => null);
-        await sc('launchctl', ['bootstrap', `gui/${process.getuid?.() ?? 501}`, plistPath], { cwd: repoPath, timeoutMs: 5_000 });
-      } catch { /* best-effort */ }
+      for (const spec of specs) {
+        const p = await installPlist(spec, repoPath);
+        if (p) launchAgentPlists.push(p);
+      }
     } catch (err) {
       return { ok: false, detail: `LaunchAgent install failed: ${(err as Error).message}`, dirs, configPath: cfgPath };
     }
   }
+  plistPath = launchAgentPlists.find((p) => p.includes('scout'));
 
-  const detail = `factory ready: queue at ${queueDir(repoPath)}, prds at ${prdsDir(repoPath)}${opts.scout ? `, scout ${scoutWorker}/${intervalMinutes}m` : ''}${orcaWorktrees?.length ? `, ${orcaWorktrees.length} orca worktree(s)` : ''}`;
-  return { ok: true, detail, dirs, configPath: cfgPath, launchAgentPlist: plistPath, orcaWorktrees };
+  const detail = `factory ready: queue at ${queueDir(repoPath)}, prds at ${prdsDir(repoPath)}${opts.scout ? `, scout ${scoutWorker}/${intervalMinutes}m` : ''}${opts.tracker ? ', tracker agent' : ''}${opts.builder ? ', builder agent' : ''}${orcaWorktrees?.length ? `, ${orcaWorktrees.length} orca worktree(s)` : ''}${launchAgentPlists.length ? ` [${launchAgentPlists.length} LaunchAgent(s)]` : ''}`;
+  return { ok: true, detail, dirs, configPath: cfgPath, launchAgentPlist: plistPath, launchAgentPlists: launchAgentPlists.length ? launchAgentPlists : undefined, orcaWorktrees };
 }
 
 export function launchAgentPlistContent(repoPath: string, intervalMinutes = 30, worker: string = 'opencode'): string {
-  return buildLaunchAgentPlist({ repoPath, intervalMinutes, worker });
+  return buildLaunchAgentPlist(rolePlistSpecs({ repoPath, scout: true, intervalMinutes, scoutWorker: worker, trackIntervalMinutes: 15 })[0]!);
 }
 
 /**
