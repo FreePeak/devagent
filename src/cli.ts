@@ -1061,14 +1061,41 @@ program
   });
 
 program
+  .command('track')
+  .description('Progress-tracker agent: snapshot queue+scout+ledger+git+PRs -> .selfbuild/progress.md')
+  .option('--repo <path>', 'target repository', process.cwd())
+  .option('--interval <minutes>', 'loop mode: run every N minutes (omit for one-shot)', Number)
+  .option('--json', 'print the snapshot JSON instead of a summary line', false)
+  .action(async (opts) => {
+    const { trackOnce, trackLoop } = await import('./tracker.js');
+    if (!opts.interval) {
+      const r = await trackOnce({ repoPath: opts.repo });
+      if (opts.json && r.snapshot) console.log(JSON.stringify(r.snapshot, null, 2));
+      else console.log(`${r.ok ? 'ok' : 'FAILED'}: ${r.detail}\nprogress: ${r.progressMdPath ?? '(n/a)'}\nheartbeat: ${r.heartbeatPath}`);
+      if (!r.ok) process.exitCode = 1;
+      return;
+    }
+    console.log(`Tracker loop started: every ${opts.interval}m in ${opts.repo} (Ctrl+C to stop)`);
+    const ac = new AbortController();
+    process.on('SIGINT', () => ac.abort());
+    process.on('SIGTERM', () => ac.abort());
+    await trackLoop({ repoPath: opts.repo, intervalMinutes: opts.interval, signal: ac.signal }, (r) => {
+      console.log(`[track] ${r.detail}`);
+    });
+  });
+
+program
   .command('create')
   .description('Bootstrap the factory: queue dirs, config, optional scout LaunchAgent + Orca worktrees (FR-CREATE-01)')
   .requiredOption('--repo <path>', 'repository to bootstrap')
-  .option('--scout', 'enable scout daemon', false)
+  .option('--scout', 'enable scout daemon (PRD writer, role 1)', false)
+  .option('--tracker', 'enable progress-tracker agent (role 2)', false)
+  .option('--builder', 'enable builder agent consuming the queue (role 3)', false)
   .option('--workers <n>', 'number of Orca worker worktrees to provision', Number, 0)
   .option('--auto-merge', 'enable auto-merge of green PRs', false)
   .option('--self-update', 'enable self-update after merges', false)
   .option('--interval <minutes>', 'scout interval minutes', Number)
+  .option('--track-interval <minutes>', 'tracker interval minutes (loop mode)', Number)
   .option('--scout-worker <name>', 'scout worker: opencode | claude-code')
   .option('--dry-run', 'print plan without mutating', false)
   .action(async (opts) => {
@@ -1076,16 +1103,20 @@ program
     const r = await runCreate({
       repoPath: opts.repo,
       scout: Boolean(opts.scout),
+      tracker: Boolean(opts.tracker),
+      builder: Boolean(opts.builder),
       workers: Number(opts.workers) || 0,
       autoMerge: Boolean(opts.autoMerge),
       selfUpdate: Boolean(opts.selfUpdate),
       dryRun: Boolean(opts.dryRun),
       intervalMinutes: opts.interval ? Number(opts.interval) : undefined,
       scoutWorker: opts.scoutWorker as 'opencode' | 'claude-code' | undefined,
+      trackIntervalMinutes: opts.trackInterval ? Number(opts.trackInterval) : undefined,
     });
     console.log(r.detail);
     if (r.configPath) console.log(`config: ${r.configPath}`);
-    if (r.launchAgentPlist) console.log(`LaunchAgent: ${r.launchAgentPlist}`);
+    for (const p of r.launchAgentPlists ?? []) console.log(`LaunchAgent: ${p}`);
+    if (!r.launchAgentPlists?.length && r.launchAgentPlist) console.log(`LaunchAgent: ${r.launchAgentPlist}`);
     if (r.orcaWorktrees?.length) for (const p of r.orcaWorktrees) console.log(`  worktree: ${p}`);
     if (!r.ok) process.exitCode = 1;
   });

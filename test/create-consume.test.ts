@@ -170,3 +170,33 @@ describe('consume: no pending -> ok no-op, claimed -> runs pipeline stub', () =>
     } finally { rmSync(repo, { recursive: true, force: true }); }
   });
 });
+
+describe('create: tracker + builder LaunchAgent plists', () => {
+  it('rolePlistSpecs returns one spec per requested role with correct labels and intervals', async () => {
+    const { rolePlistSpecs } = await import('../src/create.js');
+    const repo = '/tmp/selfbuild-test';
+    const specs = rolePlistSpecs({ repoPath: repo, scout: true, tracker: true, builder: true, intervalMinutes: 42, scoutWorker: 'claude-code', trackIntervalMinutes: 17 });
+    expect(specs.map((s) => s.label)).toEqual(['com.devagent.scout', 'com.devagent.tracker', 'com.devagent.builder']);
+    expect(specs[0]!.programArgs.join(' ')).toContain('--interval 42');
+    expect(specs[0]!.programArgs.join(' ')).toContain('claude-code');
+    expect(specs[1]!.programArgs.join(' ')).toContain('--interval 17');
+    expect(specs[1]!.logName).toBe('devagent-tracker.log');
+    expect(specs[2]!.programArgs).toContain('/bin/bash');
+    expect(specs[2]!.logName).toBe('devagent-builder.log');
+  });
+
+  it('tracker plist args contain devagent track and interval', async () => {
+    const { rolePlistSpecs } = await import('../src/create.js');
+    const specs = rolePlistSpecs({ repoPath: '/tmp/r', tracker: true, intervalMinutes: 30, scoutWorker: 'opencode', trackIntervalMinutes: 9 });
+    const t = specs.find((s) => s.label === 'com.devagent.tracker')!;
+    expect(t.programArgs).toContain('track');
+    expect(t.programArgs).toContain('9');
+  });
+
+  it('builder plist points at scripts/build-loop.sh', async () => {
+    const { rolePlistSpecs } = await import('../src/create.js');
+    const specs = rolePlistSpecs({ repoPath: '/tmp/r', builder: true, intervalMinutes: 30, scoutWorker: 'opencode', trackIntervalMinutes: 15 });
+    const b = specs.find((s) => s.label === 'com.devagent.builder')!;
+    expect(b.programArgs.join(' ')).toContain('build-loop.sh');
+  });
+});
