@@ -418,7 +418,7 @@ program
 
     try {
       const taskMod = await import('./task.js');
-      const { runTask } = taskMod;
+      const { runTask, publishTaskBranch } = taskMod;
       type TaskDeps = import('./task.js').TaskDeps;
       const { implementStage } = await import('./deps.js');
       const { runMigrationStaticGate } = await import('./validation/runner.js');
@@ -442,16 +442,24 @@ program
         },
         publishStage: async (c, _ticket, impl) => {
           if (!impl.worktreePath || !creds.githubToken) return undefined;
-          const branch = `devagent/task-${logger.runId.slice(0, 8)}`;
+          const git = await import('./git/worktree.js');
           const { pushBranch, createPr } = await import('./integrations/github.js');
-          await pushBranch(impl.worktreePath, branch);
-          void loadConfig(c.repoPath).githubBaseBranch; // base defaults via gh when omitted
-          const prUrl = await createPr({
-            repoPath: c.repoPath,
-            branch,
-            title: cfg.prompt.split('\n')[0]!.slice(0, 80),
-            body: `Automated task via \`devagent task\`.\n\n## Prompt\n${cfg.prompt}`,
-          });
+          const baseBranch = loadConfig(c.repoPath).githubBaseBranch ?? 'main';
+          // Dogfood loops 7-9: commit worker output and push the worktree's
+          // ACTUAL branch — the old code invented devagent/task-<runId>, a ref
+          // nobody created ("src refspec does not match any" on every run).
+          const prUrl = await publishTaskBranch(
+            { repoPath: c.repoPath, prompt: cfg.prompt, baseBranch, log: logger },
+            impl,
+            {
+              commitAllChanges: git.commitAllChanges,
+              currentBranch: git.currentBranch,
+              listChangedFiles: git.listChangedFiles,
+              pushBranch,
+              createPr,
+            },
+          );
+          if (!prUrl) return undefined;
           if (c.autoMerge) {
             const n = /pull\/(\d+)/.exec(prUrl)?.[1];
             if (n) {
