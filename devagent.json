@@ -1,5 +1,9 @@
 {
   "worker": "claude-code",
+  "herdr": {
+    "enabled": true,
+    "session": "devagent"
+  },
   "scout": {
     "enabled": true,
     "worker": "claude-code",
