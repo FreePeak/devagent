@@ -31,6 +31,7 @@ export interface FanoutOptions {
   variant?: string;
   /** Repo-local lessons file override (see loadLessons). */
   lessonsFile?: string;
+  lessonsMaxChars?: number;
   scoreLeg?(worktreePath: string, timeoutMs: number): Promise<boolean | null>;
   /**
    * Merge-assist hook (PRD section 17 Phase 4): invoked once after winner
@@ -47,7 +48,7 @@ export async function runFanout(
   log: RunLogger,
   opts: FanoutOptions,
 ): Promise<FanoutLeg | null> {
-  const prompt = buildImplementationPrompt(plan, loadLessons(opts.repoPath, opts.lessonsFile));
+  const prompt = buildImplementationPrompt(plan, loadLessons(opts.repoPath, opts.lessonsFile, opts.lessonsMaxChars));
   const legs = await Promise.all(
     workers.map(async (workerName, i): Promise<FanoutLeg> => {
       const worker = getWorker(workerName);

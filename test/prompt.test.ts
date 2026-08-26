@@ -78,6 +78,38 @@ describe('lessons feedback loop (PRD Phase 4)', () => {
     expect(loaded).not.toContain('lesson line 0\n');
   });
 
+  it('loadLessons drops oldest entries whole until under the character budget', () => {
+    dir = mkdtempSync(join(tmpdir(), 'devagent-lessons-'));
+    const lines = Array.from({ length: 10 }, (_, i) => `x`.repeat(900) + ` entry-${i}`);
+    writeFileSync(join(dir, 'custom-lessons.md'), `${lines.join('\n')}\n`);
+    const loaded = loadLessons(dir, 'custom-lessons.md', 2000);
+    expect(loaded.length).toBeLessThanOrEqual(2000 + ' entry-9'.length);
+    expect(loaded.split('\n')).toHaveLength(2); // two whole entries fit; a third would overflow
+    expect(loaded).toContain('entry-9');
+    expect(loaded).toContain('entry-8');
+    expect(loaded).not.toContain('entry-7');
+  });
+
+  it('loadLessons drops an old oversized entry whole in favor of newer ones', () => {
+    dir = mkdtempSync(join(tmpdir(), 'devagent-lessons-'));
+    const huge = 'y'.repeat(5000) + ' tail-marker';
+    writeFileSync(join(dir, 'custom-lessons.md'), `${huge}\nsmall note\n`);
+    expect(loadLessons(dir, 'custom-lessons.md', 100)).toBe('small note');
+  });
+
+  it('loadLessons keeps a single newest oversized line whole rather than splitting or emptying', () => {
+    dir = mkdtempSync(join(tmpdir(), 'devagent-lessons-'));
+    const huge = 'z'.repeat(5000) + ' keep-marker';
+    writeFileSync(join(dir, 'custom-lessons.md'), `${huge}\n`);
+    expect(loadLessons(dir, 'custom-lessons.md', 100)).toBe(huge);
+  });
+
+  it('loadLessons keeps short files untouched by the char budget', () => {
+    dir = mkdtempSync(join(tmpdir(), 'devagent-lessons-'));
+    writeFileSync(join(dir, 'custom-lessons.md'), 'a\nb\nc\n');
+    expect(loadLessons(dir, 'custom-lessons.md', 4000)).toBe('a\nb\nc');
+  });
+
   it('buildImplementationPrompt injects the lessons section only when non-empty', () => {
     const withLessons = buildImplementationPrompt(plan, 'Run npm test before claiming done.');
     const withoutLessons = buildImplementationPrompt(plan);

@@ -61,6 +61,8 @@ export interface DevAgentConfig {
    * DEVAGENT_HERDR=1|0, DEVAGENT_HERDR_SESSION=<name>.
    */
   herdr?: { enabled?: boolean; session?: string };
+  /** Character budget for injected lessons; oldest entries are dropped whole (default 4000). */
+  lessonsMaxChars?: number;
 }
 
 export interface Credentials {

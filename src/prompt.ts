@@ -7,18 +7,34 @@ import type { ImplementationPlan } from './planner.js';
 export const DEFAULT_LESSONS_FILE = '.devagent/lessons.md';
 /** Lessons are context, not the task: cap to the tail so prompts stay bounded. */
 const LESSONS_MAX_LINES = 40;
+/** Hard character budget for injected lessons (PRD Q9: distilled, not verbatim). */
+export const LESSONS_MAX_CHARS = 4000;
 
 /**
  * Load curated durable lessons for prompt injection (PRD Phase 4 lessons feedback
  * loop). Returns '' when the file is absent so prompts stay unchanged by default.
  * Ratchet-only content is assumed: callers keep the file append-only.
+ *
+ * Bounded twice (PRD Q9): first by line count, then by a character budget
+ * (`lessonsMaxChars`, default 4000) that drops oldest entries whole — never
+ * splitting a line — so verbose ratchet paragraphs cannot blow up worker
+ * payloads across implementation, repair, and fan-out legs.
  */
-export function loadLessons(repoPath: string, lessonsFile?: string): string {
+export function loadLessons(repoPath: string, lessonsFile?: string, maxChars?: number): string {
   const p = join(repoPath, lessonsFile || DEFAULT_LESSONS_FILE);
   if (!existsSync(p)) return '';
   try {
-    const lines = readFileSync(p, 'utf8').trimEnd().split('\n');
-    return lines.slice(-LESSONS_MAX_LINES).join('\n').trim();
+    const lines = readFileSync(p, 'utf8').trimEnd().split('\n').slice(-LESSONS_MAX_LINES);
+    const budget = maxChars ?? LESSONS_MAX_CHARS;
+    let total = -1; // joining N lines adds N-1 newlines
+    let start = lines.length;
+    while (start > 0) {
+      const cost = lines[start - 1]!.length + 1;
+      if (start < lines.length && total + cost > budget) break;
+      total += cost;
+      start--;
+    }
+    return lines.slice(start).join('\n').trim();
   } catch {
     return '';
   }

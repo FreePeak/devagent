@@ -551,7 +551,7 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 | Q4 | Where do fixture/representative datasets for Gate G2 come from — repo-provided seeds or DevAgent-generated synthetic data? | eng | Phase 2 |
 | Q5 | Should G4 async findings be advisory or blocking? | product | Phase 2 |
 | Q8 | How should winner selection handle flaky/nondeterministic test suites during fan-out judging — rerun budget, quarantine, or refuse-to-judge? | eng | Phase 4 |
-| Q9 | Should `lessons.md` from the selfbuild state branch be injected verbatim into worker prompts or distilled to a size-bounded digest first? | eng | Phase 4 |
+| Q9 | Should `lessons.md` from the selfbuild state branch be injected verbatim or distilled to a size-bounded digest first? | eng | Phase 4 |
 
 > Resolved 2026-08-24: Q1 (ecosystem conventions + `testCommand` override now
 > cover npm/Go/Python), Q2 (plain webhooks shipped in Phase 3), Q3 (policy is
@@ -560,6 +560,10 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 >
 > Resolved 2026-08-24 (curation run 2): Q7 — yes; autoMerge now requires a
 > green CI check rollup before merging (`evaluateChecks`, PR #17).
+>
+> Resolved 2026-08-25 (loop 67): Q9 — distilled; lessons injection is bounded
+> by line count AND a character budget (`lessonsMaxChars`, default 4000) that
+> drops oldest entries whole, newest-first, never splitting a line.
 
 ---
 

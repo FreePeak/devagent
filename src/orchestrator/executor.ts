@@ -19,6 +19,7 @@ export async function executeTask(args: {
   timeoutMs: number;
   /** Repo-local lessons file override (see loadLessons). */
   lessonsFile?: string;
+  lessonsMaxChars?: number;
   log: RunLogger;
   executor: WorkerName;
 }): Promise<{ ok: boolean; worktreePath?: string; detail?: string }> {
@@ -59,7 +60,7 @@ export async function executeTask(args: {
   }
 
   const worker = getWorker(executor);
-  const lessons = loadLessons(repoPath, args.lessonsFile);
+  const lessons = loadLessons(repoPath, args.lessonsFile, args.lessonsMaxChars);
   const prompt = buildImplementationPrompt(plan, lessons);
   const maxAttempts = 2; // in-worker repair loop; scheduler owns cross-wave retries
   const { loadConfig, herdrEnabled } = await import('../config.js');

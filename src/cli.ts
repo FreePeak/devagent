@@ -520,6 +520,7 @@ program
               worker: workerName,
               autoPr: c.autoPr,
               lessonsFile: config.lessonsFile,
+              lessonsMaxChars: config.lessonsMaxChars,
               ...(model ? { model } : {}),
               ...(variant ? { variant } : {}),
               cleanup: c.cleanup,
@@ -658,6 +659,7 @@ program
         {
           repoPath: opts.repo,
           lessonsFile: config.lessonsFile,
+          lessonsMaxChars: config.lessonsMaxChars,
           executor: executorName,
           concurrency: opts.concurrency,
           maxTaskRetries: opts.maxTaskRetries,
