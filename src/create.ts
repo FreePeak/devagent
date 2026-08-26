@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, realpathSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { ensureQueueDirs, queueDir, prdsDir } from './queue.js';
 import { loadConfig, type DevAgentConfig } from './config.js';
@@ -12,6 +12,10 @@ export interface CreateOptions {
   tracker?: boolean;
   /** Builder agent: scripts/build-loop.sh consuming the queue (role 3) */
   builder?: boolean;
+  /** Orchestrator agent: scripts/orchestrate-loop.sh driving the DAG board (role 4) */
+  orchestrator?: boolean;
+  /** Goal text handed to the orchestrator loop for planning when no board exists */
+  orchestratorGoal?: string;
   workers?: number;
   autoMerge?: boolean;
   selfUpdate?: boolean;
@@ -74,10 +78,12 @@ interface PlistSpec {
   logName: string;
   programArgs: string[];
   repoPath: string;
+  /** Extra EnvironmentVariables entries merged into the plist (e.g. ORCHESTRATOR_GOAL) */
+  env?: Record<string, string>;
 }
 
-function buildLaunchAgentPlist(spec: PlistSpec): string {
-  const { label, logName, programArgs, repoPath } = spec;
+export function buildLaunchAgentPlist(spec: PlistSpec): string {
+  const { label, logName, programArgs, repoPath, env } = spec;
   const logPath = join(process.env.HOME ?? '/tmp', 'Library/Logs', logName);
   // launchd default PATH is minimal; embed the current PATH so agents can
   // find opencode/claude/git/node installed in user locations.
@@ -93,6 +99,7 @@ function buildLaunchAgentPlist(spec: PlistSpec): string {
     '  <dict>',
     `    <key>PATH</key><string>${xmlEsc(installPath)}</string>`,
     `    <key>HOME</key><string>${process.env.HOME ?? ''}</string>`,
+    ...Object.entries(env ?? {}).map(([k, v]) => `    <key>${xmlEsc(k)}</key><string>${xmlEsc(v)}</string>`),
     '  </dict>',
     '  <key>ProgramArguments</key>',
     '  <array>',
@@ -110,12 +117,14 @@ function buildLaunchAgentPlist(spec: PlistSpec): string {
   ].join('\n');
 }
 
-/** Role → plist spec for the self-build factory (scout / tracker / builder). */
+/** Role → plist spec for the self-build factory (scout / tracker / builder / orchestrator). */
 export function rolePlistSpecs(opts: {
   repoPath: string;
   scout?: boolean;
   tracker?: boolean;
   builder?: boolean;
+  orchestrator?: boolean;
+  orchestratorGoal?: string;
   intervalMinutes: number;
   scoutWorker: string;
   trackIntervalMinutes: number;
@@ -147,6 +156,17 @@ export function rolePlistSpecs(opts: {
       programArgs: ['/bin/bash', join(opts.repoPath, 'scripts', 'build-loop.sh')],
     });
   }
+  if (opts.orchestrator) {
+    const env: Record<string, string> = { ORCHESTRATOR_REPO: opts.repoPath };
+    if (opts.orchestratorGoal) env.ORCHESTRATOR_GOAL = opts.orchestratorGoal;
+    specs.push({
+      label: 'com.devagent.orchestrator',
+      logName: 'devagent-orchestrator.log',
+      repoPath: opts.repoPath,
+      programArgs: ['/bin/bash', join(opts.repoPath, 'scripts', 'orchestrate-loop.sh')],
+      env,
+    });
+  }
   return specs;
 }
 
@@ -169,9 +189,11 @@ async function installPlist(spec: PlistSpec, repoPath: string): Promise<string |
 }
 
 export async function runCreate(opts: CreateOptions, runner: CliRunner = defaultRunner): Promise<CreateResult> {
-  const repoPath = opts.repoPath;
+  // Normalize early: LaunchAgent plists embed repoPath (ProgramArguments +
+  // WorkingDirectory); a relative --repo would produce broken agents.
+  const repoPath = resolve(opts.repoPath);
   if (!existsSync(repoPath)) {
-    return { ok: false, detail: `repoPath does not exist: ${repoPath}`, dirs: [] };
+    return { ok: false, detail: `repoPath does not exist: ${opts.repoPath}`, dirs: [] };
   }
 
   const intervalMinutes = opts.intervalMinutes ?? 30;
@@ -185,6 +207,7 @@ export async function runCreate(opts: CreateOptions, runner: CliRunner = default
     if (opts.scout) plan.push(`would install LaunchAgent plist for scout (${scoutWorker} every ${intervalMinutes}m)`);
     if (opts.tracker) plan.push(`would install LaunchAgent plist for tracker (every ${opts.trackIntervalMinutes ?? 15}m)`);
     if (opts.builder) plan.push(`would install LaunchAgent plist for builder (scripts/build-loop.sh, poll 300s)`);
+    if (opts.orchestrator) plan.push(`would install LaunchAgent plist for orchestrator (scripts/orchestrate-loop.sh, goal: ${opts.orchestratorGoal ? `"${opts.orchestratorGoal.slice(0, 80)}"` : 'repo default'})`);
     if (opts.workers && opts.workers > 0) plan.push(`would provision ${opts.workers} Orca worktree(s) via orca worktree create`);
     return { ok: true, detail: plan.join('; '), dirs: [queueDir(repoPath), prdsDir(repoPath)] };
   }
@@ -206,6 +229,10 @@ export async function runCreate(opts: CreateOptions, runner: CliRunner = default
   }
   if (opts.autoMerge) fileConfig.autoMerge = true;
   if (opts.selfUpdate) fileConfig.selfUpdate = true;
+  if (opts.orchestrator) {
+    const orch = (fileConfig.orchestrator as Record<string, unknown> | undefined) ?? {};
+    fileConfig.orchestrator = { ...orch, enabled: true, ...(opts.orchestratorGoal ? { goal: opts.orchestratorGoal } : {}) };
+  }
   // Validate by loading (throws on bad values) before writing
   try {
     // Write then validate via loadConfig
@@ -234,12 +261,14 @@ export async function runCreate(opts: CreateOptions, runner: CliRunner = default
   // checkout is deleted.
   const launchAgentPlists: string[] = [];
   let plistPath: string | undefined;
-  if ((opts.scout || opts.tracker || opts.builder) && process.platform === 'darwin' && shouldInstallLaunchAgent(repoPath)) {
+  if ((opts.scout || opts.tracker || opts.builder || opts.orchestrator) && process.platform === 'darwin' && shouldInstallLaunchAgent(repoPath)) {
     const specs = rolePlistSpecs({
       repoPath,
       scout: opts.scout,
       tracker: opts.tracker,
       builder: opts.builder,
+      orchestrator: opts.orchestrator,
+      orchestratorGoal: opts.orchestratorGoal,
       intervalMinutes,
       scoutWorker,
       trackIntervalMinutes: opts.trackIntervalMinutes ?? 15,
@@ -255,7 +284,7 @@ export async function runCreate(opts: CreateOptions, runner: CliRunner = default
   }
   plistPath = launchAgentPlists.find((p) => p.includes('scout'));
 
-  const detail = `factory ready: queue at ${queueDir(repoPath)}, prds at ${prdsDir(repoPath)}${opts.scout ? `, scout ${scoutWorker}/${intervalMinutes}m` : ''}${opts.tracker ? ', tracker agent' : ''}${opts.builder ? ', builder agent' : ''}${orcaWorktrees?.length ? `, ${orcaWorktrees.length} orca worktree(s)` : ''}${launchAgentPlists.length ? ` [${launchAgentPlists.length} LaunchAgent(s)]` : ''}`;
+  const detail = `factory ready: queue at ${queueDir(repoPath)}, prds at ${prdsDir(repoPath)}${opts.scout ? `, scout ${scoutWorker}/${intervalMinutes}m` : ''}${opts.tracker ? ', tracker agent' : ''}${opts.builder ? ', builder agent' : ''}${opts.orchestrator ? `, orchestrator agent${opts.orchestratorGoal ? ' (goal set)' : ''}` : ''}${orcaWorktrees?.length ? `, ${orcaWorktrees.length} orca worktree(s)` : ''}${launchAgentPlists.length ? ` [${launchAgentPlists.length} LaunchAgent(s)]` : ''}`;
   return { ok: true, detail, dirs, configPath: cfgPath, launchAgentPlist: plistPath, launchAgentPlists: launchAgentPlists.length ? launchAgentPlists : undefined, orcaWorktrees };
 }
 

@@ -26,3 +26,72 @@ describe('spawnCli exit-code normalization', () => {
     expect(r.exitCode).toBe(-1);
   });
 });
+
+describe('spawnCli PATH fallback (live-smoke regression 2026-08-25)', () => {
+  it('appends fallback segments when PATH is missing entirely (launchd context)', async () => {
+    const r = await spawnCli(
+      process.execPath,
+      ['-e', 'console.log(process.env.PATH ?? "")'],
+      { cwd: '.', timeoutMs: 10_000, replaceEnv: true, env: {} },
+    );
+    expect(r.exitCode).toBe(0);
+    for (const seg of ['/opt/homebrew/bin', '/usr/bin', '/bin']) {
+      expect(r.stdout.trim()).toContain(seg);
+    }
+  });
+
+  it('keeps an already-usable PATH intact', async () => {
+    const r = await spawnCli(
+      process.execPath,
+      ['-e', 'console.log(process.env.PATH ?? "")'],
+      { cwd: '.', timeoutMs: 10_000, replaceEnv: true, env: { PATH: '/usr/bin:/bin' } },
+    );
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout.trim()).toBe('/usr/bin:/bin');
+  });
+
+  it('extends a partial PATH with only the missing segments', async () => {
+    const r = await spawnCli(
+      process.execPath,
+      ['-e', 'console.log(process.env.PATH ?? "")'],
+      { cwd: '.', timeoutMs: 10_000, replaceEnv: true, env: { PATH: '/custom/tools:/bin' } },
+    );
+    expect(r.exitCode).toBe(0);
+    const out = r.stdout.trim();
+    expect(out.startsWith('/custom/tools:/bin:')).toBe(true);
+    expect(out).toContain('/usr/bin');
+    expect(out).toContain('/opt/homebrew/bin');
+  });
+});
+
+describe('spawnCli PWD/cwd consistency (live-smoke regression 2026-08-26)', () => {
+  it('sets PWD to opts.cwd so CLIs trusting $PWD resolve the intended directory', async () => {
+    const r = await spawnCli(
+      process.execPath,
+      ['-e', 'console.log(process.env.PWD ?? "")'],
+      { cwd: '/tmp', timeoutMs: 10_000 },
+    );
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout.trim()).toBe('/tmp');
+  });
+
+  it('drops OLDPWD when overriding PWD', async () => {
+    const r = await spawnCli(
+      process.execPath,
+      ['-e', 'console.log(process.env.OLDPWD === undefined ? "unset" : process.env.OLDPWD)'],
+      { cwd: '/tmp', timeoutMs: 10_000 },
+    );
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout.trim()).toBe('unset');
+  });
+
+  it('leaves env untouched when no cwd is provided', async () => {
+    const r = await spawnCli(
+      process.execPath,
+      ['-e', 'console.log(process.env.PWD === undefined ? "unset" : "kept")'],
+      { cwd: '', timeoutMs: 10_000, replaceEnv: true, env: {} } as never,
+    );
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout.trim()).toBe('unset');
+  });
+});

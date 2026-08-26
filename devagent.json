@@ -1,0 +1,12 @@
+{
+  "worker": "opencode",
+  "model": "opencode-go/ox-alpha-free",
+  "variant": "max",
+  "scout": {
+    "enabled": true,
+    "worker": "opencode",
+    "intervalMinutes": 30
+  },
+  "autoMerge": true,
+  "selfUpdate": true
+}

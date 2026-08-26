@@ -61,14 +61,50 @@ export async function executeTask(args: {
   const lessons = loadLessons(repoPath, args.lessonsFile);
   const prompt = buildImplementationPrompt(plan, lessons);
   const maxAttempts = 2; // in-worker repair loop; scheduler owns cross-wave retries
+  const { loadConfig, herdrEnabled } = await import('../config.js');
+  const fullCfg = loadConfig(repoPath);
+  const resilienceCfg = fullCfg.resilience;
+  const noProgressTimeoutMs = resilienceCfg?.noProgressTimeoutMs ?? 10 * 60_000;
+  const apiMaxAttempts = resilienceCfg?.apiMaxAttempts;
+  const useHerdr = herdrEnabled(fullCfg);
 
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    const result = await worker.spawn({
+  // Transient check uses classify module (sync after first import)
+  const { isTransientProviderError: isTransient } = await import('../resilience/classify.js');
+  const { isNonRetryableApiError: isNonRetryable } = await import('../sessionguard/events.js');
+
+  let attempt = 1;
+  let logicAttempts = 0;
+  let infraRetries = 0;
+  while (logicAttempts < maxAttempts || infraRetries < 200) {
+    const spawnOpts: Record<string, unknown> = {
       prompt: attempt === 1 ? prompt : buildRepairPrompt(plan, attempt - 1, 'previous attempt failed the test gate', lessons),
       cwd: worktreePath,
       timeoutMs,
-    });
-    if (result.timedOut || result.exitCode !== 0) continue;
+      ...(apiMaxAttempts !== undefined ? { apiMaxAttempts } : {}),
+      ...(noProgressTimeoutMs !== undefined ? { noProgressTimeoutMs } : {}),
+      ...(useHerdr ? { herdr: true } : {}),
+    };
+    const result = await worker.spawn(spawnOpts as never);
+    try {
+      const { findStaleWorkerPids, killStaleProcessTree } = await import('../resilience/reaper.js');
+      const stale = findStaleWorkerPids(noProgressTimeoutMs || 60_000);
+      for (const s of stale) killStaleProcessTree(s.pid);
+    } catch {}
+    if (result.timedOut || result.exitCode !== 0) {
+      const text = result.resultText ?? '';
+      if (result.timedOut || (text && !isNonRetryable(text) && isTransient(text))) {
+        infraRetries++;
+        const { backoffDelay } = await import('../sessionguard/backoff.js');
+        await new Promise((r) => setTimeout(r, backoffDelay(infraRetries)));
+        attempt++;
+        continue;
+      }
+      logicAttempts++;
+      attempt++;
+      if (logicAttempts >= maxAttempts && infraRetries >= 200) break;
+      if (logicAttempts >= maxAttempts) break;
+      continue;
+    }
     const g1 = await runTestGate(worktreePath, timeoutMs);
     if (g1.passed) {
       // Commit the work: uncommitted changes never reach merge-back
@@ -86,6 +122,9 @@ export async function executeTask(args: {
       return { ok: true, worktreePath };
     }
     log.warn('task', `${task.id} G1 failed on executor attempt ${attempt}`, {});
+    logicAttempts++;
+    attempt++;
+    if (logicAttempts >= maxAttempts) break;
   }
   return { ok: false, worktreePath, detail: 'test gate failed after executor attempts' };
 }

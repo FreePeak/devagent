@@ -22,6 +22,7 @@ program
   .option('--repo <path>', 'target repository', process.cwd())
   .option('--worker <name>', 'claude-code | opencode | both')
   .option('--model <id>', 'model override passed to the worker CLI (provider/model)')
+  .option('--variant <name>', 'variant for opencode model (maps to --variant or #variant)')
   .option('--cleanup <mode>', "post-run worktree disposal: auto | keep | always")
   .option('--drop-orca-workspace', 'drop the enclosing Orca workspace after done (when repoPath is Orca-managed)', false)
   .option('--auto-pr', 'skip approval gates', false)
@@ -41,6 +42,7 @@ program
       repoPath: opts.repo,
       worker: opts.worker ?? config.worker,
       model: opts.model ?? config.model,
+      variant: opts.variant ?? config.variant,
       autoPr: opts.autoPr ?? false,
       interactive: opts.interactive ?? !opts.autoPr,
       maxLoops: opts.maxLoops ?? config.maxLoops,
@@ -433,6 +435,7 @@ program
   .option('--repo <path>', 'target repository', process.cwd())
   .option('--worker <name>', 'claude-code | opencode | both')
   .option('--model <id>', 'model override passed to the worker CLI (provider/model)')
+  .option('--variant <name>', 'variant for opencode model (maps to --variant or #variant)')
   .option('--cleanup <mode>', "post-run worktree disposal: auto | keep | always")
   .option('--drop-orca-workspace', 'drop the enclosing Orca workspace after done (when repoPath is Orca-managed)', false)
   .option('--auto-pr', 'push branch and open PR when green', false)
@@ -502,6 +505,7 @@ program
         implementStage: async (c, ticket, lg) => {
           const plan = { ticket, classification: 'endpoint-only' as const, tasks: [], summary: ticket.title };
           const model = opts.model ?? config.model;
+          const variant = opts.variant ?? config.variant;
           return implementStage(
             {
               repoPath: c.repoPath,
@@ -511,6 +515,7 @@ program
               autoPr: c.autoPr,
               lessonsFile: config.lessonsFile,
               ...(model ? { model } : {}),
+              ...(variant ? { variant } : {}),
               cleanup: c.cleanup,
               dropOrcaWorkspace: c.dropOrcaWorkspace,
             },
@@ -852,7 +857,7 @@ program
     'Run a headless Claude Code session with auto-resume on API failure (args after --)',
   )
   .option('--resume-prompt <text>', 'prompt sent when resuming', 'Continue')
-  .option('--max-attempts <n>', 'total launches including the first', Number, 5)
+  .option('--max-attempts <n>', 'total launches including the first (default Infinity, set DEVAGENT_API_MAX_ATTEMPTS or pass N to cap)', Number)
   .option('--base-delay-ms <n>', 'first resume backoff', Number, 2_000)
   .option('--max-delay-ms <n>', 'backoff ceiling', Number, 60_000)
   .option(
@@ -1091,6 +1096,8 @@ program
   .option('--scout', 'enable scout daemon (PRD writer, role 1)', false)
   .option('--tracker', 'enable progress-tracker agent (role 2)', false)
   .option('--builder', 'enable builder agent consuming the queue (role 3)', false)
+  .option('--orchestrator', 'enable orchestrator agent driving the DAG board (role 4)', false)
+  .option('--orchestrator-goal <text>', 'goal text for the orchestrator planner (falls back to .devagent/orchestrator-goal.txt)')
   .option('--workers <n>', 'number of Orca worker worktrees to provision', Number, 0)
   .option('--auto-merge', 'enable auto-merge of green PRs', false)
   .option('--self-update', 'enable self-update after merges', false)
@@ -1099,12 +1106,19 @@ program
   .option('--scout-worker <name>', 'scout worker: opencode | claude-code')
   .option('--dry-run', 'print plan without mutating', false)
   .action(async (opts) => {
+    if (opts.orchestrator && !opts.orchestratorGoal && !existsSync(join(opts.repo, '.devagent', 'orchestrator-goal.txt'))) {
+      console.error('--orchestrator requires --orchestrator-goal (or .devagent/orchestrator-goal.txt)');
+      process.exitCode = 1;
+      return;
+    }
     const { runCreate } = await import('./create.js');
     const r = await runCreate({
       repoPath: opts.repo,
       scout: Boolean(opts.scout),
       tracker: Boolean(opts.tracker),
       builder: Boolean(opts.builder),
+      orchestrator: Boolean(opts.orchestrator),
+      orchestratorGoal: opts.orchestratorGoal as string | undefined,
       workers: Number(opts.workers) || 0,
       autoMerge: Boolean(opts.autoMerge),
       selfUpdate: Boolean(opts.selfUpdate),
@@ -1167,6 +1181,21 @@ ${prd.slice(0, 600)}`); }
     }
   });
 
+queueCmd
+  .command('bridge')
+  .description('Bridge the oldest pending queued goal into an orchestrator board (idempotent; no-op when a board exists)')
+  .option('--repo <path>', 'repository', process.cwd())
+  .action(async (opts) => {
+    const { bridgeIfQueued } = await import('./orchestrator/queue-bridge.js');
+    const r = await bridgeIfQueued(opts.repo);
+    if (!r) {
+      console.log('nothing to bridge: no pending queued tasks');
+      return;
+    }
+    if (r.idempotent || !r.created) console.log(`board already exists at ${r.boardPath} (${r.tasksWritten} task(s)) — no-op`);
+    else console.log(`bridged ${r.tasksWritten} task(s) into ${r.boardPath}`);
+  });
+
 program
   .command('consume')
   .description('Claim one queued task and run it through devagent task + validation -> PR (FR-WORKER-02)')
@@ -1189,6 +1218,25 @@ program
     if (r.prUrl) console.log(`PR: ${r.prUrl}`);
     if (!r.ok && r.taskId) process.exitCode = 1;
     if (!r.taskId) console.log('No pending tasks.');
+  });
+
+program
+  .command('reap-stale')
+  .description('Find and kill stale opencode/claude worker processes (infinite-retry reaper)')
+  .option('--older-than <ms>', 'consider workers stale after this many ms (default 600000 = 10m)', Number, 10 * 60_000)
+  .option('--dry-run', 'list without killing', false)
+  .action(async (opts) => {
+    const { findStaleWorkerPids, reapStaleWorkers } = await import('./resilience/reaper.js');
+    const olderThan = Number(opts.olderThan) || 10 * 60_000;
+    if (opts.dryRun) {
+      const stale = findStaleWorkerPids(olderThan);
+      if (stale.length === 0) console.log('No stale workers.');
+      else for (const s of stale) console.log(`${s.pid} ${Math.round(s.elapsedMs / 1000)}s ${s.command}`);
+      return;
+    }
+    const killed = reapStaleWorkers(olderThan, false);
+    if (killed.length === 0) console.log('No stale workers.');
+    else for (const s of killed) console.log(`killed ${s.pid} ${Math.round(s.elapsedMs / 1000)}s ${s.command}`);
   });
 
 

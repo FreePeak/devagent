@@ -106,6 +106,7 @@ Key properties:
 | [Scout + Factory PRD](docs/SCOUT-CREATE-PRD.md) | Markdown | Factory requirements: queue, scout daemon, `devagent create`, LaunchAgent, auto-merge, self-update |
 | [Self-Build Loop](docs/SELF-BUILD-LOOP.md) | Markdown | Infinity loop driver (`scripts/selfbuild-loop.sh`) + Orca automation modes |
 | [Git cleanup of merged MRs/PRs](docs/cleanup-merged.md) | Markdown | `scripts/git-cleanup-merged.sh`: delete local branches + worktrees whose GitLab MR / GitHub PR was merged, across all nested repos in `~/work` (dry-run default, launchd automation) |
+| [Herdr runtime support](docs/HERDR.md) | Markdown | Run worker launches inside herdr panes (persistent terminal workspace manager): visible, reattachable, disconnect-proof; opt-in via `herdr.enabled` or `DEVAGENT_HERDR=1` |
 
 Research sources backing the PRD are cited inline and collected in the [research appendix](docs/PRD.md#19-research-appendix).
 

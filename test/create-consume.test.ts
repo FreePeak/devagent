@@ -171,7 +171,7 @@ describe('consume: no pending -> ok no-op, claimed -> runs pipeline stub', () =>
   });
 });
 
-describe('create: tracker + builder LaunchAgent plists', () => {
+describe('create: tracker + builder + orchestrator LaunchAgent plists', () => {
   it('rolePlistSpecs returns one spec per requested role with correct labels and intervals', async () => {
     const { rolePlistSpecs } = await import('../src/create.js');
     const repo = '/tmp/selfbuild-test';
@@ -183,6 +183,41 @@ describe('create: tracker + builder LaunchAgent plists', () => {
     expect(specs[1]!.logName).toBe('devagent-tracker.log');
     expect(specs[2]!.programArgs).toContain('/bin/bash');
     expect(specs[2]!.logName).toBe('devagent-builder.log');
+  });
+
+  it('orchestrator spec points at orchestrate-loop.sh and embeds goal env', async () => {
+    const { rolePlistSpecs } = await import('../src/create.js');
+    const specs = rolePlistSpecs({ repoPath: '/tmp/r', orchestrator: true, orchestratorGoal: 'Build the widget DAG', intervalMinutes: 30, scoutWorker: 'opencode', trackIntervalMinutes: 15 });
+    const o = specs.find((s) => s.label === 'com.devagent.orchestrator')!;
+    expect(o).toBeDefined();
+    expect(o.programArgs.join(' ')).toContain('orchestrate-loop.sh');
+    expect(o.logName).toBe('devagent-orchestrator.log');
+    expect(o.env?.ORCHESTRATOR_GOAL).toBe('Build the widget DAG');
+    expect(o.env?.ORCHESTRATOR_REPO).toBe('/tmp/r');
+  });
+
+  it('omits ORCHESTRATOR_GOAL env when no goal given', async () => {
+    const { rolePlistSpecs } = await import('../src/create.js');
+    const specs = rolePlistSpecs({ repoPath: '/tmp/r', orchestrator: true, intervalMinutes: 30, scoutWorker: 'opencode', trackIntervalMinutes: 15 });
+    const o = specs.find((s) => s.label === 'com.devagent.orchestrator')!;
+    expect(o.env?.ORCHESTRATOR_GOAL).toBeUndefined();
+  });
+
+  it('orchestrator plist passes macOS plutil -lint with goal env', { skip: process.platform !== 'darwin' }, async () => {
+    const { rolePlistSpecs, buildLaunchAgentPlist } = await import('../src/create.js');
+    const specs = rolePlistSpecs({ repoPath: '/tmp/r', scout: true, tracker: true, builder: true, orchestrator: true, orchestratorGoal: 'self-build devagent <now> & always', intervalMinutes: 30, scoutWorker: 'opencode', trackIntervalMinutes: 15 });
+    expect(specs.map((s) => s.label)).toEqual(['com.devagent.scout', 'com.devagent.tracker', 'com.devagent.builder', 'com.devagent.orchestrator']);
+    const xml = buildLaunchAgentPlist(specs[3]!);
+    const tmp = join(tmpdir(), `da-orch-plist-${Date.now()}.plist`);
+    writeFileSync(tmp, xml);
+    try {
+      const out = execFileSync('plutil', ['-lint', tmp]).toString().trim();
+      expect(out).toBe(`${tmp}: OK`);
+      expect(xml).toContain('ORCHESTRATOR_GOAL');
+      expect(xml).toContain('&lt;now&gt;'); // xml-escaped
+    } finally {
+      rmSync(tmp, { force: true });
+    }
   });
 
   it('tracker plist args contain devagent track and interval', async () => {

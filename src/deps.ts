@@ -1,4 +1,5 @@
 import { basename } from 'node:path';
+import { existsSync } from 'node:fs';
 import type { Credentials } from './config.js';
 import type { PipelineDeps, ImplementResult } from './pipeline.js';
 import type { RunConfig, TicketClass, TicketSpec } from './types.js';
@@ -13,6 +14,8 @@ import { getWorker } from './workers/index.js';
 import { buildImplementationPrompt, buildRepairPrompt, loadLessons } from './prompt.js';
 import type { CleanupMode } from './config.js';
 import { findOrcaWorktreeByPath, dropOrcaWorkspace } from './integrations/orca.js';
+import { isNonRetryableApiError } from './sessionguard/events.js';
+import { isTransientProviderError } from './resilience/classify.js';
 
 export interface StageConfig {
   repoPath: string;
@@ -94,23 +97,29 @@ export function buildDeps(creds: Credentials, cfg: StageConfig, log: RunLogger):
       return { passed: r.passed, findings: r.findings, detail: r.detail };
     },
     implementStage: (c, plan, lg) => implementStage(cfg, plan as ImplementationPlan, lg),
-    publishStage: async (_c, planRaw, impl) => {
+    publishStage: async (c, planRaw, impl) => {
       const plan = planRaw as ImplementationPlan;
+      // With cleanup=auto a successful implement already snapshotted and removed
+      // its worktree; the run branch survives in the main repo, so publish there.
+      const wtAlive = !!impl.worktreePath && existsSync(impl.worktreePath);
       if (!impl.worktreePath) return undefined;
+      const gitCwd = wtAlive ? impl.worktreePath : c.repoPath;
       // Commit whatever the worker left uncommitted before pushing — otherwise
       // the change set silently ships as an empty PR (production-readiness P0 #6).
-      const { commitAllChanges } = await import('./git/worktree.js');
-      await commitAllChanges(impl.worktreePath, `devagent(${plan.ticket.id}): ${plan.ticket.title.slice(0, 72)}`);
+      if (wtAlive) {
+        const { commitAllChanges } = await import('./git/worktree.js');
+        await commitAllChanges(impl.worktreePath, `devagent(${plan.ticket.id}): ${plan.ticket.title.slice(0, 72)}`);
+      }
       const branch = `devagent/${plan.ticket.id}`;
       const { pushBranch } = await import('./integrations/github.js');
-      const repoCfg = (await import('./config.js')).loadConfig(impl.worktreePath);
+      const repoCfg = (await import('./config.js')).loadConfig(gitCwd);
       const baseBranch = repoCfg.githubBaseBranch ?? 'main';
 
       // GitLab path: GITLAB_* env wins when no GitHub credentials present
       const gitlabToken = process.env.GITLAB_TOKEN;
       const gitlabProject = process.env.GITLAB_PROJECT_ID;
       if (gitlabToken && gitlabProject && !creds.githubToken) {
-        await pushBranch(impl.worktreePath, branch);
+        await pushBranch(gitCwd, branch);
         const { createMergeRequest } = await import('./integrations/gitlab.js');
         return createMergeRequest(
           {
@@ -134,8 +143,8 @@ export function buildDeps(creds: Credentials, cfg: StageConfig, log: RunLogger):
       // Divergence guard (Orca lesson): warn when base moved ahead of our
       // fork point — the PR will be flagged out-of-date upstream.
       try {
-        const mb = await gitSpawn('git', ['merge-base', 'HEAD', `origin/${baseBranch}`], { cwd: impl.worktreePath, timeoutMs: 30_000 });
-        const ob = await gitSpawn('git', ['rev-parse', `origin/${baseBranch}`], { cwd: impl.worktreePath, timeoutMs: 30_000 });
+        const mb = await gitSpawn('git', ['merge-base', 'HEAD', `origin/${baseBranch}`], { cwd: gitCwd, timeoutMs: 30_000 });
+        const ob = await gitSpawn('git', ['rev-parse', `origin/${baseBranch}`], { cwd: gitCwd, timeoutMs: 30_000 });
         if (mb.exitCode === 0 && ob.exitCode === 0 && mb.stdout.trim() !== ob.stdout.trim()) {
           log.warn('publish', `${baseBranch} has advanced since this run started; PR may be out-of-date`);
         }
@@ -143,11 +152,11 @@ export function buildDeps(creds: Credentials, cfg: StageConfig, log: RunLogger):
         // no remote or offline: skip the check silently
       }
 
-      // The branch exists only in the local worktree until pushed
-      await pushBranch(impl.worktreePath, branch);
+      // The branch exists only locally until pushed (worktree or main repo)
+      await pushBranch(gitCwd, branch);
       let changedFiles: string[] = [];
       try {
-        changedFiles = await listChangedFiles(impl.worktreePath, baseBranch);
+        changedFiles = await listChangedFiles(gitCwd, baseBranch);
       } catch {
         // evidence is best-effort; never block publishing on it
       }
@@ -174,7 +183,7 @@ export function buildDeps(creds: Credentials, cfg: StageConfig, log: RunLogger):
 
 /** Dispatch a worker inside an isolated worktree with the retry loop (FR-IMPL-01..04). */
 export async function implementStage(
-  cfg: StageConfig & Pick<RunConfig, 'worker' | 'maxLoops' | 'model'> & { lessonsFile?: string },
+  cfg: StageConfig & Pick<RunConfig, 'worker' | 'maxLoops' | 'model' | 'variant'> & { lessonsFile?: string },
   plan: ImplementationPlan,
   log: RunLogger,
 ): Promise<ImplementResult> {
@@ -222,6 +231,7 @@ export async function implementStage(
       timeoutMs: cfg.timeoutMs,
       lessonsFile: cfg.lessonsFile,
       ...(cfg.model ? { model: cfg.model } : {}),
+      ...(cfg.variant ? { variant: cfg.variant } : {}),
       scoreLeg: (wt, ms) => runTestGate(wt, ms).then((r) => r.passed),
       onSelected: mergeAssistWinner,
     });
@@ -258,34 +268,84 @@ export async function implementStage(
     log.warn('implement', `Not a git repository, running in repo root: ${message}`);
   }
 
+  const resilienceCfg = (await import('./config.js')).loadConfig(cfg.repoPath).resilience;
+  const apiMaxAttemptsCfg = resilienceCfg?.apiMaxAttempts;
+  const noProgressTimeoutMsCfg = resilienceCfg?.noProgressTimeoutMs;
+  const effectiveApiMaxAttempts = apiMaxAttemptsCfg;
+  const effectiveNoProgress = noProgressTimeoutMsCfg ?? 10 * 60_000;
+
+  // Transient infrastructure failures (Console Go endpoint, upstream, watchdog
+  // timeout) must not consume the logic retry budget. Only bounded
+  // maxLoops covers real implementation failures (non-zero exit with no
+  // transient signal, or gate failures).
+  const isInfraTransient = (r: { timedOut: boolean; resultText: string | null; exitCode: number }): boolean => {
+    if (r.timedOut) return true;
+    const t = r.resultText ?? '';
+    if (t && isNonRetryableApiError(t)) return false;
+    return t ? isTransientProviderError(t) : false;
+  };
+
   try {
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      const attemptPrompt = attempt === 1 ? prompt : repairPrompt;
-      log.info('implement', `Worker ${workerName} attempt ${attempt}/${maxAttempts}`, {});
-      const result = await worker.spawn({ prompt: attemptPrompt, cwd, timeoutMs: cfg.timeoutMs, ...(cfg.model ? { model: cfg.model } : {}) });
-      log.info('implement', `Attempt ${attempt} finished`, {
+    let logicAttempts = 0;
+    let infraRetries = 0;
+    const maxInfraBurst = 200; // safety cap even with Infinity so runaway env never truly never-terminates; large enough for real incidents
+    for (;;) {
+      const infiniteMode = effectiveApiMaxAttempts === undefined || effectiveApiMaxAttempts === Infinity;
+      if (!infiniteMode && logicAttempts >= maxAttempts) break;
+      if (infiniteMode && infraRetries >= maxInfraBurst && logicAttempts >= maxAttempts) break;
+      const displayAttempt = logicAttempts + 1;
+      const attemptPrompt = logicAttempts === 0 ? prompt : repairPrompt;
+      log.info('implement', `Worker ${workerName} attempt ${displayAttempt}/${infiniteMode ? '∞' : maxAttempts}`, {});
+      const spawnOpts: Record<string, unknown> = {
+        prompt: attemptPrompt,
+        cwd,
+        timeoutMs: cfg.timeoutMs,
+        ...(cfg.model ? { model: cfg.model } : {}),
+        ...(cfg.variant ? { variant: cfg.variant } : {}),
+        ...(effectiveApiMaxAttempts !== undefined ? { apiMaxAttempts: effectiveApiMaxAttempts } : {}),
+        ...(effectiveNoProgress !== undefined ? { noProgressTimeoutMs: effectiveNoProgress } : {}),
+      };
+      const result = await worker.spawn(spawnOpts as never);
+      // Reap any stale provider workers that may be idling after a hung call
+      // (watchdog already SIGKILLs the direct child; this cleans orphans and
+      // any other leaked opencode/claude workers older than the watchdog window).
+      try {
+        const { findStaleWorkerPids, killStaleProcessTree } = await import('./resilience/reaper.js');
+        const stale = findStaleWorkerPids(effectiveNoProgress || 60_000);
+        for (const s of stale) killStaleProcessTree(s.pid);
+      } catch {}
+      log.info('implement', `Attempt ${displayAttempt} finished`, {
         exitCode: result.exitCode,
         timedOut: result.timedOut,
         durationMs: result.durationMs,
         events: result.events.length,
       });
       if (result.timedOut || result.exitCode !== 0) {
-        repairPrompt = buildRepairPrompt(plan, attempt, result.resultText ?? `worker exited ${result.exitCode}`, lessons);
+        if (isInfraTransient(result)) {
+          infraRetries++;
+          log.warn('implement', `Transient infra failure, retrying (infra retry ${infraRetries})`, { resultText: result.resultText?.slice(0, 120) });
+          const { backoffDelay } = await import('./sessionguard/backoff.js');
+          await new Promise((r) => setTimeout(r, backoffDelay(infraRetries)));
+          continue;
+        }
+        repairPrompt = buildRepairPrompt(plan, logicAttempts + 1, result.resultText ?? `worker exited ${result.exitCode}`, lessons);
+        logicAttempts++;
         continue;
       }
       // Worker reports success: verify with the repo's own test suite before accepting
       const { runTestGate } = await import('./validation/test-gate.js');
       const g1 = await runTestGate(cwd, cfg.timeoutMs);
-      log.info('implement', `Attempt ${attempt} test gate: ${g1.passed ? 'passed' : 'failed'}`, {
+      log.info('implement', `Attempt ${displayAttempt} test gate: ${g1.passed ? 'passed' : 'failed'}`, {
         detail: g1.detail?.split('\n')[0],
       });
       if (g1.passed) {
         succeeded = true;
-        return { ok: true, worker: workerName, attempts: attempt, worktreePath };
+        return { ok: true, worker: workerName, attempts: displayAttempt, worktreePath };
       }
-      repairPrompt = buildRepairPrompt(plan, attempt, g1.detail ?? 'test suite failed', lessons);
+      repairPrompt = buildRepairPrompt(plan, logicAttempts + 1, g1.detail ?? 'test suite failed', lessons);
+      logicAttempts++;
     }
-    return { ok: false, worker: workerName, attempts: maxAttempts, worktreePath };
+    return { ok: false, worker: workerName, attempts: logicAttempts || 1, worktreePath };
   } finally {
     if (worktreePath) {
       const mode = cfg.cleanup ?? 'auto';

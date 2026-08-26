@@ -1,23 +1,26 @@
-import { execFile } from 'node:child_process';
+import { spawnCli } from '../workers/spawn-utils.js';
 
-function run(
+/**
+ * Run a git/gh CLI with the hardened spawn env (PATH fallback so publish
+ * stages never die with "spawn git ENOENT" under launchd/scrubbed contexts).
+ * Throws on non-zero exit with stderr attached.
+ */
+async function run(
   cmd: string,
   args: string[],
   cwd: string,
 ): Promise<{ stdout: string; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    execFile(cmd, args, { cwd }, (err, stdout, stderr) => {
-      if (err) {
-        // Attach raw output unless already present (real execFile sets it).
-        const e = err as { stdout?: unknown; stderr?: unknown };
-        if (e.stdout === undefined) e.stdout = String(stdout);
-        if (e.stderr === undefined) e.stderr = String(stderr);
-        reject(err);
-      } else {
-        resolve({ stdout: String(stdout), stderr: String(stderr) });
-      }
-    });
-  });
+  const r = await spawnCli(cmd, args, { cwd, timeoutMs: 120_000 });
+  if (r.exitCode !== 0) {
+    const err = new Error(`${cmd} ${args[0]} failed: ${r.stderr.trim() || `exit ${r.exitCode}`}`) as Error & {
+      stdout?: string;
+      stderr?: string;
+    };
+    err.stdout = r.stdout;
+    err.stderr = r.stderr;
+    throw err;
+  }
+  return { stdout: r.stdout, stderr: r.stderr };
 }
 
 /**
@@ -25,17 +28,12 @@ function run(
  * Uses explicit refspec so local-only branches publish cleanly.
  */
 export async function pushBranch(repoPath: string, branch: string): Promise<void> {
-  await withRateLimitRetry(() =>
-    new Promise<void>((resolve, reject) => {
-      execFile('git', ['push', '-u', 'origin', `${branch}:${branch}`], { cwd: repoPath }, (err, _stdout, stderr) => {
-        if (err) {
-          reject(describeError(`git push ${branch} failed`, String(stderr)));
-        } else {
-          resolve();
-        }
-      });
-    }),
-  );
+  await withRateLimitRetry(async () => {
+    const r = await spawnCli('git', ['push', '-u', 'origin', `${branch}:${branch}`], { cwd: repoPath, timeoutMs: 120_000 });
+    if (r.exitCode !== 0) {
+      throw describeError(`git push ${branch} failed`, r.stderr || `exit ${r.exitCode}`);
+    }
+  });
 }
 
 export interface CreatePrOptions {
