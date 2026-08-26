@@ -522,27 +522,36 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 > failures, waits out pending runs before judging), so Q7 below is resolved
 > as yes.
 
+> **Completed post-v0.3 (2026-08-25):** `devagent task --remote` delegates the pipeline
+> to a shared host over SSH (preflight probe, bounded timeout, PR URL extraction, PR #31);
+> concurrent-safe task identity (`--id` / `$DEVAGENT_TASK_ID`, defaulting to collision-free
+> `TASK-<suffix>`) threads through remote dispatch so parallel runs no longer collide on
+> `.devagent-worktrees/TASK` + `devagent/TASK` (PR #38).
+>
+> **Completed post-v0.3 (2026-08-24):** credential-shaped env vars stripped from worker spawns
+> (`src/workers/sandbox.ts`, override via `DEVAGENT_WORKER_ENV_ALLOWLIST`); opt-in macOS
+> seatbelt confinement (`DEVAGENT_SANDBOX=seatbelt`) denies writes outside worktree/temp dirs.
+>
+> **Completed post-v0.3 (2026-08-26):** lessons digest bounded by `LESSONS_MAX_CHARS=4000`
+> (oldest dropped whole, newest-first) injected into worker prompts, resolving Q9 as
+> distilled rather than verbatim (`src/prompt.ts`, PR #39).
+>
+> **Completed post-v0.3 (2026-08-26):** herdr runtime for visible worker panes
+> (`src/workers/herdr-runtime.ts`, `herdr.enabled` / `DEVAGENT_HERDR`), orchestrator queue
+> bridge + `orchestrate-loop.sh` with `make agents-*` LaunchAgent controls (PR #41–46);
+> infinity cycling via board archiving + merged-worktree pruning (`scripts/git-cleanup-merged.sh`,
+> PR #42); stale-worker reaper scoped to headless `-p` devagent worktrees only (PR #48) —
+> together hardening 24/7 loop durability.
+
 ### Phase 4 — Expansion (post-v1)
 
-- Remote execution — dispatch pipelines to a shared host so worker capacity is pooled across repos instead of per-workspace.
-  > **Completed post-v0.3 (2026-08-25):** `devagent task --remote` delegates the pipeline
-  > to a shared host over SSH (preflight probe, bounded timeout, PR URL extraction, PR #31).
-  > **Concurrency-safe identity (2026-08-25):** task ids are per-dispatch — `--id` /
-  > `$DEVAGENT_TASK_ID`, defaulting to a collision-free `TASK-<suffix>` — and forward through
-  > remote dispatch, so concurrent runs no longer collide on the hardcoded
-  > `.devagent-worktrees/TASK` worktree + `devagent/TASK` branch.
-- Deeper sandbox isolation — network and filesystem allowlists for workers before any untrusted-repo run.
-  > **Completed post-v0.3 (2026-08-24):** credential-shaped env vars are stripped from
-  > all agent-CLI worker spawns by default (`src/workers/sandbox.ts`, override via
-  > `DEVAGENT_WORKER_ENV_ALLOWLIST`); opt-in macOS seatbelt confinement
-  > (`DEVAGENT_SANDBOX=seatbelt`) denies worker writes outside the worktree and temp
-  > dirs, with network left default-allow as a named policy knob for future tightening.
-  > Git/docker/gh/test-runner spawns keep the full parent env — they need credentials.
 - Selfbuild state bootstrap — auto-create and mirror the `selfbuild/state` orphan branch on first loop run; the durable-state mechanism shipped but no state branch exists on origin yet.
 - Merge-queue rebase automation — stacked loops land with expected conflicts against `main`; auto-rebase waves before dispatch instead of manual queue refreshes.
-- Lessons feedback loop — `selfbuild-state.sh` mirrors `lessons.md` to the state branch (PR #19) but nothing reads it back; inject curated lessons into worker repair and planning prompts so past failures stop repeating.
 - Flaky-test guard for fan-out judging — winner selection assumes deterministic tests; add quarantine/rerun handling for nondeterministic suites.
 - Failure-cluster reporting on ledger analytics — recurring gap categories in the ledger should surface as actionable periodic reports, not just queryable rows.
+- Worker hang detection — nested worker runs stalled ~20 min without output (PR #39 loop notes) before fallback; add heartbeat and bounded abort so a silent worker does not burn the full retry budget.
+- Herdr pane durability — visible panes die with their Ghostty terminal and broad reapers killed interactive sessions (PR #48); harden pane lifecycle so long-running 24/7 loops survive terminal restarts.
+- Disk/worktree reclamation — loops leak worktrees and build artifacts without periodic pruning (62 GB reclaim on 2026-08-24); add scheduled pruning between infinity cycles (PR #42 only handles merged branches).
 
 ## 18. Open Questions
 
@@ -551,7 +560,7 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 | Q4 | Where do fixture/representative datasets for Gate G2 come from — repo-provided seeds or DevAgent-generated synthetic data? | eng | Phase 2 |
 | Q5 | Should G4 async findings be advisory or blocking? | product | Phase 2 |
 | Q8 | How should winner selection handle flaky/nondeterministic test suites during fan-out judging — rerun budget, quarantine, or refuse-to-judge? | eng | Phase 4 |
-| Q9 | Should `lessons.md` from the selfbuild state branch be injected verbatim into worker prompts or distilled to a size-bounded digest first? | eng | Phase 4 |
+| Q10 | What liveness signal should bound a silent worker run before abort — transcript heartbeat, output timeout, or explicit tool-call cadence? | eng | Phase 4 |
 
 > Resolved 2026-08-24: Q1 (ecosystem conventions + `testCommand` override now
 > cover npm/Go/Python), Q2 (plain webhooks shipped in Phase 3), Q3 (policy is
@@ -560,6 +569,10 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 >
 > Resolved 2026-08-24 (curation run 2): Q7 — yes; autoMerge now requires a
 > green CI check rollup before merging (`evaluateChecks`, PR #17).
+>
+> Resolved 2026-08-26 (loop 67): Q9 — distilled; lessons injection is bounded
+> by line count AND a character budget (`lessonsMaxChars`, default 4000) that
+> drops oldest entries whole, newest-first, never splitting a line (PR #39).
 
 ---
 
