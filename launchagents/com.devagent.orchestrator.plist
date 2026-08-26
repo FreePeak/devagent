@@ -8,7 +8,6 @@
     <key>PATH</key><string>${HOME}/.cargo/bin:${HOME}/.opencode/bin:${HOME}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
     <key>HOME</key><string>${HOME}</string>
     <key>ORCHESTRATOR_REPO</key><string>${HOME}/work/harvey/freepeak/devagent</string>
-    <key>ORCHESTRATOR_GOAL</key><string>Self-build devagent: harden the orchestrator-factory bridge</string>
   </dict>
   <key>ProgramArguments</key>
   <array>
