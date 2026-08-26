@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import type { OrchestratorTask, ProjectBoard } from './types.js';
 import type { RunLogger } from '../logger.js';
 import type { WorkerName } from '../types.js';
@@ -87,7 +88,11 @@ export async function executeTask(args: {
     const result = await worker.spawn(spawnOpts as never);
     try {
       const { findStaleWorkerPids, killStaleProcessTree } = await import('../resilience/reaper.js');
-      const stale = findStaleWorkerPids(noProgressTimeoutMs || 60_000);
+      // Repo-scoped: only headless workers whose cwd is inside this repo's
+      // worktrees may be reaped — never the user's interactive sessions.
+      const stale = findStaleWorkerPids(noProgressTimeoutMs || 60_000, {
+        cwdPrefix: join(repoPath, '.devagent-worktrees'),
+      });
       for (const s of stale) killStaleProcessTree(s.pid);
     } catch {}
     if (result.timedOut || result.exitCode !== 0) {
