@@ -1,4 +1,4 @@
-import { execFile, type ExecFileOptionsWithStringEncoding } from 'node:child_process';
+import { execFile, type ExecFileOptionsWithStringEncoding, spawn } from 'node:child_process';
 
 export interface SpawnCliOptions {
   cwd: string;
@@ -11,6 +11,13 @@ export interface SpawnCliOptions {
    * sandboxing: a scrubbed env cannot unset inherited secrets by merging.
    */
   replaceEnv?: boolean;
+  /**
+   * Watchdog: kill the child when no output (stdout or stderr) arrives for
+   * this long. 0 disables. When killed by the watchdog, `timedOut` is true
+   * so callers treat it as a transient provider failure and retry forever.
+   * Default 0 for git/gh callers; workers pass 10m when infinite retry is on.
+   */
+  noProgressTimeoutMs?: number;
 }
 
 export interface SpawnCliResult {
@@ -28,13 +35,56 @@ export interface SpawnCliResult {
 const NESTED_ENV_BLOCKLIST = ['ANTHROPIC_MODEL', 'ANTHROPIC_SMALL_FAST_MODEL', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDECODE'];
 
 /**
- * Run a CLI to completion with a hard timeout.
- * On timeout the child is killed with SIGKILL and timedOut=true is returned
- * (exitCode -1) instead of throwing, so callers can map it to WorkerResult.
+ * Fallback PATH segments for children spawned from minimal-env contexts
+ * (launchd plists without EnvironmentVariables, scrubbed worker sandboxes).
+ * Without them `git`/`gh`/homebrew tools ENOENT and publish stages die with
+ * "spawn git ENOENT" (live-smoke lesson 2026-08-25).
+ */
+const FALLBACK_PATH_SEGMENTS = [
+  '/opt/homebrew/bin',
+  '/usr/local/bin',
+  '/usr/bin',
+  '/bin',
+  '/usr/sbin',
+  '/sbin',
+];
+
+function ensureUsablePath(env: NodeJS.ProcessEnv): void {
+  const p = env.PATH ?? '';
+  if (p.includes('/usr/bin') && p.includes('/bin')) return;
+  const missing = FALLBACK_PATH_SEGMENTS.filter((seg) => !p.split(':').includes(seg));
+  env.PATH = missing.length > 0 ? `${p ? `${p}:` : ''}${missing.join(':')}` : p;
+}
+
+export function buildEnv(opts: SpawnCliOptions): NodeJS.ProcessEnv {
+  const baseEnv: NodeJS.ProcessEnv = opts.replaceEnv ? { ...opts.env } : { ...process.env };
+  for (const k of NESTED_ENV_BLOCKLIST) delete baseEnv[k];
+  if (opts.env && !opts.replaceEnv) Object.assign(baseEnv, opts.env);
+  ensureUsablePath(baseEnv);
+  // Keep PWD consistent with the spawned cwd: CLIs that trust $PWD over
+  // getcwd() (live-smoke lesson 2026-08-26: opencode resolved its project
+  // root from the inherited PWD and workers operated on the wrong tree)
+  // otherwise silently run against the parent's directory while the harness
+  // gates inspect the intended one.
+  if (opts.cwd) {
+    baseEnv.PWD = opts.cwd;
+    delete baseEnv.OLDPWD;
+  }
+  return baseEnv;
+}
+
+/**
+ * Run a CLI to completion with a hard timeout plus optional no-progress watchdog.
+ * On timeout (wall or idle) the child is killed with SIGKILL and timedOut=true
+ * is returned (exitCode -1) instead of throwing, so callers can map it to WorkerResult.
+ * Idle detection: any stdout/stderr line resets the watchdog clock.
  * Stdin is ignored: headless prompts come via argv; leaving stdin open makes
  * some CLIs block waiting for piped input.
  */
 export function spawnCli(cmd: string, args: string[], opts: SpawnCliOptions): Promise<SpawnCliResult> {
+  const noProgressMs = opts.noProgressTimeoutMs ?? 0;
+  if (noProgressMs > 0) return spawnCliStreaming(cmd, args, opts);
+
   return new Promise((resolve) => {
     const controller = new AbortController();
     let timedOut = false;
@@ -43,9 +93,7 @@ export function spawnCli(cmd: string, args: string[], opts: SpawnCliOptions): Pr
       controller.abort();
     }, opts.timeoutMs);
 
-    const baseEnv: NodeJS.ProcessEnv = opts.replaceEnv ? { ...opts.env } : { ...process.env };
-    for (const k of NESTED_ENV_BLOCKLIST) delete baseEnv[k];
-    if (opts.env && !opts.replaceEnv) Object.assign(baseEnv, opts.env);
+    const baseEnv = buildEnv(opts);
     execFile(
       cmd,
       args,
@@ -80,5 +128,115 @@ export function spawnCli(cmd: string, args: string[], opts: SpawnCliOptions): Pr
         });
       },
     );
+  });
+}
+
+/**
+ * Streaming variant with no-progress watchdog. Any stdout/stderr output
+ * resets the watchdog clock. When the watchdog fires, the child (and its
+ * process group when possible) is SIGKILLed. Used by worker adapters for
+ * infinite transient retry; git/gh callers keep the execFile path.
+ */
+export function spawnCliStreaming(
+  cmd: string,
+  args: string[],
+  opts: SpawnCliOptions,
+): Promise<SpawnCliResult> {
+  const noProgressMs = opts.noProgressTimeoutMs ?? 0;
+  return new Promise((resolve) => {
+    const env = buildEnv(opts);
+    const child = spawn(cmd, args, {
+      cwd: opts.cwd,
+      env,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      detached: false,
+    });
+
+    const stdoutChunks: string[] = [];
+    const stderrChunks: string[] = [];
+    let timedOut = false;
+    let exitCode: number | null = null;
+    let done = false;
+    let lastProgressAt = Date.now();
+
+    const touch = () => {
+      lastProgressAt = Date.now();
+    };
+
+    const finish = () => {
+      if (done) return;
+      done = true;
+      if (wallTimer) clearTimeout(wallTimer);
+      if (watchdog) clearInterval(watchdog);
+      resolve({
+        exitCode: timedOut ? -1 : (exitCode ?? -1),
+        stdout: stdoutChunks.join(''),
+        stderr: stderrChunks.join(''),
+        timedOut,
+      });
+    };
+
+    child.stdout?.on('data', (c: Buffer) => {
+      stdoutChunks.push(c.toString('utf8'));
+      touch();
+    });
+    child.stderr?.on('data', (c: Buffer) => {
+      stderrChunks.push(c.toString('utf8'));
+      touch();
+    });
+
+    // Drain readline to ensure line-based progress is observed even for
+    // non-newline chunked parsers; the raw data handler already touches.
+
+    child.on('error', (err: NodeJS.ErrnoException) => {
+      if (done) return;
+      const code = (err as unknown as { code?: unknown }).code;
+      exitCode = typeof code === 'number' ? code : -1;
+      // ENOENT etc: no stdout/stderr, not a timeout
+      stdoutChunks.push('');
+      stderrChunks.push((err as Error).message);
+      finish();
+    });
+
+    child.on('close', (code) => {
+      exitCode = code;
+      finish();
+    });
+
+    const wallTimer = setTimeout(() => {
+      if (done) return;
+      timedOut = true;
+      try {
+        child.kill('SIGKILL');
+      } catch {}
+      // Fallback: if still alive after 1s, force again then finish
+      setTimeout(() => {
+        try {
+          child.kill('SIGKILL');
+        } catch {}
+        finish();
+      }, 1000).unref?.();
+    }, opts.timeoutMs);
+    wallTimer.unref?.();
+
+    let watchdog: NodeJS.Timeout | null = null;
+    if (noProgressMs > 0) {
+      watchdog = setInterval(() => {
+        if (done || timedOut) return;
+        if (Date.now() - lastProgressAt >= noProgressMs) {
+          timedOut = true;
+          try {
+            child.kill('SIGKILL');
+          } catch {}
+          // Give close handler a chance; watchdog keeps polling until wallTimer caps
+        }
+      }, Math.min(1000, Math.max(200, Math.floor(noProgressMs / 4))));
+      watchdog.unref?.();
+    }
+
+    // Ensure stdin doesn't block CLIs expecting EOF
+    try {
+      child.stdin?.end();
+    } catch {}
   });
 }

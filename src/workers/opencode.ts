@@ -1,11 +1,23 @@
 import type { WorkerAdapter, WorkerEvent, WorkerResult, WorkerSpawnOptions } from '../types.js';
-import { spawnCli, type SpawnCliResult } from './spawn-utils.js';
+import type { SpawnCliResult } from './spawn-utils.js';
+import { runWorkerCli } from './herdr-runtime.js';
 import { prepareWorkerSpawn } from './sandbox.js';
 import { backoffDelay } from '../sessionguard/backoff.js';
 import { isNonRetryableApiError } from '../sessionguard/events.js';
+import { isRetryableWithoutSession, isTransientProviderError } from '../resilience/classify.js';
 
 const RESUME_PROMPT = 'Continue';
 const DEFAULT_API_MAX_ATTEMPTS = Infinity;
+
+function resolveNoProgressTimeoutMs(explicit: number | undefined): number {
+  if (explicit !== undefined) return explicit;
+  const env = process.env.DEVAGENT_NO_PROGRESS_TIMEOUT_MS;
+  if (env !== undefined && env !== '') {
+    const n = Number(env);
+    if (Number.isFinite(n) && n >= 0) return n;
+  }
+  return 0;
+}
 
 /**
  * Adapter over the OpenCode headless CLI:
@@ -33,30 +45,49 @@ export class OpenCodeAdapter implements WorkerAdapter {
   async spawn(opts: WorkerSpawnOptions): Promise<WorkerResult> {
     const start = Date.now();
     const maxAttempts = opts.apiMaxAttempts ?? DEFAULT_API_MAX_ATTEMPTS;
+    const noProgressTimeoutMs = resolveNoProgressTimeoutMs(opts.noProgressTimeoutMs);
+    const wallDeadline = opts.timeoutMs > 0 ? start + opts.timeoutMs : Infinity;
 
     let sessionId: string | null = null;
     let last: SpawnCliResult | null = null;
     let lastEvents: WorkerEvent[] = [];
     let lastResultText: string | null = null;
     let binary: 'opencode' | 'opencode2' = 'opencode';
-    let args = baseArgs(opts);
+    let args = baseArgs(opts, binary);
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      if (Date.now() >= wallDeadline) {
+        if (last) last.timedOut = true;
+        break;
+      }
       const prepared = await prepareWorkerSpawn(binary, args, {
         cwd: opts.cwd,
         timeoutMs: opts.timeoutMs,
         ...(opts.env ? { env: opts.env } : {}),
+        ...(noProgressTimeoutMs ? { noProgressTimeoutMs } : {}),
       });
-      let raw = await spawnCli(prepared.cmd, prepared.args, prepared.opts);
+      let raw = await runWorkerCli(prepared.cmd, prepared.args, {
+        ...prepared.opts,
+        ...(noProgressTimeoutMs ? { noProgressTimeoutMs } : {}),
+        ...(opts.herdr ? { herdr: true } : {}),
+        label: `devagent ${binary} #${attempt}`,
+      });
       // Binary fallback: if `opencode` is not installed, try `opencode2` once.
       if (isSpawnFailure(raw) && binary === 'opencode') {
         binary = 'opencode2';
+        args = baseArgs(opts, binary);
         const fallbackPrepared = await prepareWorkerSpawn(binary, args, {
           cwd: opts.cwd,
           timeoutMs: opts.timeoutMs,
           ...(opts.env ? { env: opts.env } : {}),
+          ...(noProgressTimeoutMs ? { noProgressTimeoutMs } : {}),
         });
-        raw = await spawnCli(fallbackPrepared.cmd, fallbackPrepared.args, fallbackPrepared.opts);
+        raw = await runWorkerCli(fallbackPrepared.cmd, fallbackPrepared.args, {
+          ...fallbackPrepared.opts,
+          ...(noProgressTimeoutMs ? { noProgressTimeoutMs } : {}),
+          ...(opts.herdr ? { herdr: true } : {}),
+          label: `devagent ${binary} #${attempt}`,
+        });
         if (isSpawnFailure(raw)) {
           last = raw;
           lastEvents = [];
@@ -71,18 +102,29 @@ export class OpenCodeAdapter implements WorkerAdapter {
       lastEvents = outcome.events;
       lastResultText = outcome.resultText;
 
-      if (raw.timedOut) break;
-
-      const ok = raw.exitCode === 0 && !outcome.isError;
+      const ok = raw.exitCode === 0 && !outcome.isError && !raw.timedOut;
       if (ok) break;
 
       if (attempt === maxAttempts) break;
-      if (raw.exitCode === -1) break; // spawn failure (ENOENT etc) — never loops forever
-      if (!sessionId) break; // cannot resume without a session id
+      if (raw.exitCode === -1 && !raw.timedOut) break; // spawn failure (ENOENT etc) — never loops forever
       if (outcome.errorText && isNonRetryableApiError(outcome.errorText)) break;
+      // Wall-clock overall budget already checked at loop top
+      if (Date.now() >= wallDeadline) break;
+
+      const errorText = outcome.errorText ?? raw.stderr ?? '';
+      if (!sessionId) {
+        const retryableWithoutSession = isRetryableWithoutSession({
+          timedOut: raw.timedOut,
+          exitCode: raw.exitCode,
+          errorText,
+          stderr: raw.stderr,
+        });
+        if (!retryableWithoutSession) break;
+      }
 
       await this.sleep(backoffDelay(attempt));
-      args = resumeArgs(sessionId, opts);
+      if (sessionId) args = resumeArgs(sessionId, opts, binary);
+      else args = baseArgs(opts, binary);
     }
 
     const final = last!;
@@ -108,12 +150,24 @@ export class OpenCodeAdapter implements WorkerAdapter {
   }
 }
 
-function baseArgs(opts: WorkerSpawnOptions): string[] {
-  return ['run', '--format', 'json', ...(opts.model ? ['--model', opts.model] : []), opts.prompt];
+function modelArgs(opts: WorkerSpawnOptions, binary: 'opencode' | 'opencode2'): string[] {
+  if (!opts.model) return [];
+  const rawModel = opts.model.trim();
+  const variant = opts.variant?.trim();
+  // opencode2 encodes variant as provider/model#variant; opencode uses a separate --variant flag.
+  // If the model already carries a #variant suffix, keep it as-is and don't duplicate.
+  const hasHashVariant = rawModel.includes('#');
+  if (!variant || hasHashVariant) return ['--model', rawModel];
+  if (binary === 'opencode2') return ['--model', `${rawModel}#${variant}`];
+  return ['--model', rawModel, '--variant', variant];
 }
 
-function resumeArgs(sessionId: string, opts: WorkerSpawnOptions): string[] {
-  return ['run', '--format', 'json', ...(opts.model ? ['--model', opts.model] : []), '--session', sessionId, RESUME_PROMPT];
+function baseArgs(opts: WorkerSpawnOptions, binary: 'opencode' | 'opencode2' = 'opencode'): string[] {
+  return ['run', '--format', 'json', ...modelArgs(opts, binary), opts.prompt];
+}
+
+function resumeArgs(sessionId: string, opts: WorkerSpawnOptions, binary: 'opencode' | 'opencode2' = 'opencode'): string[] {
+  return ['run', '--format', 'json', ...modelArgs(opts, binary), '--session', sessionId, RESUME_PROMPT];
 }
 
 function isSpawnFailure(run: SpawnCliResult): boolean {

@@ -100,7 +100,10 @@ const sleepDefault = (ms: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 export async function runGuard(options: GuardOptions): Promise<GuardResult> {
-  const maxAttempts = options.maxAttempts ?? 5;
+  const envMax = process.env.DEVAGENT_API_MAX_ATTEMPTS;
+  const envMaxN = envMax ? Number(envMax) : undefined;
+  const defaultMax = Number.isFinite(envMaxN as number) && (envMaxN as number) > 0 ? (envMaxN as number) : Infinity;
+  const maxAttempts = options.maxAttempts ?? defaultMax;
   const resumePrompt = options.resumePrompt ?? 'Continue';
   const backoff: BackoffOptions = { ...DEFAULT_BACKOFF, ...options.backoff };
   const runner = options.runner;

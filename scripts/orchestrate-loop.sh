@@ -1,0 +1,146 @@
+#!/usr/bin/env bash
+# DevAgent orchestrator loop (self-build factory, DAG role).
+# Drives the .devagent-project.json board via `devagent orchestrate --resume`
+# until every task reaches a terminal state, then idles. When no board exists
+# it plans one from ORCHESTRATOR_GOAL (env) or .devagent/orchestrator-goal.txt.
+#
+# Env knobs:
+#   ORCHESTRATOR_REPO       repo path                  (default: script's parent)
+#   ORCHESTRATOR_GOAL       goal text used for planning (fallback: repo goal file)
+#   ORCHESTRATOR_MAX_FAILS  circuit breaker            (default 3 consecutive failures)
+#   ORCHESTRATOR_POLL_SECS  idle wait between cycles   (default 600)
+#   ORCHESTRATOR_REQUEUE_AFTER  reset failed/blocked tasks to pending after this many
+#                             consecutive parked polls (0 = never; default 6 ~= 1h)
+#   ORCHESTRATOR_PLAN_ONLY  1 = plan once, never execute (default 0)
+#   ORCHESTRATOR_DRY_RUN    1 = log intent only        (default 0)
+set -euo pipefail
+
+REPO="${ORCHESTRATOR_REPO:-$(cd "$(dirname "$0")/.." && pwd)}"
+MAX_FAILS="${ORCHESTRATOR_MAX_FAILS:-3}"
+POLL_SECS="${ORCHESTRATOR_POLL_SECS:-600}"
+REQUEUE_AFTER="${ORCHESTRATOR_REQUEUE_AFTER:-6}"
+PLAN_ONLY="${ORCHESTRATOR_PLAN_ONLY:-0}"
+DRY_RUN="${ORCHESTRATOR_DRY_RUN:-0}"
+DEVAGENT=(node "$REPO/dist/src/cli.js")
+BOARD="$REPO/.devagent-project.json"
+GOAL_FILE="$REPO/.devagent/orchestrator-goal.txt"
+
+cd "$REPO"
+
+resolve_goal() {
+  if [ -n "${ORCHESTRATOR_GOAL:-}" ]; then printf '%s' "$ORCHESTRATOR_GOAL"; return; fi
+  if [ -f "$GOAL_FILE" ]; then head -c 2000 "$GOAL_FILE"; return; fi
+  printf 'Continue the devagent self-build loop per docs/ORCHESTRATOR-FACTORY.md'
+}
+
+board_open_tasks() { # count tasks not in done/failed/blocked
+  [ -f "$BOARD" ] || { echo 0; return; }
+  node -e '
+    const b = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+    console.log(b.tasks.filter(t => !["done","failed","blocked"].includes(t.status)).length);
+  ' "$BOARD" 2>/dev/null || echo 0
+}
+
+board_done_tasks() {
+  [ -f "$BOARD" ] || { echo 0; return; }
+  node -e '
+    const b = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+    console.log(b.tasks.filter(t => t.status === "done").length);
+  ' "$BOARD" 2>/dev/null || echo 0
+}
+
+board_total_tasks() {
+  [ -f "$BOARD" ] || { echo 0; return; }
+  node -e '
+    const b = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+    console.log(b.tasks.length);
+  ' "$BOARD" 2>/dev/null || echo 0
+}
+
+requeue_parked() { # reset failed/blocked tasks back to pending; prints count reset
+  [ -f "$BOARD" ] || { echo 0; return; }
+  node -e '
+    const fs = require("fs");
+    const f = process.argv[1];
+    const b = JSON.parse(fs.readFileSync(f, "utf8"));
+    let n = 0;
+    for (const t of b.tasks) {
+      if (["failed", "blocked"].includes(t.status)) { t.status = "pending"; n++; }
+    }
+    if (n > 0) fs.writeFileSync(f, JSON.stringify(b, null, 2) + "\n");
+    console.log(n);
+  ' "$BOARD" 2>/dev/null || echo 0
+}
+
+echo "[orchestrator] loop start repo=$REPO dry_run=$DRY_RUN plan_only=$PLAN_ONLY poll=${POLL_SECS}s"
+fails=0
+parked_polls=0
+while :; do
+  OPEN="$(board_open_tasks)"
+  DONE_COUNT="$(board_done_tasks)"
+  TOTAL="$(board_total_tasks)"
+
+  if [ "$OPEN" -eq 0 ] && [ "$TOTAL" -gt 0 ]; then
+    if [ "$DONE_COUNT" -eq "$TOTAL" ]; then
+      echo "[idle] board complete ($DONE_COUNT done); sleeping ${POLL_SECS}s"
+    else
+      # Board is stuck: every task is failed/blocked. Requeue periodically so a
+      # transient upstream failure does not park the factory forever.
+      if [ "$REQUEUE_AFTER" -gt 0 ]; then
+        parked_polls=$(( parked_polls + 1 ))
+        echo "[parked] $((TOTAL - DONE_COUNT)) task(s) failed/blocked ($parked_polls/$REQUEUE_AFTER); sleeping ${POLL_SECS}s"
+        if [ "$parked_polls" -ge "$REQUEUE_AFTER" ]; then
+          N="$(requeue_parked)"
+          echo "[requeue] reset $N parked task(s) to pending"
+          parked_polls=0
+        fi
+      else
+        echo "[parked] $((TOTAL - DONE_COUNT)) task(s) failed/blocked; sleeping ${POLL_SECS}s (requeue disabled)"
+      fi
+    fi
+    sleep "$POLL_SECS"
+    continue
+  fi
+  parked_polls=0
+
+  GOAL="$(resolve_goal)"
+  # Autonomous chain: scouted queue items become the board when none exists yet.
+  if [ ! -f "$BOARD" ] && [ "$DRY_RUN" != "1" ]; then
+    if BRIDGE_OUT="$("${DEVAGENT[@]}" queue bridge --repo "$REPO" 2>&1)"; then
+      echo "$BRIDGE_OUT" | tail -2
+    fi
+  fi
+  ARGS=(orchestrate --repo "$REPO" --goal "$GOAL")
+  if [ -f "$BOARD" ]; then ARGS+=(--resume); fi
+  [ "$PLAN_ONLY" = "1" ] && ARGS+=(--plan-only)
+
+  echo "=== orchestrator cycle open=$OPEN done=$DONE_COUNT resume=$([ -f "$BOARD" ] && echo 1 || echo 0) ==="
+
+  if [ "$DRY_RUN" = "1" ]; then
+    echo "[dry-run] would run: ${DEVAGENT[*]} ${ARGS[*]}"
+    fails=0
+    sleep 1
+    continue
+  fi
+
+  set +e
+  OUT="$("${DEVAGENT[@]}" "${ARGS[@]}" 2>&1)"
+  RC=$?
+  set -e
+  echo "$OUT" | tail -5
+
+  NEXT_OPEN="$(board_open_tasks)"
+  if [ "$RC" -eq 0 ] || [ "$NEXT_OPEN" -lt "$OPEN" ]; then
+    echo "[ok] cycle complete (open $OPEN -> $NEXT_OPEN)"
+    fails=0
+  else
+    fails=$(( fails + 1 ))
+    echo "[fail] orchestrator cycle ($fails/$MAX_FAILS)"
+    if [ "$fails" -ge "$MAX_FAILS" ]; then
+      echo "circuit breaker: $fails consecutive failures — halting orchestrator"
+      exit 1
+    fi
+  fi
+
+  sleep 5
+done

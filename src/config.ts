@@ -33,6 +33,8 @@ export interface DevAgentConfig {
   autoMerge?: boolean;
   /** Model override forwarded to the worker CLI (provider/model, e.g. opencode-go/ox-alpha-free). */
   model?: string;
+  /** Variant override forwarded to the worker CLI (e.g. max, high). */
+  variant?: string;
   testCommand?: string;
   /** Repo-local lessons file injected into worker prompts (defaults to .devagent/lessons.md). */
   lessonsFile?: string;
@@ -45,6 +47,20 @@ export interface DevAgentConfig {
   queue?: { dir?: string; prdsDir?: string };
   /** Self-update devagent after successful merge (FR-SELF-01). Opt-in. */
   selfUpdate?: boolean;
+  /**
+   * Resilience: worker retry budget is Infinity by default; this caps
+   * apiMaxAttempts when set. Null/false disables the watchdog; a number
+   * enables the no-progress watchdog (default 10m when resilience block present,
+   * else 0 for back-compat). Env overrides: DEVAGENT_API_MAX_ATTEMPTS, DEVAGENT_NO_PROGRESS_TIMEOUT_MS.
+   */
+  resilience?: { apiMaxAttempts?: number; noProgressTimeoutMs?: number };
+  /**
+   * Herdr runtime: run worker CLIs inside herdr (https://github.com/herdrdev/herdr)
+   * panes in a dedicated persistent session so runs are visible, reattachable,
+   * and survive client disconnects. Opt-in. Env overrides:
+   * DEVAGENT_HERDR=1|0, DEVAGENT_HERDR_SESSION=<name>.
+   */
+  herdr?: { enabled?: boolean; session?: string };
 }
 
 export interface Credentials {
@@ -75,10 +91,26 @@ export function loadConfig(repoPath: string = process.cwd()): DevAgentConfig {
     }
   }
 
+  const envApiMax = process.env.DEVAGENT_API_MAX_ATTEMPTS;
+  const envNoProgress = process.env.DEVAGENT_NO_PROGRESS_TIMEOUT_MS;
+  const envResilience: Partial<NonNullable<DevAgentConfig['resilience']>> = {};
+  if (envApiMax !== undefined && envApiMax !== '') {
+    const n = Number(envApiMax);
+    if (Number.isFinite(n) && n > 0) envResilience.apiMaxAttempts = n;
+    else if (envApiMax === 'Infinity' || envApiMax.toLowerCase() === 'infinity') envResilience.apiMaxAttempts = Infinity;
+  }
+  if (envNoProgress !== undefined && envNoProgress !== '') {
+    const n = Number(envNoProgress);
+    if (Number.isFinite(n) && n >= 0) envResilience.noProgressTimeoutMs = n;
+  }
+
   const config: DevAgentConfig = {
     ...DEFAULT_CONFIG,
     ...fileConfig,
     ...(fileConfig.pinnedVersions ? { pinnedVersions: fileConfig.pinnedVersions } : {}),
+    ...((fileConfig.resilience || Object.keys(envResilience).length)
+      ? { resilience: { ...fileConfig.resilience, ...envResilience } }
+      : {}),
   };
 
   if (!['claude-code', 'opencode', 'both'].includes(config.worker)) {
@@ -98,7 +130,38 @@ export function loadConfig(repoPath: string = process.cwd()): DevAgentConfig {
       throw new Error(`Invalid scout.maxQueued "${config.scout.maxQueued}"; expected >= 1`);
     }
   }
+  if (config.resilience !== undefined) {
+    const r = config.resilience;
+    if (r.apiMaxAttempts !== undefined && !(Number.isFinite(r.apiMaxAttempts) && r.apiMaxAttempts > 0 || r.apiMaxAttempts === Infinity)) {
+      throw new Error(`Invalid resilience.apiMaxAttempts "${r.apiMaxAttempts}"; expected positive number or Infinity`);
+    }
+    if (r.noProgressTimeoutMs !== undefined && (!Number.isFinite(r.noProgressTimeoutMs) || r.noProgressTimeoutMs < 0)) {
+      throw new Error(`Invalid resilience.noProgressTimeoutMs "${r.noProgressTimeoutMs}"; expected >= 0`);
+    }
+  }
+  if (config.herdr !== undefined) {
+    if (config.herdr.session !== undefined && !/^[a-z][a-z0-9_-]{0,31}$/.test(config.herdr.session)) {
+      throw new Error(`Invalid herdr.session "${config.herdr.session}"; expected [a-z][a-z0-9_-]{0,31}`);
+    }
+  }
   return config;
+}
+
+/**
+ * Whether worker commands should execute inside herdr panes. Config opt-in
+ * (`herdr.enabled`), with DEVAGENT_HERDR=1|0 as an env override.
+ */
+export function herdrEnabled(cfg: DevAgentConfig = loadConfig()): boolean {
+  const env = process.env.DEVAGENT_HERDR;
+  if (env !== undefined && env !== '') {
+    return env !== '0' && env.toLowerCase() !== 'false';
+  }
+  return cfg.herdr?.enabled === true;
+}
+
+/** Target herdr session name (config `herdr.session`, env DEVAGENT_HERDR_SESSION, else "devagent"). */
+export function herdrSessionName(cfg: DevAgentConfig = loadConfig()): string {
+  return process.env.DEVAGENT_HERDR_SESSION || cfg.herdr?.session || 'devagent';
 }
 
 export function loadCredentials(env: NodeJS.ProcessEnv = process.env): Credentials {

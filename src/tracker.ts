@@ -22,6 +22,7 @@ export interface TrackerSnapshot {
   queue: ReturnType<typeof taskCount>;
   recentTasks: Array<Pick<QueuedTask, 'id' | 'title' | 'status' | 'updatedAt' | 'lastError'>>;
   scout: { alive: boolean; lastRunAt?: string; lastTaskId?: string; lastStatus?: string; worker?: string } | null;
+  board: { goal: string; counts: Record<string, number>; blockedReason?: string } | null;
   ledgerTail: string[];
   recentCommits: string[];
   openPrs: string[];
@@ -43,6 +44,23 @@ function readLedgerTail(repoPath: string, n: number): string[] {
   } catch {
     return [];
   }
+}
+
+function readBoardSnapshot(repoPath: string): TrackerSnapshot['board'] {
+  try {
+    const file = join(repoPath, '.devagent-project.json');
+    if (!existsSync(file)) return null;
+    const boardMod = JSON.parse(readFileSync(file, 'utf8')) as
+      | { goal?: string; tasks?: Array<{ status: string; failureDetail?: string; audit?: { summary?: string } }> }
+      | null;
+    if (!boardMod?.tasks || typeof boardMod.goal !== 'string') return null;
+    const counts: Record<string, number> = {};
+    for (const t of boardMod.tasks) counts[t.status] = (counts[t.status] ?? 0) + 1;
+    const blocked = boardMod.tasks.find((t) => t.status === 'blocked' || t.status === 'ask') as
+      | { failureDetail?: string; audit?: { summary?: string } }
+      | undefined;
+    return { goal: boardMod.goal, counts, blockedReason: blocked?.failureDetail ?? blocked?.audit?.summary };
+  } catch { return null; }
 }
 
 async function recentCommits(repoPath: string, n: number, runner: CliRunner): Promise<string[]> {
@@ -84,6 +102,14 @@ export function renderProgressMarkdown(snap: TrackerSnapshot): string {
     lines.push(`- [${t.status}] ${t.id}: ${t.title}${t.lastError ? ` — ${t.lastError.slice(0, 80)}` : ''}`);
   }
   lines.push('');
+  if (snap.board) {
+    lines.push(`## Orchestrator board`);
+    const cs = snap.board.counts;
+    lines.push(`goal: ${snap.board.goal.slice(0, 120)}`);
+    lines.push(`tasks: ${Object.entries(cs).map(([k, v]) => `${k}:${v}`).join(' ')}`);
+    if (snap.board.blockedReason) lines.push(`blocked: ${snap.board.blockedReason.slice(0, 200)}`);
+    lines.push('');
+  }
   lines.push(`## Scout (PRD writer)`);
   if (snap.scout) {
     const state = snap.scout.alive ? 'alive' : 'stale (>6h)';
@@ -125,6 +151,7 @@ export function collectProgress(opts: TrackerOptions, runner: CliRunner = defaul
           worker: hb.worker,
         }
       : null,
+    board: readBoardSnapshot(repoPath),
     ledgerTail: readLedgerTail(repoPath, limit),
     recentCommits: [], // filled by collectProgressAsync below when runner available
     openPrs: [],

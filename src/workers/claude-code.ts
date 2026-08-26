@@ -1,11 +1,25 @@
 import type { WorkerAdapter, WorkerEvent, WorkerResult, WorkerSpawnOptions } from '../types.js';
-import { spawnCli, type SpawnCliResult } from './spawn-utils.js';
+import type { SpawnCliResult } from './spawn-utils.js';
+import { runWorkerCli } from './herdr-runtime.js';
 import { prepareWorkerSpawn } from './sandbox.js';
 import { backoffDelay } from '../sessionguard/backoff.js';
 import { isNonRetryableApiError } from '../sessionguard/events.js';
+import { isRetryableWithoutSession } from '../resilience/classify.js';
 
 const RESUME_PROMPT = 'Continue';
 const DEFAULT_API_MAX_ATTEMPTS = Infinity;
+
+function resolveNoProgressTimeoutMs(explicit: number | undefined): number {
+  if (explicit !== undefined) return explicit;
+  const env = process.env.DEVAGENT_NO_PROGRESS_TIMEOUT_MS;
+  if (env !== undefined && env !== '') {
+    const n = Number(env);
+    if (Number.isFinite(n) && n >= 0) return n;
+  }
+  // 0 = watchdog off (callers like deps.ts/consume use config to pass 10m in prod).
+  // Keeping direct adapter invocations fast in unit tests.
+  return 0;
+}
 
 /**
  * Adapter over the Claude Code headless CLI:
@@ -28,46 +42,73 @@ export class ClaudeCodeAdapter implements WorkerAdapter {
   async spawn(opts: WorkerSpawnOptions): Promise<WorkerResult> {
     const start = Date.now();
     const maxAttempts = opts.apiMaxAttempts ?? DEFAULT_API_MAX_ATTEMPTS;
+    const noProgressTimeoutMs = resolveNoProgressTimeoutMs(opts.noProgressTimeoutMs);
+    const wallDeadline = opts.timeoutMs > 0 ? start + opts.timeoutMs : Infinity;
 
     let args = baseArgs(opts);
     let sessionId: string | null = null;
     let last: SpawnCliResult | null = null;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      // Wall-clock budget: stop retrying when the run's overall timeout is spent.
+      if (Date.now() >= wallDeadline) {
+        if (last) last.timedOut = true;
+        break;
+      }
       const prepared = await prepareWorkerSpawn('claude', args, {
         cwd: opts.cwd,
         timeoutMs: opts.timeoutMs,
         ...(opts.env ? { env: opts.env } : {}),
+        ...(noProgressTimeoutMs ? { noProgressTimeoutMs } : {}),
       });
-      last = await spawnCli(prepared.cmd, prepared.args, prepared.opts);
+      last = await runWorkerCli(prepared.cmd, prepared.args, {
+        ...prepared.opts,
+        ...(noProgressTimeoutMs ? { noProgressTimeoutMs } : {}),
+        ...(opts.herdr ? { herdr: true } : {}),
+        label: `devagent claude-code #${attempt}`,
+      });
 
       const outcome = interpret(last);
       if (outcome.sessionId) sessionId = outcome.sessionId;
 
-      const ok =
-        !last.timedOut &&
-        outcome.exitCode === 0 &&
-        !outcome.isError;
-      if (ok || last.timedOut) break;
+      const ok = !last.timedOut && outcome.exitCode === 0 && !outcome.isError;
+      if (ok) break;
 
-      if (
-        !sessionId ||
-        attempt === maxAttempts ||
-        (outcome.errorText !== undefined && isNonRetryableApiError(outcome.errorText))
-      ) {
-        break;
+      if (attempt === maxAttempts) break;
+      if (last.exitCode === -1 && !last.timedOut) break; // spawn failure (ENOENT) — never retry forever
+      if (outcome.errorText && isNonRetryableApiError(outcome.errorText)) break;
+
+      // Transient detection: watchdog timeouts and provider errors (Console
+      // Go, upstream, etc.) are retried forever. Without a session we retry
+      // from scratch only for provider/timeout signals (not generic ECONNREFUSED).
+      const errorText = outcome.errorText ?? last.stderr ?? '';
+
+      if (!sessionId) {
+        const retryableWithoutSession = isRetryableWithoutSession({
+          timedOut: last.timedOut,
+          exitCode: last.exitCode,
+          errorText,
+          stderr: last.stderr,
+        });
+        if (!retryableWithoutSession) break;
       }
+      // Wall-clock budget already checked above; also don't retry if we'd exceed it after sleep
+      if (Date.now() >= wallDeadline) break;
 
       await this.sleep(backoffDelay(attempt));
-      args = [
-        '--resume',
-        sessionId,
-        '-p',
-        RESUME_PROMPT,
-        '--output-format',
-        'json',
-        ...(opts.maxSteps !== undefined ? ['--max-turns', String(opts.maxSteps)] : []),
-      ];
+      if (sessionId) {
+        args = [
+          '--resume',
+          sessionId,
+          '-p',
+          RESUME_PROMPT,
+          '--output-format',
+          'json',
+          ...(opts.maxSteps !== undefined ? ['--max-turns', String(opts.maxSteps)] : []),
+        ];
+      } else {
+        args = baseArgs(opts);
+      }
     }
 
     return finalize(last!, start);
@@ -75,12 +116,14 @@ export class ClaudeCodeAdapter implements WorkerAdapter {
 }
 
 function baseArgs(opts: WorkerSpawnOptions): string[] {
+  // claude-code ignores variant; model is the only knob.
+  const rawModel = opts.model?.trim();
   return [
     '-p',
     opts.prompt,
     '--output-format',
     'json',
-    ...(opts.model ? ['--model', opts.model] : []),
+    ...(rawModel ? ['--model', rawModel.split('#')[0]!] : []),
     ...(opts.maxSteps !== undefined ? ['--max-turns', String(opts.maxSteps)] : []),
   ];
 }

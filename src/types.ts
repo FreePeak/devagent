@@ -31,12 +31,27 @@ export interface WorkerSpawnOptions {
   maxSteps?: number;
   /** Model override forwarded to the worker CLI (provider/model). */
   model?: string;
+  /** Variant override forwarded to opencode (--variant or #variant). */
+  variant?: string;
   env?: Record<string, string>;
   /**
    * Total launches allowed when the worker auto-resumes a session killed by
    * an API failure (claude-code adapter). Includes the first launch.
    */
   apiMaxAttempts?: number;
+  /**
+   * Watchdog: kill the child when no output arrives for this long. 0 disables.
+   * When set, `timedOut` from the watchdog is treated as a transient provider
+   * failure and retried forever (until wall-clock budget or non-retryable error).
+   * Env `DEVAGENT_NO_PROGRESS_TIMEOUT_MS` provides a default when unset.
+   */
+  noProgressTimeoutMs?: number;
+  /**
+   * Run this worker launch inside a herdr pane (persistent terminal runtime)
+   * instead of a direct child process. Set by the executor from config
+   * `herdr.enabled`; see src/integrations/herdr.ts.
+   */
+  herdr?: boolean;
 }
 
 export interface WorkerEvent {
@@ -114,6 +129,8 @@ export interface RunConfig {
   dryRun: boolean;
   /** Model override forwarded to worker CLIs (provider/model). */
   model?: string;
+  /** Variant override for opencode (e.g. max). Encoded as --variant or #variant. */
+  variant?: string;
   /** Post-run worktree disposal policy; default 'auto' (remove on success). */
   cleanup?: 'auto' | 'keep' | 'always';
   /** Drop the enclosing Orca workspace via orca-cli when repoPath is Orca-managed. */

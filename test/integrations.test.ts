@@ -271,7 +271,8 @@ describe('github', () => {
       _opts: unknown,
       cb: (err: Error | null, stdout: string, stderr: string) => void,
     ) => {
-      cb(Object.assign(new Error('exit code 1'), { stderr: 'no remote configured' }), '', '');
+      // Simulate a real execFile non-zero exit: numeric code + collected stderr.
+      cb(Object.assign(new Error('Command failed'), { code: 1 }), '', 'no remote configured');
       return undefined;
     }) as never);
 

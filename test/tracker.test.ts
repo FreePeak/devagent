@@ -106,4 +106,31 @@ describe('tracker', () => {
       rmSync(repo, { recursive: true, force: true });
     }
   });
+
+  it('includes orchestrator board when .devagent-project.json exists', async () => {
+    const repo = tmpRepo();
+    try {
+      writeFileSync(
+        join(repo, '.devagent-project.json'),
+        JSON.stringify({
+          goal: 'Example goal',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          roles: { planner: 'claude-code', executor: 'opencode' },
+          tasks: [
+            { id: 'T1', title: 'First', prompt: 'do t1', dependsOn: [], status: 'done', attempts: 1 },
+            { id: 'T2', title: 'Second', prompt: 'do t2', dependsOn: ['T1'], status: 'blocked', attempts: 0, failureDetail: 'upstream blocked' },
+          ],
+        }),
+      );
+      const snap = await collectProgressAsync({ repoPath: repo }, okRunner);
+      expect(snap.board?.counts.done).toBe(1);
+      expect(snap.board?.counts.blocked).toBe(1);
+      const md = renderProgressMarkdown(snap);
+      expect(md).toContain('Orchestrator board');
+      expect(md).toContain('Example goal');
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
 });

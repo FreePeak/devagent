@@ -1,0 +1,10 @@
+{
+  "worker": "claude-code",
+  "scout": {
+    "enabled": true,
+    "worker": "claude-code",
+    "intervalMinutes": 30
+  },
+  "autoMerge": true,
+  "selfUpdate": true
+}

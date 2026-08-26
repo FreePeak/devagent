@@ -4,6 +4,7 @@ import { syntheticTicketFromPrompt } from './task.js';
 import type { PipelineDeps } from './pipeline.js';
 import { loadConfig } from './config.js';
 import { runPipeline } from './pipeline.js';
+import { isTransientProviderError } from './resilience/classify.js';
 
 export interface ConsumeOptions {
   repoPath: string;
@@ -23,6 +24,12 @@ export interface ConsumeResult {
   merged?: boolean;
 }
 
+function isConsumeTransient(detail: string): boolean {
+  // Also treat watchdog / timeout wording as transient
+  if (/timed.?out|watchdog|no-progress/i.test(detail)) return true;
+  return isTransientProviderError(detail);
+}
+
 /** Claim one pending task and run it through the pipeline -> PR -> optional auto-merge. */
 export async function consumeOnce(opts: ConsumeOptions): Promise<ConsumeResult> {
   const workerId = opts.workerId ?? `consume-${process.pid}`;
@@ -39,12 +46,49 @@ export async function consumeOnce(opts: ConsumeOptions): Promise<ConsumeResult> 
     if (result.ok) {
       setTaskStatus(opts.repoPath, task.id, 'done');
       updateTask(opts.repoPath, task.id, { lastError: undefined });
-    } else {
-      setTaskStatus(opts.repoPath, task.id, 'failed', result.detail);
+      return { ok: true, taskId: task.id, detail: result.detail, prUrl: result.prUrl, merged: result.merged };
     }
-    return { ok: result.ok, taskId: task.id, detail: result.detail, prUrl: result.prUrl, merged: result.merged };
+    // Infinite retry for transient infra failures: requeue as pending instead
+    // of terminal failed so the next consume loop retries after backoff.
+    // Bounded failures (test gate, lint) go to failed as before.
+    const config = loadConfig(opts.repoPath);
+    const infinite = config.resilience?.apiMaxAttempts === undefined || config.resilience.apiMaxAttempts === Infinity;
+    if (infinite && isConsumeTransient(result.detail)) {
+      // Reap any stale worker orphans that may be idling on this task before
+      // requeueing, so the next attempt starts clean.
+      try {
+        const { findStaleWorkerPids, killStaleProcessTree } = await import('./resilience/reaper.js');
+        const stale = findStaleWorkerPids(config.resilience?.noProgressTimeoutMs ?? 10 * 60_000);
+        for (const s of stale) if (s.command.includes(task.id)) killStaleProcessTree(s.pid);
+      } catch {}
+      const { backoffDelay } = await import('./sessionguard/backoff.js');
+      // Backoff before requeueing so we don't hot-loop a flapping endpoint.
+      await new Promise((r) => setTimeout(r, backoffDelay((task.attempts ?? 0) + 1)));
+      updateTask(opts.repoPath, task.id, { status: 'pending', lastError: result.detail.slice(0, 2000) } as never);
+      // Best-effort: set pending directly if updateTask path coalesces
+      setTaskStatus(opts.repoPath, task.id, 'pending' as never);
+      updateTask(opts.repoPath, task.id, { lastError: result.detail.slice(0, 2000) });
+      log.warn('consume', `Transient infra failure for ${task.id}, requeued as pending`, { detail: result.detail.slice(0, 120) });
+      return { ok: false, taskId: task.id, detail: `${result.detail} (transient — requeued)`, prUrl: result.prUrl, merged: result.merged };
+    }
+    setTaskStatus(opts.repoPath, task.id, 'failed', result.detail);
+    return { ok: false, taskId: task.id, detail: result.detail, prUrl: result.prUrl, merged: result.merged };
   } catch (err) {
     const msg = (err as Error).message;
+    const config = loadConfig(opts.repoPath);
+    const infinite = config.resilience?.apiMaxAttempts === undefined || config.resilience.apiMaxAttempts === Infinity;
+    if (infinite && isConsumeTransient(msg)) {
+      try {
+        const { findStaleWorkerPids, killStaleProcessTree } = await import('./resilience/reaper.js');
+        const stale = findStaleWorkerPids(60_000);
+        for (const s of stale) if (s.command.includes(task.id)) killStaleProcessTree(s.pid);
+      } catch {}
+      const { backoffDelay } = await import('./sessionguard/backoff.js');
+      await new Promise((r) => setTimeout(r, backoffDelay(1)));
+      setTaskStatus(opts.repoPath, task.id, 'pending' as never);
+      updateTask(opts.repoPath, task.id, { lastError: msg.slice(0, 2000) });
+      return { ok: false, taskId: task.id, detail: `crashed: ${msg} (transient — requeued)` };
+    }
     setTaskStatus(opts.repoPath, task.id, 'failed', msg);
     log.error('consume', `Task ${task.id} crashed: ${msg}`);
     return { ok: false, taskId: task.id, detail: `crashed: ${msg}` };

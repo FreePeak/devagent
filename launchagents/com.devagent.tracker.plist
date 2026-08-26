@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.devagent.tracker</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>${HOME}/.cargo/bin:${HOME}/.opencode/bin:${HOME}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>HOME</key><string>${HOME}</string>
+  </dict>
+  <key>ProgramArguments</key>
+  <array>
+    <string>${HOME}/.local/bin/node</string>
+    <string>${HOME}/orca/workspaces/devagent-orchestrator-dev/dist/src/cli.js</string>
+    <string>track</string>
+    <string>--repo</string>
+    <string>${HOME}/orca/workspaces/devagent-orchestrator-dev</string>
+    <string>--interval</string>
+    <string>15</string>
+  </array>
+  <key>WorkingDirectory</key><string>${HOME}/orca/workspaces/devagent-orchestrator-dev</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>${HOME}/Library/Logs/devagent-tracker.log</string>
+  <key>StandardErrorPath</key><string>${HOME}/Library/Logs/devagent-tracker.log</string>
+  <key>ThrottleInterval</key><integer>60</integer>
+</dict>
+</plist>
