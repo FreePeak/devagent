@@ -7,15 +7,15 @@
   <dict>
     <key>PATH</key><string>${HOME}/.cargo/bin:${HOME}/.opencode/bin:${HOME}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
     <key>HOME</key><string>${HOME}</string>
-    <key>ORCHESTRATOR_REPO</key><string>${HOME}/orca/workspaces/devagent-orchestrator-dev</string>
+    <key>ORCHESTRATOR_REPO</key><string>${HOME}/work/harvey/freepeak/devagent</string>
     <key>ORCHESTRATOR_GOAL</key><string>Self-build devagent: harden the orchestrator-factory bridge</string>
   </dict>
   <key>ProgramArguments</key>
   <array>
     <string>/bin/bash</string>
-    <string>${HOME}/orca/workspaces/devagent-orchestrator-dev/scripts/orchestrate-loop.sh</string>
+    <string>${HOME}/work/harvey/freepeak/devagent/scripts/orchestrate-loop.sh</string>
   </array>
-  <key>WorkingDirectory</key><string>${HOME}/orca/workspaces/devagent-orchestrator-dev</string>
+  <key>WorkingDirectory</key><string>${HOME}/work/harvey/freepeak/devagent</string>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>StandardOutPath</key><string>${HOME}/Library/Logs/devagent-orchestrator.log</string>
