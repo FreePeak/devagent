@@ -57,6 +57,13 @@ board_total_tasks() {
   ' "$BOARD" 2>/dev/null || echo 0
 }
 
+cleanup_merged_worktrees() { # remove worktrees/branches whose PRs merged (safe-gated)
+  if [ -x "$REPO/scripts/git-cleanup-merged.sh" ]; then
+    echo "[cleanup] pruning merged branches/worktrees"
+    "$REPO/scripts/git-cleanup-merged.sh" --root "$REPO" --apply >/dev/null 2>&1 || true
+  fi
+}
+
 requeue_parked() { # reset failed/blocked tasks back to pending; prints count reset
   [ -f "$BOARD" ] || { echo 0; return; }
   node -e '
@@ -82,7 +89,13 @@ while :; do
 
   if [ "$OPEN" -eq 0 ] && [ "$TOTAL" -gt 0 ]; then
     if [ "$DONE_COUNT" -eq "$TOTAL" ]; then
-      echo "[idle] board complete ($DONE_COUNT done); sleeping ${POLL_SECS}s"
+      # Infinity cycle: archive the completed board so the next iteration
+      # re-bridges scouted queue items and plans a fresh board from the goal.
+      TS="$(date +%Y%m%d-%H%M%S)"
+      mkdir -p "$REPO/.devagent/archive"
+      mv "$BOARD" "$REPO/.devagent/archive/board-$TS.json"
+      echo "[cycle] board complete ($DONE_COUNT done); archived to .devagent/archive/board-$TS.json"
+      cleanup_merged_worktrees
     else
       # Board is stuck: every task is failed/blocked. Requeue periodically so a
       # transient upstream failure does not park the factory forever.
