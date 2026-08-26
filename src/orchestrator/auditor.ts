@@ -34,10 +34,12 @@ export interface AuditorInput {
   task: OrchestratorTask;
   /** Executor's final report text (its claim — data to check, not evidence) */
   executorDetail?: string;
+  /** G5 browser-gate evidence (artifact paths, clause results) when the run produced it */
+  visualEvidence?: string;
 }
 
 export function buildAuditPrompt(input: AuditorInput): string {
-  const { goal, task, executorDetail } = input;
+  const { goal, task, executorDetail, visualEvidence } = input;
   const criteria =
     task.acceptanceCriteria?.length ? task.acceptanceCriteria : task.expectedOutput ? [task.expectedOutput] : [];
   return [
@@ -53,6 +55,7 @@ export function buildAuditPrompt(input: AuditorInput): string {
     criteria.length ? criteria.map((c, i) => `${i + 1}. ${c}`).join('\n') : '(none listed — derive them from the task description and list what you checked)',
     task.boundaryConstraints?.length ? `\n## Boundary constraints the executor had to respect\n${task.boundaryConstraints.map((c) => `- ${c}`).join('\n')}` : '',
     executorDetail ? `\n## Executor claim (untrusted — verify, do not assume)\n${executorDetail.slice(0, 2000)}` : '',
+    visualEvidence ? `\n## Visual evidence from gate G5 (browser)\n${visualEvidence}\nThe screenshot and DOM excerpt files listed above are on disk; cite them when judging UI-adjacent criteria.` : '',
   ]
     .filter(Boolean)
     .join('\n');
@@ -113,9 +116,12 @@ export async function runAudit(args: {
 }): Promise<AuditVerdict | null> {
   const { getWorker } = await import('../workers/index.js');
   const worker = getWorker(args.auditor);
+  // G5 browser evidence, when the executor produced it for this task
+  const { readG5Evidence } = await import('../validation/browser-gate.js');
+  const visualEvidence = await readG5Evidence(await repoRootFrom(args.worktreePath), args.task.id);
   const before = await dirtyFiles(args.worktreePath);
   const result = await worker.spawn({
-    prompt: buildAuditPrompt({ goal: args.board.goal, task: args.task }),
+    prompt: buildAuditPrompt({ goal: args.board.goal, task: args.task, visualEvidence }),
     cwd: args.worktreePath,
     timeoutMs: args.timeoutMs,
   });

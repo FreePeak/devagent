@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { WorkerName } from './types.js';
+import type { BrowserCheckConfig, WorkerName } from './types.js';
 
 /**
  * Effective configuration: defaults <- devagent.json (repo or cwd) <- env credentials.
@@ -36,6 +36,8 @@ export interface DevAgentConfig {
   /** Variant override forwarded to the worker CLI (e.g. max, high). */
   variant?: string;
   testCommand?: string;
+  /** Browser evidence gate (G5). Absent = gate never runs (byte-identical behavior). */
+  browserCheck?: BrowserCheckConfig;
   /** Repo-local lessons file injected into worker prompts (defaults to .devagent/lessons.md). */
   lessonsFile?: string;
   cleanup?: CleanupMode;

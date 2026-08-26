@@ -88,8 +88,20 @@ export interface Finding {
   line?: number;
 }
 
+/** Opt-in browser evidence channel (gate G5), configured in devagent.json. */
+export interface BrowserCheckConfig {
+  /** Shell command that boots the repo's dev server in the worktree. */
+  start: string;
+  /** Absolute URL the gate loads headlessly (must be http/https). */
+  url: string;
+  /** Clauses of the form "text:<substring>" or "selector:<css>"; all must hold. */
+  expect: string[];
+  /** Save a full-page PNG into the run's evidence directory (default true). */
+  screenshot?: boolean;
+}
+
 export interface GateResult {
-  gate: 'G1-tests' | 'G2-migration-apply' | 'G3-migration-static' | 'G4-async-review';
+  gate: 'G1-tests' | 'G2-migration-apply' | 'G3-migration-static' | 'G4-async-review' | 'G5-browser';
   passed: boolean;
   /**
    * True when the gate did not actually run (missing prerequisites) — evidence

@@ -414,3 +414,18 @@ describe('readiness with audit-era statuses', () => {
     expect(out.find((t) => t.id === 'D')!.status).toBe('blocked');
   });
 });
+
+describe('audit prompt with G5 visual evidence', () => {
+  it('includes the visual evidence section when provided', () => {
+    const t = task({ id: 'T1', acceptanceCriteria: ['page renders'] });
+    const without = buildAuditPrompt({ goal: 'g', task: t });
+    expect(without).not.toContain('Visual evidence from gate G5');
+    const withEv = buildAuditPrompt({
+      goal: 'g',
+      task: t,
+      visualEvidence: 'PASS text:checkout\nartifacts: /repo/.devagent/runs/T1/g5/g5-screenshot.png',
+    });
+    expect(withEv).toContain('## Visual evidence from gate G5 (browser)');
+    expect(withEv).toContain('g5-screenshot.png');
+  });
+});

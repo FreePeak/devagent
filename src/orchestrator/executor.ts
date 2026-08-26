@@ -76,9 +76,12 @@ export async function executeTask(args: {
   let attempt = 1;
   let logicAttempts = 0;
   let infraRetries = 0;
+  // Last gate failure detail, threaded into the repair prompt so retries
+  // target the actual gap (G1 output or G5 clause results).
+  let gateFailureDetail = 'previous attempt failed the test gate';
   while (logicAttempts < maxAttempts || infraRetries < 200) {
     const spawnOpts: Record<string, unknown> = {
-      prompt: attempt === 1 ? prompt : buildRepairPrompt(plan, attempt - 1, 'previous attempt failed the test gate', lessons),
+      prompt: attempt === 1 ? prompt : buildRepairPrompt(plan, attempt - 1, gateFailureDetail, lessons),
       cwd: worktreePath,
       timeoutMs,
       ...(apiMaxAttempts !== undefined ? { apiMaxAttempts } : {}),
@@ -112,6 +115,22 @@ export async function executeTask(args: {
     }
     const g1 = await runTestGate(worktreePath, timeoutMs);
     if (g1.passed) {
+      // G5 browser evidence channel: runs only when devagent.json declares
+      // browserCheck; returns null otherwise (behavior byte-identical).
+      const { runBrowserGate } = await import('../validation/browser-gate.js');
+      const g5 = await runBrowserGate({
+        worktreePath,
+        evidenceDir: join(repoPath, '.devagent', 'runs', sanitizeTicketId(task.id), 'g5'),
+        timeoutMs,
+      });
+      if (g5 && !g5.passed) {
+        log.warn('task', `${task.id} G5 failed on executor attempt ${attempt}`, {});
+        gateFailureDetail = `browser gate failed: ${g5.detail ?? ''}`;
+        logicAttempts++;
+        attempt++;
+        if (logicAttempts >= maxAttempts) break;
+        continue;
+      }
       // Commit the work: uncommitted changes never reach merge-back
       // (live-smoke lesson: gate passed in-tree but merge integrated nothing).
       const { spawnCli } = await import('../workers/spawn-utils.js');
@@ -124,9 +143,12 @@ export async function executeTask(args: {
       if (commit.exitCode !== 0 && !/nothing to commit/.test(commit.stderr + commit.stdout)) {
         return { ok: false, worktreePath, detail: `commit failed: ${commit.stderr.slice(0, 200)}` };
       }
-      return { ok: true, worktreePath };
+      // Surface G5 evidence to the auditor via the success detail (it flows
+      // into the audit prompt as untrusted executor context).
+      return { ok: true, worktreePath, ...(g5 ? { detail: g5.detail } : {}) };
     }
     log.warn('task', `${task.id} G1 failed on executor attempt ${attempt}`, {});
+    gateFailureDetail = `test gate failed: ${g1.detail ?? ''}`;
     logicAttempts++;
     attempt++;
     if (logicAttempts >= maxAttempts) break;
