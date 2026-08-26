@@ -22,6 +22,14 @@ import { buildEnv, type SpawnCliOptions, type SpawnCliResult } from '../workers/
 
 const POLL_MS = 250;
 
+/** Vars unset in every pane before env.sh is sourced (mirrors NESTED_ENV_BLOCKLIST). */
+const NESTED_PANE_UNSETS = [
+  'unset ANTHROPIC_MODEL',
+  'unset ANTHROPIC_SMALL_FAST_MODEL',
+  'unset CLAUDE_CODE_ENTRYPOINT',
+  'unset CLAUDECODE',
+];
+
 export interface HerdrRuntimeOptions {
   /** Named persistent session; defaults to DEVAGENT_HERDR_SESSION or "devagent". */
   session?: string;
@@ -93,7 +101,14 @@ export async function ensureHerdrServer(
   if (await herdrServerUp(session)) return true;
   let spawnFailed = false;
   try {
-    const child = spawn(bin, ['--session', session, 'server'], { stdio: 'ignore', detached: true });
+    // Panes inherit the daemon's environment, so the daemon must start with a
+    // scrubbed env too — a parent's ANTHROPIC_MODEL would otherwise leak into
+    // every worker pane (env.sh only overrides, it never unsets).
+    const child = spawn(bin, ['--session', session, 'server'], {
+      stdio: 'ignore',
+      detached: true,
+      env: buildEnv({ cwd: process.cwd(), timeoutMs: 0 }),
+    });
     child.unref();
     // ENOENT etc: no point polling a server that can never start.
     child.on('error', () => {
@@ -187,6 +202,9 @@ export async function runCommandInHerdrPane(
     );
 
     const script = [
+      // Unset harness-injected vars the daemon may have leaked before env.sh
+      // overrides — claude rejects a nested ANTHROPIC_MODEL outright.
+      ...NESTED_PANE_UNSETS,
       `set -a; . ${shQuote(envFile)}; set +a`,
       `rm -f ${shQuote(envFile)}`,
       `cd ${shQuote(opts.cwd)} || exit 125`,
