@@ -1,7 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import { runTask, syntheticTicketFromPrompt } from '../src/task.js';
+import { defaultTaskId, runTask, syntheticTicketFromPrompt } from '../src/task.js';
 import type { TaskDeps } from '../src/task.js';
 import { RunLogger } from '../src/logger.js';
+
+describe('defaultTaskId', () => {
+  it('produces sanitize-safe TASK-prefixed ids unique per invocation', () => {
+    const a = defaultTaskId();
+    const b = defaultTaskId();
+    expect(a).toMatch(/^TASK-[a-z0-9]+-[a-z0-9]{2,6}$/);
+    expect(b).toMatch(/^TASK-[a-z0-9]+-[a-z0-9]{2,6}$/);
+    expect(a).not.toBe(b);
+  });
+
+  it('uses the injected clock for the epoch segment', () => {
+    expect(defaultTaskId(() => 0)).toMatch(/^TASK-0-[a-z0-9]{2,6}$/);
+  });
+});
 
 describe('syntheticTicketFromPrompt', () => {
   it('splits first line as title, rest as description', () => {
@@ -20,6 +34,19 @@ describe('syntheticTicketFromPrompt', () => {
   it('caps title at 80 chars', () => {
     expect(syntheticTicketFromPrompt('x'.repeat(200)).title).toHaveLength(80);
   });
+
+  it('honors an explicit taskId for id and trackerInternalId', () => {
+    const t = syntheticTicketFromPrompt('do thing', 'loop-66');
+    expect(t.id).toBe('loop-66');
+    expect(t.trackerInternalId).toBe('loop-66');
+  });
+
+  it('defaults to a unique collision-free id per call', () => {
+    const a = syntheticTicketFromPrompt('one');
+    const b = syntheticTicketFromPrompt('two');
+    expect(a.id).not.toBe('TASK');
+    expect(b.id).not.toBe(a.id);
+  });
 });
 
 function fakeDeps(ok: boolean, prUrl?: string): TaskDeps {
@@ -28,13 +55,27 @@ function fakeDeps(ok: boolean, prUrl?: string): TaskDeps {
       fetchTicket: async () => ({ id: 'TASK', title: '', description: '', labels: [], acceptanceCriteria: [] }),
       runGateG3: () => ({ passed: true, findings: [], detail: '' }),
     },
-    implementStage: async () => ({ ok, worker: 'claude-code', attempts: 1, worktreePath: ok ? '/wt' : undefined }),
+    implementStage: async (_cfg, ticket) => {
+      seenTicket = ticket;
+      return { ok, worker: 'claude-code', attempts: 1, worktreePath: ok ? '/wt' : undefined };
+    },
     publishStage: async () => prUrl,
   };
 }
 
+let seenTicket: { id: string } | undefined;
+
 describe('runTask', () => {
   const log = new RunLogger();
+
+  it('threads opts.taskId into the dispatched ticket', async () => {
+    seenTicket = undefined;
+    await runTask(
+      { prompt: 'do thing', repoPath: '.', autoPr: false, maxLoops: 1, timeoutMs: 1000, log, taskId: 'loop-66-x' },
+      fakeDeps(true),
+    );
+    expect(seenTicket?.id).toBe('loop-66-x');
+  });
 
   it('reports failure without publishing when implementation fails', async () => {
     const r = await runTask(

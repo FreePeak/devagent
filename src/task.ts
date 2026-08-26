@@ -23,19 +23,39 @@ export interface TaskOptions {
   /** Drop the enclosing Orca workspace after done when repoPath is Orca-managed. */
   dropOrcaWorkspace?: boolean;
   log: RunLogger;
+  /**
+   * Task identity: names the synthetic ticket, worktree (.devagent-worktrees/<id>)
+   * and branch (devagent/<id>). Concurrent dispatches (pooled remote hosts,
+   * parallel Orca runs) must not share one id — git refuses to check a branch
+   * out twice across worktrees of the same repo.
+   */
+  taskId?: string;
 }
 
-export function syntheticTicketFromPrompt(prompt: string): TicketSpec {
+/**
+ * Collision-free default task id (loop 66): the previous constant `TASK` made
+ * every concurrent run fight over `.devagent-worktrees/TASK` and the branch
+ * `devagent/TASK` ("already used by worktree at ..."). Epoch36 + random suffix
+ * keeps ids unique per invocation while staying sanitize-safe.
+ */
+export function defaultTaskId(now: () => number = Date.now): string {
+  const epoch36 = now().toString(36);
+  const rand = Math.random().toString(36).slice(2, 6);
+  return `TASK-${epoch36}-${rand}`;
+}
+
+export function syntheticTicketFromPrompt(prompt: string, taskId?: string): TicketSpec {
   // First line becomes the title; whole prompt stays as description
   const [firstLine, ...rest] = prompt.trim().split('\n');
+  const id = taskId ?? defaultTaskId();
   return {
-    id: 'TASK',
+    id,
     title: firstLine!.slice(0, 80),
     description: rest.join('\n').trim() || firstLine!,
     labels: ['orchestrated'],
     acceptanceCriteria: [],
     url: '',
-    trackerInternalId: 'TASK',
+    trackerInternalId: id,
   };
 }
 
@@ -100,8 +120,8 @@ export async function publishTaskBranch(
 
 /** Minimal pipeline execution for prompt-driven tasks (no tracker round-trip). */
 export async function runTask(opts: TaskOptions, deps: TaskDeps): Promise<{ ok: boolean; prUrl?: string; note: string }> {
-  const ticket = syntheticTicketFromPrompt(opts.prompt);
-  opts.log.info('task', `Task starting`, { title: ticket.title });
+  const ticket = syntheticTicketFromPrompt(opts.prompt, opts.taskId);
+  opts.log.info('task', `Task starting`, { title: ticket.title, taskId: ticket.id });
 
   const impl = await deps.implementStage(opts, ticket, opts.log);
   if (!impl.ok) {

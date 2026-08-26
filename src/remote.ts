@@ -85,6 +85,11 @@ export function buildSshArgs(target: RemoteTarget, remoteCmd: string): string[] 
 export interface RunRemoteTaskOptions {
   target: string;
   prompt: string;
+  /**
+   * Optional task identity forwarded as `--id` so the remote side uses the
+   * caller-chosen worktree/branch instead of its own default (loop 66).
+   */
+  taskId?: string;
   worker?: string;
   timeoutMs: number;
   log: RunLogger;
@@ -141,6 +146,7 @@ export async function runRemoteTask(
     `cd ${shellQuote(target.path)}`,
     `devagent task ${shellQuote(opts.prompt)} --auto-pr`,
   ];
+  if (opts.taskId) parts.push(`--id ${shellQuote(opts.taskId)}`);
   if (opts.worker) parts.push(`--worker ${shellQuote(opts.worker)}`);
   const dispatch = await deps.run(buildSshArgs(target, parts.join(' && ')), opts.timeoutMs);
   const prUrl = extractPrUrl(dispatch.stdout);

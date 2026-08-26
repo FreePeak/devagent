@@ -525,6 +525,12 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 ### Phase 4 — Expansion (post-v1)
 
 - Remote execution — dispatch pipelines to a shared host so worker capacity is pooled across repos instead of per-workspace.
+  > **Completed post-v0.3 (2026-08-25):** `devagent task --remote` delegates the pipeline
+  > to a shared host over SSH (preflight probe, bounded timeout, PR URL extraction, PR #31).
+  > **Concurrency-safe identity (2026-08-25):** task ids are per-dispatch — `--id` /
+  > `$DEVAGENT_TASK_ID`, defaulting to a collision-free `TASK-<suffix>` — and forward through
+  > remote dispatch, so concurrent runs no longer collide on the hardcoded
+  > `.devagent-worktrees/TASK` worktree + `devagent/TASK` branch.
 - Deeper sandbox isolation — network and filesystem allowlists for workers before any untrusted-repo run.
   > **Completed post-v0.3 (2026-08-24):** credential-shaped env vars are stripped from
   > all agent-CLI worker spawns by default (`src/workers/sandbox.ts`, override via

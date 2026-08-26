@@ -432,6 +432,10 @@ program
   .command('task')
   .description('Run one prompt-driven task headlessly (orchestrator integration mode)')
   .requiredOption('--prompt <text>', 'task description (first line becomes the title)')
+  .option(
+    '--id <taskId>',
+    'task identity: names the worktree (.devagent-worktrees/<id>) and branch (devagent/<id>); default $DEVAGENT_TASK_ID, else a collision-free TASK-<suffix>',
+  )
   .option('--repo <path>', 'target repository', process.cwd())
   .option('--worker <name>', 'claude-code | opencode | both')
   .option('--model <id>', 'model override passed to the worker CLI (provider/model)')
@@ -461,6 +465,7 @@ program
         {
           target: opts.remote as string,
           prompt: opts.prompt as string,
+          taskId: ((opts.id as string | undefined) ?? process.env.DEVAGENT_TASK_ID) || undefined,
           worker: opts.worker as string | undefined,
           timeoutMs: config.timeoutMinutes * 60_000,
           log: logger,
@@ -483,6 +488,7 @@ program
       cleanup: resolveCleanup(opts.cleanup, config.cleanup),
       dropOrcaWorkspace: opts.dropOrcaWorkspace ?? config.dropOrcaWorkspace ?? false,
       log: logger,
+      taskId: ((opts.id as string | undefined) ?? process.env.DEVAGENT_TASK_ID) || undefined,
     };
     logger.info('task', `Task run ${logger.runId} starting`, { repo: cfg.repoPath, autoPr: cfg.autoPr });
 
@@ -496,7 +502,7 @@ program
       const workerName = ((opts.worker ?? config.worker) as 'claude-code' | 'opencode' | 'both');
       const deps: TaskDeps = {
         runPipelineDeps: {
-          fetchTicket: async () => ({ id: 'TASK', title: '', description: '', labels: [], acceptanceCriteria: [] }),
+          fetchTicket: async () => ({ id: cfg.taskId ?? 'TASK', title: '', description: '', labels: [], acceptanceCriteria: [] }),
           runGateG3: (rp, classification) => {
             const r = runMigrationStaticGate({ repoPath: rp, classification });
             return { passed: r.passed, findings: r.findings, detail: r.detail };
