@@ -93,6 +93,31 @@ Key properties:
   `DEVAGENT_SANDBOX_NETWORK_ALLOWLIST="api.anthropic.com, registry.npmjs.org"`.
   Git, Docker, and test runner processes are unaffected.
 
+## Runtime visibility
+
+### Herdr worker panes
+
+By default workers run headless and are only observable via run logs. Opt in
+to running every worker launch inside a herdr pane instead — visible live,
+reattachable, disconnect-proof:
+
+- `herdr.enabled: true` in `devagent.json`, or env override `DEVAGENT_HERDR=1` (`=0` forces off)
+- Workers open in a named session — attach with `herdr session attach devagent` to watch them work
+- `DEVAGENT_HERDR_KEEP_PANES=1` keeps completed panes around for inspection
+
+See [docs/HERDR.md](docs/HERDR.md) for the full behavior contract.
+
+### LaunchAgent control
+
+| Make target | Effect |
+|---|---|
+| `make agents-status` | Show loaded launchctl agents, disabled registry, running processes |
+| `make agents-on` | Enable and bootstrap all repo plists already installed in `~/Library/LaunchAgents` |
+| `make agents-off` | Boot out and disable all agent labels, then kill running loops |
+| `make agents-install` | Render `launchagents/*.plist` into `~/Library/LaunchAgents`, lint, load |
+| `make agents-uninstall` | Boot out, disable, and delete installed plists (repo copies untouched) |
+| `make kill` | Kill loop scripts/workers and watchdog daemons; never touches launchctl state |
+
 ## Documentation
 
 | Document | Format | Description |
