@@ -103,7 +103,33 @@ export function parseEtimeToMs(etime: string): number {
   return (((days * 24 + hours) * 60 + minutes) * 60 + seconds) * 1000;
 }
 
-export function findStaleWorkerPids(olderThanMs = 10 * 60_000): StaleWorker[] {
+/**
+ * A process is only reap-eligible when it is provably a devagent-spawned
+ * worker: headless print-mode with JSON output. Interactive sessions
+ * (`claude` TUI in any project) never match, so the reaper can never kill
+ * the user's live work (2026-08-26 incident: pattern-only matching reaped
+ * unrelated interactive claude processes machine-wide).
+ */
+const DEVAGENT_WORKER_CMD = /(^|\s)(--print|-p)(\s|$)/;
+
+export function isDevagentWorkerCmd(cmd: string): boolean {
+  return WORKER_PATTERN.test(cmd) && DEVAGENT_WORKER_CMD.test(cmd) && /--output-format\b/.test(cmd);
+}
+
+function cwdFor(pid: number): string {
+  try {
+    const out = execSync(`lsof -a -p ${pid} -d cwd -Fn`, { encoding: 'utf8', timeout: 2000 });
+    const line = out.split('\n').find((l) => l.startsWith('n'));
+    return line ? line.slice(1) : '';
+  } catch {
+    return '';
+  }
+}
+
+export function findStaleWorkerPids(
+  olderThanMs = 10 * 60_000,
+  opts: { cwdPrefix?: string } = {},
+): StaleWorker[] {
   try {
     // etime (not etimes): BSD ps on macOS rejects etimes, which made the
     // whole scan throw and silently report "no stale workers" forever.
@@ -117,7 +143,8 @@ export function findStaleWorkerPids(olderThanMs = 10 * 60_000): StaleWorker[] {
       const pid = Number(m[1]);
       if (own.has(pid)) continue;
       const cmd = m[3] ?? '';
-      if (!WORKER_PATTERN.test(cmd)) continue;
+      if (!isDevagentWorkerCmd(cmd)) continue;
+      if (opts.cwdPrefix && !cwdFor(pid).startsWith(opts.cwdPrefix)) continue;
       const elapsedMs = parseEtimeToMs(m[2] ?? '');
       if (elapsedMs >= olderThanMs) stale.push({ pid, elapsedMs, command: cmd.slice(0, 300) });
     }
