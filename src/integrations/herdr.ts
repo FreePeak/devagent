@@ -220,6 +220,13 @@ export async function runCommandInHerdrPane(
     let lastProgressAt = Date.now();
     let timedOut = false;
 
+    // Buffered JSON output stays at 0 bytes until completion — fileSize alone
+    // would kill healthy long workers. Seed lastBytes at current size and
+    // extend grace: first 60s never times out on fileSize, wall timeout still applies.
+    const seededBytes = fileSize(outFile) + fileSize(errFile);
+    lastBytes = seededBytes;
+    const graceMs = Math.min(noProgressMs, 60_000);
+
     while (true) {
       if (existsSync(doneFile)) break;
       const now = Date.now();
@@ -228,7 +235,10 @@ export async function runCommandInHerdrPane(
         lastBytes = bytes;
         lastProgressAt = now;
       }
-      if (now >= start + opts.timeoutMs || (noProgressMs > 0 && now - lastProgressAt >= noProgressMs)) {
+      if (
+        now >= start + opts.timeoutMs ||
+        (noProgressMs > 0 && now - lastProgressAt >= noProgressMs && now - start >= graceMs)
+      ) {
         timedOut = true;
         break;
       }

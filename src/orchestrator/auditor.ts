@@ -114,10 +114,13 @@ export async function runAudit(args: {
   const { getWorker } = await import('../workers/index.js');
   const worker = getWorker(args.auditor);
   const before = await dirtyFiles(args.worktreePath);
+  const cfg = (await import('../config.js')).loadConfig(args.worktreePath);
   const result = await worker.spawn({
     prompt: buildAuditPrompt({ goal: args.board.goal, task: args.task }),
     cwd: args.worktreePath,
     timeoutMs: args.timeoutMs,
+    ...(cfg.model ? { model: cfg.model } : {}),
+    ...(cfg.variant ? { variant: cfg.variant } : {}),
   });
   const after = await dirtyFiles(args.worktreePath);
   let report = result.timedOut || result.exitCode !== 0 ? null : parseAuditReport(result.resultText ?? '');

@@ -69,6 +69,8 @@ export async function executeTask(args: {
   const noProgressTimeoutMs = resilienceCfg?.noProgressTimeoutMs ?? 10 * 60_000;
   const apiMaxAttempts = resilienceCfg?.apiMaxAttempts;
   const useHerdr = herdrEnabled(fullCfg);
+  const model = fullCfg.model;
+  const variant = fullCfg.variant;
 
   // Transient check uses classify module (sync after first import)
   const { isTransientProviderError: isTransient } = await import('../resilience/classify.js');
@@ -85,6 +87,8 @@ export async function executeTask(args: {
       ...(apiMaxAttempts !== undefined ? { apiMaxAttempts } : {}),
       ...(noProgressTimeoutMs !== undefined ? { noProgressTimeoutMs } : {}),
       ...(useHerdr ? { herdr: true } : {}),
+      ...(model ? { model } : {}),
+      ...(variant ? { variant } : {}),
     };
     const result = await worker.spawn(spawnOpts as never);
     try {
@@ -94,7 +98,10 @@ export async function executeTask(args: {
       const stale = findStaleWorkerPids(noProgressTimeoutMs || 60_000, {
         cwdPrefix: join(repoPath, '.devagent-worktrees'),
       });
-      for (const s of stale) killStaleProcessTree(s.pid);
+      // cwdPrefix guard already filters — skip isDevagentWorker false above
+      // For herdr panes the cwd is remote pane cwd, which lsof may not resolve;
+      // skip kill for herdr-detected panes (herdr.ts watchdog handles those).
+      for (const s of stale) if (!useHerdr) killStaleProcessTree(s.pid);
     } catch {}
     if (result.timedOut || result.exitCode !== 0) {
       const text = result.resultText ?? '';

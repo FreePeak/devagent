@@ -54,11 +54,14 @@ export async function consumeOnce(opts: ConsumeOptions): Promise<ConsumeResult> 
     const config = loadConfig(opts.repoPath);
     const infinite = config.resilience?.apiMaxAttempts === undefined || config.resilience.apiMaxAttempts === Infinity;
     if (infinite && isConsumeTransient(result.detail)) {
-      // Reap any stale worker orphans that may be idling on this task before
-      // requeueing, so the next attempt starts clean.
+      // Reap only stale workers scoped to this repo's worktrees — never
+      // interactive sessions or workers for other projects.
       try {
+        const { join } = await import('node:path');
         const { findStaleWorkerPids, killStaleProcessTree } = await import('./resilience/reaper.js');
-        const stale = findStaleWorkerPids(config.resilience?.noProgressTimeoutMs ?? 10 * 60_000);
+        const stale = findStaleWorkerPids(config.resilience?.noProgressTimeoutMs ?? 10 * 60_000, {
+          cwdPrefix: join(opts.repoPath, '.devagent-worktrees'),
+        });
         for (const s of stale) if (s.command.includes(task.id)) killStaleProcessTree(s.pid);
       } catch {}
       const { backoffDelay } = await import('./sessionguard/backoff.js');
@@ -78,9 +81,14 @@ export async function consumeOnce(opts: ConsumeOptions): Promise<ConsumeResult> 
     const config = loadConfig(opts.repoPath);
     const infinite = config.resilience?.apiMaxAttempts === undefined || config.resilience.apiMaxAttempts === Infinity;
     if (infinite && isConsumeTransient(msg)) {
+      // No hard 60_000 threshold — respect configured noProgress timeout
+      const staleMs = config.resilience?.noProgressTimeoutMs ?? 10 * 60_000;
       try {
+        const { join } = await import('node:path');
         const { findStaleWorkerPids, killStaleProcessTree } = await import('./resilience/reaper.js');
-        const stale = findStaleWorkerPids(60_000);
+        const stale = findStaleWorkerPids(staleMs, {
+          cwdPrefix: join(opts.repoPath, '.devagent-worktrees'),
+        });
         for (const s of stale) if (s.command.includes(task.id)) killStaleProcessTree(s.pid);
       } catch {}
       const { backoffDelay } = await import('./sessionguard/backoff.js');

@@ -155,6 +155,8 @@ export async function runRecoveryPlanner(args: {
   repoPath: string;
   plannerWorker: WorkerName;
   timeoutMs: number;
+  model?: string;
+  variant?: string;
 }): Promise<RecoveryContract | null> {
   const { getWorker } = await import('../workers/index.js');
   const worker = getWorker(args.plannerWorker);
@@ -181,6 +183,8 @@ export async function runRecoveryPlanner(args: {
       .join('\n'),
     cwd: args.repoPath,
     timeoutMs: args.timeoutMs,
+    ...(args.model ? { model: args.model } : {}),
+    ...(args.variant ? { variant: args.variant } : {}),
   });
   if (result.timedOut || result.exitCode !== 0) return null;
   return parseRecoveryContract(result.resultText ?? '');
@@ -191,6 +195,7 @@ export async function runPlanner(
   repoPath: string,
   plannerWorker: WorkerName,
   timeoutMs: number,
+  opts: { model?: string; variant?: string } = {},
 ): Promise<OrchestratorTask[]> {
   const { getWorker } = await import('../workers/index.js');
   const worker = getWorker(plannerWorker);
@@ -198,6 +203,8 @@ export async function runPlanner(
     prompt: `${PLANNER_SYSTEM_PROMPT}\n\n## Goal\n${goal}`,
     cwd: repoPath,
     timeoutMs,
+    ...(opts.model ? { model: opts.model } : {}),
+    ...(opts.variant ? { variant: opts.variant } : {}),
   });
   let plan = result.timedOut ? null : parsePlan(result.resultText ?? '');
   // Live-smoke lesson: claude occasionally returns exit 0 with empty stdout
@@ -207,6 +214,8 @@ export async function runPlanner(
       prompt: `${PLANNER_SYSTEM_PROMPT}\n\n## Goal\n${goal}`,
       cwd: repoPath,
       timeoutMs,
+      ...(opts.model ? { model: opts.model } : {}),
+      ...(opts.variant ? { variant: opts.variant } : {}),
     });
     plan = retry.timedOut ? null : parsePlan(retry.resultText ?? '');
     if (plan) return plan;

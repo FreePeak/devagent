@@ -626,7 +626,10 @@ program
       if (!board) {
         if (opts.resume) console.error('No existing board found; planning fresh.');
         const { runPlanner } = await import('./orchestrator/planner.js');
-        const tasks = await runPlanner(opts.goal, opts.repo, plannerName, timeoutMs);
+        const tasks = await runPlanner(opts.goal, opts.repo, plannerName, timeoutMs, {
+          model: config.model,
+          variant: config.variant,
+        });
         board = createBoard(opts.goal, tasks, { planner: plannerName, executor: executorName, auditor: auditorName });
         saveBoard(opts.repo, board);
         console.log(`Plan (${tasks.length} task(s)):`);
@@ -678,7 +681,15 @@ program
             opts.maxRecoveries > 0
               ? (a) =>
                   import('./orchestrator/planner.js').then(({ runRecoveryPlanner }) =>
-                    runRecoveryPlanner({ goal: board!.goal, task: a.task, repoPath: opts.repo, plannerWorker: plannerName, timeoutMs }),
+                    runRecoveryPlanner({
+                      goal: board!.goal,
+                      task: a.task,
+                      repoPath: opts.repo,
+                      plannerWorker: plannerName,
+                      timeoutMs,
+                      model: config.model,
+                      variant: config.variant,
+                    }),
                   )
               : undefined,
         },
@@ -1232,17 +1243,21 @@ program
   .command('reap-stale')
   .description('Find and kill stale opencode/claude worker processes (infinite-retry reaper)')
   .option('--older-than <ms>', 'consider workers stale after this many ms (default 600000 = 10m)', Number, 10 * 60_000)
+  .option('--repo <path>', 'scope to workers whose cwd is inside <repo>/.devagent-worktrees (default: all devagent workers)')
   .option('--dry-run', 'list without killing', false)
   .action(async (opts) => {
+    const { join } = await import('node:path');
     const { findStaleWorkerPids, reapStaleWorkers } = await import('./resilience/reaper.js');
     const olderThan = Number(opts.olderThan) || 10 * 60_000;
+    const cwdPrefix = opts.repo ? join(opts.repo, '.devagent-worktrees') : undefined;
+    const reapOpts = cwdPrefix ? { cwdPrefix } : {};
     if (opts.dryRun) {
-      const stale = findStaleWorkerPids(olderThan);
+      const stale = findStaleWorkerPids(olderThan, reapOpts);
       if (stale.length === 0) console.log('No stale workers.');
       else for (const s of stale) console.log(`${s.pid} ${Math.round(s.elapsedMs / 1000)}s ${s.command}`);
       return;
     }
-    const killed = reapStaleWorkers(olderThan, false);
+    const killed = reapStaleWorkers(olderThan, false, reapOpts);
     if (killed.length === 0) console.log('No stale workers.');
     else for (const s of killed) console.log(`killed ${s.pid} ${Math.round(s.elapsedMs / 1000)}s ${s.command}`);
   });

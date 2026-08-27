@@ -10,5 +10,6 @@
     "intervalMinutes": 30
   },
   "autoMerge": true,
-  "selfUpdate": true
+  "selfUpdate": true,
+  "model": "cmd/minimax/minimax-m3-free"
 }
