@@ -521,6 +521,17 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 > gate — merges now require a green check rollup (`evaluateChecks` blocks on
 > failures, waits out pending runs before judging), so Q7 below is resolved
 > as yes.
+>
+> **Completed post-v0.3 (2026-08-25–26):** factory three-role self-build
+> (`scout` + `tracker` + `builder`, PR #40), herdr pane runtime + queue-bridge
+> + resilience/backoff (PR #41, #43–#46), infinity cycling with board archiving
+> and merged-worktree pruning (PR #42), stale-worker reaper scoped to headless
+> worktree workers in this repo (PR #48).
+>
+> **Completed post-v0.3 (2026-08-26, loop 67 / PR #39):** lessons feedback
+> loop — size-bounded distilled digest (`lessonsMaxChars` default 4000,
+> newest-first whole-line drop) injected into planning/implementation/repair/
+> fan-out prompts; Q9 resolved as distilled (verbatim rejected).
 
 ### Phase 4 — Expansion (post-v1)
 
@@ -538,11 +549,13 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
   > (`DEVAGENT_SANDBOX=seatbelt`) denies worker writes outside the worktree and temp
   > dirs, with network left default-allow as a named policy knob for future tightening.
   > Git/docker/gh/test-runner spawns keep the full parent env — they need credentials.
-- Selfbuild state bootstrap — auto-create and mirror the `selfbuild/state` orphan branch on first loop run; the durable-state mechanism shipped but no state branch exists on origin yet.
-- Merge-queue rebase automation — stacked loops land with expected conflicts against `main`; auto-rebase waves before dispatch instead of manual queue refreshes.
-- Lessons feedback loop — `selfbuild-state.sh` mirrors `lessons.md` to the state branch (PR #19) but nothing reads it back; inject curated lessons into worker repair and planning prompts so past failures stop repeating.
-- Flaky-test guard for fan-out judging — winner selection assumes deterministic tests; add quarantine/rerun handling for nondeterministic suites.
-- Failure-cluster reporting on ledger analytics — recurring gap categories in the ledger should surface as actionable periodic reports, not just queryable rows.
+- Selfbuild state bootstrap — auto-create and mirror the `selfbuild/state` orphan branch on first loop run; the durable-state mechanism shipped but no state branch exists on origin yet (why: durable lessons+ledger would otherwise be lost on branch resets).
+- Merge-queue rebase automation — stacked loops land with expected conflicts against `main`; auto-rebase waves before dispatch instead of manual queue refreshes (why: rebase-stack conflicts are routine toil; automation keeps the queue flowing).
+- Flaky-test guard for fan-out judging — winner selection assumes deterministic tests; add quarantine/rerun handling for nondeterministic suites (why: fan-out already shipped, judging fidelity is the remaining gap).
+- Failure-cluster reporting on ledger analytics — recurring gap categories in the ledger should surface as actionable periodic reports, not just queryable rows (why: analytics landed in PR #18, reporting is the missing half).
+- Worker liveness probe for nested dispatch — bounded heartbeat so the ~20 min silent stall that hit both worker paths in PR #39 is killed and retried instead of blocking the loop (why: reliability defect hit in prod loop 67).
+- Pane durability / auto-reattach — detect dead herdr panes (e.g. Ghostty-tab exits that motivated PR #48's reaper fix) and reattach or fall back to headless without losing the run (why: visibility runtime's failure mode is still uncovered).
+- Disk/worktree reclamation — periodic GC of stale `.devagent-worktrees/*` + build caches, surfaced in the tracker/dashboard (why: 62 GB reclaimed 2026-08-24 shows the pressure is real; no automation yet).
 
 ## 18. Open Questions
 
@@ -551,7 +564,7 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 | Q4 | Where do fixture/representative datasets for Gate G2 come from — repo-provided seeds or DevAgent-generated synthetic data? | eng | Phase 2 |
 | Q5 | Should G4 async findings be advisory or blocking? | product | Phase 2 |
 | Q8 | How should winner selection handle flaky/nondeterministic test suites during fan-out judging — rerun budget, quarantine, or refuse-to-judge? | eng | Phase 4 |
-| Q9 | Should `lessons.md` from the selfbuild state branch be injected verbatim into worker prompts or distilled to a size-bounded digest first? | eng | Phase 4 |
+| Q10 | What liveness signal should bound nested worker dispatch so a silent ~20 min exit-without-output (loop 67 / PR #39) is killed and retried? | eng | Phase 4 |
 
 > Resolved 2026-08-24: Q1 (ecosystem conventions + `testCommand` override now
 > cover npm/Go/Python), Q2 (plain webhooks shipped in Phase 3), Q3 (policy is
@@ -560,6 +573,10 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 >
 > Resolved 2026-08-24 (curation run 2): Q7 — yes; autoMerge now requires a
 > green CI check rollup before merging (`evaluateChecks`, PR #17).
+>
+> Resolved 2026-08-26 (loop 67 / PR #39): Q9 — distilled; lessons injection is
+> bounded by `LESSONS_MAX_CHARS` (default 4000, newest-first whole-line drop,
+> injected into planning/implementation/repair/fan-out prompts).
 
 ---
 
