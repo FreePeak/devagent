@@ -554,33 +554,26 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 > prune (PR #42). Reaper scoped to `devagent` headless workers, closing
 > the 2026-08-26 mass-kill incident (PRs #48, #52). Scout now forwards
 > `config.model` (PR #53).
+>
+> **Completed post-v0.3 (2026-08-28):** `fanout/ingestChildTrails` plumbing
+> shipped (PRs #56 + #57) — `buildChildTrailsDigest` ratchet at 4000 chars
+> splices the prior-loop child `worklog.jsonl` excerpts into the next-loop
+> planner prompt at `COMPACT_CONTEXT_MARKER`; G0 and G5:STRIDE read the same
+> digest at the same assembly point (`src/prompt.ts:303-317`), so the
+> industry-baseline plumbing lights up automatically for every subsequent
+> gate. Closes the iter 50/52/53/54 convergence lesson, closes Q10 as
+> "fixed-size ratchet-capped excerpt."
 
 #### Phase 4 — current backlog (2026-08-28)
 
-- **`fanout/ingestChildTrails` plumbing** — copy each worker's
-  `worklog.jsonl` excerpt into the next-loop planner digest (Factory,
-  Copilot `/tasks`+`/worktree`, Devin "Manage Devins" converged here;
-  lessons ratchet calls it out every iteration). Pure plumbing.
-- **Post-PR CI remediation (`CI-Fixer`)** — re-dispatch worker between
-  `publishStage` and `autoMerge` on failing `evaluateChecks` (Jules
-  `CI Fixer`, Copilot `/pr auto`, Codex `@codex fix`); G-gates cover
-  pre-push only today.
-- **Issue-readiness gate (G0)** — OpenHands v1.13.0 type-specific
-  ready-for-dev criteria; reject unready tickets before credits burn.
-- **Plan-critic pass (G0.5)** — independent LLM reviews the plan before
-  worker dispatch (Jules Planning Critic, 9.5% failure-rate reduction).
-- **`.devagent/AGENTS.md` auto-load** — declarative per-repo plan/test
-  conventions from the repo root; trust toggle on the operator's
-  managed-settings page (Codex CVE-2025-61260: deny-by-default).
-- **G5:STRIDE security gate** — STRIDE pass over the diff before
-  `autoMerge` (Factory "Automated Security Review" 2026-06-11, real CVE
-  output); G2/G3/G4 cover correctness only.
-- **Orchestrator interrupt path** — `taskInterrupt` tool fired when a
-  worker trail shows 3+ identical failures (OpenCode v1.18.20 substrate).
-  Designed alongside `fanout/ingestChildTrails`.
-- **Per-loop operator dashboard** — goal + worklog + trail-digest +
-  gate-status + spend in one view (Codex `codex agents` 0.149.0, Factory
-  Agent Effectiveness).
+- **Post-PR CI remediation (`CI-Fixer`)** — re-dispatch worker between `publishStage` and `autoMerge` on failing `evaluateChecks` (Jules `CI Fixer`, Copilot `/pr auto`, Codex `@codex fix`); loops 49/50 failed at this in Aug 2026, G-gates cover pre-push only today.
+- **Issue-readiness gate (G0)** — OpenHands v1.13.0 type-specific ready-for-dev criteria; reject unready tickets before credits burn (cheaper than CI-Fixer, no new infra).
+- **Plan-critic pass (G0.5)** — independent LLM reviews the plan before worker dispatch (Jules Planning Critic, 9.5% failure-rate reduction; Codex 0.147.0 `--approve-for-me` is the structural analog).
+- **G5:STRIDE security gate** — STRIDE pass over the diff before `autoMerge` (Factory "Automated Security Review" 2026-06-11, real CVE output CVE-2026-42876); G2/G3/G4 cover correctness only, share the same `COMPACT_CONTEXT_MARKER` digest just wired.
+- **Orchestrator `taskInterrupt` path** — kill a worker mid-task when its `trail.jsonl` shows 3+ identical failures (OpenCode v1.18.20 `task_id` substrate, Codex 0.150.0 interrupt hook); designed alongside the iter55 plumbing.
+- **Orchestrator pre-loop guard** — auto-stash uncommitted main-worktree edits and confirm HEAD is on `main` before `git merge`; loops 52/53/54 all failed this way in one session (root cause logged 2026-08-28).
+- **Scout output-shape regression suite** — `extractScoutPayload` must accept array / object / NDJSON / no-marker shapes (PR #58); 4 tests cover this today, promote to a fixture-driven golden suite so future Claude/OpenCode format changes fail fast at scout, not mid-loop.
+- **Per-loop operator dashboard** — goal + worklog + trail-digest + gate-status + spend in one view (Codex `codex agents` 0.149.0, Factory Agent Effectiveness); the iter55 trail digest is the data source.
 
 ## 18. Open Questions
 
@@ -589,8 +582,9 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 | Q4 | Where do fixture/representative datasets for Gate G2 come from — repo-provided seeds or DevAgent-generated synthetic data? | eng | Phase 2 |
 | Q5 | Should G4 async findings be advisory or blocking? | product | Phase 2 |
 | Q8 | How should winner selection handle flaky/nondeterministic test suites during fan-out judging — rerun budget, quarantine, or refuse-to-judge? | eng | Phase 4 |
-| Q10 | `fanout/ingestChildTrails` — full `worklog.jsonl` per child, fixed-size excerpt, or LLM-distilled highlights in the next-loop planner digest? | eng | Phase 4 |
 | Q11 | `.devagent/AGENTS.md` auto-load — trust prompt on the operator's managed-settings page (Codex CVE-2025-61260 pattern) or one-time per-repo confirm? | product | Phase 4 |
+| Q12 | After PR #57 lands, the G0 plan-critic and G5:STRIDE stages will both read the same `COMPACT_CONTEXT_MARKER` digest — should the audit track provenance (which gate, which loop, which trail line) per consumed entry, or treat the digest as opaque input? | eng | Phase 4 |
+| Q13 | `taskInterrupt` mid-flight (OpenCode v1.18.20 `task_id` + Codex 0.150.0 interrupt hook): should the orchestrator kill the worker process directly, or send a graceful-stop signal and only force-kill on a short grace timeout? | product | Phase 4 |
 
 > Resolved 2026-08-24: Q1 (ecosystem conventions + `testCommand` override now
 > cover npm/Go/Python), Q2 (plain webhooks shipped in Phase 3), Q3 (policy is
@@ -603,6 +597,10 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 > Resolved 2026-08-25 (loop 67): Q9 — distilled; lessons injection is bounded
 > by line count AND a character budget (`lessonsMaxChars`, default 4000) that
 > drops oldest entries whole, newest-first, never splitting a line.
+>
+> Resolved 2026-08-28: Q10 — `fanout/ingestChildTrails` ships as fixed-size
+> ratchet-capped excerpt (PRs #56 + #57, `buildChildTrailsDigest` at
+> `src/prompt.ts:226`, 4000-char cap, oldest-first).
 
 ---
 
