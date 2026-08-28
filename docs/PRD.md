@@ -564,7 +564,18 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 > gate. Closes the iter 50/52/53/54 convergence lesson, closes Q10 as
 > "fixed-size ratchet-capped excerpt."
 
-#### Phase 4 — current backlog (2026-08-28)
+> **Completed post-v0.3 (2026-08-28):** Scout output-shape regression —
+> `extractScoutPayload` accepts array / object / NDJSON / no-marker
+> shapes with 4 unit tests (PR #58, `test/scout.test.ts`); future
+> Claude/OpenCode format changes fail at scout, not mid-loop.
+> Proxy/infra-error policy — cheap `claude -p OK` probe gates
+> orchestrate-loop dispatch (PR #61, opt-out `ORCHESTRATOR_MODEL_PROBE=0`)
+> and `isTransientProviderError` now matches `unrecognized_model`,
+> `empty stream`, `empty response` (PR #60, `test/classify.test.ts`);
+> together they end the "loop stuck, not shipping PRs" pattern during
+> omniroute rate-limit windows.
+
+#### Phase 4 — current backlog (2026-08-29)
 
 - **Post-PR CI remediation (`CI-Fixer`)** — re-dispatch worker between `publishStage` and `autoMerge` on failing `evaluateChecks` (Jules `CI Fixer`, Copilot `/pr auto`, Codex `@codex fix`); loops 49/50 failed at this in Aug 2026, G-gates cover pre-push only today.
 - **Issue-readiness gate (G0)** — OpenHands v1.13.0 type-specific ready-for-dev criteria; reject unready tickets before credits burn (cheaper than CI-Fixer, no new infra).
@@ -572,7 +583,7 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 - **G5:STRIDE security gate** — STRIDE pass over the diff before `autoMerge` (Factory "Automated Security Review" 2026-06-11, real CVE output CVE-2026-42876); G2/G3/G4 cover correctness only, share the same `COMPACT_CONTEXT_MARKER` digest just wired.
 - **Orchestrator `taskInterrupt` path** — kill a worker mid-task when its `trail.jsonl` shows 3+ identical failures (OpenCode v1.18.20 `task_id` substrate, Codex 0.150.0 interrupt hook); designed alongside the iter55 plumbing.
 - **Orchestrator pre-loop guard** — auto-stash uncommitted main-worktree edits and confirm HEAD is on `main` before `git merge`; loops 52/53/54 all failed this way in one session (root cause logged 2026-08-28).
-- **Scout output-shape regression suite** — `extractScoutPayload` must accept array / object / NDJSON / no-marker shapes (PR #58); 4 tests cover this today, promote to a fixture-driven golden suite so future Claude/OpenCode format changes fail fast at scout, not mid-loop.
+- **Provider health surface (operator endpoint)** — expose a single status endpoint / `devagent status --providers` reporting probe result + last-classified transient-error class + circuit state (closed/half-open/open) so the proxy-gate decision in `scripts/orchestrate-loop.sh:123-135` is observable to humans, not just log-grep-able; PRs #60 + #61 shipped the logic but not the surface.
 - **Per-loop operator dashboard** — goal + worklog + trail-digest + gate-status + spend in one view (Codex `codex agents` 0.149.0, Factory Agent Effectiveness); the iter55 trail digest is the data source.
 
 ## 18. Open Questions
