@@ -203,7 +203,15 @@ export async function runScoutOnce(opts: ScoutCycleOptions, config: DevAgentConf
   // Live: dispatch to opencode (or claude-code) via spawnCli
   const timeoutMs = opts.timeoutMs ?? 5 * 60_000;
   const cli = worker === 'opencode' ? 'opencode' : 'claude';
-  const args = worker === 'opencode' ? ['run', '--format', 'json', prompt] : ['-p', prompt, '--output-format', 'json'];
+  // Forward the configured model so scout workers don't fall back to the
+  // settings.json default (loop-55 root cause: unrecognized_model on the
+  // hermes proxy -> exit 0 empty output). claude-code only; opencode has
+  // its own provider config.
+  const scoutModel = worker === 'claude-code' ? config.model?.trim() : undefined;
+  const args =
+    worker === 'opencode'
+      ? ['run', '--format', 'json', prompt]
+      : ['-p', prompt, '--output-format', 'json', ...(scoutModel ? ['--model', scoutModel.split('#')[0]!] : [])];
 
   let raw = '';
   try {
