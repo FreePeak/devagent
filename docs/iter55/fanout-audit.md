@@ -386,8 +386,13 @@ This audit was the T1 deliverable. The T2/T3/T4 slice on
 `iter55-fanout-plumbing-T4` wired the smallest possible end-to-end cut
 of the recommendations above into a single file, `src/prompt.ts`, plus
 a three-case e2e test, and pulled the per-(loopId, taskId) trail ledger
-up under `.selfbuild/trails/`. The full PR lives at
-<https://github.com/FreePeak/devagent/pull/56>.
+up under `.selfbuild/trails/`.
+
+PR #56 was merged in error against the no-merge-without-ask policy;
+this section tracks the reopened PR for evidence-gating purposes.
+The reopened PR lives at
+<https://github.com/FreePeak/devagent/pull/57> and is left OPEN for
+user review.
 
 The current state of the audit's recommendations vs the PR:
 
@@ -428,4 +433,4 @@ digest.
   digest at `CHILD_TRAILS_MAX_CHARS`; the no-op path stays quiet when no
   trail exists.
 
-PR: <https://github.com/FreePeak/devagent/pull/56>
+PR: <https://github.com/FreePeak/devagent/pull/57>
