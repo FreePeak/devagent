@@ -11,5 +11,9 @@
   },
   "autoMerge": true,
   "selfUpdate": true,
-  "model": "cmd/minimax/minimax-m3-free"
+  "model": "cmd/minimax/minimax-m3-free",
+  "timeoutMinutes": 60,
+  "resilience": {
+    "noProgressTimeoutMs": 900000
+  }
 }
