@@ -163,8 +163,12 @@ export function findStaleWorkerPids(
 }
 
 /** Kill all stale workers older than threshold. Returns pids killed. */
-export function reapStaleWorkers(olderThanMs = 10 * 60_000, dryRun = false): StaleWorker[] {
-  const stale = findStaleWorkerPids(olderThanMs);
+export function reapStaleWorkers(
+  olderThanMs = 10 * 60_000,
+  dryRun = false,
+  opts: { cwdPrefix?: string } = {},
+): StaleWorker[] {
+  const stale = findStaleWorkerPids(olderThanMs, opts);
   if (dryRun) return stale;
   for (const s of stale) {
     killStaleProcessTree(s.pid, 'reap-stale');
