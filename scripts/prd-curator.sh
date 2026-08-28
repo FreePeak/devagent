@@ -84,7 +84,8 @@ Finish by printing exactly one first line: either 'CURATION: changed' or 'CURATI
   gh pr create --title "Docs: PRD curation $DAY" \
     --body "$(head -20 "$CURLOG/research/curation-$DAY.out")" \
     || { echo "[push] pr create failed"; exit 1; }
-  git checkout main -
+  git checkout main
+
 
   printf '{"ts":"%s","status":"ok","branch":"%s"}\n' "$STAMP" "$BRANCH" >> "$CURLOG/log.jsonl"
   echo "[ok] curation PR opened ($BRANCH)"
