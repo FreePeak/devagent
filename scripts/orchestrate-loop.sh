@@ -116,6 +116,25 @@ while :; do
   fi
   parked_polls=0
 
+  # Proxy health gate: when the model provider is hard-down (rate-limited
+  # empty streams), every worker attempt dies within seconds. Burned attempts
+  # do not queue work; they only churn herdr panes and risk the 2-attempt
+  # logic-fail path on the old classifier. Probe cheaply; wait out the outage.
+  if [ "$DRY_RUN" != "1" ] && [ -n "${ORCHESTRATOR_MODEL_PROBE:-1}" ]; then
+    PROBE_OK=0
+    for _ in 1 2 3; do
+      if timeout 30 claude -p "OK" --output-format json --model "$(node -e 'console.log(JSON.parse(require("fs").readFileSync("devagent.json","utf8")).model || "")' 2>/dev/null)" 2>/dev/null | grep -q '"result"'; then
+        PROBE_OK=1; break
+      fi
+      sleep 5
+    done
+    if [ "$PROBE_OK" -ne 1 ]; then
+      echo "[proxy-down] all 3 probes failed; sleeping ${POLL_SECS}s before retry"
+      sleep "$POLL_SECS"
+      continue
+    fi
+  fi
+
   GOAL="$(resolve_goal)"
   # Autonomous chain: scouted queue items become the board when none exists yet.
   if [ ! -f "$BOARD" ] && [ "$DRY_RUN" != "1" ]; then
