@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process';
+import { syncCli } from '../workers/spawn-utils.js';
 
 /**
  * Best-effort stale process reaper.
@@ -11,7 +11,9 @@ const WORKER_PATTERN = /(opencode|claude)(\s|$|--)/i;
 
 function cmdlineFor(pid: number): string {
   try {
-    const out = execSync(`ps -o command= -p ${pid}`, { encoding: 'utf8', timeout: 2000 });
+    const out = syncCli('ps', ['-o', `command=`, '-p', String(pid)], {
+      cwd: '/', timeoutMs: 2_000,
+    });
     return out.trim();
   } catch {
     return '';
@@ -29,7 +31,9 @@ export function ownAncestryPids(): Set<number> {
   for (let i = 0; i < 64 && pid > 1 && !pids.has(pid); i++) {
     pids.add(pid);
     try {
-      const out = execSync(`ps -o ppid= -p ${pid}`, { encoding: 'utf8', timeout: 2000 });
+      const out = syncCli('ps', ['-o', `ppid=`, '-p', String(pid)], {
+        cwd: '/', timeoutMs: 2_000,
+      });
       const next = Number(out.trim());
       if (!Number.isFinite(next) || next <= 1) break;
       pid = next;
@@ -118,7 +122,9 @@ export function isDevagentWorkerCmd(cmd: string): boolean {
 
 function cwdFor(pid: number): string {
   try {
-    const out = execSync(`lsof -a -p ${pid} -d cwd -Fn`, { encoding: 'utf8', timeout: 2000 });
+    const out = syncCli('lsof', ['-a', '-p', String(pid), '-d', 'cwd', '-Fn'], {
+      cwd: '/', timeoutMs: 2_000,
+    });
     const line = out.split('\n').find((l) => l.startsWith('n'));
     return line ? line.slice(1) : '';
   } catch {
@@ -133,7 +139,9 @@ export function findStaleWorkerPids(
   try {
     // etime (not etimes): BSD ps on macOS rejects etimes, which made the
     // whole scan throw and silently report "no stale workers" forever.
-    const out = execSync('ps -eo pid,etime,command', { encoding: 'utf8', timeout: 3000 });
+    const out = syncCli('ps', ['-eo', 'pid,etime,command'], {
+      cwd: '/', timeoutMs: 3_000,
+    });
     const lines = out.split('\n').slice(1);
     const own = ownAncestryPids();
     const stale: StaleWorker[] = [];

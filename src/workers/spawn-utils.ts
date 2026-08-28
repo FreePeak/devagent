@@ -1,4 +1,4 @@
-import { execFile, type ExecFileOptionsWithStringEncoding, spawn } from 'node:child_process';
+import { execFile, execFileSync, type ExecFileOptionsWithStringEncoding, spawn } from 'node:child_process';
 
 export interface SpawnCliOptions {
   cwd: string;
@@ -40,7 +40,7 @@ const NESTED_ENV_BLOCKLIST = ['ANTHROPIC_MODEL', 'ANTHROPIC_SMALL_FAST_MODEL', '
  * Without them `git`/`gh`/homebrew tools ENOENT and publish stages die with
  * "spawn git ENOENT" (live-smoke lesson 2026-08-25).
  */
-const FALLBACK_PATH_SEGMENTS = [
+export const FALLBACK_PATH_SEGMENTS = [
   '/opt/homebrew/bin',
   '/usr/local/bin',
   '/usr/bin',
@@ -238,5 +238,109 @@ export function spawnCliStreaming(
     try {
       child.stdin?.end();
     } catch {}
+  });
+}
+
+/**
+ * runCli — execFile wrapper that routes through buildEnv so PATH is
+ * always usable and NESTED_ENV_BLOCKLIST is honored. Use this anywhere
+ * the codebase spawns a git/gh/system CLI directly. Throws on non-zero
+ * exit (mirroring child_process.execFile's signature) but normalizes
+ * spawn errors to a real Error whose `code` is the underlying errno
+ * (e.g. ENOENT) so callers can branch on it.
+ *
+ * Fixes: src/git/worktree.ts and src/integrations/autopr.ts used to call
+ * execFile(cmd, args, { cwd }) with no env, which produced `spawn git
+ * ENOENT` whenever the parent process had a minimal PATH (a launchd
+ * plist, a worker sandbox, or any future env-scrubbing layer). Delegating
+ * to runCli here keeps the entire codebase on a single, env-safe path.
+ */
+export function runCli(
+  cmd: string,
+  args: string[],
+  opts: SpawnCliOptions,
+): Promise<SpawnCliResult> {
+  return new Promise((resolve) => {
+    const controller = new AbortController();
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, opts.timeoutMs);
+    const env = buildEnv(opts);
+    execFile(
+      cmd,
+      args,
+      {
+        cwd: opts.cwd,
+        env,
+        timeout: opts.timeoutMs,
+        killSignal: 'SIGKILL',
+        signal: controller.signal,
+        encoding: 'utf8',
+        maxBuffer: 64 * 1024 * 1024,
+      } as ExecFileOptionsWithStringEncoding,
+      (error, stdout, stderr) => {
+        clearTimeout(timer);
+        if (timedOut) {
+          resolve({ exitCode: -1, stdout: String(stdout ?? ''), stderr: String(stderr ?? ''), timedOut: true });
+          return;
+        }
+        // Spawn failures (ENOENT) carry a string code; non-zero exits carry
+        // a numeric code; null error is genuine success. Normalize so the
+        // result shape always has exitCode and never throws. Preserve any
+        // stdout/stderr already attached to the Error (the legacy execFile
+        // contract attached those fields for callers; tests still rely on
+        // them being threaded through).
+        const rawCode = (error as { code?: unknown } | null)?.code;
+        const exitCode = error === null ? 0 : typeof rawCode === 'number' ? rawCode : -1;
+        const errStdout = (error as { stdout?: unknown } | null)?.stdout;
+        const errStderr = (error as { stderr?: unknown } | null)?.stderr;
+        resolve({
+          exitCode: timedOut ? -1 : exitCode,
+          stdout: String(errStdout ?? stdout ?? ''),
+          stderr: String(errStderr ?? stderr ?? ''),
+          timedOut,
+        });
+      },
+    );
+  });
+}
+
+/**
+ * syncCli — execFileSync wrapper that routes through buildEnv. For sites
+ * that need synchronous results (reaper.ts ps/lsof probes).
+ */
+export function syncCli(
+  cmd: string,
+  args: string[],
+  opts: SpawnCliOptions,
+): string {
+  const env = buildEnv(opts);
+  return execFileSync(cmd, args, {
+    cwd: opts.cwd,
+    env,
+    timeout: opts.timeoutMs,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  }) as string;
+}
+
+/**
+ * spawnChild — minimal `spawn()` wrapper that routes through buildEnv. For
+ * sites that need a long-lived child handle (herdr's daemon, the session
+ * guard's claude runner). Returns the ChildProcess so the caller can attach
+ * listeners, pipe stdio, or unref for daemon-like behavior.
+ */
+export function spawnChild(
+  cmd: string,
+  args: string[],
+  opts: SpawnCliOptions & { stdio?: import('node:child_process').StdioOptions },
+): import('node:child_process').ChildProcess {
+  const env = buildEnv(opts);
+  return spawn(cmd, args, {
+    cwd: opts.cwd,
+    env,
+    stdio: opts.stdio ?? 'pipe',
   });
 }

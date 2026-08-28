@@ -1,5 +1,5 @@
-import { execFile } from 'node:child_process';
 import { analyzeAsyncHazards } from '../validation/async-review.js';
+import { runCli } from '../workers/spawn-utils.js';
 import type { Finding } from '../types.js';
 
 /**
@@ -12,19 +12,24 @@ import type { Finding } from '../types.js';
 
 export type RunGh = (args: string[], cwd: string) => Promise<{ stdout: string; stderr: string }>;
 
-function defaultRunGh(args: string[], cwd: string): Promise<{ stdout: string; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    execFile('gh', args, { cwd }, (err, stdout, stderr) => {
-      if (err) {
-        const e = err as { stdout?: unknown; stderr?: unknown };
-        if (e.stdout === undefined) e.stdout = String(stdout);
-        if (e.stderr === undefined) e.stderr = String(stderr);
-        reject(err);
-      } else {
-        resolve({ stdout: String(stdout), stderr: String(stderr) });
-      }
-    });
-  });
+async function defaultRunGh(args: string[], cwd: string): Promise<{ stdout: string; stderr: string }> {
+  // runCli routes through buildEnv so `gh` resolves from the fallback PATH
+  // when the parent has a minimal env (live-smoke lesson). Translate
+  // non-zero exit into a thrown Error so existing `try/catch` call sites
+  // keep working without churn.
+  const r = await runCli('gh', args, { cwd, timeoutMs: 30_000 });
+  if (r.exitCode !== 0) {
+    const err = new Error(`gh ${args.join(' ')} exited ${r.exitCode}: ${r.stderr.slice(0, 200)}`) as Error & {
+      stdout?: string;
+      stderr?: string;
+      code?: number | string;
+    };
+    err.stdout = r.stdout;
+    err.stderr = r.stderr;
+    err.code = r.exitCode;
+    throw err;
+  }
+  return { stdout: r.stdout, stderr: r.stderr };
 }
 
 export interface CheckRun {

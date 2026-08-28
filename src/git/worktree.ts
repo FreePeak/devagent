@@ -1,23 +1,35 @@
-import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import { runCli } from '../workers/spawn-utils.js';
 
-function run(
+/**
+ * Internal: spawn a git command. Routes through runCli so the child
+ * inherits the fallback PATH (live-smoke lesson: a parent's minimal PATH
+ * produced `spawn git ENOENT` for every worktree operation, killing the
+ * selfbuild loop on loop 50 and tripping the circuit breaker). The 30s
+ * timeout is generous enough for worktree add/remove but tight enough to
+ * surface hung `git index-pack` calls.
+ *
+ * Translates non-zero exit / ENOENT into a thrown Error so the existing
+ * `try { await run(...) } catch { return false }` call sites keep working.
+ */
+async function run(
   cmd: string,
   args: string[],
   cwd: string,
 ): Promise<{ stdout: string; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    execFile(cmd, args, { cwd }, (err, stdout, stderr) => {
-      if (err) {
-        const e = err as { stdout?: unknown; stderr?: unknown };
-        if (e.stdout === undefined) e.stdout = String(stdout);
-        if (e.stderr === undefined) e.stderr = String(stderr);
-        reject(err);
-      } else {
-        resolve({ stdout: String(stdout), stderr: String(stderr) });
-      }
-    });
-  });
+  const r = await runCli(cmd, args, { cwd, timeoutMs: 30_000 });
+  if (r.exitCode !== 0) {
+    const err = new Error(`${cmd} ${args.join(' ')} exited ${r.exitCode}: ${r.stderr.slice(0, 200)}`) as Error & {
+      stdout?: string;
+      stderr?: string;
+      code?: number | string;
+    };
+    err.stdout = r.stdout;
+    err.stderr = r.stderr;
+    err.code = r.exitCode;
+    throw err;
+  }
+  return { stdout: r.stdout, stderr: r.stderr };
 }
 
 export interface WorktreeInfo {
