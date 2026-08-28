@@ -574,8 +574,25 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 > `empty stream`, `empty response` (PR #60, `test/classify.test.ts`);
 > together they end the "loop stuck, not shipping PRs" pattern during
 > omniroute rate-limit windows.
+>
+> **Completed post-v0.3 (2026-08-28, defect cluster):** PRD-curator
+> self-checkout race (PR #55 — `scripts/prd-curator.sh` was leaving
+> HEAD on the `docs/prd-curation-*` branch after opening its PR, the
+> exact branch-race hazard in
+> [[selfbuild-checkout-branch-races]]). Herdr pane env-file scrub
+> (commit 443dee8 — `src/integrations/herdr.ts` `renderEnvFile`
+> filters to `/^[A-Za-z_][A-Za-z0-9_]*$/`; non-identifier keys like
+> `npm_config_node_pre_gyp:cache` were aborting the pane's `source`
+> with zsh "not valid in this context", so no PATH/HOME ever reached
+> the worker). Uniform spawn-helper PATH fallback (commit 5149887 —
+> all child-process spawns now route through `runCli`/`syncCli`/
+> `spawnChild`, so the next worker added can't bypass the PATH
+> fallback). Herdr watchdog grace + resilient reaper scope + model
+> forwarding to workers (commits 3c67178). Reaper unblocks
+> dependency-blocked tasks (commit 2446a38). Worker wall-clock raised
+> to 60 min, no-progress to 15 min (commit 2602dd2).
 
-#### Phase 4 — current backlog (2026-08-29)
+#### Phase 4 — current backlog (2026-08-29, curation run 5)
 
 - **Post-PR CI remediation (`CI-Fixer`)** — re-dispatch worker between `publishStage` and `autoMerge` on failing `evaluateChecks` (Jules `CI Fixer`, Copilot `/pr auto`, Codex `@codex fix`); loops 49/50 failed at this in Aug 2026, G-gates cover pre-push only today.
 - **Issue-readiness gate (G0)** — OpenHands v1.13.0 type-specific ready-for-dev criteria; reject unready tickets before credits burn (cheaper than CI-Fixer, no new infra).
@@ -585,6 +602,7 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 - **Orchestrator pre-loop guard** — auto-stash uncommitted main-worktree edits and confirm HEAD is on `main` before `git merge`; loops 52/53/54 all failed this way in one session (root cause logged 2026-08-28).
 - **Provider health surface (operator endpoint)** — expose a single status endpoint / `devagent status --providers` reporting probe result + last-classified transient-error class + circuit state (closed/half-open/open) so the proxy-gate decision in `scripts/orchestrate-loop.sh:123-135` is observable to humans, not just log-grep-able; PRs #60 + #61 shipped the logic but not the surface.
 - **Per-loop operator dashboard** — goal + worklog + trail-digest + gate-status + spend in one view (Codex `codex agents` 0.149.0, Factory Agent Effectiveness); the iter55 trail digest is the data source.
+- **Spawn-helper enforcement + env-scrub regression coverage** — commit 5149887 routed child spawns through `runCli`/`syncCli`/`spawnChild` for uniform PATH fallback, but nothing prevents a future `child_process.spawn` callsite from re-bypassing the helper; add an ESLint rule (or a `test/spawn-utils.test.ts` grep-style guard) plus a herdr env-scrub unit test for keys containing colons, brackets, or leading digits so the 2026-08-28 pane-startup death class cannot silently regress.
 
 ## 18. Open Questions
 
@@ -594,7 +612,7 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 | Q5 | Should G4 async findings be advisory or blocking? | product | Phase 2 |
 | Q8 | How should winner selection handle flaky/nondeterministic test suites during fan-out judging — rerun budget, quarantine, or refuse-to-judge? | eng | Phase 4 |
 | Q11 | `.devagent/AGENTS.md` auto-load — trust prompt on the operator's managed-settings page (Codex CVE-2025-61260 pattern) or one-time per-repo confirm? | product | Phase 4 |
-| Q12 | After PR #57 lands, the G0 plan-critic and G5:STRIDE stages will both read the same `COMPACT_CONTEXT_MARKER` digest — should the audit track provenance (which gate, which loop, which trail line) per consumed entry, or treat the digest as opaque input? | eng | Phase 4 |
+| Q12 | With PR #57 merged, G0 plan-critic and G5:STRIDE both read the same `COMPACT_CONTEXT_MARKER` digest — should the audit track provenance (which gate, which loop, which trail line) per consumed entry, or treat the digest as opaque input? | eng | Phase 4 |
 | Q13 | `taskInterrupt` mid-flight (OpenCode v1.18.20 `task_id` + Codex 0.150.0 interrupt hook): should the orchestrator kill the worker process directly, or send a graceful-stop signal and only force-kill on a short grace timeout? | product | Phase 4 |
 
 > Resolved 2026-08-24: Q1 (ecosystem conventions + `testCommand` override now
