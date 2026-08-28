@@ -2,7 +2,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildScoutPrompt, parseScoutOutput, runScoutOnce, readHeartbeat } from '../src/scout.js';
+import { buildScoutPrompt, parseScoutOutput, extractScoutPayload, runScoutOnce, readHeartbeat } from '../src/scout.js';
 import type { DevAgentConfig } from '../src/config.js';
 
 const baseConfig: DevAgentConfig = { worker: 'opencode', maxLoops: 3, timeoutMinutes: 30 };
@@ -36,6 +36,37 @@ describe('parseScoutOutput', () => {
 
   it('returns null when PRD empty', () => {
     expect(parseScoutOutput('---TASK---\nid: X\ntitle: t\ngoal: Goal: x\n---PRD---\n')).toBeNull();
+  });
+});
+
+describe('extractScoutPayload', () => {
+  const payload = 'preamble text\n---TASK---\nid: FEAT-9\ntitle: T\ngoal: Goal: g\ncriteria: c\n---PRD---\n# T\n## Goal\nx\n';
+
+  it('extracts from claude single-line JSON array (the loop-55 unparseable-fallback bug)', () => {
+    // claude -p --output-format json emits ONE line: an array of message objects,
+    // with the answer in the final {type:"result"} element. The old line-splitting
+    // parser JSON.parsed the whole array as one value, obj.result was undefined
+    // (arrays have no .result), and scout fell back to the stub task every cycle.
+    const raw = JSON.stringify([
+      { type: 'system', subtype: 'init' },
+      { type: 'assistant', message: { role: 'assistant' } },
+      { type: 'result', result: payload },
+    ]);
+    expect(extractScoutPayload(raw, 'claude-code')).toBe(payload);
+  });
+
+  it('extracts from claude single-object JSON with .result', () => {
+    expect(extractScoutPayload(JSON.stringify({ type: 'result', result: payload }), 'claude-code')).toBe(payload);
+  });
+
+  it('extracts from opencode NDJSON lines with .text', () => {
+    const ndjson = `{"type":"step_start"}\n{"type":"text","text":${JSON.stringify(payload)}}\n`;
+    expect(extractScoutPayload(ndjson, 'opencode')).toBe(payload);
+  });
+
+  it('returns null when no markers anywhere', () => {
+    expect(extractScoutPayload('{"type":"result","result":"no markers here"}', 'claude-code')).toBeNull();
+    expect(extractScoutPayload('[{"type":"result","result":"nope"}]', 'claude-code')).toBeNull();
   });
 });
 

@@ -280,8 +280,22 @@ export async function runScoutOnce(opts: ScoutCycleOptions, config: DevAgentConf
   return { ok: true, taskId: parsed.id, prdPath, queuePath: join(queueDir(repoPath), `${parsed.id}.json`), heartbeatPath: hbPath, detail, rawPrompt: prompt, rawOutput: raw };
 }
 
-function extractScoutPayload(raw: string, worker: string): string | null {
+export function extractScoutPayload(raw: string, worker: string): string | null {
   // opencode emits NDJSON lines with {type, text}; claude emits single JSON with {result}
+  // or, with --output-format json, a single-line JSON ARRAY of message objects whose
+  // final {type:"result"} element carries the answer in .result. Handle the array form
+  // first: splitting on newlines would JSON.parse the whole array as one value and the
+  // obj.result check would miss it (arrays have no .result), so scout fell back every cycle.
+  const trimmed = raw.trim();
+  if (trimmed.startsWith('[')) {
+    try {
+      const arr = JSON.parse(trimmed) as Array<Record<string, unknown>>;
+      for (const obj of arr) {
+        if (typeof obj.result === 'string' && obj.result.includes('---TASK---')) return obj.result;
+        if (typeof obj.text === 'string' && obj.text.includes('---TASK---')) return obj.text;
+      }
+    } catch { /* not a JSON array; fall through to line scan */ }
+  }
   for (const line of raw.split('\n')) {
     const t = line.trim();
     if (!t) continue;
