@@ -131,6 +131,23 @@ function shQuote(s: string): string {
   return `'${s.replaceAll("'", `'\\''`)}'`;
 }
 
+/**
+ * Render a sourceable env file from an env record. Keys that are not valid
+ * shell identifiers (npm injects `npm_config_node_pre_gyp:cache`, and any
+ * var with a dash or colon) are skipped: `export KEY=val` for those aborts
+ * the whole `source` under zsh ("not valid in this context"), which left the
+ * worker pane without PATH/HOME and the process was killed. The pane shell
+ * already carries such vars in its own environment when they were set, so
+ * dropping them from the override file loses nothing.
+ */
+export function renderEnvFile(env: NodeJS.ProcessEnv): string {
+  return Object.entries(env)
+    .filter(([, v]) => v !== undefined)
+    .filter(([k]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(k))
+    .map(([k, v]) => `export ${k}=${shQuote(String(v))}`)
+    .join('\n') + '\n';
+}
+
 interface PaneRefs {
   workspaceId: string;
   paneId: string;
@@ -192,14 +209,7 @@ export async function runCommandInHerdrPane(
     // appears on the command line (nothing leaks into pane scrollback).
     const env = buildEnv(opts);
     const envFile = join(dir, 'env.sh');
-    writeFileSync(
-      envFile,
-      Object.entries(env)
-        .filter(([, v]) => v !== undefined)
-        .map(([k, v]) => `export ${k}=${shQuote(String(v))}`)
-        .join('\n') + '\n',
-      { mode: 0o600 },
-    );
+    writeFileSync(envFile, renderEnvFile(env), { mode: 0o600 });
 
     const script = [
       // Unset harness-injected vars the daemon may have leaked before env.sh

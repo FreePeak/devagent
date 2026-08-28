@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import {
   ensureHerdrServer,
   herdrServerUp,
+  renderEnvFile,
   runCommandInHerdrPane,
 } from '../src/integrations/herdr.js';
 import { runWorkerCli, shouldUseHerdr } from '../src/workers/herdr-runtime.js';
@@ -154,6 +155,48 @@ describe('herdr integration', () => {
     await runCommandInHerdrPane('echo', ['kept'], { cwd: stubDir, timeoutMs: 10_000 });
     expect(calls().filter((l) => l.startsWith('workspace close')).length).toBe(0);
     delete process.env.DEVAGENT_HERDR_KEEP_PANES;
+  });
+});
+
+describe('renderEnvFile', () => {
+  it('exports valid identifiers and skips keys zsh cannot export (colon/dash)', () => {
+    const text = renderEnvFile({
+      PATH: '/usr/bin',
+      SECRET_V: 'ok',
+      'npm_config_node_pre_gyp:cache': '/tmp/cache',
+      'has-dash': 'nope',
+      '': 'empty-key',
+      undefined_val: undefined,
+    });
+    expect(text).toContain("export PATH='/usr/bin'");
+    expect(text).toContain("export SECRET_V='ok'");
+    expect(text).not.toContain('npm_config_node_pre_gyp');
+    expect(text).not.toContain('has-dash');
+    expect(text).not.toContain('empty-key');
+    expect(text).not.toContain('undefined_val');
+  });
+
+  it('produces a file zsh can source without aborting (the loop-52 kill regression)', async () => {
+    // The real failure: a colon key made `source env.sh` throw "not valid in
+    // this context" under zsh, so the pane never set PATH and the worker died.
+    const dir = mkdtempSync(join(tmpdir(), 'devagent-envfile-'));
+    const file = join(dir, 'env.sh');
+    writeFileSync(file, renderEnvFile({
+      GOOD_KEY: 'good-value',
+      'npm_config_node_pre_gyp:cache': '/tmp/cache',
+    }));
+    const { execFile } = await import('node:child_process');
+    const zsh = '/bin/zsh';
+    const result = await new Promise<{ code: number; out: string }>((resolve) => {
+      execFile(
+        zsh,
+        ['-c', `set -a; . ${JSON.stringify(file)}; set +a; printf %s "$GOOD_KEY"`],
+        (err, stdout) => resolve({ code: err ? (err as { code?: number }).code ?? 1 : 0, out: stdout }),
+      );
+    });
+    rmSync(dir, { recursive: true, force: true });
+    expect(result.code).toBe(0);
+    expect(result.out).toBe('good-value');
   });
 });
 
