@@ -67,6 +67,13 @@ export interface WorkerResult {
   sessionId: string | null;
   durationMs: number;
   timedOut: boolean;
+  /**
+   * Last error text from the worker (stitched from stderr/parsed result).
+   * Surfaced so the executor can classify transient vs non-retryable
+   * failures even when resultText is null (e.g. proxy returned
+   * [claude-code:unrecognized_model] with no .result element).
+   */
+  errorText?: string;
 }
 
 /** Uniform contract over heterogeneous headless coding-agent CLIs. */

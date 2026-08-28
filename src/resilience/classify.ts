@@ -29,6 +29,15 @@ const TRANSIENT_PATTERNS: RegExp[] = [
   /bad gateway/i,
   /gateway timeout/i,
   /socket hang up/i,
+  // omniroute proxy surfaces rate-limited empty upstream streams as
+  // "[claude-code:unrecognized_model]" on stderr and a JSON array with no
+  // .result field. The proxy's own log shows "all 1 active accounts rate
+  // limited" — the only fix is to retry once the upstream cooldowns. Loop
+  // stalls without this (loop-66 incident: 1h+ of false-failed workers).
+  /unrecognized_model/i,
+  /\[claude-code:unrecognized_model\]/,
+  /empty stream/i,
+  /empty response/i,
 ];
 
 export function isTransientProviderError(text: string | undefined | null): boolean {

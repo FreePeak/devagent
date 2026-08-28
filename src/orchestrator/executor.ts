@@ -103,9 +103,16 @@ export async function executeTask(args: {
       // skip kill for herdr-detected panes (herdr.ts watchdog handles those).
       for (const s of stale) if (!useHerdr) killStaleProcessTree(s.pid);
     } catch {}
-    if (result.timedOut || result.exitCode !== 0) {
-      const text = result.resultText ?? '';
-      if (result.timedOut || (text && !isNonRetryable(text) && isTransient(text))) {
+    if (result.timedOut || result.exitCode !== 0 || result.errorText) {
+      // Inspect both resultText and errorText: the proxy surfaces transient
+      // provider outages (rate-limited empty streams) as stderr-only with no
+      // .result field, so resultText alone misses them and the task used to
+      // false-fail after 2 attempts instead of retrying.
+      const text = [result.resultText, result.errorText].filter(Boolean).join('\n');
+      if (
+        result.timedOut ||
+        (text && !isNonRetryable(text) && (isTransient(text) || isTransient(result.errorText ?? null)))
+      ) {
         infraRetries++;
         const { backoffDelay } = await import('../sessionguard/backoff.js');
         await new Promise((r) => setTimeout(r, backoffDelay(infraRetries)));

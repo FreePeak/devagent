@@ -191,6 +191,7 @@ function finalize(run: SpawnCliResult, start: number): WorkerResult {
       sessionId: null,
       durationMs: Date.now() - start,
       timedOut: true,
+      errorText: run.stderr.trim() || undefined,
     };
   }
 
@@ -203,6 +204,10 @@ function finalize(run: SpawnCliResult, start: number): WorkerResult {
       sessionId: outcome.sessionId,
       durationMs: Date.now() - start,
       timedOut: false,
+      // Stderr often carries the real failure reason (e.g.
+      // [claude-code:unrecognized_model]) when the upstream returned an
+      // empty stream. Surface it so the executor can classify properly.
+      errorText: outcome.errorText ?? (run.stderr.trim() || undefined),
     };
   }
 
@@ -219,5 +224,6 @@ function finalize(run: SpawnCliResult, start: number): WorkerResult {
     sessionId: outcome.sessionId,
     durationMs: Date.now() - start,
     timedOut: false,
+    errorText: outcome.errorText,
   };
 }
