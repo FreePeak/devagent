@@ -544,6 +544,44 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 - Flaky-test guard for fan-out judging — winner selection assumes deterministic tests; add quarantine/rerun handling for nondeterministic suites.
 - Failure-cluster reporting on ledger analytics — recurring gap categories in the ledger should surface as actionable periodic reports, not just queryable rows.
 
+> **Completed post-v0.3 (2026-08-25 → 2026-08-28):** Lessons feedback
+> loop read by workers — 40-line cap + 4000-char `lessonsMaxChars`
+> budget across all dispatch paths (PR #39, closes Q9). Three-role
+> self-build factory — scout + `track` heartbeat + builder as separate
+> LaunchAgents (PR #40). Herdr runtime — reattachable panes, queue
+> bridge, resilience, Makefile LaunchAgent control, clean-env scrub
+> (PRs #41–#47). Infinity cycling — boards archive + stale-worktree
+> prune (PR #42). Reaper scoped to `devagent` headless workers, closing
+> the 2026-08-26 mass-kill incident (PRs #48, #52). Scout now forwards
+> `config.model` (PR #53).
+
+#### Phase 4 — current backlog (2026-08-28)
+
+- **`fanout/ingestChildTrails` plumbing** — copy each worker's
+  `worklog.jsonl` excerpt into the next-loop planner digest (Factory,
+  Copilot `/tasks`+`/worktree`, Devin "Manage Devins" converged here;
+  lessons ratchet calls it out every iteration). Pure plumbing.
+- **Post-PR CI remediation (`CI-Fixer`)** — re-dispatch worker between
+  `publishStage` and `autoMerge` on failing `evaluateChecks` (Jules
+  `CI Fixer`, Copilot `/pr auto`, Codex `@codex fix`); G-gates cover
+  pre-push only today.
+- **Issue-readiness gate (G0)** — OpenHands v1.13.0 type-specific
+  ready-for-dev criteria; reject unready tickets before credits burn.
+- **Plan-critic pass (G0.5)** — independent LLM reviews the plan before
+  worker dispatch (Jules Planning Critic, 9.5% failure-rate reduction).
+- **`.devagent/AGENTS.md` auto-load** — declarative per-repo plan/test
+  conventions from the repo root; trust toggle on the operator's
+  managed-settings page (Codex CVE-2025-61260: deny-by-default).
+- **G5:STRIDE security gate** — STRIDE pass over the diff before
+  `autoMerge` (Factory "Automated Security Review" 2026-06-11, real CVE
+  output); G2/G3/G4 cover correctness only.
+- **Orchestrator interrupt path** — `taskInterrupt` tool fired when a
+  worker trail shows 3+ identical failures (OpenCode v1.18.20 substrate).
+  Designed alongside `fanout/ingestChildTrails`.
+- **Per-loop operator dashboard** — goal + worklog + trail-digest +
+  gate-status + spend in one view (Codex `codex agents` 0.149.0, Factory
+  Agent Effectiveness).
+
 ## 18. Open Questions
 
 | # | Question | Owner | Needed by |
@@ -551,7 +589,8 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 | Q4 | Where do fixture/representative datasets for Gate G2 come from — repo-provided seeds or DevAgent-generated synthetic data? | eng | Phase 2 |
 | Q5 | Should G4 async findings be advisory or blocking? | product | Phase 2 |
 | Q8 | How should winner selection handle flaky/nondeterministic test suites during fan-out judging — rerun budget, quarantine, or refuse-to-judge? | eng | Phase 4 |
-| Q9 | Should `lessons.md` from the selfbuild state branch be injected verbatim or distilled to a size-bounded digest first? | eng | Phase 4 |
+| Q10 | `fanout/ingestChildTrails` — full `worklog.jsonl` per child, fixed-size excerpt, or LLM-distilled highlights in the next-loop planner digest? | eng | Phase 4 |
+| Q11 | `.devagent/AGENTS.md` auto-load — trust prompt on the operator's managed-settings page (Codex CVE-2025-61260 pattern) or one-time per-repo confirm? | product | Phase 4 |
 
 > Resolved 2026-08-24: Q1 (ecosystem conventions + `testCommand` override now
 > cover npm/Go/Python), Q2 (plain webhooks shipped in Phase 3), Q3 (policy is
