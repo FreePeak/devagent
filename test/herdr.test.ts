@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -179,6 +179,9 @@ describe('renderEnvFile', () => {
   it('produces a file zsh can source without aborting (the loop-52 kill regression)', async () => {
     // The real failure: a colon key made `source env.sh` throw "not valid in
     // this context" under zsh, so the pane never set PATH and the worker died.
+    // zsh is the pane shell on macOS workers; Linux CI runners have no
+    // /bin/zsh, so the spawn ENOENTs and the assertion is meaningless there.
+    if (!existsSync('/bin/zsh')) return;
     const dir = mkdtempSync(join(tmpdir(), 'devagent-envfile-'));
     const file = join(dir, 'env.sh');
     writeFileSync(file, renderEnvFile({
