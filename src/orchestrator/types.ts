@@ -107,7 +107,11 @@ export const BOARD_FILE = '.devagent-project.json';
 export function recomputeReadiness(tasks: OrchestratorTask[]): OrchestratorTask[] {
   const byId = new Map(tasks.map((t) => [t.id, t]));
   return tasks.map((t) => {
-    if (t.status !== 'pending') return t;
+    // `pending` and dependency-induced `blocked` are both derived states:
+    // re-derive every pass so a task blocked by an upstream `ask`/`blocked`
+    // is promoted once that upstream reaches `done` (loop-55: T2 answered ->
+    // T3 stayed blocked forever because only `pending` was recomputed).
+    if (t.status !== 'pending' && t.status !== 'blocked') return t;
     const deps = t.dependsOn.map((d) => byId.get(d));
     if (deps.some((d) => !d)) {
       // dangling dependency reference: block rather than run blind
@@ -122,4 +126,8 @@ export function recomputeReadiness(tasks: OrchestratorTask[]): OrchestratorTask[
     }
     return t;
   });
+}
+
+function byIdValue(t: OrchestratorTask): OrchestratorTask {
+  return t;
 }

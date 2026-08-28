@@ -67,6 +67,36 @@ describe('recomputeReadiness', () => {
     expect(byId.get('T3')).toBe('blocked');
     expect(byId.get('T5')).toBe('blocked');
   });
+
+  it('unblocks dependency-blocked tasks when upstream deps become done (loop-55 T3 stall)', () => {
+    // Regression: T2 paused on `ask`, which cascaded T3 to `blocked`. After the
+    // human answered and T2 reached `done`, a bare --resume must promote T3
+    // back to `ready` - previously recomputeReadiness only moved `pending`
+    // tasks, so `blocked` was terminal and the board livelocked at 2/5 done.
+    const tasks = [
+      task({ id: 'T1', status: 'done' }),
+      task({ id: 'T2', status: 'done', dependsOn: ['T1'] }),
+      task({ id: 'T3', status: 'blocked', dependsOn: ['T2'] }), // -> ready again
+      task({ id: 'T4', status: 'blocked', dependsOn: ['T3'] }), // stays blocked (T3 not done)
+    ];
+    const byId = new Map(recomputeReadiness(tasks).map((t) => [t.id, t.status]));
+    expect(byId.get('T3')).toBe('ready');
+    expect(byId.get('T4')).toBe('blocked');
+  });
+
+  it('never resurrects tasks blocked for non-dependency reasons', () => {
+    // A task the planner explicitly blocked (dangling dep) or that failed
+    // terminally must not be silently promoted when deps later look done.
+    const tasks = [
+      task({ id: 'T1', status: 'done' }),
+      task({ id: 'T2', status: 'failed' }),
+      task({ id: 'T3', status: 'blocked', dependsOn: ['T2'] }), // upstream failed -> stays blocked
+      task({ id: 'T4', status: 'blocked', dependsOn: ['T1', 'T99'] }), // dangling dep -> stays blocked
+    ];
+    const byId = new Map(recomputeReadiness(tasks).map((t) => [t.id, t.status]));
+    expect(byId.get('T3')).toBe('blocked');
+    expect(byId.get('T4')).toBe('blocked');
+  });
 });
 
 describe('runScheduler', () => {
