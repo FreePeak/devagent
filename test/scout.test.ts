@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildScoutPrompt, parseScoutOutput, extractScoutPayload, runScoutOnce, readHeartbeat } from '../src/scout.js';
@@ -40,33 +40,26 @@ describe('parseScoutOutput', () => {
 });
 
 describe('extractScoutPayload', () => {
-  const payload = 'preamble text\n---TASK---\nid: FEAT-9\ntitle: T\ngoal: Goal: g\ncriteria: c\n---PRD---\n# T\n## Goal\nx\n';
+  // Golden fixture suite: each entry in golden.json maps a captured worker output
+  // shape to the exact string extractScoutPayload must return (null for shapes it
+  // must reject). Covers claude array/object forms, opencode NDJSON, and null cases.
+  const fixturesDir = join(import.meta.dirname, 'fixtures', 'scout');
 
-  it('extracts from claude single-line JSON array (the loop-55 unparseable-fallback bug)', () => {
-    // claude -p --output-format json emits ONE line: an array of message objects,
-    // with the answer in the final {type:"result"} element. The old line-splitting
-    // parser JSON.parsed the whole array as one value, obj.result was undefined
-    // (arrays have no .result), and scout fell back to the stub task every cycle.
-    const raw = JSON.stringify([
-      { type: 'system', subtype: 'init' },
-      { type: 'assistant', message: { role: 'assistant' } },
-      { type: 'result', result: payload },
-    ]);
-    expect(extractScoutPayload(raw, 'claude-code')).toBe(payload);
-  });
+  it('extracts the golden payload from each fixture exactly as recorded', () => {
+    const golden = JSON.parse(readFileSync(join(fixturesDir, 'golden.json'), 'utf8')) as Record<string, { worker: string; expected: string | null }>;
+    // Guard: every fixture on disk must have a golden entry, and vice versa, so a
+    // new fixture without a recorded expectation fails loudly here.
+    const onDisk = readdirSync(fixturesDir).filter((f) => f !== 'golden.json').sort();
+    expect(onDisk).toEqual(Object.keys(golden).sort());
 
-  it('extracts from claude single-object JSON with .result', () => {
-    expect(extractScoutPayload(JSON.stringify({ type: 'result', result: payload }), 'claude-code')).toBe(payload);
-  });
-
-  it('extracts from opencode NDJSON lines with .text', () => {
-    const ndjson = `{"type":"step_start"}\n{"type":"text","text":${JSON.stringify(payload)}}\n`;
-    expect(extractScoutPayload(ndjson, 'opencode')).toBe(payload);
-  });
-
-  it('returns null when no markers anywhere', () => {
-    expect(extractScoutPayload('{"type":"result","result":"no markers here"}', 'claude-code')).toBeNull();
-    expect(extractScoutPayload('[{"type":"result","result":"nope"}]', 'claude-code')).toBeNull();
+    for (const [name, entry] of Object.entries(golden)) {
+      const content = readFileSync(join(fixturesDir, name), 'utf8');
+      if (entry.expected === null) {
+        expect(extractScoutPayload(content, entry.worker), name).toBeNull();
+      } else {
+        expect(extractScoutPayload(content, entry.worker), name).toBe(entry.expected);
+      }
+    }
   });
 });
 
