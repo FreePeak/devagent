@@ -730,6 +730,33 @@ program
                     }),
                   )
               : undefined,
+          // Publish each verified task branch as a PR as soon as it's done,
+          // so one failing task no longer gates every other task's PR behind
+          // the all-done merge-back (loop-69: devagent/T1-a1r1 pushed, no PR).
+          publishTaskPr: (a) =>
+            import('./integrations/github.js').then(async ({ pushBranch, createPr }) => {
+              const { attemptSuffix } = await import('./orchestrator/types.js');
+              const task = a.task;
+              const branch = `devagent/${task.id}-${attemptSuffix(task.attempts, task.recoveries)}`;
+              const repoPath = a.repoPath;
+              // The task worktree holds the committed work; push that branch.
+              await pushBranch(repoPath, branch);
+              const baseBranch = config.githubBaseBranch ?? 'main';
+              const body = [
+                `## Task ${task.id}`,
+                ``,
+                task.prompt ? task.prompt.split('\n').slice(0, 30).join('\n') : task.title,
+              ].join('\n');
+              const prUrl = await createPr({
+                repoPath,
+                branch,
+                title: `[${task.id}] ${task.title}`,
+                body,
+                baseBranch,
+              });
+              a.log.info('publish', `opened PR ${prUrl} for ${task.id}`, {});
+              return prUrl;
+            }),
         },
         logger,
       );
