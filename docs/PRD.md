@@ -371,6 +371,31 @@ A dedicated audit pass (separate worker prompt, not the implementer) over the di
 2. **LLM hypothesis pass**: unawaited promises/fire-and-forget calls, shared mutable state across requests, queue-handler idempotency, transaction boundaries spanning I/O.
 3. Findings posted as PR review comments (advisory in v1); LLM-only findings are labeled as such so reviewers can weight them.
 
+### G5: STRIDE merge gate
+
+Static STRIDE-category review over the worker's branch diff, run in the
+consume/autoMerge path between the G4 validate stage and `autoMergePr`. The
+rubric lives in `src/validation/stride-gate.ts` (regex rules over parsed
+unified-diff hunks, no LLM, no network); `src/gates/stride.ts` adapts it to
+the gate-executor contract (`evaluateStride({ diff, contextDigest })`).
+
+Behavior:
+
+- Findings carry a STRIDE category (Spoofing, Tampering, Repudiation,
+  InformationDisclosure, DenialOfService, ElevationOfPrivilege) and a
+  severity of HIGH, CRITICAL, MEDIUM, or LOW.
+- CRITICAL promotion: any HIGH finding whose evidence contains a committed
+  credential literal (`api_key|secret|password|token` followed by a quoted
+  8+ character value) is promoted to CRITICAL.
+- Merge policy: HIGH or CRITICAL findings block `autoMergePr` — the task
+  completes with `merged: false` and a `stride gate blocked merge` detail;
+  MEDIUM and LOW are advisory.
+- A missing, failed, or empty diff is treated as an empty diff (gate passes).
+- Every run logs a JSONL entry (DEVAGENT_HOME/runs/<runId>.jsonl) with
+  `data.gate === 'stride'`, plus `severityMax` and a compact findings list.
+- `contextDigest` is provenance-only and passed through verbatim, treated as
+  opaque (Q12).
+
 ## 12. CLI Specification
 
 ```bash
@@ -644,7 +669,7 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 
 #### Phase 4 — current backlog (2026-08-30, curation run 13)
 
-- **Wire STRIDE into the merge pipeline** — `runStrideGate` still has no executor callsite (only `src/validation/stride-gate.ts:231`); call it between test-gate and `autoMerge` (critical blocks, high warns, low/medium advisory). The 2026-08-29 16:57 stuck board burned 3 salvage attempts on exactly this wiring — the call site is the hard part, not the gate.
+- **Wire STRIDE into the merge pipeline** — COMPLETE (2026-08-30): `src/gates/stride.ts` adapts `runStrideGate` and `src/consume.ts` runs it in the autoMerge path (G5 STRIDE gate, PRD section 11); HIGH/CRITICAL block, MEDIUM/LOW advisory. The 2026-08-29 16:57 stuck board burned 3 salvage attempts on exactly this wiring — the call site is the hard part, not the gate.
 - **Reconcile merge-back with per-task PRs** — PR #71 opens per-task PRs while `cli.ts:786-787` still runs `mergeProjectBranches` on `allDone`; retire or gate the legacy path so a fully-done board does not double-merge.
 - **Post-PR lifecycle automation (CI-Fixer + zombie-PR hygiene)** — re-dispatch the worker between `publishStage` and `autoMerge` on failing `evaluateChecks` (G-gates cover pre-push only; loops 49/50 failed at this), and auto-close or skip PRs whose CI has been red across a grace window or whose base is superseded (PR #68's reviewer parked the factory on unresolved #1/#49).
 - **Pre-dispatch readiness gates (G0 + G0.5)** — reject unready tickets at scout (OpenHands ready-for-dev criteria mapped onto the existing GitHub Issues ingestion) before credits burn, then plan-critic review before dispatch (Jules Planning Critic pattern); no plan-critic exists in `src/` yet.

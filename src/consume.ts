@@ -151,6 +151,52 @@ async function runQueuedTask(
   const prUrl = publish?.prUrl;
 
   if (opts.autoMerge && prUrl) {
+    // G5 STRIDE gate (PRD section 11): static review of the branch diff
+    // before auto-merge. HIGH/CRITICAL findings block the merge; MEDIUM/LOW
+    // are advisory. A missing/failed diff is treated as an empty diff (pass).
+    let diff = '';
+    const branch =
+      (outcomes.find((o) => o.stage === 'implement') as { stage: 'implement'; branch?: string } | undefined)
+        ?.branch ?? parsePrBranch(prUrl);
+    if (branch) {
+      const { spawnCli } = await import('./workers/index.js');
+      for (const base of ['main', 'origin/main']) {
+        try {
+          const res = await spawnCli('git', ['diff', `${base}...${branch}`], {
+            cwd: opts.repoPath,
+            timeoutMs: 60_000,
+          });
+          if (res.exitCode === 0 && res.stdout.trim()) {
+            diff = res.stdout;
+            break;
+          }
+        } catch {
+          // fall through to the next base / empty diff
+        }
+      }
+    }
+
+    const { evaluateStride } = await import('./gates/stride.js');
+    const evaluation = await evaluateStride({ diff });
+    log.info(
+      'validate',
+      `G5 STRIDE gate ${evaluation.severityMax === 'HIGH' || evaluation.severityMax === 'CRITICAL' ? 'blocked' : 'passed'}`,
+      {
+        gate: 'stride',
+        severityMax: evaluation.severityMax,
+        findings: evaluation.findings.map((f) => ({ category: f.category, severity: f.severity, file: f.file, line: f.line })),
+      },
+    );
+
+    if (evaluation.findings.some((f) => f.severity === 'HIGH' || f.severity === 'CRITICAL')) {
+      return {
+        ok: true,
+        detail: `done: ${task.id} -> ${prUrl} (stride gate blocked merge: ${evaluation.severityMax} findings: ${evaluation.findings.length})`,
+        prUrl,
+        merged: false,
+      };
+    }
+
     try {
       const { autoMergePr } = await import('./integrations/github.js');
       await autoMergePr(opts.repoPath, prUrl);
@@ -177,4 +223,10 @@ async function runQueuedTask(
   const implement = outcomes.find((o) => o.stage === 'implement') as { ok: boolean } | undefined;
   if (implement && !implement.ok) return { ok: false, detail: `implementation failed for ${task.id}` };
   return { ok: true, detail: `done: ${task.id} (no PR: missing GITHUB_TOKEN or branch)`, prUrl: undefined };
+}
+
+/** Derive the PR head branch from a PR URL (/pull/<n> form), or null when unknown. */
+function parsePrBranch(prUrl: string): string | null {
+  const m = /\/pull\/(\d+)/.exec(prUrl);
+  return m ? `devagent/pull-${m[1]}` : null;
 }
