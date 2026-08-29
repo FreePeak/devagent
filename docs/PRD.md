@@ -633,8 +633,16 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 > Queue-bridge latency fix (PR #73): archiving a stuck board now re-bridges
 > the oldest queued goal in the same cycle instead of falling through to
 > `sleep POLL_SECS`, closing the one-poll-interval idle gap in PR #68.
+>
+> **Completed post-v0.3 (2026-08-29, PR #77):** session-scoped herdr
+> stale-pane sweep — `devagent herdr-sweep [--dry-run]` (`src/cli.ts:1096`)
+> closes panes in the `devagent` herdr session whose agent is idle/unknown/
+> done or a bare shell, with the session name as the trust boundary; the
+> orchestrator runs it non-fatally at the top of every cycle
+> (`scripts/orchestrate-loop.sh:106`). Reaper path untouched, so non-herdr
+> (user) processes stay unreachable.
 
-#### Phase 4 — current backlog (2026-08-29, curation run 11)
+#### Phase 4 — current backlog (2026-08-30, curation run 12)
 
 - **Wire STRIDE into the merge pipeline** — `runStrideGate` has no executor callsite (only `src/validation/stride-gate.ts`); call it between test-gate and `autoMerge` (critical blocks, high warns, low/medium advisory). The 2026-08-29 16:57 stuck board burned 3 salvage attempts on exactly this wiring — the call site is the hard part, not the gate.
 - **Reconcile merge-back with per-task PRs** — PR #71 opens per-task PRs while `cli.ts:781-787` still runs `mergeProjectBranches` on `allDone`; retire or gate the legacy path so a fully-done board does not double-merge.
@@ -645,7 +653,11 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 - **Operator observability surface (provider health + governor calibration)** — `devagent status --providers` reporting probe result, last transient-error class, circuit state (PRs #60/#61 logic is log-only), plus a one-week `sampleWorkerRss` telemetry pass to replace PR #64's `p75 1 GB` placeholder with measured medians per worker class.
 - **Reviewer zombie-PR hygiene** — auto-close or skip PRs whose base is older than `main`'s merge-base or whose CI has been red across a grace window; PR #68's reviewer exited 0/2 because superseded PRs (#1, #49) never resolved, parking the factory.
 - **Gate the Release workflow on CI** — `release.yml` runs on push to main with no `test` job dependency, so a red main can still get a semver tag + release; add a `needs`/check-gate or reuse `evaluateChecks` semantics before tagging (shipped 2026-08-29, untested failure mode).
-- **Track the orchestrator loop script or retire it** — recovery logic for stuck boards now lives in both `scripts/orchestrate-loop.sh` (tracked) and `scripts/orchestrator-loop.sh` (untracked, with the pre-loop guard); land the guard on `main` or delete the duplicate so loops don't run divergent recovery.
+- **Sweep stale panes across all herdr sessions** — PR #77 trusts only the `devagent` session name; idle claude/herdr panes from ad-hoc sessions still accumulate (2026-08-29 Ghostty multi-death evidence), so extend the sweep with an explicit `--all` opt-in that never touches user-attached TUI sessions.
+- **Archive post-mortems into the ledger** — board archive (PR #68) discards salvage history; persist a compact record (goal, failure class, last gate excerpt) so the next bridge can plan around a known failure mode instead of re-burning attempts (Q22).
+- **Scout-driven Issue Readiness Gate** — OpenHands v1.14's ready-for-dev criteria (bug: repro+expected+logs; feature: AC+scope) map onto the existing GitHub Issues ingestion (loop 6); rejecting unready tickets at scout is cheaper than G0 plan-critic after dispatch and stops credits burning on salvages like the 16:57 board.
+- **Per-loop operator view** — ledger + worklog + trail digest + gate status already exist as query-only artifacts (iter 52/54 lessons, Factory Agent Effectiveness baseline); one read-only dashboard row per loop closes the "factory stalled 6h before a human noticed" observability gap without a new dispatch path.
+- **Track the orchestrator loop script or retire it** — recovery logic for stuck boards now lives in both `scripts/orchestrate-loop.sh` (tracked, now also carrying the herdr sweep) and `scripts/orchestrator-loop.sh` (untracked, with the pre-loop guard); land the guard on `main` or delete the duplicate so loops don't run divergent recovery.
 
 ## 18. Open Questions
 
@@ -662,7 +674,9 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 | Q19 | `scripts/orchestrate-loop.sh` still carries PR #68's recovery logic only as an untracked-path script risk — PRs #67/#69 shipped within minutes of each other while the recovery fix lives in a tracked-but-shell-level layer; should stuck-board recovery move into `src/orchestrator/` (typed, tested) with the shell reduced to a thin caller, or stay in the script where iteration is cheaper? | eng | Phase 4 |
 | Q20 | With PR #71, per-task PRs open as soon as a task hits `done` while `mergeProjectBranches` still fires on `allDone` — should per-task PRs feed the reviewer/`autoMerge` flow directly (making merge-back a no-op), or stay review-only artifacts until a human decides? (Related: does a per-task PR count as "published" evidence for the task record?) | product | Phase 4 |
 | Q21 | The Release workflow publishes on every push to `main` regardless of the `test` job's result — should releases hard-gate on CI green (`needs: test`), or tag first and yank on red? Hard-gate delays tags by one CI run; tag-first risks shipping a broken semver point. | eng | Phase 4 |
-| Q22 | PR #73 re-bridges a queued goal in the same cycle as board archive, but the archive itself burns the board's salvage history — should archived boards write a compact post-mortem (goal, failure class, gate excerpts) to the ledger so the next bridge can plan around the same failure mode, or is the existing ledger analytics query surface enough? | eng | Phase 4 |
+| Q22 | ~~PR #73 re-bridges a queued goal in the same cycle as board archive, but the archive itself burns the board's salvage history — should archived boards write a compact post-mortem (goal, failure class, gate excerpts) to the ledger so the next bridge can plan around the same failure mode, or is the existing ledger analytics query surface enough?~~ | eng | Phase 4 |
+| Q23 | PR #77's herdr-sweep trusts the session name alone; if the sweep ever gains an `--all` mode, what stops it from killing a user-attached interactive claude pane that happens to sit in an automation-spawned session (2026-08-26 mass-kill class)? Require per-pane agent-state verification plus a managed-settings-style deny toggle, or keep `--all` out of scope permanently? | product | Phase 4 |
+| Q24 | Per-task PRs (PR #71) plus the auto-tag release workflow (PR #75) mean a fully-merged board can produce several PRs and a release in one cycle — should the ledger record release/tag events as first-class outcomes (so per-loop spend-to-shipped-artifact math counts a release), or stay PR-URL-only? | eng | Phase 4 |
 
 > Resolved 2026-08-24: Q1 (ecosystem conventions + `testCommand` override now
 > cover npm/Go/Python), Q2 (plain webhooks shipped in Phase 3), Q3 (policy is
@@ -683,6 +697,10 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 > Resolved 2026-08-29 (curation run 7): Q4, Q5 — both were tagged "Phase 2" which is shipped; the questions retired without an explicit decision (G2 ships with repo-provided seed fixtures; G4 findings ship with a per-finding `severity` field and block on `high` unconditionally at `src/deps.ts:90` — no config flag today).
 >
 > Resolved 2026-08-29 (curation run 7): Q8 — rerun budget; a failing candidate gets one flaky rerun and a clean pass outranks a flaky rescue in winner ranking (`src/workers/fanout.ts:74-95`).
+>
+> Resolved 2026-08-30 (curation run 12): Q22 — yes; archive-and-rebridge
+> post-mortems (goal, failure class, last gate excerpt) are now a named
+> Phase 4 backlog item, so the ledger-analytics-only status quo is rejected.
 
 ---
 
