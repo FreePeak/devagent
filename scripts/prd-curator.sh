@@ -13,6 +13,12 @@ STATE="$REPO/.selfbuild"
 CURLOG="$STATE/curation"
 DRY_RUN="${SELFBUILD_DRY_RUN:-0}"
 CLAUDE_BIN="${SELFBUILD_CLAUDE:-claude -p --dangerously-skip-permissions}"
+# Forward the configured model so the curator doesn't fall back to the
+# settings.json default (same unrecognized_model failure mode as the
+# scout worker path fixed in 3c67178 / PR #53).
+if [ -z "${SELFBUILD_CLAUDE:-}" ] && [ -n "${SELFBUILD_MODEL:-}" ]; then
+  CLAUDE_BIN="$CLAUDE_BIN --model $SELFBUILD_MODEL"
+fi
 
 mkdir -p "$CURLOG/research"
 cd "$REPO"
