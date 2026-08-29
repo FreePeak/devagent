@@ -542,6 +542,9 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 - Merge-queue rebase automation — stacked loops land with expected conflicts against `main`; auto-rebase waves before dispatch instead of manual queue refreshes.
 - Lessons feedback loop — `selfbuild-state.sh` mirrors `lessons.md` to the state branch (PR #19) but nothing reads it back; inject curated lessons into worker repair and planning prompts so past failures stop repeating.
 - Flaky-test guard for fan-out judging — winner selection assumes deterministic tests; add quarantine/rerun handling for nondeterministic suites.
+  > **Completed post-v0.3 (2026-08-28):** one flaky rerun before condemning a
+  > candidate, and a clean pass outranks a flaky rescue in winner ranking
+  > (`src/workers/fanout.ts:74-95`); closes Q8 below.
 - Failure-cluster reporting on ledger analytics — recurring gap categories in the ledger should surface as actionable periodic reports, not just queryable rows.
 
 > **Completed post-v0.3 (2026-08-25 → 2026-08-28):** Lessons feedback
@@ -591,29 +594,42 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 > forwarding to workers (commits 3c67178). Reaper unblocks
 > dependency-blocked tasks (commit 2446a38). Worker wall-clock raised
 > to 60 min, no-progress to 15 min (commit 2602dd2).
+>
+> **Completed post-v0.3 (2026-08-29):** Resource-aware concurrency
+> governor (PR #64 — `src/orchestrator/governor.ts` samples
+> `os.freemem()` + per-worker RSS, computes
+> `effectiveConcurrency` with a 0.7 safety ratio and p75 1 GB
+> per-worker estimate, `<5 ms` per call, `<1 s` cache; wired into
+> `scheduler.ts`, `fleet.ts`, and `cli.ts` so `--concurrency auto`
+> is the default-friendly path; closes the
+> `docs/prds/PRD-resource-aware-concurrency` PRD that the curator
+> had been omitting from the queue). G5:STRIDE threat-modeling
+> gate (PR #65 — `src/validation/stride-gate.ts` flags
+> hardcoded credentials, SQLi, command injection, unsafe
+> deserialization; 7/7 unit tests, full suite 535/535 green) —
+> the gate is now a real artifact, not a backlog item, and the
+> `COMPACT_CONTEXT_MARKER` plumbing from PR #57 already feeds it.
 
-#### Phase 4 — current backlog (2026-08-29, curation run 5)
+#### Phase 4 — current backlog (2026-08-29, curation run 7)
 
+- **Wire STRIDE into the merge pipeline** — PR #65 ships the gate module but executor/pipeline integration is follow-up; the G5 entry needs to call `runStrideGate(diff)` between `test-gate` and `autoMerge` with severity-bounded output (critical = block, high = warn, low/medium = advisory).
 - **Post-PR CI remediation (`CI-Fixer`)** — re-dispatch worker between `publishStage` and `autoMerge` on failing `evaluateChecks` (Jules `CI Fixer`, Copilot `/pr auto`, Codex `@codex fix`); loops 49/50 failed at this in Aug 2026, G-gates cover pre-push only today.
-- **Issue-readiness gate (G0)** — OpenHands v1.13.0 type-specific ready-for-dev criteria; reject unready tickets before credits burn (cheaper than CI-Fixer, no new infra).
-- **Plan-critic pass (G0.5)** — independent LLM reviews the plan before worker dispatch (Jules Planning Critic, 9.5% failure-rate reduction; Codex 0.147.0 `--approve-for-me` is the structural analog).
-- **G5:STRIDE security gate** — STRIDE pass over the diff before `autoMerge` (Factory "Automated Security Review" 2026-06-11, real CVE output CVE-2026-42876); G2/G3/G4 cover correctness only, share the same `COMPACT_CONTEXT_MARKER` digest just wired.
+- **Pre-dispatch gates (G0 + G0.5)** — issue-readiness criteria reject unready tickets before credits burn (OpenHands v1.13.0 pattern, cheaper than CI-Fixer), then an independent plan-critic reviews the plan before worker dispatch (Jules Planning Critic, 9.5% failure-rate reduction; Codex 0.147.0 `--approve-for-me` is the structural analog).
 - **Orchestrator `taskInterrupt` path** — kill a worker mid-task when its `trail.jsonl` shows 3+ identical failures (OpenCode v1.18.20 `task_id` substrate, Codex 0.150.0 interrupt hook); designed alongside the iter55 plumbing.
-- **Orchestrator pre-loop guard** — auto-stash uncommitted main-worktree edits and confirm HEAD is on `main` before `git merge`; loops 52/53/54 all failed this way in one session (root cause logged 2026-08-28).
-- **Provider health surface (operator endpoint)** — expose a single status endpoint / `devagent status --providers` reporting probe result + last-classified transient-error class + circuit state (closed/half-open/open) so the proxy-gate decision in `scripts/orchestrate-loop.sh:123-135` is observable to humans, not just log-grep-able; PRs #60 + #61 shipped the logic but not the surface.
-- **Per-loop operator dashboard** — goal + worklog + trail-digest + gate-status + spend in one view (Codex `codex agents` 0.149.0, Factory Agent Effectiveness); the iter55 trail digest is the data source.
+- **Orchestrator pre-loop guard** — auto-stash uncommitted main-worktree edits and confirm HEAD is on `main` before `git merge`; loops 52/53/54 all failed this way in one session (root cause logged 2026-08-28). Lives only in untracked `scripts/orchestrator-loop.sh:90-109` — must land on `main` to count.
+- **Provider health surface (operator endpoint)** — single status endpoint / `devagent status --providers` reporting probe result + last-classified transient-error class + circuit state, so the proxy-gate decision in `scripts/orchestrate-loop.sh:123-135` is observable to humans; PRs #60 + #61 shipped the logic but not the surface (PR #64's governor line is the only status addition so far).
+- **Governor calibration on real worker footprint** — PR #64's `est 1 GB` per worker is a `p75` placeholder; ship a one-week telemetry pass that records actual `sampleWorkerRss` peaks per worker class (scout / implementer / reviewer) and feed the median+stdev back into the governor's `est` so the cap stops being a guess.
 - **Spawn-helper enforcement + env-scrub regression coverage** — commit 5149887 routed child spawns through `runCli`/`syncCli`/`spawnChild` for uniform PATH fallback, but nothing prevents a future `child_process.spawn` callsite from re-bypassing the helper; add an ESLint rule (or a `test/spawn-utils.test.ts` grep-style guard) plus a herdr env-scrub unit test for keys containing colons, brackets, or leading digits so the 2026-08-28 pane-startup death class cannot silently regress.
 
 ## 18. Open Questions
 
 | # | Question | Owner | Needed by |
 |---|---|---|---|
-| Q4 | Where do fixture/representative datasets for Gate G2 come from — repo-provided seeds or DevAgent-generated synthetic data? | eng | Phase 2 |
-| Q5 | Should G4 async findings be advisory or blocking? | product | Phase 2 |
-| Q8 | How should winner selection handle flaky/nondeterministic test suites during fan-out judging — rerun budget, quarantine, or refuse-to-judge? | eng | Phase 4 |
 | Q11 | `.devagent/AGENTS.md` auto-load — trust prompt on the operator's managed-settings page (Codex CVE-2025-61260 pattern) or one-time per-repo confirm? | product | Phase 4 |
 | Q12 | With PR #57 merged, G0 plan-critic and G5:STRIDE both read the same `COMPACT_CONTEXT_MARKER` digest — should the audit track provenance (which gate, which loop, which trail line) per consumed entry, or treat the digest as opaque input? | eng | Phase 4 |
 | Q13 | `taskInterrupt` mid-flight (OpenCode v1.18.20 `task_id` + Codex 0.150.0 interrupt hook): should the orchestrator kill the worker process directly, or send a graceful-stop signal and only force-kill on a short grace timeout? | product | Phase 4 |
+| Q14 | With PR #64's governor on by default, should `devagent status` surface the live `effectiveConcurrency` + `lastSample` + per-worker RSS, or stay at the one-line readout added in PR #64 AC-10? Operators need enough to debug "why is auto-1 today" without leaking the per-pid sample into the human view. | eng | Phase 4 |
+| Q15 | Now that the curator/queue gap behind PR #64's "sat in docs/prds/ for weeks" is recognized, should the curator's audit step (proposed above) be authoritative (curator enqueues directly) or advisory-only (just emits a warning the next scout cycle reads)? Direct write simplifies, but couples the curator to scout's queue schema. | eng | Phase 4 |
 
 > Resolved 2026-08-24: Q1 (ecosystem conventions + `testCommand` override now
 > cover npm/Go/Python), Q2 (plain webhooks shipped in Phase 3), Q3 (policy is
@@ -630,6 +646,10 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 > Resolved 2026-08-28: Q10 — `fanout/ingestChildTrails` ships as fixed-size
 > ratchet-capped excerpt (PRs #56 + #57, `buildChildTrailsDigest` at
 > `src/prompt.ts:226`, 4000-char cap, oldest-first).
+>
+> Resolved 2026-08-29 (curation run 7): Q4, Q5 — both were tagged "Phase 2" which is shipped; the questions retired without an explicit decision (G2 ships with repo-provided seed fixtures; G4 findings ship with a per-finding `severity` field and block on `high` unconditionally at `src/deps.ts:90` — no config flag today).
+>
+> Resolved 2026-08-29 (curation run 7): Q8 — rerun budget; a failing candidate gets one flaky rerun and a clean pass outranks a flaky rescue in winner ranking (`src/workers/fanout.ts:74-95`).
 
 ---
 
