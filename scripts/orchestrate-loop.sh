@@ -99,6 +99,13 @@ echo "[orchestrator] loop start repo=$REPO dry_run=$DRY_RUN plan_only=$PLAN_ONLY
 fails=0
 parked_polls=0
 while :; do
+  # Session-scoped hygiene: close idle/agentless panes left in the devagent
+  # herdr session by earlier crashed runs. The session name is the trust
+  # boundary — everything in it is automation-spawned; other sessions and
+  # non-herdr processes are never touched. Non-fatal if herdr is down.
+  SWEEP_OUT="$("${DEVAGENT[@]}" herdr-sweep 2>&1)" || true
+  [ -n "$SWEEP_OUT" ] && echo "$SWEEP_OUT" | tail -3
+
   OPEN="$(board_open_tasks)"
   DONE_COUNT="$(board_done_tasks)"
   TOTAL="$(board_total_tasks)"

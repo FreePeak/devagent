@@ -304,3 +304,71 @@ function readIfExists(p: string): string {
     return '';
   }
 }
+
+/**
+ * Session-scoped stale-pane sweep. The named session is the trust boundary:
+ * everything in it was spawned by this automation, so idle/unknown agents are
+ * leftovers the per-run teardown missed (e.g. orchestrator died mid-run) and
+ * are safe to close. Panes with no agent (bare shells) count as stale too.
+ * Sessions other than the devagent one are never listed, let alone closed,
+ * and the reaper path is untouched — interactive user sessions outside herdr
+ * remain out of reach by construction.
+ */
+export interface StalePane {
+  workspaceId: string;
+  paneId: string;
+  label: string;
+  agentStatus: string;
+  reason: string;
+}
+
+/** Agent statuses that mean "not doing work right now". */
+const IDLE_STATUSES = new Set(['idle', 'unknown', 'done']);
+
+export async function findStalePanes(session: string): Promise<StalePane[]> {
+  const res = await herdrCli(['--session', session, 'pane', 'list'], { timeoutMs: 10_000 });
+  if (res.code !== 0) return [];
+  let panes: Array<{ pane_id?: string; workspace_id?: string; label?: string; agent_status?: string }>;
+  try {
+    panes = JSON.parse(res.stdout)?.result?.panes ?? [];
+  } catch {
+    return [];
+  }
+  const stale: StalePane[] = [];
+  for (const p of panes) {
+    const status = p.agent_status ?? 'unknown';
+    // No agent at all (bare shell) => leftover; known agent => only idle ones.
+    if (p.agent_status === undefined) {
+      stale.push({
+        workspaceId: p.workspace_id ?? '',
+        paneId: p.pane_id ?? '',
+        label: p.label ?? '(no label)',
+        agentStatus: status,
+        reason: 'no-agent',
+      });
+    } else if (IDLE_STATUSES.has(status)) {
+      stale.push({
+        workspaceId: p.workspace_id ?? '',
+        paneId: p.pane_id ?? '',
+        label: p.label ?? '(no label)',
+        agentStatus: status,
+        reason: `agent-${status}`,
+      });
+    }
+  }
+  return stale;
+}
+
+/** Close every stale pane workspace in `session`. Returns what was closed. */
+export async function sweepStalePanes(
+  session: string,
+  opts: { dryRun?: boolean } = {},
+): Promise<StalePane[]> {
+  const stale = await findStalePanes(session);
+  if (opts.dryRun) return stale;
+  for (const s of stale) {
+    if (!s.workspaceId) continue;
+    await closeWorkspace(s.workspaceId, session);
+  }
+  return stale;
+}
