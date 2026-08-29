@@ -609,8 +609,15 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 > deserialization; 7/7 unit tests, full suite 535/535 green) —
 > the gate is now a real artifact, not a backlog item, and the
 > `COMPACT_CONTEXT_MARKER` plumbing from PR #57 already feeds it.
+> Stuck-board recovery (PR #68 — `scripts/orchestrate-loop.sh`
+> archive-and-rebridge): `requeue_parked` now resets `attempts` to 0,
+> boards stuck after two fruitless requeue rounds archive to
+> `.devagent/archive/` so the queue bridge can re-plan from the oldest
+> queued goal, and the bridge also fires when the board has no
+> dispatchable tasks — ends the 2026-08-29 04:15–10:00 UTC stall class
+> (park/requeue deadlock, dead-gated bridge, zombie PRs).
 
-#### Phase 4 — current backlog (2026-08-29, curation run 7)
+#### Phase 4 — current backlog (2026-08-29, curation run 8)
 
 - **Wire STRIDE into the merge pipeline** — PR #65 ships the gate module but executor/pipeline integration is follow-up; the G5 entry needs to call `runStrideGate(diff)` between `test-gate` and `autoMerge` with severity-bounded output (critical = block, high = warn, low/medium = advisory).
 - **Post-PR CI remediation (`CI-Fixer`)** — re-dispatch worker between `publishStage` and `autoMerge` on failing `evaluateChecks` (Jules `CI Fixer`, Copilot `/pr auto`, Codex `@codex fix`); loops 49/50 failed at this in Aug 2026, G-gates cover pre-push only today.
@@ -618,6 +625,7 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 - **Orchestrator `taskInterrupt` path** — kill a worker mid-task when its `trail.jsonl` shows 3+ identical failures (OpenCode v1.18.20 `task_id` substrate, Codex 0.150.0 interrupt hook); designed alongside the iter55 plumbing.
 - **Orchestrator pre-loop guard** — auto-stash uncommitted main-worktree edits and confirm HEAD is on `main` before `git merge`; loops 52/53/54 all failed this way in one session (root cause logged 2026-08-28). Lives only in untracked `scripts/orchestrator-loop.sh:90-109` — must land on `main` to count.
 - **Provider health surface (operator endpoint)** — single status endpoint / `devagent status --providers` reporting probe result + last-classified transient-error class + circuit state, so the proxy-gate decision in `scripts/orchestrate-loop.sh:123-135` is observable to humans; PRs #60 + #61 shipped the logic but not the surface (PR #64's governor line is the only status addition so far).
+- **Reviewer zombie-PR hygiene** — PR #68's stall had the reviewer cycle exiting 1 with 0/2 merged because superseded PRs (#1 stale base, #49 CI-dead) never resolve; the reviewer/automerge path should skip or auto-close PRs whose base is older than `main`'s merge-base or whose CI has been red across a grace window, so one zombie cannot park the whole factory.
 - **Governor calibration on real worker footprint** — PR #64's `est 1 GB` per worker is a `p75` placeholder; ship a one-week telemetry pass that records actual `sampleWorkerRss` peaks per worker class (scout / implementer / reviewer) and feed the median+stdev back into the governor's `est` so the cap stops being a guess.
 - **Spawn-helper enforcement + env-scrub regression coverage** — commit 5149887 routed child spawns through `runCli`/`syncCli`/`spawnChild` for uniform PATH fallback, but nothing prevents a future `child_process.spawn` callsite from re-bypassing the helper; add an ESLint rule (or a `test/spawn-utils.test.ts` grep-style guard) plus a herdr env-scrub unit test for keys containing colons, brackets, or leading digits so the 2026-08-28 pane-startup death class cannot silently regress.
 
@@ -630,6 +638,8 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 | Q13 | `taskInterrupt` mid-flight (OpenCode v1.18.20 `task_id` + Codex 0.150.0 interrupt hook): should the orchestrator kill the worker process directly, or send a graceful-stop signal and only force-kill on a short grace timeout? | product | Phase 4 |
 | Q14 | With PR #64's governor on by default, should `devagent status` surface the live `effectiveConcurrency` + `lastSample` + per-worker RSS, or stay at the one-line readout added in PR #64 AC-10? Operators need enough to debug "why is auto-1 today" without leaking the per-pid sample into the human view. | eng | Phase 4 |
 | Q15 | Now that the curator/queue gap behind PR #64's "sat in docs/prds/ for weeks" is recognized, should the curator's audit step (proposed above) be authoritative (curator enqueues directly) or advisory-only (just emits a warning the next scout cycle reads)? Direct write simplifies, but couples the curator to scout's queue schema. | eng | Phase 4 |
+| Q16 | PR #68 archives stuck boards to `.devagent/archive/` and re-bridges from the oldest queued goal — should archive events emit a webhook/notification (the stalled factory ran 6h before a human noticed), and what is the retention policy for archived boards? | eng | Phase 4 |
+| Q17 | `requeue_parked` now resets `attempts` to 0 (PR #68), so a task that exhausts `maxTaskRetries` gets a fresh budget on every requeue round — is unbounded retry the right policy, or should cumulative attempt history across rounds cap a task permanently? | eng | Phase 4 |
 
 > Resolved 2026-08-24: Q1 (ecosystem conventions + `testCommand` override now
 > cover npm/Go/Python), Q2 (plain webhooks shipped in Phase 3), Q3 (policy is
