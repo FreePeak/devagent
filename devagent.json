@@ -11,7 +11,7 @@
   },
   "autoMerge": true,
   "selfUpdate": true,
-  "model": "bai/glm-5.3-flash",
+  "model": "coding",
   "timeoutMinutes": 60,
   "resilience": {
     "noProgressTimeoutMs": 900000
