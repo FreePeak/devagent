@@ -616,17 +616,25 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 > queued goal, and the bridge also fires when the board has no
 > dispatchable tasks — ends the 2026-08-29 04:15–10:00 UTC stall class
 > (park/requeue deadlock, dead-gated bridge, zombie PRs).
+>
+> **Completed post-v0.3 (2026-08-29, curation run 10):** per-task PR
+> publish (PR #71 — `publishTaskPr` dep on `SchedulerDeps`,
+> `src/orchestrator/scheduler.ts:203`): when a task reaches `done`, the
+> scheduler best-effort pushes its attempt branch and opens a PR instead
+> of leaving published branches stranded behind the all-done
+> `mergeProjectBranches` gate — the loop-69 root cause where one failing
+> gate task (T1) blocked every other task's PR from ever existing.
 
-#### Phase 4 — current backlog (2026-08-29, curation run 9)
+#### Phase 4 — current backlog (2026-08-29, curation run 10)
 
-- **Wire STRIDE into the merge pipeline** — PR #65 ships the gate module but executor/pipeline integration is follow-up; the G5 entry needs to call `runStrideGate(diff)` between `test-gate` and `autoMerge` with severity-bounded output (critical = block, high = warn, low/medium = advisory). The 2026-08-29 16:57 stuck board (`.devagent/archive/board-stuck-manual-20260829-165725.json`) burned 3 executor attempts on exactly this wiring even with hand-written salvage instructions — the executor call site is the hard part, not the gate.
-- **Post-PR CI remediation (`CI-Fixer`)** — re-dispatch worker between `publishStage` and `autoMerge` on failing `evaluateChecks` (Jules `CI Fixer`, Copilot `/pr auto`, Codex `@codex fix`); loops 49/50 failed at this in Aug 2026, G-gates cover pre-push only today.
-- **Pre-dispatch gates (G0 + G0.5)** — issue-readiness criteria reject unready tickets before credits burn (OpenHands v1.13.0 pattern, cheaper than CI-Fixer), then an independent plan-critic reviews the plan before worker dispatch (Jules Planning Critic, 9.5% failure-rate reduction; Codex 0.147.0 `--approve-for-me` is the structural analog).
-- **Executor failure surface (`taskInterrupt` + fail-signal capture)** — kill a worker mid-task when its `trail.jsonl` shows 3+ identical failures (OpenCode v1.18.20 `task_id` substrate, Codex 0.150.0 interrupt hook), and persist the last gate-failure detail plus a bounded worker-log tail into the task record before marking it `failed`: the 2026-08-29 16:57 stuck board archived T1 with only `attempts: 3` and no stdout/gate excerpt, so the post-mortem had to guess.
-- **Orchestrator pre-loop guard** — auto-stash uncommitted main-worktree edits and confirm HEAD is on `main` before `git merge`; loops 52/53/54 all failed this way in one session (root cause logged 2026-08-28). Lives only in untracked `scripts/orchestrator-loop.sh:90-109` — must land on `main` to count.
-- **Operator observability surface (provider health + governor calibration)** — a `devagent status --providers` endpoint reporting probe result, last transient-error class, and circuit state (PRs #60/#61 shipped the logic, only PR #64's governor line is visible today), plus a one-week `sampleWorkerRss` telemetry pass to replace PR #64's `p75 1 GB` per-worker placeholder with measured medians per worker class; both turn shipped-but-ungauged decisions into things humans can inspect.
-- **Reviewer zombie-PR hygiene** — PR #68's stall had the reviewer cycle exiting 1 with 0/2 merged because superseded PRs (#1 stale base, #49 CI-dead) never resolve; the reviewer/automerge path should skip or auto-close PRs whose base is older than `main`'s merge-base or whose CI has been red across a grace window, so one zombie cannot park the whole factory.
-- **Spawn-helper enforcement + env-scrub regression coverage** — commit 5149887 routed child spawns through `runCli`/`syncCli`/`spawnChild` for uniform PATH fallback, but nothing prevents a future `child_process.spawn` callsite from re-bypassing the helper; add an ESLint rule (or a `test/spawn-utils.test.ts` grep-style guard) plus a herdr env-scrub unit test for keys containing colons, brackets, or leading digits so the 2026-08-28 pane-startup death class cannot silently regress. Verified 2026-08-29: `child_process` is still imported directly in `src/sessionguard/spawn.ts`, `src/integrations/herdr.ts`, and `src/orchestrator/governor.ts` — existing violations are the first test cases.
+- **Wire STRIDE into the merge pipeline** — `runStrideGate` has no executor callsite (only `src/validation/stride-gate.ts`); call it between test-gate and `autoMerge` (critical blocks, high warns, low/medium advisory). The 2026-08-29 16:57 stuck board burned 3 salvage attempts on exactly this wiring — the call site is the hard part, not the gate.
+- **Reconcile merge-back with per-task PRs** — PR #71 opens per-task PRs while `cli.ts:781-787` still runs `mergeProjectBranches` on `allDone`; retire or gate the legacy path so a fully-done board does not double-merge.
+- **Post-PR CI remediation (`CI-Fixer`)** — re-dispatch worker between `publishStage` and `autoMerge` on failing `evaluateChecks`; loops 49/50 failed at this in Aug 2026, G-gates cover pre-push only today.
+- **Pre-dispatch gates (G0 + G0.5)** — reject unready tickets before credits burn, then plan-critic review before dispatch (Jules Planning Critic pattern); no plan-critic exists in `src/` yet.
+- **Executor failure surface (`taskInterrupt` + fail-signal capture)** — kill a worker after 3+ identical `trail.jsonl` failures, and persist the last gate-failure detail plus a bounded log tail into the task record; the 16:57 stuck board archived T1 with only `attempts: 3` and no excerpt, so the post-mortem had to guess.
+- **Orchestrator pre-loop guard** — auto-stash uncommitted main-worktree edits and confirm HEAD is on `main` before `git merge`; loops 52/53/54 all failed this way. Lives only in untracked `scripts/orchestrator-loop.sh:90-109` — must land on `main` to count.
+- **Operator observability surface (provider health + governor calibration)** — `devagent status --providers` reporting probe result, last transient-error class, circuit state (PRs #60/#61 logic is log-only), plus a one-week `sampleWorkerRss` telemetry pass to replace PR #64's `p75 1 GB` placeholder with measured medians per worker class.
+- **Reviewer zombie-PR hygiene** — auto-close or skip PRs whose base is older than `main`'s merge-base or whose CI has been red across a grace window; PR #68's reviewer exited 0/2 because superseded PRs (#1, #49) never resolved, parking the factory.
 
 ## 18. Open Questions
 
@@ -641,6 +649,7 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 | Q17 | `requeue_parked` now resets `attempts` to 0 (PR #68), so a task that exhausts `maxTaskRetries` gets a fresh budget on every requeue round — is unbounded retry the right policy, or should cumulative attempt history across rounds cap a task permanently? | eng | Phase 4 |
 | Q18 | The 08-29 stuck board burned 3 salvage-instructed attempts on STRIDE wiring — should the executor refuse prompts above a size/complexity threshold (the salvage prompt was ~5 KB of step-by-step edits) and force a plan-split instead, or is dense prescriptive prompting the right shape and only the fail-signal capture (backlog item above) needs fixing? | eng | Phase 4 |
 | Q19 | `scripts/orchestrate-loop.sh` still carries PR #68's recovery logic only as an untracked-path script risk — PRs #67/#69 shipped within minutes of each other while the recovery fix lives in a tracked-but-shell-level layer; should stuck-board recovery move into `src/orchestrator/` (typed, tested) with the shell reduced to a thin caller, or stay in the script where iteration is cheaper? | eng | Phase 4 |
+| Q20 | With PR #71, per-task PRs open as soon as a task hits `done` while `mergeProjectBranches` still fires on `allDone` — should per-task PRs feed the reviewer/`autoMerge` flow directly (making merge-back a no-op), or stay review-only artifacts until a human decides? (Related: does a per-task PR count as "published" evidence for the task record?) | product | Phase 4 |
 
 > Resolved 2026-08-24: Q1 (ecosystem conventions + `testCommand` override now
 > cover npm/Go/Python), Q2 (plain webhooks shipped in Phase 3), Q3 (policy is
