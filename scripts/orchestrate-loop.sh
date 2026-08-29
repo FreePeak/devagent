@@ -57,6 +57,22 @@ board_total_tasks() {
   ' "$BOARD" 2>/dev/null || echo 0
 }
 
+board_stuck_tasks() { # count tasks in failed/blocked (the dispatch-dead states)
+  [ -f "$BOARD" ] || { echo 0; return; }
+  node -e '
+    const b = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+    console.log(b.tasks.filter(t => ["failed","blocked"].includes(t.status)).length);
+  ' "$BOARD" 2>/dev/null || echo 0
+}
+
+board_pending_tasks() { # count tasks waiting to become ready
+  [ -f "$BOARD" ] || { echo 0; return; }
+  node -e '
+    const b = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+    console.log(b.tasks.filter(t => t.status === "pending").length);
+  ' "$BOARD" 2>/dev/null || echo 0
+}
+
 cleanup_merged_worktrees() { # remove worktrees/branches whose PRs merged (safe-gated)
   if [ -x "$REPO/scripts/git-cleanup-merged.sh" ]; then
     echo "[cleanup] pruning merged branches/worktrees"
@@ -72,7 +88,7 @@ requeue_parked() { # reset failed/blocked tasks back to pending; prints count re
     const b = JSON.parse(fs.readFileSync(f, "utf8"));
     let n = 0;
     for (const t of b.tasks) {
-      if (["failed", "blocked"].includes(t.status)) { t.status = "pending"; n++; }
+      if (["failed", "blocked"].includes(t.status)) { t.status = "pending"; t.attempts = 0; n++; }
     }
     if (n > 0) fs.writeFileSync(f, JSON.stringify(b, null, 2) + "\n");
     console.log(n);
@@ -106,6 +122,26 @@ while :; do
           N="$(requeue_parked)"
           echo "[requeue] reset $N parked task(s) to pending"
           parked_polls=0
+          # Requeue cannot unstick a task whose attempts budget is spent
+          # (scheduler.ts only re-selects failed tasks with attempts <
+          # maxTaskRetries), so after two fruitless requeue rounds archive
+          # the stuck board: the bridge then plans a fresh board from the
+          # oldest queued goal, same as the completed-board infinity cycle.
+          STUCK="$(board_stuck_tasks)"
+          PENDING_COUNT="$(board_pending_tasks)"
+          if [ "$STUCK" -gt 0 ]; then
+            TS="$(date +%Y%m%d-%H%M%S)"
+            mkdir -p "$REPO/.devagent/archive"
+            mv "$BOARD" "$REPO/.devagent/archive/board-stuck-$TS.json"
+            echo "[cycle] board stuck ($STUCK failed/blocked); archived to .devagent/archive/board-stuck-$TS.json"
+          elif [ "$PENDING_COUNT" -eq "$TOTAL" ] && [ "$TOTAL" -gt 0 ]; then
+            # Requeued but the scheduler still cannot dispatch (attempts budget
+            # spent): archive so the queue bridge can take over.
+            TS="$(date +%Y%m%d-%H%M%S)"
+            mkdir -p "$REPO/.devagent/archive"
+            mv "$BOARD" "$REPO/.devagent/archive/board-stuck-$TS.json"
+            echo "[cycle] board all-pending but undispatchable; archived to .devagent/archive/board-stuck-$TS.json"
+          fi
         fi
       else
         echo "[parked] $((TOTAL - DONE_COUNT)) task(s) failed/blocked; sleeping ${POLL_SECS}s (requeue disabled)"
@@ -136,10 +172,22 @@ while :; do
   fi
 
   GOAL="$(resolve_goal)"
-  # Autonomous chain: scouted queue items become the board when none exists yet.
-  if [ ! -f "$BOARD" ] && [ "$DRY_RUN" != "1" ]; then
-    if BRIDGE_OUT="$("${DEVAGENT[@]}" queue bridge --repo "$REPO" 2>&1)"; then
-      echo "$BRIDGE_OUT" | tail -2
+  # Autonomous chain: scouted queue items become the board when none exists
+  # yet, or when the existing board cannot dispatch anything (stale/failed
+  # board would otherwise wedge the factory while the queue fills up).
+  if [ "$DRY_RUN" != "1" ]; then
+    if [ ! -f "$BOARD" ]; then
+      if BRIDGE_OUT="$("${DEVAGENT[@]}" queue bridge --repo "$REPO" 2>&1)"; then
+        echo "$BRIDGE_OUT" | tail -2
+      fi
+    elif [ "$OPEN" -eq 0 ] && [ "$(board_pending_tasks)" -eq 0 ] && [ "$parked_polls" -ge "$REQUEUE_AFTER" ]; then
+      echo "[bridge] board has no dispatchable tasks; archiving to re-bridge queue"
+      TS="$(date +%Y%m%d-%H%M%S)"
+      mkdir -p "$REPO/.devagent/archive"
+      mv "$BOARD" "$REPO/.devagent/archive/board-stuck-$TS.json"
+      if BRIDGE_OUT="$("${DEVAGENT[@]}" queue bridge --repo "$REPO" 2>&1)"; then
+        echo "$BRIDGE_OUT" | tail -2
+      fi
     fi
   fi
   ARGS=(orchestrate --repo "$REPO" --goal "$GOAL")
