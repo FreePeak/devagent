@@ -624,8 +624,17 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 > of leaving published branches stranded behind the all-done
 > `mergeProjectBranches` gate — the loop-69 root cause where one failing
 > gate task (T1) blocked every other task's PR from ever existing.
+>
+> **Completed post-v0.3 (2026-08-29, curation run 11):** auto release
+> engineering (PR #75 — `.github/workflows/release.yml` +
+> `scripts/release/next-version.mjs`): every merge to `main` computes the
+> next semver from Conventional-Commit titles and publishes a tagged GitHub
+> release with generated notes; 6 unit tests cover the bump matrix.
+> Queue-bridge latency fix (PR #73): archiving a stuck board now re-bridges
+> the oldest queued goal in the same cycle instead of falling through to
+> `sleep POLL_SECS`, closing the one-poll-interval idle gap in PR #68.
 
-#### Phase 4 — current backlog (2026-08-29, curation run 10)
+#### Phase 4 — current backlog (2026-08-29, curation run 11)
 
 - **Wire STRIDE into the merge pipeline** — `runStrideGate` has no executor callsite (only `src/validation/stride-gate.ts`); call it between test-gate and `autoMerge` (critical blocks, high warns, low/medium advisory). The 2026-08-29 16:57 stuck board burned 3 salvage attempts on exactly this wiring — the call site is the hard part, not the gate.
 - **Reconcile merge-back with per-task PRs** — PR #71 opens per-task PRs while `cli.ts:781-787` still runs `mergeProjectBranches` on `allDone`; retire or gate the legacy path so a fully-done board does not double-merge.
@@ -635,6 +644,8 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 - **Orchestrator pre-loop guard** — auto-stash uncommitted main-worktree edits and confirm HEAD is on `main` before `git merge`; loops 52/53/54 all failed this way. Lives only in untracked `scripts/orchestrator-loop.sh:90-109` — must land on `main` to count.
 - **Operator observability surface (provider health + governor calibration)** — `devagent status --providers` reporting probe result, last transient-error class, circuit state (PRs #60/#61 logic is log-only), plus a one-week `sampleWorkerRss` telemetry pass to replace PR #64's `p75 1 GB` placeholder with measured medians per worker class.
 - **Reviewer zombie-PR hygiene** — auto-close or skip PRs whose base is older than `main`'s merge-base or whose CI has been red across a grace window; PR #68's reviewer exited 0/2 because superseded PRs (#1, #49) never resolved, parking the factory.
+- **Gate the Release workflow on CI** — `release.yml` runs on push to main with no `test` job dependency, so a red main can still get a semver tag + release; add a `needs`/check-gate or reuse `evaluateChecks` semantics before tagging (shipped 2026-08-29, untested failure mode).
+- **Track the orchestrator loop script or retire it** — recovery logic for stuck boards now lives in both `scripts/orchestrate-loop.sh` (tracked) and `scripts/orchestrator-loop.sh` (untracked, with the pre-loop guard); land the guard on `main` or delete the duplicate so loops don't run divergent recovery.
 
 ## 18. Open Questions
 
@@ -650,6 +661,8 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 | Q18 | The 08-29 stuck board burned 3 salvage-instructed attempts on STRIDE wiring — should the executor refuse prompts above a size/complexity threshold (the salvage prompt was ~5 KB of step-by-step edits) and force a plan-split instead, or is dense prescriptive prompting the right shape and only the fail-signal capture (backlog item above) needs fixing? | eng | Phase 4 |
 | Q19 | `scripts/orchestrate-loop.sh` still carries PR #68's recovery logic only as an untracked-path script risk — PRs #67/#69 shipped within minutes of each other while the recovery fix lives in a tracked-but-shell-level layer; should stuck-board recovery move into `src/orchestrator/` (typed, tested) with the shell reduced to a thin caller, or stay in the script where iteration is cheaper? | eng | Phase 4 |
 | Q20 | With PR #71, per-task PRs open as soon as a task hits `done` while `mergeProjectBranches` still fires on `allDone` — should per-task PRs feed the reviewer/`autoMerge` flow directly (making merge-back a no-op), or stay review-only artifacts until a human decides? (Related: does a per-task PR count as "published" evidence for the task record?) | product | Phase 4 |
+| Q21 | The Release workflow publishes on every push to `main` regardless of the `test` job's result — should releases hard-gate on CI green (`needs: test`), or tag first and yank on red? Hard-gate delays tags by one CI run; tag-first risks shipping a broken semver point. | eng | Phase 4 |
+| Q22 | PR #73 re-bridges a queued goal in the same cycle as board archive, but the archive itself burns the board's salvage history — should archived boards write a compact post-mortem (goal, failure class, gate excerpts) to the ledger so the next bridge can plan around the same failure mode, or is the existing ledger analytics query surface enough? | eng | Phase 4 |
 
 > Resolved 2026-08-24: Q1 (ecosystem conventions + `testCommand` override now
 > cover npm/Go/Python), Q2 (plain webhooks shipped in Phase 3), Q3 (policy is
