@@ -8,6 +8,13 @@ import { runPipeline } from './pipeline.js';
 import { buildDeps, buildDryRunDeps } from './deps.js';
 import type { WorkerName } from './types.js';
 
+function parseConcurrency(v: string): number | 'auto' {
+  if (v === 'auto' || v.toLowerCase() === 'auto') return 'auto';
+  const n = Number(v);
+  if (!Number.isFinite(n) || n < 1) throw new Error(`Invalid --concurrency "${v}"; expected positive integer or "auto"`);
+  return Math.floor(n);
+}
+
 const program = new Command();
 
 program
@@ -105,7 +112,7 @@ program
   .description('Run tickets across multiple repositories with bounded concurrency')
   .requiredOption('--ticket <ids...>', 'ticket identifiers (one or more)')
   .requiredOption('--repo <entries...>', 'repo entries as name=path (one or more)')
-  .option('--concurrency <n>', 'max parallel runs', Number, 2)
+  .option('--concurrency <n>', 'max parallel runs (number or "auto")', parseConcurrency, 2)
   .option('--worker <name>', 'claude-code | opencode | both')
   .option('--cleanup <mode>', "post-run worktree disposal: auto | keep | always")
   .option('--drop-orca-workspace', 'drop the enclosing Orca workspace after done (when repoPath is Orca-managed)', false)
@@ -133,10 +140,20 @@ program
     }
 
     const { runFleet } = await import('./fleet.js');
+    let governorForFleet: import('./orchestrator/governor.js').ResourceGovernor | undefined;
+    let fleetConcurrency: number | 'auto' = opts.concurrency as number | 'auto';
+    if (fleetConcurrency === 'auto') {
+      const { ResourceGovernor } = await import('./orchestrator/governor.js');
+      governorForFleet = new ResourceGovernor();
+      const snap = governorForFleet.getSnapshotSync();
+      const eff = governorForFleet.effectiveAuto(snap);
+      console.log(`[governor] fleet auto -> ${eff} (${governorForFleet.formatStatus('auto', eff, snap)})`);
+    }
     const result = await runFleet({
       ticketIds: opts.ticket as string[],
       entries,
-      concurrency: opts.concurrency,
+      concurrency: fleetConcurrency,
+      ...(governorForFleet ? { governor: governorForFleet } : {}),
       timeoutMs: config.timeoutMinutes * 60_000,
       worker: (opts.worker ?? config.worker) as 'claude-code' | 'opencode' | 'both',
       autoPr: opts.autoPr ?? false,
@@ -391,7 +408,7 @@ program
   .command('status')
   .description('List recent runs (id, last stage, last message)')
   .option('--limit <n>', 'number of runs', Number, 10)
-  .action((opts) => {
+  .action(async (opts) => {
     const home = process.env.DEVAGENT_HOME || join(process.env.HOME || '.', '.devagent');
     const runsDir = join(home, 'runs');
     let files: string[] = [];
@@ -399,22 +416,30 @@ program
       files = readdirSync(runsDir).filter((f) => f.endsWith('.jsonl')).sort().slice(-(opts.limit as number));
     } catch {
       console.log('No runs yet.');
-      return;
     }
     if (files.length === 0) {
       console.log('No runs yet.');
-      return;
-    }
-    for (const file of files) {
-      const lines = readFileSync(join(runsDir, file), 'utf8').trim().split('\n');
-      const last = lines.at(-1);
-      if (!last) continue;
-      try {
-        const e = JSON.parse(last) as { runId: string; stage: string; level: string; message: string; ts: string };
-        console.log(`${e.runId.slice(0, 8)}  ${e.ts}  [${e.stage}/${e.level}] ${e.message}`);
-      } catch {
-        continue;
+    } else {
+      for (const file of files) {
+        const lines = readFileSync(join(runsDir, file), 'utf8').trim().split('\n');
+        const last = lines.at(-1);
+        if (!last) continue;
+        try {
+          const e = JSON.parse(last) as { runId: string; stage: string; level: string; message: string; ts: string };
+          console.log(`${e.runId.slice(0, 8)}  ${e.ts}  [${e.stage}/${e.level}] ${e.message}`);
+        } catch {
+          continue;
+        }
       }
+    }
+    try {
+      const { ResourceGovernor } = await import('./orchestrator/governor.js');
+      const gov = new ResourceGovernor();
+      const snap = gov.getSnapshotSync();
+      const eff = gov.effectiveAuto(snap);
+      console.log(gov.formatStatus('auto', eff, snap));
+    } catch {
+      // governor best-effort
     }
   });
 
@@ -595,7 +620,7 @@ program
     },
     [] as string[],
   )
-  .option('--concurrency <n>', 'parallel executor slots', Number, 2)
+  .option('--concurrency <n>', 'parallel executor slots (number or "auto")', parseConcurrency, 2)
   .option('--max-task-retries <n>', 'scheduler retry budget per task', Number, 1)
   .option('--max-recoveries <n>', 'planner-written recovery re-contracts per task before terminal failure (0 disables)', Number, 1)
   .option('--plan-only', 'persist and print the plan (with contracts), then exit before any executor spend', false)
@@ -657,6 +682,18 @@ program
         (r.ok ? console.log : console.error)(`${r.ok ? '' : `--answer ${a}: `}${r.note}`);
       }
 
+      // Resource governor for auto concurrency (PRD-resource-aware-concurrency)
+      let governor: import('./orchestrator/governor.js').ResourceGovernor | undefined;
+      if (opts.concurrency === 'auto') {
+        const { ResourceGovernor } = await import('./orchestrator/governor.js');
+        governor = new ResourceGovernor();
+        const snap = governor.getSnapshotSync();
+        const eff = governor.effectiveAuto(snap);
+        const line = governor.formatStatus('auto', eff, snap);
+        console.log(`[governor] ${line}`);
+        logger.info('governor', `auto -> ${eff}`, { freeMem: snap.freeMem, totalMem: snap.totalMem, cpus: snap.cpus, estPerWorker: governor.getEstMemPerWorker() });
+      }
+
       const result = await runScheduler(
         board,
         {
@@ -664,7 +701,8 @@ program
           lessonsFile: config.lessonsFile,
           lessonsMaxChars: config.lessonsMaxChars,
           executor: executorName,
-          concurrency: opts.concurrency,
+          concurrency: opts.concurrency as number | 'auto',
+          ...(governor ? { governor } : {}),
           maxTaskRetries: opts.maxTaskRetries,
           maxRecoveries: opts.maxRecoveries,
           maxWaves: opts.maxWaves,

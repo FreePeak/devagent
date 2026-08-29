@@ -1,4 +1,5 @@
 import { RunLogger, type RunLogger as RunLoggerType } from './logger.js';
+import type { ResourceGovernor, OsSnapshot } from './orchestrator/governor.js';
 
 /**
  * Fleet execution (v2 gap: multi-repo management): run one or more tickets
@@ -17,7 +18,9 @@ export interface FleetEntry {
 export interface FleetRunOptions {
   ticketIds: string[];
   entries: FleetEntry[];
-  concurrency: number;
+  concurrency: number | 'auto';
+  governor?: ResourceGovernor;
+  governorSnapshot?: OsSnapshot;
   timeoutMs: number;
   worker: 'claude-code' | 'opencode' | 'both';
   autoPr: boolean;
@@ -57,12 +60,40 @@ export async function runFleet(opts: FleetRunOptions): Promise<FleetResult> {
     }
   }
 
+  const isAuto = opts.concurrency === 'auto';
+  const resolveEffective = (): number => {
+    if (!isAuto) {
+      const n = typeof opts.concurrency === 'number' ? opts.concurrency : 2;
+      return Math.max(1, Math.floor(n));
+    }
+    if (!opts.governor) return 2;
+    const snap = opts.governorSnapshot ?? opts.governor.getSnapshotSync();
+    return opts.governor.effectiveAuto(snap);
+  };
+
+  const effective = resolveEffective();
+  const poolSize = Math.max(1, Math.min(effective, jobs.length));
+
   const items: FleetResultItem[] = [];
   let cursor = 0;
+  let active = 0;
 
   const worker = async (): Promise<void> => {
-    while (cursor < jobs.length) {
-      const job = jobs[cursor++]!;
+    while (true) {
+      if (isAuto && opts.governor) {
+        const start = Date.now();
+        const timeoutMs = opts.governor.pressureWaitTimeoutMs ?? 60_000;
+        while (true) {
+          const curEff = resolveEffective();
+          if (active < curEff) break;
+          if (Date.now() - start >= timeoutMs) break;
+          await new Promise((r) => setTimeout(r, 50));
+        }
+      }
+      const idx = cursor++;
+      if (idx >= jobs.length) return;
+      const job = jobs[idx]!;
+      active += 1;
       const log = new RunLogger();
       let item: FleetResultItem;
       try {
@@ -79,12 +110,14 @@ export async function runFleet(opts: FleetRunOptions): Promise<FleetResult> {
       } catch (err) {
         // isolation: record and continue
         item = { entry: job.entry.name, ticketId: job.ticketId, ok: false, summary: (err as Error).message, logPath: log.path };
+      } finally {
+        active = Math.max(0, active - 1);
       }
       items.push(item);
     }
   };
 
-  await Promise.all(Array.from({ length: Math.max(1, Math.min(opts.concurrency, jobs.length)) }, worker));
+  await Promise.all(Array.from({ length: poolSize }, worker));
 
   return {
     items,

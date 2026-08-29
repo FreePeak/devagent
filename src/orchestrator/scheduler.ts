@@ -2,6 +2,7 @@ import type { AuditVerdict, OrchestratorTask, ProjectBoard } from './types.js';
 import { recomputeReadiness } from './types.js';
 import type { RunLogger } from '../logger.js';
 import type { WorkerName } from '../types.js';
+import type { ResourceGovernor, OsSnapshot } from './governor.js';
 
 /**
  * Wave scheduler (sprint-orchestrator lesson): repeatedly execute all ready
@@ -53,7 +54,11 @@ export interface SchedulerOptions {
   /** Character budget for injected lessons (see loadLessons). */
   lessonsMaxChars?: number;
   executor: WorkerName;
-  concurrency: number;
+  concurrency: number | 'auto';
+  /** Resource governor for auto mode. When absent and concurrency is 'auto', falls back to 2. */
+  governor?: ResourceGovernor;
+  /** Test hook: inject a fixed snapshot instead of live OS */
+  governorSnapshot?: OsSnapshot;
   maxTaskRetries: number;
   /** Recovery-contract grants per task before a failure goes terminal */
   maxRecoveries?: number;
@@ -111,6 +116,18 @@ export async function runScheduler(
     return true;
   };
 
+  const isAuto = opts.concurrency === 'auto';
+  const resolveEffective = (): number => {
+    if (!isAuto) {
+      const n = typeof opts.concurrency === 'number' ? opts.concurrency : 2;
+      return Math.max(1, Math.floor(n));
+    }
+    if (!opts.governor) return 2;
+    const snap = opts.governorSnapshot ?? opts.governor.getSnapshotSync();
+    return opts.governor.effectiveAuto(snap);
+  };
+
+  let activeWorkers = 0;
   let wave = 0;
   for (;;) {
     board.tasks = recomputeReadiness(board.tasks);
@@ -127,10 +144,44 @@ export async function runScheduler(
     }
     wave += 1;
 
-    const workers = Array.from({ length: Math.min(opts.concurrency, queue.length) }, async () => {
+    const effective = resolveEffective();
+    const poolSize = Math.max(1, Math.min(effective, queue.length));
+    if (isAuto && opts.governor) {
+      const snap = opts.governorSnapshot ?? opts.governor.getSnapshotSync();
+      const line = opts.governor.formatStatus('auto', effective, snap);
+      log.info('governor', `wave ${wave}: ${line} (queue ${queue.length} -> pool ${poolSize})`, {
+        effective,
+        queueLen: queue.length,
+        freeMem: snap.freeMem,
+        totalMem: snap.totalMem,
+        cpus: snap.cpus,
+        estPerWorker: opts.governor.getEstMemPerWorker(),
+      });
+    }
+
+    const workers = Array.from({ length: poolSize }, async () => {
       for (;;) {
+        // Governor throttle: wait for headroom before pulling next task
+        if (isAuto && opts.governor) {
+          const pressureStart = Date.now();
+          const timeoutMs = opts.governor.pressureWaitTimeoutMs ?? 60_000;
+          while (true) {
+            const curEff = resolveEffective();
+            if (activeWorkers < curEff) break;
+            if (Date.now() - pressureStart >= timeoutMs) {
+              log.info('governor', `pressure wait timeout after ${timeoutMs}ms; proceeding at floor 1`, {
+                activeWorkers,
+                curEff,
+              });
+              break;
+            }
+            await new Promise((r) => setTimeout(r, 50));
+          }
+        }
+
         const task = queue.shift();
         if (!task) return;
+        activeWorkers += 1;
         task.status = 'dispatched';
         task.attempts += 1;
         log.info('task', `Dispatching ${task.id}: ${task.title}`, { attempt: task.attempts });
@@ -209,6 +260,8 @@ export async function runScheduler(
           task.status = 'failed';
           task.failureDetail = (err as Error).message;
           log.error('task', `${task.id} crashed: ${(err as Error).message}`, {});
+        } finally {
+          activeWorkers = Math.max(0, activeWorkers - 1);
         }
       }
     });

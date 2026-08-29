@@ -123,7 +123,8 @@ export type RunStage =
   | 'self-update'
   | 'scout'
   | 'queue'
-  | 'create';
+  | 'create'
+  | 'governor';
 
 export interface RunConfig {
   ticketId: string;
