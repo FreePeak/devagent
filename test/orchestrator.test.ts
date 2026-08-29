@@ -140,6 +140,46 @@ describe('runScheduler', () => {
     expect(b.tasks[0]!.status).toBe('done');
   });
 
+  it('publishes a PR as soon as a task reaches done (loop-69: pushed branch, no PR)', async () => {
+    const published: string[] = [];
+    const b = board([task({ id: 'T1' }), task({ id: 'T2', dependsOn: ['T1'] })]);
+    await runScheduler(
+      b,
+      { repoPath: '.', executor: 'opencode', concurrency: 2, maxTaskRetries: 1, timeoutMs: 1000 },
+      {
+        executeTask: async () => ({ ok: true }),
+        publishTaskPr: async ({ task: t }) => {
+          published.push(t.id);
+          return `https://github.com/x/y/pull/1`;
+        },
+      },
+      log,
+    );
+    // Both tasks reach done, so each gets a per-task PR — not gated behind
+    // the whole board finishing.
+    expect(published).toEqual(['T1', 'T2']);
+    expect(b.tasks.every((t) => t.status === 'done')).toBe(true);
+  });
+
+  it('does not publish a PR for a task that fails the gate', async () => {
+    const published: string[] = [];
+    const b = board([task({ id: 'T1' })]);
+    await runScheduler(
+      b,
+      { repoPath: '.', executor: 'opencode', concurrency: 2, maxTaskRetries: 1, timeoutMs: 1000 },
+      {
+        executeTask: async () => ({ ok: false, detail: 'tests failed' }),
+        publishTaskPr: async ({ task: t }) => {
+          published.push(t.id);
+          return `url`;
+        },
+      },
+      log,
+    );
+    expect(published).toEqual([]);
+    expect(b.tasks[0]!.status).toBe('failed');
+  });
+
   it('marks failed permanently when retries exhausted and blocks dependents', async () => {
     const b = board([task({ id: 'T1' }), task({ id: 'T2', dependsOn: ['T1'] })]);
     await runScheduler(

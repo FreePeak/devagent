@@ -45,6 +45,13 @@ export interface SchedulerDeps {
    * blocking the subtree). Return null to let the failure go terminal.
    */
   planRecovery?(args: { task: OrchestratorTask; board: ProjectBoard }): Promise<{ prompt: string; acceptanceCriteria?: string[] } | null>;
+  /**
+   * Publish a verified task branch as a PR as soon as the task reaches done,
+   * instead of waiting for the whole board to finish. Without this, a single
+   * failing task gates every other task's PR behind the all-done merge-back
+   * (loop-69 lesson: task branch pushed but no PR ever created).
+   */
+  publishTaskPr?(args: { task: OrchestratorTask; board: ProjectBoard; repoPath: string; log: RunLogger }): Promise<string | null>;
 }
 
 export interface SchedulerOptions {
@@ -193,6 +200,11 @@ export async function runScheduler(
             task.status = 'done';
             task.failureDetail = undefined;
             log.info('task', `${task.id} done`, {});
+            if (deps.publishTaskPr) {
+              await deps.publishTaskPr({ task, board, repoPath: opts.repoPath, log }).catch((err) =>
+                log.warn('publish', `${task.id} PR publish failed (non-fatal): ${(err as Error).message}`, {}),
+              );
+            }
           } else if (r.ok && deps.auditTask) {
             // Evidence gate: executor success is only a claim until audited
             task.status = 'untrusted';
@@ -208,6 +220,11 @@ export async function runScheduler(
               task.status = 'done';
               task.failureDetail = undefined;
               log.info('task', `${task.id} done (audited)`, { criteria: v.criteriaResults.length });
+              if (deps.publishTaskPr) {
+                await deps.publishTaskPr({ task, board, repoPath: opts.repoPath, log }).catch((err) =>
+                  log.warn('publish', `${task.id} PR publish failed (non-fatal): ${(err as Error).message}`, {}),
+                );
+              }
             } else if (v && v.verdict === 'ask') {
               // Not a failure and not retryable: the branch waits for a human
               // answer via `orchestrate --resume --answer <id>=<text>`
