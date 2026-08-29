@@ -129,11 +129,13 @@ while :; do
           # oldest queued goal, same as the completed-board infinity cycle.
           STUCK="$(board_stuck_tasks)"
           PENDING_COUNT="$(board_pending_tasks)"
+          ARCHIVED=0
           if [ "$STUCK" -gt 0 ]; then
             TS="$(date +%Y%m%d-%H%M%S)"
             mkdir -p "$REPO/.devagent/archive"
             mv "$BOARD" "$REPO/.devagent/archive/board-stuck-$TS.json"
             echo "[cycle] board stuck ($STUCK failed/blocked); archived to .devagent/archive/board-stuck-$TS.json"
+            ARCHIVED=1
           elif [ "$PENDING_COUNT" -eq "$TOTAL" ] && [ "$TOTAL" -gt 0 ]; then
             # Requeued but the scheduler still cannot dispatch (attempts budget
             # spent): archive so the queue bridge can take over.
@@ -141,14 +143,24 @@ while :; do
             mkdir -p "$REPO/.devagent/archive"
             mv "$BOARD" "$REPO/.devagent/archive/board-stuck-$TS.json"
             echo "[cycle] board all-pending but undispatchable; archived to .devagent/archive/board-stuck-$TS.json"
+            ARCHIVED=1
           fi
         fi
       else
         echo "[parked] $((TOTAL - DONE_COUNT)) task(s) failed/blocked; sleeping ${POLL_SECS}s (requeue disabled)"
       fi
     fi
-    sleep "$POLL_SECS"
-    continue
+    if [ "${ARCHIVED:-0}" -eq 1 ]; then
+      # Board was archived (stuck): fall through to the queue bridge this
+      # cycle instead of sleeping, so the factory re-bridges the oldest
+      # queued goal immediately. (Previously the parked block always did
+      # `sleep POLL_SECS; continue`, leaving the board absent and the
+      # factory idle for a whole poll interval.)
+      :
+    else
+      sleep "$POLL_SECS"
+      continue
+    fi
   fi
   parked_polls=0
 
