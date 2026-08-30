@@ -311,6 +311,45 @@ export function extractScoutPayload(raw: string, worker: string): string | null 
   return null;
 }
 
+export interface ScoutReplayResult {
+  name: string;
+  pass: boolean;
+  expected: string | null;
+  actual: string | null;
+}
+
+/** Replay every captured scout output fixture through extractScoutPayload and
+ * compare against the golden.json expectations. Shared by the CLI --replay
+ * flag and the golden test suite so both assert the exact same thing. */
+export function replayScoutFixtures(fixturesDir?: string): ScoutReplayResult[] {
+  if (!fixturesDir) {
+    // tsc does not copy fixtures into the build output, so from compiled code
+    // walk upward (dist/src/... or dist/...) to the nearest src/scout/__fixtures__.
+    let dir = import.meta.dirname;
+    for (let i = 0; i < 5; i++) {
+      for (const candidate of [join(dir, 'scout', '__fixtures__'), join(dir, 'src', 'scout', '__fixtures__')]) {
+        if (existsSync(join(candidate, 'golden.json'))) {
+          fixturesDir = candidate;
+          break;
+        }
+      }
+      if (fixturesDir) break;
+      dir = join(dir, '..');
+    }
+    if (!fixturesDir) {
+      throw new Error('scout fixtures not found: no golden.json above ' + import.meta.dirname);
+    }
+  }
+  const golden = JSON.parse(readFileSync(join(fixturesDir, 'golden.json'), 'utf8')) as Record<string, { worker: string; expected: string | null }>;
+  const results: ScoutReplayResult[] = [];
+  for (const [name, entry] of Object.entries(golden)) {
+    const content = readFileSync(join(fixturesDir, name), 'utf8');
+    const actual = extractScoutPayload(content, entry.worker);
+    results.push({ name, pass: actual === entry.expected, expected: entry.expected, actual });
+  }
+  return results;
+}
+
 export function readHeartbeat(repoPath: string): ScoutHeartbeat | null {
   const p = heartbeatPath(repoPath);
   if (!existsSync(p)) return null;
