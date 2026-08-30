@@ -1,0 +1,23 @@
+[
+  {
+    "type": "system",
+    "subtype": "init",
+    "session_id": "sess-1",
+    "tools": [
+      "Bash",
+      "Read"
+    ]
+  },
+  {
+    "type": "assistant",
+    "message": {
+      "role": "assistant",
+      "content": "working"
+    }
+  },
+  {
+    "type": "result",
+    "subtype": "success",
+    "result": "preamble text\n---TASK---\nid: FEAT-9\ntitle: T\ngoal: Goal: g\ncriteria: c\n---PRD---\n# T\n## Goal\nx\n"
+  }
+]
