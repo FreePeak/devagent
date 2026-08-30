@@ -667,16 +667,28 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 > (`scripts/orchestrate-loop.sh:106`). Reaper path untouched, so non-herdr
 > (user) processes stay unreachable.
 
-#### Phase 4 — current backlog (2026-08-30, curation run 13)
+> **Completed post-v0.3 (2026-08-30, curation run 14):** G5:STRIDE is live
+> in the merge path — `src/gates/stride.ts` adapts `runStrideGate`,
+> `src/consume.ts` diffs `main...PR branch`, runs `evaluateStride` before
+> `autoMergePr`, and HIGH/CRITICAL severities block the merge (PR #80).
+> Scout payload extraction is regression-proofed by a fixture-driven
+> golden suite with `scout --replay` (`src/scout.ts:324`, six fixtures +
+> `golden.json`, PRs #81/#82) — future Claude/OpenCode shape changes fail
+> at replay, not mid-loop.
 
-- **Wire STRIDE into the merge pipeline** — COMPLETE (2026-08-30): `src/gates/stride.ts` adapts `runStrideGate` and `src/consume.ts` runs it in the autoMerge path (G5 STRIDE gate, PRD section 11); HIGH/CRITICAL block, MEDIUM/LOW advisory. The 2026-08-29 16:57 stuck board burned 3 salvage attempts on exactly this wiring — the call site is the hard part, not the gate.
+#### Phase 4 — current backlog (2026-08-30, curation run 14)
+
 - **Reconcile merge-back with per-task PRs** — PR #71 opens per-task PRs while `cli.ts:786-787` still runs `mergeProjectBranches` on `allDone`; retire or gate the legacy path so a fully-done board does not double-merge.
 - **Post-PR lifecycle automation (CI-Fixer + zombie-PR hygiene)** — re-dispatch the worker between `publishStage` and `autoMerge` on failing `evaluateChecks` (G-gates cover pre-push only; loops 49/50 failed at this), and auto-close or skip PRs whose CI has been red across a grace window or whose base is superseded (PR #68's reviewer parked the factory on unresolved #1/#49).
 - **Pre-dispatch readiness gates (G0 + G0.5)** — reject unready tickets at scout (OpenHands ready-for-dev criteria mapped onto the existing GitHub Issues ingestion) before credits burn, then plan-critic review before dispatch (Jules Planning Critic pattern); no plan-critic exists in `src/` yet.
 - **Executor failure surface (`taskInterrupt` + failure evidence)** — kill a worker after 3+ identical `trail.jsonl` failures, persist the last gate-failure detail plus a bounded log tail into the task record, and write the same compact post-mortem to the ledger on board archive (Q22) so the next bridge plans around a known failure mode instead of re-burning attempts (the 16:57 board archived T1 with only `attempts: 3`).
 - **Land the pre-loop guard on main and retire the duplicate loop script** — auto-stash + HEAD-on-main confirmation lives only in untracked `scripts/orchestrator-loop.sh:90-109` while the tracked `orchestrate-loop.sh` carries PR #68/#77 recovery; loops 52/53/54 all failed on dirty-worktree merges, and two scripts now run divergent recovery logic.
+- **Gate the Release workflow on CI** — `release.yml` still tags on every push to main with no `test` job dependency (verified 2026-08-30, `release.yml:14` has no `needs`); a red main can ship a broken semver point (Q21).
+- **Ledger record release/tag events as first-class outcomes** — per-task PRs (PR #71) + auto-release (PR #75) mean a merged board produces several PRs plus a release in one cycle, but the ledger is PR-URL-only; without release outcomes the per-loop spend-to-shipped-artifact math undercounts (Q24).
+- **Scout replay in CI** — the `--replay` golden suite (PR #82) only runs when invoked by hand; wire it into the test job so a Claude/OpenCode output-shape change is caught by CI, not by the next stuck loop.
+- **Golden-fixture hardening for the G5 STRIDE gate** — `src/gates/stride.ts` shipped with unit tests on the rubric but no fixture suite over real merged-diff shapes (credentials in test files, multi-language diffs); replay-style fixtures would prevent the gate from blocking or passing spuriously as the diff surface grows.
+- **Executor failure surface (`taskInterrupt` + failure evidence)** — kill a worker after 3+ identical `trail.jsonl` failures, persist the last gate-failure detail plus a bounded log tail into the task record, and write the same compact post-mortem to the ledger on board archive so the next bridge plans around a known failure mode instead of re-burning attempts (the 16:57 board archived T1 with only `attempts: 3`).
 - **Operator observability surface (provider health + per-loop view)** — `devagent status --providers` reporting probe result, last transient-error class and circuit state (PRs #60/#61 logic is log-only), a one-week `sampleWorkerRss` pass to replace PR #64's `p75 1 GB` placeholder with measured medians, and one read-only per-loop dashboard row (goal + worklog + trail digest + gate status + spend) so a stalled factory is noticed in minutes, not 6h.
-- **Gate the Release workflow on CI** — `release.yml` runs on push to main with no `test` job dependency, so a red main can still get a semver tag + release; add a `needs`/check-gate before tagging (shipped 2026-08-29, untested failure mode; Q21).
 
 ## 18. Open Questions
 
@@ -696,6 +708,7 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 | Q22 | ~~PR #73 re-bridges a queued goal in the same cycle as board archive, but the archive itself burns the board's salvage history — should archived boards write a compact post-mortem (goal, failure class, gate excerpts) to the ledger so the next bridge can plan around the same failure mode, or is the existing ledger analytics query surface enough?~~ | eng | Phase 4 |
 | Q23 | PR #77's herdr-sweep trusts the session name alone; if the sweep ever gains an `--all` mode, what stops it from killing a user-attached interactive claude pane that happens to sit in an automation-spawned session (2026-08-26 mass-kill class)? Require per-pane agent-state verification plus a managed-settings-style deny toggle, or keep `--all` out of scope permanently? | product | Phase 4 |
 | Q24 | Per-task PRs (PR #71) plus the auto-tag release workflow (PR #75) mean a fully-merged board can produce several PRs and a release in one cycle — should the ledger record release/tag events as first-class outcomes (so per-loop spend-to-shipped-artifact math counts a release), or stay PR-URL-only? | eng | Phase 4 |
+| Q25 | G5:STRIDE blocks on HIGH/CRITICAL with no suppression path; fixture credentials in test files (the exact pattern the golden suites ship) will trip it and stall autoMerge — add a per-path/per-finding allowlist committed with the PR, or keep it hard and force workers to rename literals? | eng | Phase 4 |
 
 > Resolved 2026-08-24: Q1 (ecosystem conventions + `testCommand` override now
 > cover npm/Go/Python), Q2 (plain webhooks shipped in Phase 3), Q3 (policy is
