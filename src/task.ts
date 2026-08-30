@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs';
+import { basename } from 'node:path';
 import type { RunLogger } from './logger.js';
 import { runPipeline } from './pipeline.js';
 import type { PipelineDeps } from './pipeline.js';
@@ -70,7 +72,7 @@ export interface TaskDeps {
 export interface TaskPublishDeps {
   commitAllChanges(worktreePath: string, message: string): Promise<boolean>;
   currentBranch(worktreePath: string): Promise<string>;
-  listChangedFiles(worktreePath: string, baseBranch: string): Promise<string[]>;
+  listChangedFiles(worktreePath: string, baseBranch: string, ref?: string): Promise<string[]>;
   pushBranch(repoPath: string, branch: string): Promise<void>;
   createPr(o: { repoPath: string; branch: string; title: string; body: string }): Promise<string>;
 }
@@ -91,6 +93,8 @@ export interface TaskPublishOptions {
  *   implementation invented `devagent/task-<runId>`, a ref nobody ever
  *   created, so every push died with "src refspec does not match any";
  * - refuses to open a PR when the diff vs base is empty.
+ * - when cleanup=auto already removed the worktree, publishes from the
+ *   surviving run branch in the main repo (snapshot already landed there).
  */
 export async function publishTaskBranch(
   opts: TaskPublishOptions,
@@ -100,10 +104,23 @@ export async function publishTaskBranch(
   if (!impl.worktreePath) return undefined;
 
   const title = opts.prompt.split('\n')[0]!.slice(0, 80);
-  await io.commitAllChanges(impl.worktreePath, `devagent(task): ${title}`);
-
-  const branch = await io.currentBranch(impl.worktreePath);
-  const changed = await io.listChangedFiles(impl.worktreePath, opts.baseBranch);
+  // cleanup=auto removes a successful run's worktree after snapshotting its
+  // uncommitted output onto the run branch. Publishing must then happen from
+  // the main repo against that branch: git add in a removed cwd exits -1 with
+  // empty stderr (loop 57-58: "git add -A exited -1" right after a green test
+  // gate, tripping the selfbuild circuit breaker).
+  const wtAlive = existsSync(impl.worktreePath);
+  const branch = wtAlive
+    ? await io.currentBranch(impl.worktreePath)
+    : `devagent/${basename(impl.worktreePath)}`;
+  if (wtAlive) {
+    await io.commitAllChanges(impl.worktreePath, `devagent(task): ${title}`);
+  }
+  const changed = await io.listChangedFiles(
+    wtAlive ? impl.worktreePath : opts.repoPath,
+    opts.baseBranch,
+    wtAlive ? undefined : branch,
+  );
   if (changed.length === 0) {
     opts.log.warn('task', 'nothing changed vs base; skipping PR', { branch, baseBranch: opts.baseBranch });
     return undefined;

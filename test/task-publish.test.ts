@@ -109,6 +109,30 @@ describe('publishTaskBranch', () => {
     const url = await publishTaskBranch(makeOpts('.'), { ok: true, worker: 'c', attempts: 1 }, makeDeps(capture));
     expect(url).toBeUndefined();
   });
+  // regression: loop 57-58 failure. cleanup=auto removed the worktree after
+  // auto-cleanup snapshotted the changes onto devagent/TASK. Publishing must
+  // then run from the main repo against that branch, not fail with
+  // "git add -A exited -1" from a nonexistent cwd.
+  it('publishes from the run branch after auto-cleanup removed the worktree', async () => {
+    const { repo, wt } = fixture();
+    writeFileSync(join(wt, 'feature.txt'), 'fix\n');
+    await commitAllChanges(wt, 'worker changes');
+    // simulate finalizeRunWorktree: remove the worktree registration + dir,
+    // the branch devagent/TASK survives with the snapshot commit
+    g(repo, 'worktree', 'remove', '--force', wt);
+    g(repo, 'worktree', 'prune');
+    const capture: Captured = {};
+
+    const url = await publishTaskBranch(
+      makeOpts(repo),
+      { ok: true, worker: 'claude-code', attempts: 1, worktreePath: wt },
+      makeDeps(capture),
+    );
+
+    expect(url).toBeDefined();
+    expect(capture.pushed).toBe('devagent/TASK');
+    expect(capture.pr?.branch).toBe('devagent/TASK');
+  });
 });
 
 describe('currentBranch', () => {
