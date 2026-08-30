@@ -12,9 +12,9 @@ const baseOpts = (overrides: Partial<WorkerSpawnOptions> = {}): WorkerSpawnOptio
 });
 
 describe('omp adapter - Seam A: argument building', () => {
-  it('builds the minimum non-interactive argv: -p, prompt, --mode json', () => {
+  it('builds the minimum non-interactive argv: -p, prompt, --mode json, --no-prewalk', () => {
     const args = buildOmpArgs(baseOpts());
-    expect(args).toEqual(['-p', 'do the thing', '--mode', 'json']);
+    expect(args).toEqual(['-p', 'do the thing', '--mode', 'json', '--no-prewalk']);
   });
 
   it('forwards --model when provided', () => {
@@ -24,6 +24,7 @@ describe('omp adapter - Seam A: argument building', () => {
       'do the thing',
       '--mode',
       'json',
+      '--no-prewalk',
       '--model',
       'omniroute/bai/glm-5.3-flash',
     ]);
@@ -31,12 +32,12 @@ describe('omp adapter - Seam A: argument building', () => {
 
   it('forwards --thinking when variant provided', () => {
     const args = buildOmpArgs(baseOpts({ variant: 'high' }));
-    expect(args).toEqual(['-p', 'do the thing', '--mode', 'json', '--thinking', 'high']);
+    expect(args).toEqual(['-p', 'do the thing', '--mode', 'json', '--no-prewalk', '--thinking', 'high']);
   });
 
   it('builds a resume argv using -c with the resume prompt and no -p', () => {
     const args = buildOmpArgs(baseOpts(), { resume: true });
-    expect(args).toEqual(['--mode', 'json', '-c', 'Continue']);
+    expect(args).toEqual(['--mode', 'json', '--no-prewalk', '-c', 'Continue']);
   });
 
   it('omits the --api-key flag from CLI args (env is the supported channel)', () => {

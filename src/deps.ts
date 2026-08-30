@@ -293,7 +293,8 @@ export async function implementStage(
     for (;;) {
       const infiniteMode = effectiveApiMaxAttempts === undefined || effectiveApiMaxAttempts === Infinity;
       if (!infiniteMode && logicAttempts >= maxAttempts) break;
-      if (infiniteMode && infraRetries >= maxInfraBurst && logicAttempts >= maxAttempts) break;
+      if (infiniteMode && infraRetries >= maxInfraBurst) break;
+      if (infiniteMode && logicAttempts >= maxAttempts && infraRetries === 0) break;
       const displayAttempt = logicAttempts + 1;
       const attemptPrompt = logicAttempts === 0 ? prompt : repairPrompt;
       log.info('implement', `Worker ${workerName} attempt ${displayAttempt}/${infiniteMode ? '∞' : maxAttempts}`, {});
