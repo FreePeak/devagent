@@ -157,7 +157,7 @@ function fallbackTask(prompt: string, config: DevAgentConfig): { id: string; tit
 
 export async function runScoutOnce(opts: ScoutCycleOptions, config: DevAgentConfig): Promise<ScoutCycleResult> {
   const repoPath = opts.repoPath;
-  const worker = opts.worker ?? (config.scout?.worker as 'opencode' | 'claude-code' | undefined) ?? 'opencode';
+  const worker = opts.worker ?? (config.scout?.worker as 'opencode' | 'claude-code' | 'omp' | undefined) ?? 'opencode';
   const intervalMinutes = opts.intervalMinutes ?? config.scout?.intervalMinutes ?? 30;
   const hbPath = heartbeatPath(repoPath);
 

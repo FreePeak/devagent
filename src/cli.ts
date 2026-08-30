@@ -27,7 +27,7 @@ program
   .description('Execute the full pipeline for one ticket')
   .requiredOption('--ticket <id>', 'tracker ticket identifier')
   .option('--repo <path>', 'target repository', process.cwd())
-  .option('--worker <name>', 'claude-code | opencode | both')
+  .option('--worker <name>', 'claude-code | opencode | omp | both')
   .option('--model <id>', 'model override passed to the worker CLI (provider/model)')
   .option('--variant <name>', 'variant for opencode model (maps to --variant or #variant)')
   .option('--cleanup <mode>', "post-run worktree disposal: auto | keep | always")
@@ -113,7 +113,7 @@ program
   .requiredOption('--ticket <ids...>', 'ticket identifiers (one or more)')
   .requiredOption('--repo <entries...>', 'repo entries as name=path (one or more)')
   .option('--concurrency <n>', 'max parallel runs (number or "auto")', parseConcurrency, 2)
-  .option('--worker <name>', 'claude-code | opencode | both')
+  .option('--worker <name>', 'claude-code | opencode | omp | both')
   .option('--cleanup <mode>', "post-run worktree disposal: auto | keep | always")
   .option('--drop-orca-workspace', 'drop the enclosing Orca workspace after done (when repoPath is Orca-managed)', false)
   .option('--auto-pr', 'publish PRs without approval gates', false)
@@ -155,7 +155,7 @@ program
       concurrency: fleetConcurrency,
       ...(governorForFleet ? { governor: governorForFleet } : {}),
       timeoutMs: config.timeoutMinutes * 60_000,
-      worker: (opts.worker ?? config.worker) as 'claude-code' | 'opencode' | 'both',
+      worker: (opts.worker ?? config.worker) as 'claude-code' | 'opencode' | 'omp' | 'both',
       autoPr: opts.autoPr ?? false,
       maxLoops: opts.maxLoops ?? config.maxLoops,
       runOne: async ({ repoPath, ticketId, worker, autoPr, maxLoops, timeoutMs, log }) => {
@@ -462,7 +462,7 @@ program
     'task identity: names the worktree (.devagent-worktrees/<id>) and branch (devagent/<id>); default $DEVAGENT_TASK_ID, else a collision-free TASK-<suffix>',
   )
   .option('--repo <path>', 'target repository', process.cwd())
-  .option('--worker <name>', 'claude-code | opencode | both')
+  .option('--worker <name>', 'claude-code | opencode | omp | both')
   .option('--model <id>', 'model override passed to the worker CLI (provider/model)')
   .option('--variant <name>', 'variant for opencode model (maps to --variant or #variant)')
   .option('--cleanup <mode>', "post-run worktree disposal: auto | keep | always")
@@ -524,7 +524,7 @@ program
       const { implementStage } = await import('./deps.js');
       const { runMigrationStaticGate } = await import('./validation/runner.js');
 
-      const workerName = ((opts.worker ?? config.worker) as 'claude-code' | 'opencode' | 'both');
+      const workerName = ((opts.worker ?? config.worker) as 'claude-code' | 'opencode' | 'omp' | 'both');
       const deps: TaskDeps = {
         runPipelineDeps: {
           fetchTicket: async () => ({ id: cfg.taskId ?? 'TASK', title: '', description: '', labels: [], acceptanceCriteria: [] }),

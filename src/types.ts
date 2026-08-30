@@ -22,7 +22,7 @@ export type TicketClass = 'endpoint-only' | 'migration-required' | 'consumer-onl
 
 // ---------- Workers ----------
 
-export type WorkerName = 'claude-code' | 'opencode';
+export type WorkerName = 'claude-code' | 'opencode' | 'omp';
 
 export interface WorkerSpawnOptions {
   prompt: string;
