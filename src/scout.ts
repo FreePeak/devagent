@@ -6,7 +6,7 @@ import { spawnCli } from './workers/spawn-utils.js';
 
 export interface ScoutCycleOptions {
   repoPath: string;
-  worker?: 'opencode' | 'claude-code';
+  worker?: 'opencode' | 'claude-code' | 'omp';
   /** Override interval; not used in once mode but persisted to heartbeat */
   intervalMinutes?: number;
   dryRun?: boolean;
@@ -157,7 +157,7 @@ function fallbackTask(prompt: string, config: DevAgentConfig): { id: string; tit
 
 export async function runScoutOnce(opts: ScoutCycleOptions, config: DevAgentConfig): Promise<ScoutCycleResult> {
   const repoPath = opts.repoPath;
-  const worker = opts.worker ?? (config.scout?.worker as 'opencode' | 'claude-code' | undefined) ?? 'opencode';
+  const worker = opts.worker ?? (config.scout?.worker as 'opencode' | 'claude-code' | 'omp' | undefined) ?? 'opencode';
   const intervalMinutes = opts.intervalMinutes ?? config.scout?.intervalMinutes ?? 30;
   const hbPath = heartbeatPath(repoPath);
 
@@ -200,18 +200,20 @@ export async function runScoutOnce(opts: ScoutCycleOptions, config: DevAgentConf
     return { ok: true, taskId: parsed.id, prdPath, queuePath: join(queueDir(repoPath), `${parsed.id}.json`), heartbeatPath: hbPath, detail: `dry-run: ${parsed.id}`, rawPrompt: prompt, rawOutput: parsed.prdMarkdown };
   }
 
-  // Live: dispatch to opencode (or claude-code) via spawnCli
+  // Live: dispatch to the configured worker. Worker-specific argv below must
+  // match the matching WorkerAdapter's buildOmpArgs / baseArgs exactly so
+  // sessionId/result parsing stays compatible.
   const timeoutMs = opts.timeoutMs ?? 5 * 60_000;
-  const cli = worker === 'opencode' ? 'opencode' : 'claude';
-  // Forward the configured model so scout workers don't fall back to the
-  // settings.json default (loop-55 root cause: unrecognized_model on the
-  // hermes proxy -> exit 0 empty output). claude-code only; opencode has
-  // its own provider config.
-  const scoutModel = worker === 'claude-code' ? config.model?.trim() : undefined;
+  const cli =
+    worker === 'opencode' ? 'opencode' : worker === 'claude-code' ? 'claude' : 'omp';
+  const scoutModel =
+    worker === 'claude-code' ? config.model?.trim() : undefined;
   const args =
     worker === 'opencode'
       ? ['run', '--format', 'json', prompt]
-      : ['-p', prompt, '--output-format', 'json', ...(scoutModel ? ['--model', scoutModel.split('#')[0]!] : [])];
+      : worker === 'omp'
+        ? ['-p', prompt, '--mode', 'json']
+        : ['-p', prompt, '--output-format', 'json', ...(scoutModel ? ['--model', scoutModel.split('#')[0]!] : [])];
 
   let raw = '';
   try {
@@ -379,7 +381,7 @@ export function writeHeartbeat(
 }
 
 export async function runScoutLoop(
-  opts: { repoPath: string; worker?: 'opencode' | 'claude-code'; intervalMinutes: number; timeoutMs?: number; signal?: AbortSignal },
+  opts: { repoPath: string; worker?: 'opencode' | 'claude-code' | 'omp'; intervalMinutes: number; timeoutMs?: number; signal?: AbortSignal },
   config: DevAgentConfig,
   onCycle?: (result: ScoutCycleResult) => void,
 ): Promise<void> {

@@ -3,11 +3,11 @@ import { syncCli } from '../workers/spawn-utils.js';
 /**
  * Best-effort stale process reaper.
  * - killStaleProcessTree(pid): SIGTERM then SIGKILL the process group.
- * - findStaleWorkerPids: scan `ps` for opencode/claude workers older than threshold.
+ * - findStaleWorkerPids: scan `ps` for opencode/claude/omp workers older than the threshold.
  * Guarded: only kills PIDs whose cmdline matches known worker patterns.
  */
 
-const WORKER_PATTERN = /(opencode|claude)(\s|$|--)/i;
+const WORKER_PATTERN = /\b(opencode|claude|omp)(\s|$|--)/i;
 
 function cmdlineFor(pid: number): string {
   try {
@@ -110,14 +110,25 @@ export function parseEtimeToMs(etime: string): number {
 /**
  * A process is only reap-eligible when it is provably a devagent-spawned
  * worker: headless print-mode with JSON output. Interactive sessions
- * (`claude` TUI in any project) never match, so the reaper can never kill
- * the user's live work (2026-08-26 incident: pattern-only matching reaped
- * unrelated interactive claude processes machine-wide).
+ * (`claude` TUI in any project, or the user's bare `omp` TUIs) never match,
+ * so the reaper can never kill the user's live work (2026-08-26 incident:
+ * pattern-only matching reaped unrelated interactive claude processes
+ * machine-wide).
  */
 const DEVAGENT_WORKER_CMD = /(^|\s)(--print|-p)(\s|$)/;
+const DEVAGENT_RESUME_CMD = /(^|\s)(--continue|-c)(\s|$)/;
+const OMP_MODE_JSON_CMD = /(^|\s)--mode(\s|=)json(\s|$)/;
 
 export function isDevagentWorkerCmd(cmd: string): boolean {
-  return WORKER_PATTERN.test(cmd) && DEVAGENT_WORKER_CMD.test(cmd) && /--output-format\b/.test(cmd);
+  if (!WORKER_PATTERN.test(cmd)) return false;
+  const headless = DEVAGENT_WORKER_CMD.test(cmd) || DEVAGENT_RESUME_CMD.test(cmd);
+  if (!headless) return false;
+  // claude-code / opencode: --output-format json (unchanged)
+  if (/\b(opencode|claude)\b/i.test(cmd)) return /--output-format\b/.test(cmd);
+  // omp: --mode json (adapter always emits `--mode json`; interactive omp has
+  // no flag and never matches)
+  if (/\bomp\b/.test(cmd)) return OMP_MODE_JSON_CMD.test(cmd);
+  return false;
 }
 
 function cwdFor(pid: number): string {

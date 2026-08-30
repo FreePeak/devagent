@@ -309,7 +309,7 @@ export async function implementStage(
       const result = await worker.spawn(spawnOpts as never);
       // Reap any stale provider workers that may be idling after a hung call
       // (watchdog already SIGKILLs the direct child; this cleans orphans and
-      // any other leaked opencode/claude workers older than the watchdog window).
+      // any other leaked opencode/claude/omp workers older than the watchdog window).
       try {
         const { findStaleWorkerPids, killStaleProcessTree } = await import('./resilience/reaper.js');
         const stale = findStaleWorkerPids(effectiveNoProgress || 60_000);

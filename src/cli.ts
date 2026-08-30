@@ -27,7 +27,7 @@ program
   .description('Execute the full pipeline for one ticket')
   .requiredOption('--ticket <id>', 'tracker ticket identifier')
   .option('--repo <path>', 'target repository', process.cwd())
-  .option('--worker <name>', 'claude-code | opencode | both')
+  .option('--worker <name>', 'claude-code | opencode | omp | both')
   .option('--model <id>', 'model override passed to the worker CLI (provider/model)')
   .option('--variant <name>', 'variant for opencode model (maps to --variant or #variant)')
   .option('--cleanup <mode>', "post-run worktree disposal: auto | keep | always")
@@ -113,7 +113,7 @@ program
   .requiredOption('--ticket <ids...>', 'ticket identifiers (one or more)')
   .requiredOption('--repo <entries...>', 'repo entries as name=path (one or more)')
   .option('--concurrency <n>', 'max parallel runs (number or "auto")', parseConcurrency, 2)
-  .option('--worker <name>', 'claude-code | opencode | both')
+  .option('--worker <name>', 'claude-code | opencode | omp | both')
   .option('--cleanup <mode>', "post-run worktree disposal: auto | keep | always")
   .option('--drop-orca-workspace', 'drop the enclosing Orca workspace after done (when repoPath is Orca-managed)', false)
   .option('--auto-pr', 'publish PRs without approval gates', false)
@@ -155,7 +155,7 @@ program
       concurrency: fleetConcurrency,
       ...(governorForFleet ? { governor: governorForFleet } : {}),
       timeoutMs: config.timeoutMinutes * 60_000,
-      worker: (opts.worker ?? config.worker) as 'claude-code' | 'opencode' | 'both',
+      worker: (opts.worker ?? config.worker) as 'claude-code' | 'opencode' | 'omp' | 'both',
       autoPr: opts.autoPr ?? false,
       maxLoops: opts.maxLoops ?? config.maxLoops,
       runOne: async ({ repoPath, ticketId, worker, autoPr, maxLoops, timeoutMs, log }) => {
@@ -462,7 +462,7 @@ program
     'task identity: names the worktree (.devagent-worktrees/<id>) and branch (devagent/<id>); default $DEVAGENT_TASK_ID, else a collision-free TASK-<suffix>',
   )
   .option('--repo <path>', 'target repository', process.cwd())
-  .option('--worker <name>', 'claude-code | opencode | both')
+  .option('--worker <name>', 'claude-code | opencode | omp | both')
   .option('--model <id>', 'model override passed to the worker CLI (provider/model)')
   .option('--variant <name>', 'variant for opencode model (maps to --variant or #variant)')
   .option('--cleanup <mode>', "post-run worktree disposal: auto | keep | always")
@@ -524,7 +524,7 @@ program
       const { implementStage } = await import('./deps.js');
       const { runMigrationStaticGate } = await import('./validation/runner.js');
 
-      const workerName = ((opts.worker ?? config.worker) as 'claude-code' | 'opencode' | 'both');
+      const workerName = ((opts.worker ?? config.worker) as 'claude-code' | 'opencode' | 'omp' | 'both');
       const deps: TaskDeps = {
         runPipelineDeps: {
           fetchTicket: async () => ({ id: cfg.taskId ?? 'TASK', title: '', description: '', labels: [], acceptanceCriteria: [] }),
@@ -1131,7 +1131,7 @@ program
   .command('scout')
   .description('24/7 opencode scout: research backlog -> PRD -> queue (FR-SCOUT-01)')
   .option('--repo <path>', 'target repository', process.cwd())
-  .option('--worker <name>', 'opencode | claude-code')
+  .option('--worker <name>', 'opencode | claude-code | omp')
   .option('--interval <minutes>', 'cycle interval minutes (loop mode only)', Number)
   .option('--timeout <minutes>', 'per-cycle wall-clock cap', Number)
   .option('--once', 'run exactly one cycle then exit (default in non-daemon mode)', false)
@@ -1154,7 +1154,7 @@ program
       return;
     }
     const config = loadConfig(opts.repo);
-    const worker = (opts.worker ?? config.scout?.worker ?? 'opencode') as 'opencode' | 'claude-code';
+    const worker = (opts.worker ?? config.scout?.worker ?? 'opencode') as 'opencode' | 'claude-code' | 'omp';
     const intervalMinutes = opts.interval ?? config.scout?.intervalMinutes ?? 30;
     const timeoutMs = (opts.timeout ?? 5) * 60_000;
     if (opts.once || opts.dryRun) {
@@ -1237,7 +1237,7 @@ program
   .option('--self-update', 'enable self-update after merges', false)
   .option('--interval <minutes>', 'scout interval minutes', Number)
   .option('--track-interval <minutes>', 'tracker interval minutes (loop mode)', Number)
-  .option('--scout-worker <name>', 'scout worker: opencode | claude-code')
+  .option('--scout-worker <name>', 'scout worker: opencode | claude-code | omp')
   .option('--dry-run', 'print plan without mutating', false)
   .action(async (opts) => {
     if (opts.orchestrator && !opts.orchestratorGoal && !existsSync(join(opts.repo, '.devagent', 'orchestrator-goal.txt'))) {
@@ -1356,7 +1356,7 @@ program
 
 program
   .command('reap-stale')
-  .description('Find and kill stale opencode/claude worker processes (infinite-retry reaper)')
+  .description('Find and kill stale opencode/claude/omp worker processes (infinite-retry reaper)')
   .option('--older-than <ms>', 'consider workers stale after this many ms (default 600000 = 10m)', Number, 10 * 60_000)
   .option('--repo <path>', 'scope to workers whose cwd is inside <repo>/.devagent-worktrees (default: all devagent workers)')
   .option('--dry-run', 'list without killing', false)
