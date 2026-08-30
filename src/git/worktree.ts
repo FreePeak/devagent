@@ -204,12 +204,21 @@ export async function deleteBranch(repoPath: string, branch: string): Promise<vo
   }
 }
 
-/** Files changed on this branch vs its merge-base with the default branch. */
-export async function listChangedFiles(repoPath: string, baseBranch: string): Promise<string[]> {
-  const mergeBase = await run('git', ['merge-base', baseBranch, 'HEAD'], repoPath);
-  const diff = await run('git', ['diff', '--name-only', mergeBase.stdout.trim(), 'HEAD'], repoPath);
+/** Files changed on this branch vs its merge-base with the default branch.
+ * When the run's worktree is already gone (cleanup=auto snapshot), pass
+ * `ref` = the surviving run branch so the diff is computed against that
+ * ref instead of the main worktree's HEAD.
+ */
+export async function listChangedFiles(
+  repoPath: string,
+  baseBranch: string,
+  ref: string = 'HEAD',
+): Promise<string[]> {
+  const mergeBase = await run('git', ['merge-base', baseBranch, ref], repoPath);
+  const diff = await run('git', ['diff', '--name-only', mergeBase.stdout.trim(), ref], repoPath);
   return diff.stdout.split('\n').map((s) => s.trim()).filter(Boolean);
 }
+
 
 /**
  * Stash uncommitted changes (including untracked files) in the worktree at
