@@ -11,7 +11,22 @@ permissions:
   contents: write
 
 jobs:
+  # CI gate: the release job below must not publish a tag from a commit
+  # whose tests fail. Steps mirror .github/workflows/ci.yml.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npx vitest run
+
   release:
+    needs: [test]
     # Skip release runs themselves (tag pushes) and fork pushes.
     if: github.ref == 'refs/heads/main' && !startsWith(github.event.head_commit.message, 'Release v')
     runs-on: ubuntu-latest
