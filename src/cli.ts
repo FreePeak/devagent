@@ -1120,8 +1120,23 @@ program
   .option('--timeout <minutes>', 'per-cycle wall-clock cap', Number)
   .option('--once', 'run exactly one cycle then exit (default in non-daemon mode)', false)
   .option('--dry-run', 'enqueue deterministic fallback task without calling LLM', false)
+  .option('--replay', 'replay captured worker-output fixtures through extractScoutPayload and diff against golden.json', false)
   .action(async (opts) => {
-    const { runScoutOnce, runScoutLoop } = await import('./scout.js');
+    const { runScoutOnce, runScoutLoop, replayScoutFixtures } = await import('./scout.js');
+    if (opts.replay) {
+      const results = replayScoutFixtures();
+      const failures = results.filter((r) => !r.pass);
+      for (const r of results) {
+        console.log(`${r.pass ? 'PASS' : 'FAIL'} ${r.name}`);
+        if (!r.pass) {
+          console.log(`  expected: ${JSON.stringify(r.expected)}`);
+          console.log(`  actual:   ${JSON.stringify(r.actual)}`);
+        }
+      }
+      console.log(`${results.length - failures.length}/${results.length} fixtures match golden`);
+      if (failures.length > 0) process.exitCode = 1;
+      return;
+    }
     const config = loadConfig(opts.repo);
     const worker = (opts.worker ?? config.scout?.worker ?? 'opencode') as 'opencode' | 'claude-code';
     const intervalMinutes = opts.interval ?? config.scout?.intervalMinutes ?? 30;

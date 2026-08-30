@@ -1,8 +1,8 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { mkdtempSync, rmSync, existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildScoutPrompt, parseScoutOutput, extractScoutPayload, runScoutOnce, readHeartbeat } from '../src/scout.js';
+import { buildScoutPrompt, parseScoutOutput, runScoutOnce, readHeartbeat } from '../src/scout.js';
 import type { DevAgentConfig } from '../src/config.js';
 
 const baseConfig: DevAgentConfig = { worker: 'opencode', maxLoops: 3, timeoutMinutes: 30 };
@@ -36,30 +36,6 @@ describe('parseScoutOutput', () => {
 
   it('returns null when PRD empty', () => {
     expect(parseScoutOutput('---TASK---\nid: X\ntitle: t\ngoal: Goal: x\n---PRD---\n')).toBeNull();
-  });
-});
-
-describe('extractScoutPayload', () => {
-  // Golden fixture suite: each entry in golden.json maps a captured worker output
-  // shape to the exact string extractScoutPayload must return (null for shapes it
-  // must reject). Covers claude array/object forms, opencode NDJSON, and null cases.
-  const fixturesDir = join(import.meta.dirname, 'fixtures', 'scout');
-
-  it('extracts the golden payload from each fixture exactly as recorded', () => {
-    const golden = JSON.parse(readFileSync(join(fixturesDir, 'golden.json'), 'utf8')) as Record<string, { worker: string; expected: string | null }>;
-    // Guard: every fixture on disk must have a golden entry, and vice versa, so a
-    // new fixture without a recorded expectation fails loudly here.
-    const onDisk = readdirSync(fixturesDir).filter((f) => f !== 'golden.json').sort();
-    expect(onDisk).toEqual(Object.keys(golden).sort());
-
-    for (const [name, entry] of Object.entries(golden)) {
-      const content = readFileSync(join(fixturesDir, name), 'utf8');
-      if (entry.expected === null) {
-        expect(extractScoutPayload(content, entry.worker), name).toBeNull();
-      } else {
-        expect(extractScoutPayload(content, entry.worker), name).toBe(entry.expected);
-      }
-    }
   });
 });
 
