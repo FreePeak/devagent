@@ -29,7 +29,12 @@ export interface OmpArgsOptions {
 export function buildOmpArgs(opts: WorkerSpawnOptions, o: OmpArgsOptions = {}): string[] {
   const rawModel = opts.model?.trim();
   const rawThinking = opts.variant?.trim();
-  const base: string[] = ['--mode', 'json'];
+  // --no-prewalk: the interactive config's prewalk (second planning turn)
+  // loops forever on some models (2026-08-30 A/B: glm-5.3-flash prewalk turn
+  // streamed 986+ thinking events and never terminated; with --no-prewalk the
+  // same prompt completed in 12 events / 20s). Headless runs must not
+  // inherit prewalk.enabled from ~/.omp/agent/config.yml.
+  const base: string[] = ['--mode', 'json', '--no-prewalk'];
   if (o.resume) {
     return [
       ...base,
@@ -76,7 +81,7 @@ function interpretOmp(run: SpawnCliResult): OmpOutcome {
   let parsed: Record<string, unknown> | null = null;
   let sessionId: string | null = null;
   let terminalMessage: Record<string, unknown> | null = null;
-
+  let streamError: string | null = null;
   // Try single-JSON first (legacy callers). If it parses as object/array,
   // skip the NDJSON walk.
   if (run.stdout.trim()) {
@@ -136,14 +141,22 @@ function interpretOmp(run: SpawnCliResult): OmpOutcome {
       if (event.type === 'session' && typeof event.id === 'string') {
         sessionId = event.id;
       }
-      if (terminalMessage === null && (event.type === 'turn_end' || event.type === 'message_end')) {
+      if (event.type === 'turn_end' || event.type === 'message_end') {
         const msg = event.message;
         if (msg !== null && typeof msg === 'object' && !Array.isArray(msg)) {
           const m = msg as Record<string, unknown>;
           // Both user and assistant turns emit message_end; only the
           // assistant's text is the worker result.
-          if (m.role !== 'assistant') continue;
-          terminalMessage = m;
+          if (m.role === 'assistant' && terminalMessage === null) {
+            terminalMessage = m;
+          }
+          // omp exits 0 even when the model call fails (observed 2026-08-30:
+          // GitLab Duo 401 surfaces as assistant message_end with errorMessage
+          // and NO result event). Capture the first errorMessage so the
+          // failure is not misread as an empty-but-successful run.
+          if (streamError === null && typeof m.errorMessage === 'string') {
+            streamError = m.errorMessage;
+          }
         }
       }
     }
@@ -164,16 +177,16 @@ function interpretOmp(run: SpawnCliResult): OmpOutcome {
       }
     }
   }
-
-  const isError = parsed?.is_error === true;
+  const isError = parsed?.is_error === true || streamError !== null;
   const resultText =
     run.exitCode === 0 && !isError && typeof rawResult === 'string' ? rawResult : null;
   const errorText =
-    typeof rawResult === 'string' && rawResult && isError
+    streamError ??
+    (typeof rawResult === 'string' && rawResult && isError
       ? rawResult
       : parsed === null && !rawResult && run.stderr.trim()
         ? run.stderr.trim()
-        : undefined;
+        : undefined);
   return {
     isError,
     sessionId,
