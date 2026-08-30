@@ -241,7 +241,13 @@ export class OmpAdapter implements WorkerAdapter {
     let args = buildOmpArgs(opts);
     let sessionId: string | null = null;
     let last: SpawnCliResult | null = null;
-    const maxAttempts = 3; // omp does not expose --resume <id>; cap retries.
+    // omp exposes -r/--resume <id> (see docs/plans/omp-support-plan.md recon),
+    // but using it requires carrying the session_id between attempts. The
+    // adapter parses sessionId from the prior attempt's output but does not
+    // feed it to -r because that would cross-talk between concurrent devagent
+    // runs sharing the same cwd. Instead, retries use -c (continue most-recent
+    // session in cwd) and we cap at maxAttempts so a hang cannot loop forever.
+    const maxAttempts = 3;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       if (Date.now() >= wallDeadline) {

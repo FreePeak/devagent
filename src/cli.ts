@@ -1131,7 +1131,7 @@ program
   .command('scout')
   .description('24/7 opencode scout: research backlog -> PRD -> queue (FR-SCOUT-01)')
   .option('--repo <path>', 'target repository', process.cwd())
-  .option('--worker <name>', 'opencode | claude-code')
+  .option('--worker <name>', 'opencode | claude-code | omp')
   .option('--interval <minutes>', 'cycle interval minutes (loop mode only)', Number)
   .option('--timeout <minutes>', 'per-cycle wall-clock cap', Number)
   .option('--once', 'run exactly one cycle then exit (default in non-daemon mode)', false)
@@ -1154,7 +1154,7 @@ program
       return;
     }
     const config = loadConfig(opts.repo);
-    const worker = (opts.worker ?? config.scout?.worker ?? 'opencode') as 'opencode' | 'claude-code';
+    const worker = (opts.worker ?? config.scout?.worker ?? 'opencode') as 'opencode' | 'claude-code' | 'omp';
     const intervalMinutes = opts.interval ?? config.scout?.intervalMinutes ?? 30;
     const timeoutMs = (opts.timeout ?? 5) * 60_000;
     if (opts.once || opts.dryRun) {
@@ -1237,7 +1237,7 @@ program
   .option('--self-update', 'enable self-update after merges', false)
   .option('--interval <minutes>', 'scout interval minutes', Number)
   .option('--track-interval <minutes>', 'tracker interval minutes (loop mode)', Number)
-  .option('--scout-worker <name>', 'scout worker: opencode | claude-code')
+  .option('--scout-worker <name>', 'scout worker: opencode | claude-code | omp')
   .option('--dry-run', 'print plan without mutating', false)
   .action(async (opts) => {
     if (opts.orchestrator && !opts.orchestratorGoal && !existsSync(join(opts.repo, '.devagent', 'orchestrator-goal.txt'))) {
@@ -1356,7 +1356,7 @@ program
 
 program
   .command('reap-stale')
-  .description('Find and kill stale opencode/claude worker processes (infinite-retry reaper)')
+  .description('Find and kill stale opencode/claude/omp worker processes (infinite-retry reaper)')
   .option('--older-than <ms>', 'consider workers stale after this many ms (default 600000 = 10m)', Number, 10 * 60_000)
   .option('--repo <path>', 'scope to workers whose cwd is inside <repo>/.devagent-worktrees (default: all devagent workers)')
   .option('--dry-run', 'list without killing', false)

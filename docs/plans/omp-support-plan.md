@@ -66,28 +66,44 @@ Add `omp` as a first-class worker (CLI coding agent) alongside the existing
 
 1. [x] Create worktree + branch `feat/omp-support`.
 2. [x] Write this plan document; commit it.
-3. [ ] Recon (read-only): confirm test runner + scripts in `package.json`;
+3. [x] Recon (read-only): confirm test runner + scripts in `package.json`;
    locate the claude-code adapter file/symbol; worker type union in
    `src/types.ts`; config load/validation path; `omp --help` output flags.
    Record exact files/symbols below.
-4. [ ] Install dependencies in the worktree.
-5. [ ] RED: failing tests for Seams A-C in the repo's existing test layout.
-6. [ ] GREEN: implement omp adapter mirroring the claude-code adapter's
+4. [x] Install dependencies in the worktree.
+5. [x] RED: failing tests for Seams A-C in the repo's existing test layout.
+6. [x] GREEN: implement omp adapter mirroring the claude-code adapter's
    exported interface; wire registry + type union + validation.
-7. [ ] Full suite + typecheck green in the worktree. Tests are never modified
+7. [x] Full suite + typecheck green in the worktree. Tests are never modified
    to pass; implementation is fixed instead.
-8. [ ] Timeout-guarded live smoke (`timeout 120 omp -p "Reply with exactly:
-   OK"`); on success capture output as Seam B fixture; on hang record
-   evidence and skip live portion - seams stand regardless.
-9. [ ] Commit implementation on `feat/omp-support`. No push.
+8. [x] Timeout-guarded live smoke captured (`test/workers/__fixtures__/omp-smoke-2026-08-30.jsonl`,
+   1591 lines of real NDJSON); parser test asserts session id + result text.
+9. [x] Commit implementation on `feat/omp-support`. No push.
 
 ## Recon findings (filled during recon)
 
-- Test runner: TBD
-- claude-code adapter: TBD
-- Worker type union: TBD
-- Config validation: TBD
-- omp CLI flags: TBD
+- Test runner: vitest 2.1.8 (`npm test` -> `vitest run`); config
+  `vitest.config.ts` with `include: ['test/**/*.test.ts']`, `environment: node`,
+  `testTimeout: 30_000`. Typecheck via `npm run build` (tsc).
+- claude-code adapter: `src/workers/claude-code.ts`. `baseArgs(opts)` at
+  `src/workers/claude-code.ts:118-129` returns
+  `['-p', prompt, '--output-format', 'json', ...model, ...maxSteps]`.
+  `interpretForTest` at line 139; `finalize` at line 185.
+- Worker type union: `src/types.ts:25` -- `WorkerName = 'claude-code' | 'opencode' | 'omp'`.
+  `WorkerAdapter` interface at lines 80-83.
+- Config validation: `src/config.ts:118-120` rejects workers not in
+  `['claude-code', 'opencode', 'omp', 'both']`; same for `scout.worker` at line 125.
+- CLI flag surface: `src/cli.ts:30/116/465` `--worker <name>` help text and
+  cast sites at `158`, `527`, plus scout casts at `1157` and `1261`.
+- omp CLI flags: from `omp --help` v18.0.11 (snapshot: `/tmp/omp-help.txt`):
+  `-p, --print` (headless prompt-then-exit), `--mode=<value>` (`text|json|rpc|rpc-ui`),
+  `--model=<value>` (fuzzy provider/model match), `-c, --continue` and
+  `-r, --resume=<value>` (session resume), `--max-time=<value>`, `--no-session`,
+  `--thinking=<value>`, `--cwd=<value>`, `--print-thoughts`, `--api-key=<value>`.
+  No `--output-format json` -- omp uses `--mode json` instead.
+  Observed 2026-08-30: `omp -p` on `omniroute/bai/glm-5.3-flash` produced no
+  stdout for 240s; adapter carries an explicit 10-min no-progress timeout plus
+  wall deadline and SIGKILLs the child.
 
 ## Risks / edge cases
 
