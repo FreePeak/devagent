@@ -783,14 +783,30 @@ program
 
       const baseBranch = loadConfig(opts.repo).githubBaseBranch ?? 'main';
       console.log(`\nAll tasks done — merging into ${baseBranch}...`);
-      const { mergeProjectBranches } = await import('./orchestrator/merge.js');
-      const mr = await mergeProjectBranches(opts.repo, result, baseBranch, logger);
-      if (mr.ok) {
-        console.log(`Integrated: ${mr.merged.join(', ')}`);
-      } else {
-        console.error(`Integration failed at ${mr.failure!.taskId} (${mr.failure!.stage}): ${mr.failure!.detail}`);
-        console.error('Board preserved; fix and re-run with --resume.');
-        process.exitCode = 1;
+      const git = await import('./git/worktree.js');
+      const stashSha = await git.stashMainWorktree(opts.repo, 'devagent auto-stash before merge');
+      if (stashSha) console.log(`Auto-stashed uncommitted changes as ${stashSha}`);
+      try {
+        await git.assertCleanMainWorktree(opts.repo, baseBranch);
+        const { mergeProjectBranches } = await import('./orchestrator/merge.js');
+        const mr = await mergeProjectBranches(opts.repo, result, baseBranch, logger);
+        if (mr.ok) {
+          console.log(`Integrated: ${mr.merged.join(', ')}`);
+        } else {
+          console.error(`Integration failed at ${mr.failure!.taskId} (${mr.failure!.stage}): ${mr.failure!.detail}`);
+          console.error('Board preserved; fix and re-run with --resume.');
+          process.exitCode = 1;
+        }
+      } finally {
+        if (stashSha) {
+          // Restore the loop's own auto-stash by concrete SHA (indices shift
+          // under concurrent stashes). If the restore fails, leave the stash
+          // intact rather than dropping user work.
+          const popped = await git.popStashBySha(opts.repo, stashSha);
+          if (!popped) {
+            console.error(`Warning: could not restore stash ${stashSha}; stash kept for manual recovery.`);
+          }
+        }
       }
     } catch (err) {
       console.error((err as Error).message);

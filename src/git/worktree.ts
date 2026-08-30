@@ -210,3 +210,78 @@ export async function listChangedFiles(repoPath: string, baseBranch: string): Pr
   const diff = await run('git', ['diff', '--name-only', mergeBase.stdout.trim(), 'HEAD'], repoPath);
   return diff.stdout.split('\n').map((s) => s.trim()).filter(Boolean);
 }
+
+/**
+ * Stash uncommitted changes (including untracked files) in the worktree at
+ * repoPath. Returns null when the tree is already clean (no empty stash is
+ * created); otherwise returns the concrete stash SHA.
+ *
+ * The SHA (not `stash@{0}`) is what callers must pop: stash indices shift
+ * whenever anything else stashes concurrently, which is exactly how the
+ * selfbuild automation clobbered work in earlier loops.
+ */
+export async function stashMainWorktree(repoPath: string, message: string): Promise<string | null> {
+  const statusBefore = await run('git', ['status', '--porcelain'], repoPath);
+  if (statusBefore.stdout.trim() === '') return null;
+
+  const stashListBefore = await run('git', ['stash', 'list', '--format=%H'], repoPath);
+  await run('git', ['stash', 'push', '--include-untracked', '-m', message], repoPath);
+  const rev = await run('git', ['rev-parse', '-q', '--verify', 'stash@{0}'], repoPath);
+  const sha = rev.stdout.trim();
+  if (!sha) throw new Error('git stash push succeeded but stash@{0} could not be resolved');
+
+  const stashListAfter = await run('git', ['stash', 'list', '--format=%H'], repoPath);
+  if (stashListBefore.stdout.includes(sha)) {
+    throw new Error(`stash push created no new stash entry (sha ${sha} already present)`);
+  }
+  return sha;
+}
+
+/**
+ * Restore a stash created by stashMainWorktree, addressed by its concrete
+ * SHA rather than a shifting `stash@{n}` index. `git stash pop` rejects raw
+ * SHAs, so this applies the commit then drops the exact stash entry it
+ * still points at. Returns false when the apply fails (conflict, missing
+ * stash) and leaves the stash intact — never drops user work.
+ */
+export async function popStashBySha(repoPath: string, sha: string): Promise<boolean> {
+  try {
+    await run('git', ['stash', 'apply', sha], repoPath);
+  } catch {
+    return false;
+  }
+  try {
+    const list = await run('git', ['stash', 'list', '--format=%H'], repoPath);
+    const idx = list.stdout.split('\n').filter(Boolean).indexOf(sha);
+    if (idx < 0) return true; // already consumed by a concurrent pop
+    const current = await run('git', ['rev-parse', '-q', '--verify', `stash@{${idx}}`], repoPath);
+    if (current.stdout.trim() === sha) {
+      await run('git', ['stash', 'drop', `stash@{${idx}}`], repoPath);
+    }
+  } catch {
+    // apply succeeded; a failed drop only leaves the stash in place
+  }
+  return true;
+}
+
+/**
+ * Fail-fast guard for the merge-back path: refuses to run when the main
+ * worktree's HEAD is detached or on a branch other than baseBranch, or when
+ * it carries uncommitted changes. The branch check runs before the status
+ * check so the reported error is always the most actionable one.
+ */
+export async function assertCleanMainWorktree(repoPath: string, baseBranch = 'main'): Promise<void> {
+  const head = await run('git', ['rev-parse', '--abbrev-ref', 'HEAD'], repoPath);
+  const branch = head.stdout.trim();
+  if (branch === 'HEAD') {
+    throw new Error('main worktree is in detached-HEAD state; refusing to merge');
+  }
+  if (branch !== baseBranch) {
+    throw new Error(`main worktree is on branch ${branch}, expected ${baseBranch}; refusing to merge`);
+  }
+  const status = await run('git', ['status', '--porcelain'], repoPath);
+  if (status.stdout.trim() !== '') {
+    const preview = status.stdout.split('\n').filter(Boolean).slice(0, 20).join('\n');
+    throw new Error(`main worktree has uncommitted changes; refusing to merge:\n${preview}`);
+  }
+}
