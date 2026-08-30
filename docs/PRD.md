@@ -203,6 +203,17 @@ Requirements use IDs `FR-<area>-NN`. Priority: **M** = must-have for v1, **S** =
 | FR-OPS-03 | Pin worker CLI versions in configuration; warn when installed versions drift | S |
 | FR-OPS-04 | Dry-run mode that executes planning and prints what would happen without spawning workers or touching remotes | M |
 
+### 7.7 Context (area: CTX)
+
+Optional, budget-bounded structural context derived from an external knowledge graph (default: local `leankg` MCP for freepeak workspaces; off otherwise). Assembled at the same `COMPACT_CONTEXT_MARKER` as the lessons and childTrails digests so G0/G5 read identical content.
+
+| ID | Requirement | Pri |
+|---|---|---|
+| FR-CTX-01 | Inject a KG-derived context digest into the scout, planner, and repair prompts at `COMPACT_CONTEXT_MARKER`, ratchet-capped at the same character budget as `lessonsMaxChars` (default 4000); oldest entries dropped whole, never split | M |
+| FR-CTX-02 | Make the KG provider opt-in via config (`devagent.context.kg: "leankg" \| "off"`, default `off`); when `off` or the provider is unreachable, return an empty digest and continue without it — never block the pipeline | M |
+| FR-CTX-03 | Wrap every KG client call in a 1s wall-clock budget; on timeout, downgrade to a cheaper query (`search_code` → `find_function` → empty); surface the degraded mode in the run log | S |
+| FR-CTX-04 | Never pass the KG client to a worker adapter; the KG digest is an orchestrator-side concern only, preserving the "any worker, same contract" invariant from section 9 | M |
+
 ## 8. System Architecture
 
 DevAgent is a thin orchestration layer over existing agent CLIs and infrastructure. It calls no LLM API directly; all code generation happens inside worker agent processes.
@@ -571,6 +582,7 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
   > candidate, and a clean pass outranks a flaky rescue in winner ranking
   > (`src/workers/fanout.ts:74-95`); closes Q8 below.
 - Failure-cluster reporting on ledger analytics — recurring gap categories in the ledger should surface as actionable periodic reports, not just queryable rows.
+- Knowledge-grounded context — opt-in structural memory from the local `leankg` MCP (or off by default) injected into scout/planner/repair prompts at the existing `COMPACT_CONTEXT_MARKER`, ratchet-capped at the same 4000-char budget as `lessonsMaxChars`; routes to the freepeak `leankg` server per `skill://leankg-routing`, never `be-knowledge-graph` from a freepeak path, with `rtk` (Grep/Glob/Read) fallback when the server is down. See `docs/research/2026-08-30-devagent-leankg-value-in-harness-era.md` and FR-CTX-01..04.
 
 > **Completed post-v0.3 (2026-08-25 → 2026-08-28):** Lessons feedback
 > loop read by workers — 40-line cap + 4000-char `lessonsMaxChars`
@@ -684,16 +696,43 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 > and fails fast with an exact error instead of the loops 52/53/54
 > dirty-merge failures; 6 temp-repo tests cover the clean/dirty/
 > detached/wrong-branch matrix.
+>
+> **Completed post-v0.3 (2026-08-30, curation run 16):** Release workflow
+> hard-gated on CI — `release.yml` declares `needs: [test]` so a red main can
+> no longer ship a semver tag (PR #86); the needs-chain is asserted by
+> `test/release-workflow.test.ts` as a unit-test invariant, per the loop 57/58
+> lesson that a bare workflow edit alone fails to stick. Closes Q21 as
+> hard-gate. Scout replay in CI — the golden fixture suite
+> (`test/scout-golden.test.ts`) runs inside `npx vitest run` in `ci.yml`, so a
+> Claude/OpenCode output-shape change is caught by CI without manual replay.
+> Publish-after-cleanup defect — when `cleanup=auto` snapshots worker output
+> onto the run branch and removes the worktree, `publishTaskPr` now commits
+> from the run branch instead of the deleted cwd (PR #88; regression test at
+> `test/task-publish.test.ts:116`; loops 57/58 tripped the breaker 3x on this
+> before any retry landed). New worker adapter: omp (PR #87, hardened same-day
+> in PR #89) — NDJSON stream parser with a live-smoke fixture, registry entry,
+> and a 10-min per-adapter no-progress watchdog after `omp -p` silent hangs;
+> the follow-up disabled prewalk, parses stream errors, and caps infinite
+> retry.
 
-#### Phase 4 — current backlog (2026-08-30, curation run 15)
+#### Phase 4 — current backlog (2026-08-30, curation run 16)
 
 - **Reconcile merge-back with per-task PRs** — PR #71 opens per-task PRs while `src/cli.ts:791` still runs `mergeProjectBranches` on `allDone`; retire or gate the legacy path so a fully-done board does not double-merge.
 - **Post-PR lifecycle automation (CI-Fixer + zombie-PR hygiene)** — re-dispatch the worker between `publishStage` and `autoMerge` on failing `evaluateChecks` (G-gates cover pre-push only; loops 49/50 failed at this), and auto-close or skip PRs whose CI has been red across a grace window or whose base is superseded (PR #68's reviewer parked the factory on unresolved #1/#49).
 - **Executor failure surface (`taskInterrupt` + failure evidence)** — kill a worker after 3+ identical `trail.jsonl` failures and write a compact post-mortem (goal, failure class, last gate excerpt) to the ledger on board archive; loops 57/58 both died on the same release-gating goal with only `attempts: 3`-style evidence, and PR #83 still had to mine ledger rows by hand to see why.
 - **Gate the Release workflow on CI** — `release.yml` still tags on every push to main with no `test` job dependency (re-verified 2026-08-30, no `needs:` anywhere in the file); a red main can ship a broken semver point (Q21), and two consecutive factory runs (57/58) have now failed to fix it.
+  > **Completed post-v0.3 (2026-08-30, PR #86):** `release.yml` now declares
+  > `needs: [test]`, and the needs-chain is pinned by a unit test
+  > (`test/release-workflow.test.ts`) per the loop 57/58 lesson that a bare
+  > workflow edit does not stick. Q21 resolved below.
 - **Consolidate the loop scripts** — the tracked `orchestrate-loop.sh` carries PR #68/#77 recovery while untracked `scripts/orchestrator-loop.sh` runs divergent logic (the guard half moved into `src/` via PR #84, but recovery stays shell-level); fold recovery into `src/orchestrator/` and reduce the shell to a thin caller (Q19).
 - **Scout replay in CI** — the `--replay` golden suite (PR #82) only runs when invoked by hand; wire it into the `ci.yml` test job so a Claude/OpenCode output-shape change is caught by CI, not by the next stuck loop.
+  > **Completed post-v0.3 (2026-08-30, PR #86):** `test/scout-golden.test.ts`
+  > runs under `npx vitest run` in `ci.yml`, so fixture drift fails CI.
 - **Operator observability surface (provider health + per-loop view)** — `devagent status --providers` reporting probe result, last transient-error class and circuit state (PRs #60/#61 logic is log-only), measured per-worker RSS medians to replace PR #64's `p75 1 GB` placeholder, and one read-only per-loop dashboard row (goal + worklog + trail digest + gate status + spend) so a stalled factory is noticed in minutes, not 6h.
+- **Per-adapter watchdog tuning in config** — PR #89 hardcoded omp's 10-min no-progress timeout as a module constant (`src/workers/omp.ts`); hoist no-progress/wall-clock per adapter into `devagent.config` so adapter tuning stops requiring code edits.
+- **omp adapter soak before factory default** — omp shipped and was patched the same day (PRs #87/#89: prewalk disabled, stream-error parsing, retry cap); run it as the factory worker for a bounded number of loops behind a flag before making it a default selection, so a fourth silent-hang class cannot burn a full board.
+- **Failure-cluster reporting on ledger analytics** — recurring gap categories in the ledger should surface as actionable periodic reports, not just queryable rows (carried: PR #83 and PR #88 both required mining raw ledger rows by hand to explain a board failure).
 
 ## 18. Open Questions
 
@@ -709,13 +748,16 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 | Q18 | The 08-29 stuck board burned 3 salvage-instructed attempts on STRIDE wiring — should the executor refuse prompts above a size/complexity threshold (the salvage prompt was ~5 KB of step-by-step edits) and force a plan-split instead, or is dense prescriptive prompting the right shape and only the fail-signal capture (backlog item above) needs fixing? | eng | Phase 4 |
 | Q19 | `scripts/orchestrate-loop.sh` still carries PR #68's recovery logic only as an untracked-path script risk — PRs #67/#69 shipped within minutes of each other while the recovery fix lives in a tracked-but-shell-level layer; should stuck-board recovery move into `src/orchestrator/` (typed, tested) with the shell reduced to a thin caller, or stay in the script where iteration is cheaper? | eng | Phase 4 |
 | Q20 | With PR #71, per-task PRs open as soon as a task hits `done` while `mergeProjectBranches` still fires on `allDone` — should per-task PRs feed the reviewer/`autoMerge` flow directly (making merge-back a no-op), or stay review-only artifacts until a human decides? (Related: does a per-task PR count as "published" evidence for the task record?) | product | Phase 4 |
-| Q21 | The Release workflow publishes on every push to `main` regardless of the `test` job's result — should releases hard-gate on CI green (`needs: test`), or tag first and yank on red? Hard-gate delays tags by one CI run; tag-first risks shipping a broken semver point. | eng | Phase 4 |
+| Q21 | ~~The Release workflow publishes on every push to `main` regardless of the `test` job's result — should releases hard-gate on CI green (`needs: test`), or tag first and yank on red? Hard-gate delays tags by one CI run; tag-first risks shipping a broken semver point.~~ | eng | Phase 4 |
 | Q22 | ~~PR #73 re-bridges a queued goal in the same cycle as board archive, but the archive itself burns the board's salvage history — should archived boards write a compact post-mortem (goal, failure class, gate excerpts) to the ledger so the next bridge can plan around the same failure mode, or is the existing ledger analytics query surface enough?~~ | eng | Phase 4 |
 | Q23 | PR #77's herdr-sweep trusts the session name alone; if the sweep ever gains an `--all` mode, what stops it from killing a user-attached interactive claude pane that happens to sit in an automation-spawned session (2026-08-26 mass-kill class)? Require per-pane agent-state verification plus a managed-settings-style deny toggle, or keep `--all` out of scope permanently? | product | Phase 4 |
 | Q24 | Per-task PRs (PR #71) plus the auto-tag release workflow (PR #75) mean a fully-merged board can produce several PRs and a release in one cycle — should the ledger record release/tag events as first-class outcomes (so per-loop spend-to-shipped-artifact math counts a release), or stay PR-URL-only? | eng | Phase 4 |
 | Q25 | G5:STRIDE blocks on HIGH/CRITICAL with no suppression path; fixture credentials in test files (the exact pattern the golden suites ship) will trip it and stall autoMerge — add a per-path/per-finding allowlist committed with the PR, or keep it hard and force workers to rename literals? | eng | Phase 4 |
 | Q26 | PR #84 auto-stashes a dirty main before merge-back, but the stash is keyed by SHA and never re-offered — if a curation PR (like #83) is open in the same worktree when the factory merges back, should the popped stash be surfaced as a ledger warning (operator reapplies by hand) or re-applied automatically on the next dispatch? | eng | Phase 4 |
 | Q27 | Loops 53-55 and 57/58 each re-burned multiple attempts on the same already-planned goal after a requeue with a fresh attempt budget — should the bridge attach the prior board's failure class to the re-bridged goal so the scout skips it until the root cause ships, or is cross-board retry memory out of scope for the single-tenant model? | product | Phase 4 |
+| Q28 | With FR-CTX-01 injecting a KG-derived digest at `COMPACT_CONTEXT_MARKER`, should that digest also be appended to `lessons.md` on a successful merge (so future runs learn from the same structural evidence the planner used), or stay scoped to the single run and rebuild fresh each time? Persisting makes the digest cross-run durable; scoping avoids stale evidence bleeding in. | eng | Phase 4 |
+| Q29 | PR #88 makes the run branch the source of truth after `cleanup=auto` (snapshot onto `devagent/<taskId>`, then publish from that branch), but snapshot and publish remain two stages with the deleted-cwd failure class between them — should auto-cleanup snapshot and per-task publish collapse into one commit path so the worktree's death cannot strand a green task, or is the regression-test guard enough? | eng | Phase 4 |
+| Q30 | omp (PRs #87/#89) needed adapter-specific hardening — prewalk off, stream-error parsing, capped retries, a bespoke no-progress timeout — none of which the registry declares. Should `WorkerAdapter` expose a capability/limit block (supported flags, stream quirks, watchdog defaults) the scheduler can honor, or stay as per-adapter internals patched case by case? | eng | Phase 4 |
 
 > Resolved 2026-08-24: Q1 (ecosystem conventions + `testCommand` override now
 > cover npm/Go/Python), Q2 (plain webhooks shipped in Phase 3), Q3 (policy is
@@ -740,6 +782,11 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 > Resolved 2026-08-30 (curation run 12): Q22 — yes; archive-and-rebridge
 > post-mortems (goal, failure class, last gate excerpt) are now a named
 > Phase 4 backlog item, so the ledger-analytics-only status quo is rejected.
+>
+> Resolved 2026-08-30 (curation run 16): Q21 — hard-gate; `release.yml`
+> declares `needs: [test]` (PR #86), with the needs-chain pinned by
+> `test/release-workflow.test.ts` as a test-enforced invariant rather than a
+> bare workflow edit (loops 57/58 lesson).
 
 ---
 
@@ -827,3 +874,7 @@ Sources: [Squawk rules](https://squawkhq.com/docs/rules) · [Atlas analyzers](ht
 Sources: [Claude Code headless](https://code.claude.com/docs/en/headless) · [CLI reference](https://code.claude.com/docs/en/cli-reference) · [Hooks](https://code.claude.com/docs/en/hooks) · [Settings](https://code.claude.com/docs/en/settings) · [GitHub Actions](https://code.claude.com/docs/en/github-actions) · [OpenCode CLI](https://opencode.ai/docs/cli) · [OpenCode server](https://opencode.ai/docs/server) · [OpenCode config](https://opencode.ai/docs/config) · [OpenCode permissions](https://opencode.ai/docs/permissions) · [Parallel agents in isolated worktrees (amux)](https://amux.io/blog/parallel-agents-isolated-worktrees/) · [claude-code-action](https://github.com/anthropics/claude-code-action)
 
 These findings refine section 9's adapter table: Claude Code budget control = `--max-turns` + wall clock; OpenCode permission bypass = `--auto`; both emit parseable JSON event streams; OpenCode additionally offers the serve-based REST surface as a future alternative transport.
+
+### 19.5 Knowledge-graph-grounded context
+
+A research note (`docs/research/2026-08-30-devagent-leankg-value-in-harness-era.md`) evaluated whether the local `leankg` MCP (FreePeak build, Postgres-backed) adds value to DevAgent's harness. Verdict: yes, as the structural complement to the harness's durable state (lessons digest, childTrails digest, worklog, ledger). Live inventory at 2026-08-30 is 358,359 elements and 1,867,483 relationships across 38,597 files; live `mcp_status` ok, but `kg_semantic_context` timed out at 30s, so v1 must use non-semantic graph queries (`search_code`, `find_function`, `get_call_graph`, `get_tested_by`, `get_dependents`). Integration seam is the existing `COMPACT_CONTEXT_MARKER` ratchet (`src/prompt.ts:303-317`); the KG digest joins `lessons` and `childTrails` as a fourth source under the same 4,000-char cap. Scope: orchestrator-side only, opt-in (`devagent.context.kg: "leankg" \| "off"`, default `off`), never reaches a worker adapter. Cross-workspace routing rule (freepeak → `leankg`; BE → `be-knowledge-graph`; never both) is enforced by `skill://leankg-routing`. See FR-CTX-01..04, Phase 4 sub-bullet "Knowledge-grounded context", and Q28.
