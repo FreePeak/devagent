@@ -230,17 +230,32 @@ export async function runCommandInHerdrPane(
     let lastProgressAt = Date.now();
     let timedOut = false;
 
-    // Buffered JSON output stays at 0 bytes until completion — fileSize alone
-    // would kill healthy long workers. Seed lastBytes at current size and
-    // extend grace: first 60s never times out on fileSize, wall timeout still applies.
-    const seededBytes = fileSize(outFile) + fileSize(errFile);
+    // Progress = NEW TOOLCALL OR TEXT output, not raw byte growth. glm-style
+    // models stream thinking_delta continuously (2026-08-31 live evidence:
+    // 60k+ thinking deltas, 8-11 MB, while making zero tool calls for the
+    // full hour), so byte-counting treats deliberation as progress and the
+    // no-progress watchdog never fires. Strip thinking_delta lines before
+    // counting: a run that only thinks is a hang in headless mode.
+    const meaningfulBytes = (p: string): number => {
+      let n = 0;
+      try {
+        for (const line of readFileSync(p, 'utf8').split('\n')) {
+          if (line.includes('"thinking_delta"')) continue;
+          n += line.length + 1;
+        }
+      } catch {
+        // File not there yet / mid-rename: zero meaningful bytes.
+      }
+      return n;
+    };
+    const seededBytes = meaningfulBytes(outFile) + meaningfulBytes(errFile);
     lastBytes = seededBytes;
     const graceMs = Math.min(noProgressMs, 60_000);
 
     while (true) {
       if (existsSync(doneFile)) break;
       const now = Date.now();
-      const bytes = fileSize(outFile) + fileSize(errFile);
+      const bytes = meaningfulBytes(outFile) + meaningfulBytes(errFile);
       if (bytes !== lastBytes) {
         lastBytes = bytes;
         lastProgressAt = now;
