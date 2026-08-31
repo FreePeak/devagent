@@ -34,7 +34,11 @@ export function buildOmpArgs(opts: WorkerSpawnOptions, o: OmpArgsOptions = {}): 
   // streamed 986+ thinking events and never terminated; with --no-prewalk the
   // same prompt completed in 12 events / 20s). Headless runs must not
   // inherit prewalk.enabled from ~/.omp/agent/config.yml.
-  const base: string[] = ['--mode', 'json', '--no-prewalk'];
+  // --no-lsp --no-extensions: LSP/MCP discovery in devagent worktrees stalls
+  // omp startup for 60-487s (observed: "Still starting after 487s — phase:
+  // discoverAndLoadMCPTools"); with them stripped, identical runs complete
+  // in ~17-21s. Coding workers exercise tools via the provider, not LSP.
+  const base: string[] = ['--mode', 'json', '--no-prewalk', '--no-lsp', '--no-extensions'];
   if (o.resume) {
     return [
       ...base,
