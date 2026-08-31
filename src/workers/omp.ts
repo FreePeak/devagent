@@ -27,8 +27,17 @@ export interface OmpArgsOptions {
  *   omp --mode json -c <resumePrompt>   (resume)
  */
 export function buildOmpArgs(opts: WorkerSpawnOptions, o: OmpArgsOptions = {}): string[] {
-  const rawModel = opts.model?.trim();
   const rawThinking = opts.variant?.trim();
+  // omp requires provider-qualified model ids (`provider/model`, fuzzy
+  // matched). Driver tier aliases like "coding" (devagent.json model) are
+  // claude-code proxy selectors, not omp ids: `--model coding` exits 1 in
+  // ~12s with no output (2026-08-31 live loop 58 attempts 1-3). Drop any
+  // value without a `/` so omp falls back to its configured
+  // modelRoles.default (~/.omp/agent/config.yml), which is the intended
+  // worker model anyway. Pass provider/model values through untouched.
+  const rawModel = opts.model?.trim();
+  const ompModel =
+    rawModel !== undefined && rawModel !== '' && rawModel.includes('/') ? rawModel : undefined;
   // --no-prewalk: the interactive config's prewalk (second planning turn)
   // loops forever on some models (2026-08-30 A/B: glm-5.3-flash prewalk turn
   // streamed 986+ thinking events and never terminated; with --no-prewalk the
@@ -42,7 +51,7 @@ export function buildOmpArgs(opts: WorkerSpawnOptions, o: OmpArgsOptions = {}): 
   if (o.resume) {
     return [
       ...base,
-      ...(rawModel ? ['--model', rawModel] : []),
+      ...(ompModel ? ['--model', ompModel] : []),
       ...(rawThinking ? ['--thinking', rawThinking] : []),
       '-c',
       RESUME_PROMPT,
@@ -52,7 +61,7 @@ export function buildOmpArgs(opts: WorkerSpawnOptions, o: OmpArgsOptions = {}): 
     '-p',
     opts.prompt,
     ...base,
-    ...(rawModel ? ['--model', rawModel] : []),
+    ...(ompModel ? ['--model', ompModel] : []),
     ...(rawThinking ? ['--thinking', rawThinking] : []),
   ];
 }
