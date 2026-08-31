@@ -42,6 +42,19 @@ describe('omp adapter - Seam A: argument building', () => {
     expect(args).toEqual(['--mode', 'json', '--no-prewalk', '--no-lsp', '--no-extensions', '-c', 'Continue']);
   });
 
+  it('drops provider-unqualified model aliases (driver tiers like "coding") and passes provider/model through', () => {
+    expect(buildOmpArgs(baseOpts({ model: 'coding' }))).toEqual([
+      '-p',
+      'do the thing',
+      '--mode',
+      'json',
+      '--no-prewalk',
+      '--no-lsp',
+      '--no-extensions',
+    ]);
+    expect(buildOmpArgs(baseOpts({ model: 'omniroute/bai/glm-5.3-flash' }))).toContain('--model');
+  });
+
   it('omits the --api-key flag from CLI args (env is the supported channel)', () => {
     const args = buildOmpArgs(baseOpts());
     expect(args.some((a) => a.startsWith('--api-key'))).toBe(false);
