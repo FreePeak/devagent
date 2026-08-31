@@ -5,6 +5,7 @@ import {
   evaluateAutoReview,
   evaluateChecks,
   scanAddedLinesForHazards,
+  sweepStalePrs,
   type CiFixRequest,
   type PrStatus,
   type RunGh,
@@ -19,6 +20,8 @@ function prStatus(overrides: Partial<PrStatus> = {}): PrStatus {
     state: 'OPEN',
     mergeable: 'MERGEABLE',
     reviewDecision: '',
+    headRefOid: 'abc123',
+    updatedAt: new Date().toISOString(),
     checks: [{ name: 'test', status: 'COMPLETED', conclusion: 'SUCCESS' }],
     ...overrides,
   };
@@ -377,5 +380,193 @@ describe('defaultCiFixer', () => {
     } finally {
       vi.doUnmock('../src/remote.js');
     }
+  });
+});
+
+describe('sweepStalePrs', () => {
+  /** Raw gh JSON for a listOpenPrs response. */
+  function prJson(overrides: Record<string, unknown>): string {
+    return JSON.stringify({
+      number: 9,
+      title: 'T',
+      headRefName: 'devagent/x',
+      baseRefName: 'main',
+      state: 'OPEN',
+      mergeable: 'MERGEABLE',
+      reviewDecision: '',
+      headRefOid: 'abc123',
+      updatedAt: new Date().toISOString(),
+      author: { login: 'devagent[bot]' },
+      statusCheckRollup: [{ name: 'test', status: 'COMPLETED', conclusion: 'SUCCESS' }],
+      ...overrides,
+    });
+  }
+
+  const GREEN = [{ name: 'test', status: 'COMPLETED', conclusion: 'SUCCESS' }];
+  const RED = [{ name: 'test', status: 'COMPLETED', conclusion: 'FAILURE' }];
+
+  it('comments the superseded PR and leaves the green candidate untouched', async () => {
+    // #9 is green and mergeable (candidate); #7 shares the base, is green but
+    // conflicting — so its head is not a mergeable candidate.
+    const { run, calls } = scriptedGh({
+      list: JSON.stringify([
+        {
+          number: 7, title: 'old', headRefName: 'devagent/old', baseRefName: 'main',
+          state: 'OPEN', mergeable: 'CONFLICTING', reviewDecision: '', headRefOid: 'old111',
+          updatedAt: new Date().toISOString(), author: { login: 'devagent[bot]' },
+          statusCheckRollup: GREEN,
+        },
+        {
+          number: 9, title: 'new', headRefName: 'devagent/new', baseRefName: 'main',
+          state: 'OPEN', mergeable: 'MERGEABLE', reviewDecision: '', headRefOid: 'new222',
+          updatedAt: new Date().toISOString(), author: { login: 'devagent[bot]' },
+          statusCheckRollup: GREEN,
+        },
+      ]),
+      comment: '',
+    });
+    const outcomes = await sweepStalePrs('/repo', { dryRun: false, graceDays: 7 }, run);
+    expect(outcomes).toHaveLength(2);
+    const o7 = outcomes.find((o) => o.pr === 7)!;
+    expect(o7.action).toBe('superseded');
+    expect(o7.detail).toContain('#9');
+    expect(o7.detail).toContain('old111');
+    const comment = calls.find((c) => c[1] === 'comment')!;
+    expect(comment).toEqual(['pr', 'comment', '7', '--body', expect.stringContaining('#9')]);
+    // The green candidate is untouched: no close, no second comment
+    expect(calls.filter((c) => c[1] === 'close')).toHaveLength(0);
+    expect(calls.filter((c) => c[1] === 'comment')).toHaveLength(1);
+  });
+
+  it('auto-closes a PR red across the grace window', async () => {
+    const stale = new Date(Date.now() - 10 * 86_400_000).toISOString();
+    const { run, calls } = scriptedGh({
+      list: JSON.stringify([
+        {
+          number: 5, title: 'stale red', headRefName: 'devagent/stale', baseRefName: 'main',
+          state: 'OPEN', mergeable: 'MERGEABLE', reviewDecision: '', headRefOid: 'f00d',
+          updatedAt: stale, author: { login: 'devagent[bot]' },
+          statusCheckRollup: RED,
+        },
+      ]),
+      comment: '',
+      close: '',
+    });
+    const outcomes = await sweepStalePrs('/repo', { dryRun: false, graceDays: 7 }, run);
+    expect(outcomes[0]!.action).toBe('closed');
+    expect(outcomes[0]!.detail).toContain('grace');
+    const comment = calls.find((c) => c[1] === 'comment')!;
+    expect(comment.join(' ')).toContain('grace');
+    expect(calls.find((c) => c[1] === 'close')).toEqual(['pr', 'close', '5']);
+  });
+
+  it('auto-closes a red PR whose updatedAt is unparseable (unknown age counts as stale)', async () => {
+    const { run, calls } = scriptedGh({
+      list: JSON.stringify([
+        {
+          number: 6, title: 'red no timestamp', headRefName: 'devagent/nots', baseRefName: 'main',
+          state: 'OPEN', mergeable: 'MERGEABLE', reviewDecision: '', headRefOid: 'bad1',
+          updatedAt: 'not-a-date', author: { login: 'devagent[bot]' },
+          statusCheckRollup: RED,
+        },
+      ]),
+    });
+    const outcomes = await sweepStalePrs('/repo', { dryRun: false, graceDays: 7 }, run);
+    expect(outcomes[0]!.action).toBe('closed');
+    expect(calls.find((c) => c[1] === 'close')).toEqual(['pr', 'close', '6']);
+  });
+
+  it('leaves a PR red within the grace window untouched', async () => {
+    const fresh = new Date(Date.now() - 1 * 86_400_000).toISOString();
+    const { run, calls } = scriptedGh({
+      list: JSON.stringify([
+        {
+          number: 5, title: 'fresh red', headRefName: 'devagent/fresh', baseRefName: 'main',
+          state: 'OPEN', mergeable: 'MERGEABLE', reviewDecision: '', headRefOid: 'beef',
+          updatedAt: fresh, author: { login: 'devagent[bot]' },
+          statusCheckRollup: RED,
+        },
+      ]),
+    });
+    const outcomes = await sweepStalePrs('/repo', { dryRun: false, graceDays: 7 }, run);
+    expect(outcomes[0]!.action).toBe('untouched');
+    expect(outcomes[0]!.detail).toContain('within grace');
+    expect(calls.filter((c) => c[1] === 'close')).toHaveLength(0);
+  });
+
+  it('dry-run reports verdicts without commenting or closing anything', async () => {
+    const stale = new Date(Date.now() - 10 * 86_400_000).toISOString();
+    const { run, calls } = scriptedGh({
+      list: JSON.stringify([
+        {
+          number: 5, title: 'stale red', headRefName: 'devagent/stale', baseRefName: 'main',
+          state: 'OPEN', mergeable: 'MERGEABLE', reviewDecision: '', headRefOid: 'f00d',
+          updatedAt: stale, author: { login: 'devagent[bot]' },
+          statusCheckRollup: RED,
+        },
+        {
+          number: 7, title: 'superseded', headRefName: 'devagent/sup', baseRefName: 'main',
+          state: 'OPEN', mergeable: 'CONFLICTING', reviewDecision: '', headRefOid: 'dead',
+          updatedAt: new Date().toISOString(), author: { login: 'devagent[bot]' },
+          statusCheckRollup: GREEN,
+        },
+        {
+          number: 9, title: 'candidate', headRefName: 'devagent/new', baseRefName: 'main',
+          state: 'OPEN', mergeable: 'MERGEABLE', reviewDecision: '', headRefOid: 'new222',
+          updatedAt: new Date().toISOString(), author: { login: 'devagent[bot]' },
+          statusCheckRollup: GREEN,
+        },
+      ]),
+    });
+    const outcomes = await sweepStalePrs('/repo', {}, run);
+    expect(outcomes.map((o) => [o.pr, o.action])).toEqual([
+      [5, 'closed'], [7, 'superseded'], [9, 'untouched'],
+    ]);
+    expect(outcomes[0]!.detail).toContain('[dry-run]');
+    expect(outcomes[1]!.detail).toContain('[dry-run]');
+    // nothing was written to GitHub
+    expect(calls.filter((c) => c[1] === 'close' || c[1] === 'comment')).toHaveLength(0);
+  });
+
+  it('leaves PRs with pending or no checks untouched (no evidence either way)', async () => {
+    const { run, calls } = scriptedGh({
+      list: JSON.stringify([
+        {
+          number: 3, title: 'pending', headRefName: 'devagent/p', baseRefName: 'main',
+          state: 'OPEN', mergeable: 'MERGEABLE', reviewDecision: '', headRefOid: 'p3',
+          updatedAt: new Date(Date.now() - 30 * 86_400_000).toISOString(),
+          author: { login: 'devagent[bot]' },
+          statusCheckRollup: [{ name: 'test', status: 'IN_PROGRESS', conclusion: null }],
+        },
+        {
+          number: 4, title: 'no checks', headRefName: 'devagent/n', baseRefName: 'main',
+          state: 'OPEN', mergeable: 'MERGEABLE', reviewDecision: '', headRefOid: 'n4',
+          updatedAt: new Date(Date.now() - 30 * 86_400_000).toISOString(),
+          author: { login: 'devagent[bot]' },
+          statusCheckRollup: [],
+        },
+      ]),
+    });
+    const outcomes = await sweepStalePrs('/repo', { dryRun: false, graceDays: 0 }, run);
+    expect(outcomes.map((o) => o.action)).toEqual(['untouched', 'untouched']);
+    expect(calls.filter((c) => c[1] === 'close' || c[1] === 'comment')).toHaveLength(0);
+  });
+
+  it('skips PRs that are not open (state snapshot raced a close)', async () => {
+    const { run, calls } = scriptedGh({
+      list: JSON.stringify([
+        {
+          number: 2, title: 'closed mid-sweep', headRefName: 'devagent/x', baseRefName: 'main',
+          state: 'CLOSED', mergeable: 'MERGEABLE', reviewDecision: '', headRefOid: 'c2',
+          updatedAt: new Date(Date.now() - 30 * 86_400_000).toISOString(),
+          author: { login: 'devagent[bot]' },
+          statusCheckRollup: RED,
+        },
+      ]),
+    });
+    const outcomes = await sweepStalePrs('/repo', { dryRun: false, graceDays: 0 }, run);
+    expect(outcomes[0]!.action).toBe('skipped');
+    expect(outcomes[0]!.detail).toContain('CLOSED');
+    expect(calls.filter((c) => c[1] === 'close' || c[1] === 'comment')).toHaveLength(0);
   });
 });
