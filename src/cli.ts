@@ -4,6 +4,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { loadConfig, loadCredentials, credentialStatus, type CleanupMode } from './config.js';
 import { RunLogger } from './logger.js';
+import { ensureStateBranch } from './git/state-branch.js';
 import { runPipeline } from './pipeline.js';
 import { buildDeps, buildDryRunDeps } from './deps.js';
 import type { WorkerName } from './types.js';
@@ -518,6 +519,17 @@ program
     logger.info('task', `Task run ${logger.runId} starting`, { repo: cfg.repoPath, autoPr: cfg.autoPr });
 
     try {
+      // Durable-state bootstrap: make sure selfbuild/state exists upstream so
+      // the lessons feedback loop has a real branch to read. Best-effort — a
+      // missing state branch must not kill the run (the lessons read path
+      // already tolerates absence).
+      try {
+        const state = await ensureStateBranch(opts.repo);
+        if (state.action === 'created') logger.info('task', 'created selfbuild/state branch on origin');
+      } catch (err) {
+        logger.info('task', `ensureStateBranch failed (continuing): ${(err as Error).message}`);
+      }
+
       const taskMod = await import('./task.js');
       const { runTask, publishTaskBranch } = taskMod;
       type TaskDeps = import('./task.js').TaskDeps;
@@ -639,6 +651,16 @@ program
       const { runScheduler } = await import('./orchestrator/scheduler.js');
       const { executeTask } = await import('./orchestrator/executor.js');
       const { runAudit } = await import('./orchestrator/auditor.js');
+
+      // Durable-state bootstrap: ensure selfbuild/state exists on origin
+      // before the scheduler runs so the lessons feedback loop has a real
+      // upstream branch. Best-effort: log-and-continue, never fatal.
+      try {
+        const state = await ensureStateBranch(opts.repo);
+        if (state.action === 'created') logger.info('task', 'created selfbuild/state branch on origin');
+      } catch (err) {
+        logger.info('task', `ensureStateBranch failed (continuing): ${(err as Error).message}`);
+      }
 
       const plannerName = (opts.planner ?? config.worker) as WorkerName;
       const executorName = (opts.executor ?? config.worker) as WorkerName;
