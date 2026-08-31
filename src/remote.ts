@@ -92,7 +92,8 @@ export interface RunRemoteTaskOptions {
   taskId?: string;
   worker?: string;
   timeoutMs: number;
-  log: RunLogger;
+  /** Only warn is consumed; injectable so internal callers need no full RunLogger. */
+  log: Pick<RunLogger, 'warn'>;
 }
 
 export interface RemoteRunResult {

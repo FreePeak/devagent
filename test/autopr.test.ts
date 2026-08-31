@@ -1,9 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   autoReviewAndMergeOne,
+  defaultCiFixer,
   evaluateAutoReview,
   evaluateChecks,
   scanAddedLinesForHazards,
+  type CiFixRequest,
   type PrStatus,
   type RunGh,
 } from '../src/integrations/autopr.js';
@@ -30,6 +32,25 @@ function scriptedGh(responses: Record<string, string | Error>): { run: RunGh; ca
     const key = args[0] === 'pr' ? args[1] : args[0];
     calls.push(args);
     const r = responses[key];
+    if (r instanceof Error) throw r;
+    return { stdout: r ?? '', stderr: '' };
+  };
+  return { run, calls };
+}
+
+/** Like scriptedGh, but each "pr view" consumes the next queued JSON payload (re-poll sequences). */
+function sequencedGh(views: string[], rest: Record<string, string | Error> = {}): { run: RunGh; calls: string[][] } {
+  const calls: string[][] = [];
+  const queue = [...views];
+  const run: RunGh = async (args) => {
+    calls.push(args);
+    const key = args[0] === 'pr' ? args[1] : args[0];
+    if (key === 'view') {
+      const payload = queue.shift();
+      if (payload === undefined) throw new Error(`unexpected extra pr view (queue exhausted)`);
+      return { stdout: payload, stderr: '' };
+    }
+    const r = rest[key];
     if (r instanceof Error) throw r;
     return { stdout: r ?? '', stderr: '' };
   };
@@ -183,7 +204,7 @@ describe('autoReviewAndMergeOne', () => {
     expect(calls.some((c) => c[1] === 'review')).toBe(false);
   });
 
-  it('posts request-changes and never merges when CI is red', async () => {
+  it('posts request-changes and never merges when CI is red and no fixer dispatch is possible', async () => {
     const red = JSON.parse(viewJson) as Record<string, unknown>;
     red.statusCheckRollup = [{ name: 'test', status: 'COMPLETED', conclusion: 'FAILURE' }];
     const { run, calls } = scriptedGh({
@@ -193,9 +214,12 @@ describe('autoReviewAndMergeOne', () => {
       merge: new Error('should not be called'),
     });
     const o = await autoReviewAndMergeOne('/repo', 9, {}, run);
-    expect(o.action).toBe('review-requested');
-    expect(o.detail).toContain('CI failed');
+    // default fixer is unconfigured (no DEVAGENT_REMOTE_TARGET): structured
+    // ci-fix-failed outcome instead of a bare request-changes dead end
+    expect(o.action).toBe('ci-fix-failed');
+    expect(o.detail).toContain('DEVAGENT_REMOTE_TARGET');
     expect(calls.some((c) => c[1] === 'merge')).toBe(false);
+    expect(calls.some((c) => c[1] === 'review')).toBe(false);
   });
 
   it('skips PRs whose base does not match the filter', async () => {
@@ -229,5 +253,129 @@ describe('autoReviewAndMergeOne', () => {
     const o = await autoReviewAndMergeOne('/repo', 9, {}, wrapped);
     expect(o.action).toBe('merged');
     expect(merges).toBe(2);
+  });
+
+  describe('ci-fix', () => {
+    const redView = JSON.stringify({
+      ...basePr,
+      statusCheckRollup: [{ name: 'test', status: 'COMPLETED', conclusion: 'FAILURE' }],
+    });
+
+    it('failed-then-green: dispatches the fixer once, re-polls, and merges', async () => {
+      const { run, calls } = sequencedGh([redView, JSON.stringify(basePr)], { diff: '', review: '', merge: '' });
+      const fixCalls: CiFixRequest[] = [];
+      const o = await autoReviewAndMergeOne(
+        '/repo',
+        9,
+        {
+          fixer: async (req) => {
+            fixCalls.push(req);
+            return { ok: true, note: 'fix pushed' };
+          },
+        },
+        run,
+      );
+      expect(fixCalls).toHaveLength(1);
+      expect(fixCalls[0]!.taskId).toBe('TASK-fix-9');
+      expect(fixCalls[0]!.failedChecks).toEqual(['test=FAILURE']);
+      expect(fixCalls[0]!.prompt).toContain('PR #9');
+      expect(fixCalls[0]!.prompt).toContain('test=FAILURE');
+      expect(o.action).toBe('merged');
+      expect(calls.filter((c) => c[1] === 'view')).toHaveLength(2); // initial + re-poll after fix
+    });
+
+    it('still-red: records a structured ci-fix-failed outcome and never merges', async () => {
+      const { run, calls } = sequencedGh([redView, redView], { diff: '', merge: '' });
+      const o = await autoReviewAndMergeOne('/repo', 9, { fixer: async () => ({ ok: true, note: 'fix pushed' }) }, run);
+      expect(o.action).toBe('ci-fix-failed');
+      expect(o.failedChecks).toEqual(['test=FAILURE']);
+      expect(o.attempts).toBe(1);
+      expect(o.summary).toContain('failed: test');
+      expect(calls.some((c) => c[1] === 'merge')).toBe(false);
+      // no request-changes review was posted before the fix attempt either
+      expect(calls.some((c) => c[1] === 'review')).toBe(false);
+    });
+
+    it('no-fixer outcome propagates as ci-fix-failed without re-polling', async () => {
+      const { run, calls } = sequencedGh([redView], { diff: '', merge: '' });
+      const o = await autoReviewAndMergeOne(
+        '/repo',
+        9,
+        { fixer: async () => ({ ok: false, note: 'remote preflight failed' }) },
+        run,
+      );
+      expect(o.action).toBe('ci-fix-failed');
+      expect(o.failedChecks).toEqual(['test=FAILURE']);
+      expect(o.attempts).toBe(1);
+      expect(o.summary).toContain('failed: test');
+      expect(o.detail).toContain('remote preflight failed');
+      // only the initial status read; the PR was never re-polled for a fix
+      expect(calls.filter((c) => c[1] === 'view')).toHaveLength(1);
+    });
+
+    it('dispatch throw is caught and reported as ci-fix-failed', async () => {
+      const { run } = sequencedGh([redView], { diff: '', merge: '' });
+      const o = await autoReviewAndMergeOne(
+        '/repo',
+        9,
+        { fixer: async () => { throw new Error('ssh exploded'); } },
+        run,
+      );
+      expect(o.action).toBe('ci-fix-failed');
+      expect(o.detail).toContain('ssh exploded');
+    });
+
+    it('defaults to the built-in dispatcher, which reports not-ok without DEVAGENT_REMOTE_TARGET', async () => {
+      delete process.env.DEVAGENT_REMOTE_TARGET;
+      const { run } = sequencedGh([redView], { diff: '', merge: '' });
+      const o = await autoReviewAndMergeOne('/repo', 9, {}, run);
+      expect(o.action).toBe('ci-fix-failed');
+      expect(o.detail).toContain('DEVAGENT_REMOTE_TARGET');
+    });
+  });
+});
+
+describe('defaultCiFixer', () => {
+  const req: CiFixRequest = {
+    repoPath: '/repo',
+    pr: 42,
+    taskId: 'TASK-fix-42',
+    failedChecks: ['test=FAILURE'],
+    prompt: 'Fix the failing CI checks on PR #42.',
+  };
+
+  afterEach(() => {
+    delete process.env.DEVAGENT_REMOTE_TARGET;
+    vi.restoreAllMocks();
+  });
+
+  it('short-circuits without DEVAGENT_REMOTE_TARGET and never imports remote transport', async () => {
+    delete process.env.DEVAGENT_REMOTE_TARGET;
+    const spy = vi.spyOn(await import('../src/remote.js'), 'runRemoteTask');
+    const res = await defaultCiFixer(req);
+    expect(res.ok).toBe(false);
+    expect(res.note).toContain('DEVAGENT_REMOTE_TARGET');
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('delegates to runRemoteTask with the target, prompt, and TASK-fix-<pr> id', async () => {
+    process.env.DEVAGENT_REMOTE_TARGET = 'deploy@host:/srv/app';
+    const runRemoteTask = vi.fn().mockResolvedValue({ ok: true, prUrl: 'https://github.com/o/r/pull/43', note: 'remote PR opened' });
+    vi.doMock('../src/remote.js', () => ({ runRemoteTask }));
+    try {
+      const { defaultCiFixer: freshFixer } = await import('../src/integrations/autopr.js');
+      const res = await freshFixer(req);
+      expect(res.ok).toBe(true);
+      expect(res.note).toBe('remote PR opened');
+      expect(runRemoteTask).toHaveBeenCalledTimes(1);
+      const [opts, deps] = runRemoteTask.mock.calls[0]!;
+      expect(opts.target).toBe('deploy@host:/srv/app');
+      expect(opts.prompt).toBe('Fix the failing CI checks on PR #42.');
+      expect(opts.taskId).toBe('TASK-fix-42');
+      expect(typeof opts.log.warn).toBe('function');
+      expect(typeof deps.run).toBe('function');
+    } finally {
+      vi.doUnmock('../src/remote.js');
+    }
   });
 });

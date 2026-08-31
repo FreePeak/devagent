@@ -1,5 +1,6 @@
 import { analyzeAsyncHazards } from '../validation/async-review.js';
 import { runCli } from '../workers/spawn-utils.js';
+import { loadConfig } from '../config.js';
 import type { Finding } from '../types.js';
 
 /**
@@ -242,8 +243,50 @@ export async function mergePr(
 export interface AutoMergeOutcome {
   pr: number;
   title: string;
-  action: 'merged' | 'review-requested' | 'skipped';
+  action: 'merged' | 'review-requested' | 'skipped' | 'ci-fix-failed';
   detail: string;
+  /** CI-Fixer failure evidence (Q24 error taxonomy); set on 'ci-fix-failed' outcomes. */
+  failedChecks?: string[];
+  attempts?: number;
+  summary?: string;
+}
+
+export interface CiFixRequest {
+  repoPath: string;
+  pr: number;
+  /** Task identity for the re-dispatched run (TASK-fix-<pr>). */
+  taskId: string;
+  failedChecks: string[];
+  prompt: string;
+}
+
+export type CiFixer = (req: CiFixRequest) => Promise<{ ok: boolean; note: string }>;
+
+/**
+ * Built-in CI-Fixer dispatch: delegate a `devagent task` repair run to the
+ * shared host over SSH (same transport as `task --remote`), keyed by a
+ * TASK-fix-<pr> task id. Deployment opt-in: without DEVAGENT_REMOTE_TARGET the
+ * dispatcher reports not-ok so the PR keeps a structured failure outcome
+ * instead of pretending a fix ran.
+ */
+export async function defaultCiFixer(req: CiFixRequest): Promise<{ ok: boolean; note: string }> {
+  const target = process.env.DEVAGENT_REMOTE_TARGET;
+  if (!target) {
+    return { ok: false, note: 'ci-fix not configured: set DEVAGENT_REMOTE_TARGET to enable the default fixer dispatch' };
+  }
+  const { runRemoteTask } = await import('../remote.js');
+  const { spawnCli } = await import('../workers/spawn-utils.js');
+  const res = await runRemoteTask(
+    {
+      target,
+      prompt: req.prompt,
+      taskId: req.taskId,
+      timeoutMs: loadConfig(req.repoPath).timeoutMinutes * 60_000,
+      log: { warn: () => {} },
+    },
+    { run: (argv, timeoutMs) => spawnCli(argv[0]!, argv.slice(1), { cwd: req.repoPath, timeoutMs }) },
+  );
+  return { ok: res.ok, note: res.note };
 }
 
 export interface AutoReviewAndMergeOptions {
@@ -255,6 +298,12 @@ export interface AutoReviewAndMergeOptions {
   /** Seconds to wait for pending checks before giving up (default 300). */
   waitForChecksSec?: number;
   pollIntervalMs?: number;
+  /**
+   * CI-Fixer: when failed checks block the merge, one bounded re-dispatch
+   * (default: `defaultCiFixer`) runs before the verdict falls back to
+   * request-changes; the merge only proceeds if checks are green afterward.
+   */
+  fixer?: CiFixer;
 }
 
 /** Process one PR end-to-end: status -> diff hazard scan -> review -> merge. */
@@ -284,8 +333,9 @@ export async function autoReviewAndMergeOne(
 
   // Wait for pending checks so we never judge an incomplete rollup
   const deadline = Date.now() + (opts.waitForChecksSec ?? 300) * 1000;
+  let cv: ChecksVerdict;
   for (;;) {
-    const cv = evaluateChecks(status);
+    cv = evaluateChecks(status);
     if (!cv.pending) break;
     if (Date.now() >= deadline) {
       return { pr, title: status.title, action: 'skipped', detail: `checks still pending after timeout: ${cv.summary}` };
@@ -309,6 +359,97 @@ export async function autoReviewAndMergeOne(
     return { pr, title: status.title, action: 'skipped', detail: `[dry-run] ${review.reason}` };
   }
 
+  // CI-Fixer (PRD.md:737): when failed checks are the blocker, give the PR one
+  // bounded repair re-dispatch before falling back to request-changes. The
+  // verdict is re-derived from a fresh status poll so only genuinely green
+  // checks can reach the merge below (never worker-graded results).
+  if (review.event === 'REQUEST_CHANGES' && cv.failedChecks.length > 0) {
+    const fixer = opts.fixer ?? defaultCiFixer;
+    const failedChecks = cv.failedChecks;
+    const prompt = [
+      `Fix the failing CI checks on PR #${pr} (${repoPath}).`,
+      `Failed checks: ${failedChecks.join(', ')}.`,
+      'Reproduce locally, apply the minimal fix, push to the PR branch, and let CI re-run.',
+    ].join(' ');
+    log(`ci-fix: re-dispatching fixer for PR #${pr} (failed: ${failedChecks.join(', ')})`);
+    try {
+      const fixRes = await fixer({ repoPath, pr, taskId: `TASK-fix-${pr}`, failedChecks, prompt });
+      if (!fixRes.ok) {
+        // Nothing was dispatched: record the structured failure and skip the
+        // re-poll entirely (no pointless CI wait on an unchanged head SHA).
+        return {
+          pr,
+          title: status.title,
+          action: 'ci-fix-failed',
+          detail: `ci-fix dispatch failed: ${fixRes.note.slice(0, 200)}`,
+          failedChecks,
+          attempts: 1,
+          summary: cv.summary,
+        };
+      }
+    } catch (e) {
+      return {
+        pr,
+        title: status.title,
+        action: 'ci-fix-failed',
+        detail: `ci-fix dispatch threw: ${(e as Error).message.slice(0, 200)}`,
+        failedChecks,
+        attempts: 1,
+        summary: cv.summary,
+      };
+    }
+    // Re-poll to a completed rollup on the new head SHA, then re-evaluate.
+    const fixDeadline = Date.now() + (opts.waitForChecksSec ?? 300) * 1000;
+    for (;;) {
+      status = await getPrStatus(repoPath, pr, run);
+      const fixCv = evaluateChecks(status);
+      if (!fixCv.pending) {
+        if (fixCv.passed) {
+          log(`ci-fix: checks green after fix dispatch; merging PR #${pr}`);
+          break;
+        }
+        return {
+          pr,
+          title: status.title,
+          action: 'ci-fix-failed',
+          detail: `checks still failing after 1 fix attempt: ${fixCv.summary}`,
+          failedChecks: fixCv.failedChecks.length ? fixCv.failedChecks : failedChecks,
+          attempts: 1,
+          summary: fixCv.summary,
+        };
+      }
+      if (Date.now() >= fixDeadline) {
+        return {
+          pr,
+          title: status.title,
+          action: 'ci-fix-failed',
+          detail: `checks still pending after fix attempt: ${fixCv.summary}`,
+          failedChecks,
+          attempts: 1,
+          summary: fixCv.summary,
+        };
+      }
+      log(`ci-fix: checks pending (${fixCv.summary}); retrying in 15s`);
+      await new Promise((res) => setTimeout(res, opts.pollIntervalMs ?? 15_000));
+    }
+    const fixedReview = evaluateAutoReview(status, { hazards, mergeMethod: method });
+    return finishAutoMerge(repoPath, pr, status, fixedReview, method, deleteBranch, run, log);
+  }
+
+  return finishAutoMerge(repoPath, pr, status, review, method, deleteBranch, run, log);
+}
+
+/** Post the verdict, then attempt the merge; shared by the direct and CI-fixed paths. */
+async function finishAutoMerge(
+  repoPath: string,
+  pr: number,
+  status: PrStatus,
+  review: { event: ReviewEvent; reason: string; body: string },
+  method: 'squash' | 'merge' | 'rebase',
+  deleteBranch: boolean,
+  run: RunGh,
+  log: (msg: string) => void,
+): Promise<AutoMergeOutcome> {
   let selfAuthored = false;
   try {
     selfAuthored = Boolean(status.author) && status.author === (await getViewerLogin(repoPath, run));
