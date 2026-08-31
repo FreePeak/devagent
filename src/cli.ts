@@ -1115,6 +1115,38 @@ ${merged}/${outcomes.length} merged`);
   });
 
 program
+  .command('autosweep')
+  .description('Zombie-PR hygiene sweep: skip superseded PRs and auto-close PRs red across the grace window')
+  .option('--stale-prs', 'sweep stale open PRs (superseded-base skip + grace-window close)', false)
+  .option('--repo <path>', 'target repository (used for gh context)', process.cwd())
+  .option('--grace-days <days>', 'days a PR may stay red before auto-close (default from config zombiePrs.graceDays)', Number)
+  .option('--apply', 'comment and close for real (default: config zombiePrs.dryRun, itself defaulting to dry-run)', false)
+  .action(async (opts) => {
+    if (!opts.stalePrs) {
+      console.error('nothing to sweep: pass --stale-prs');
+      process.exitCode = 1;
+      return;
+    }
+    const { sweepStalePrs } = await import('./integrations/autopr.js');
+    try {
+      const outcomes = await sweepStalePrs(opts.repo, {
+        graceDays: opts.graceDays,
+        dryRun: !opts.apply,
+        log: (msg) => console.log(msg),
+      });
+      for (const o of outcomes) {
+        console.log(`#${o.pr} ${o.action}: ${o.detail}`);
+      }
+      const acted = outcomes.filter((o) => o.action === 'superseded' || o.action === 'closed').length;
+      console.log(`
+${acted}/${outcomes.length} PR(s) ${opts.apply ? 'swept' : 'flagged (dry-run; pass --apply to act)'}`);
+    } catch (err) {
+      console.error((err as Error).message);
+      process.exitCode = 1;
+    }
+  });
+
+program
   .command('rebase-stack')
   .description('Rebase stacked branches onto their updated parents (merge-queue refresh)')
   .option('--repo <path>', 'target repository', process.cwd())

@@ -63,6 +63,12 @@ export interface DevAgentConfig {
   herdr?: { enabled?: boolean; session?: string };
   /** Character budget for injected lessons; oldest entries are dropped whole (default 4000). */
   lessonsMaxChars?: number;
+  /**
+   * Zombie-PR hygiene sweep (`devagent autosweep --stale-prs`): open PRs that
+   * are not mergeable candidates get skipped with a comment, and PRs red
+   * across `graceDays` get auto-closed. dryRun (the default) only reports.
+   */
+  zombiePrs?: { graceDays?: number; dryRun?: boolean };
 }
 
 export interface Credentials {
@@ -144,6 +150,12 @@ export function loadConfig(repoPath: string = process.cwd()): DevAgentConfig {
   if (config.herdr !== undefined) {
     if (config.herdr.session !== undefined && !/^[a-z][a-z0-9_-]{0,31}$/.test(config.herdr.session)) {
       throw new Error(`Invalid herdr.session "${config.herdr.session}"; expected [a-z][a-z0-9_-]{0,31}`);
+    }
+  }
+  if (config.zombiePrs !== undefined) {
+    const z = config.zombiePrs;
+    if (z.graceDays !== undefined && (!Number.isFinite(z.graceDays) || z.graceDays < 0)) {
+      throw new Error(`Invalid zombiePrs.graceDays "${z.graceDays}"; expected >= 0`);
     }
   }
   return config;

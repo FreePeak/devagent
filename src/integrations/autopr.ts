@@ -1,6 +1,6 @@
 import { analyzeAsyncHazards } from '../validation/async-review.js';
 import { runCli } from '../workers/spawn-utils.js';
-import { loadConfig } from '../config.js';
+import { loadConfig, type DevAgentConfig } from '../config.js';
 import type { Finding } from '../types.js';
 
 /**
@@ -47,13 +47,17 @@ export interface PrStatus {
   state: string;
   mergeable: string;
   reviewDecision: string;
+  /** Head commit SHA (when reported); identifies the superseded merge candidate in sweep comments. */
+  headRefOid: string;
+  /** ISO last-update timestamp (when reported); grace-window input for the zombie-PR sweep. */
+  updatedAt: string;
   /** Author login; when it equals the gh token's viewer, approvals are impossible. */
   author: string;
   checks: CheckRun[];
 }
 
 const PR_FIELDS =
-  'number,title,headRefName,baseRefName,state,mergeable,reviewDecision,author,statusCheckRollup';
+  'number,title,headRefName,baseRefName,state,mergeable,reviewDecision,author,statusCheckRollup,headRefOid,updatedAt';
 
 function parsePr(raw: Record<string, unknown>): PrStatus {
   const rollup = (raw.statusCheckRollup as Array<Record<string, unknown>> | undefined) ?? [];
@@ -66,6 +70,8 @@ function parsePr(raw: Record<string, unknown>): PrStatus {
     state: String(raw.state ?? ''),
     mergeable: String(raw.mergeable ?? 'UNKNOWN'),
     reviewDecision: String(raw.reviewDecision ?? ''),
+    headRefOid: String(raw.headRefOid ?? ''),
+    updatedAt: String(raw.updatedAt ?? ''),
     author: author?.login ?? '',
     checks: rollup.map((c) => ({
       name: String(c.name ?? 'unknown'),
@@ -493,6 +499,122 @@ export async function autoReviewAndMerge(
     const outcome = await autoReviewAndMergeOne(repoPath, n, opts, run);
     outcomes.push(outcome);
     opts.log?.(`${outcome.pr} ${outcome.action}: ${outcome.detail}`);
+  }
+  return outcomes;
+}
+
+export type ZombiePrAction = 'superseded' | 'closed' | 'skipped' | 'untouched';
+
+export interface ZombiePrOutcome {
+  pr: number;
+  title: string;
+  action: ZombiePrAction;
+  detail: string;
+}
+
+export interface ZombiePrOptions {
+  /** Days a PR may stay red before auto-close (config `zombiePrs.graceDays`, default 7). */
+  graceDays?: number;
+  /** Report without commenting or closing (config `zombiePrs.dryRun`, default true). */
+  dryRun?: boolean;
+  log?: (msg: string) => void;
+}
+
+/**
+ * A mergeable candidate: open, mergeable, and provably green (checks
+ * completed and passed). PRs with pending or missing checks carry no evidence
+ * and never count — neither as candidates nor as zombies.
+ */
+function isMergeCandidate(status: PrStatus): boolean {
+  if (status.state !== 'OPEN' || status.mergeable !== 'MERGEABLE') return false;
+  const cv = evaluateChecks(status);
+  return !cv.pending && cv.passed && status.checks.length > 0;
+}
+
+/**
+ * Zombie-PR hygiene sweep (PRD.md:737, second clause): every open PR is a
+ * mergeable candidate, left untouched, commented as superseded, or closed —
+ * per the config `zombiePrs` block (graceDays, dryRun; dry-run default):
+ * - superseded: the head SHA is not a mergeable candidate while another open
+ *   PR on the same base is; the PR gets a skip comment naming the candidate.
+ * - closed: CI red (completed failures, nothing pending) across the grace
+ *   window measured from `updatedAt`; closed with an explanatory comment.
+ * - untouched: everything else (pending or missing checks, green, or red
+ *   within grace) carries no supersession evidence and stays as-is.
+ */
+export async function sweepStalePrs(
+  repoPath: string,
+  opts: ZombiePrOptions = {},
+  run: RunGh = defaultRunGh,
+): Promise<ZombiePrOutcome[]> {
+  let cfgZombie: NonNullable<DevAgentConfig['zombiePrs']> = {};
+  try {
+    cfgZombie = loadConfig(repoPath).zombiePrs ?? {};
+  } catch {
+    // unreadable config: fall through to built-in defaults
+  }
+  const graceDays = opts.graceDays ?? cfgZombie.graceDays ?? 7;
+  const dryRun = opts.dryRun ?? cfgZombie.dryRun ?? true;
+  const log = opts.log ?? (() => {});
+  const prs = (await listOpenPrs(repoPath, run)).slice().sort((a, b) => a.number - b.number);
+  const candidateByBase = new Map<string, number>();
+  for (const p of prs) {
+    if (isMergeCandidate(p) && !candidateByBase.has(p.baseRefName)) candidateByBase.set(p.baseRefName, p.number);
+  }
+  const outcomes: ZombiePrOutcome[] = [];
+  for (const status of prs) {
+    if (status.state !== 'OPEN') {
+      outcomes.push({ pr: status.number, title: status.title, action: 'skipped', detail: `state is ${status.state}` });
+      continue;
+    }
+    const candidate = candidateByBase.get(status.baseRefName);
+    const cv = evaluateChecks(status);
+    if (candidate !== undefined && candidate !== status.number && cv.pending === false && cv.passed) {
+      // Not red, not a candidate, and another open PR on the same base is:
+      // this head is superseded (conflicting, blocked, or unmergeable).
+      const head = status.headRefOid || 'unknown-sha';
+      const detail = `head ${head} is not a mergeable candidate; base ${status.baseRefName} superseded by #${candidate}`;
+      const body = [
+        `DevAgent zombie-PR sweep: skipping this PR — head ${head} is not a mergeable candidate.`,
+        `Base ${status.baseRefName} is superseded by open PR #${candidate}; rebase or close this branch.`,
+      ].join('\n');
+      if (dryRun) {
+        outcomes.push({ pr: status.number, title: status.title, action: 'superseded', detail: `[dry-run] ${detail}` });
+      } else {
+        await postPrComment(repoPath, status.number, body, run);
+        log(`#${status.number} superseded: ${detail}`);
+        outcomes.push({ pr: status.number, title: status.title, action: 'superseded', detail });
+      }
+      continue;
+    }
+    if (!cv.pending && !cv.passed) {
+      const updatedMs = Date.parse(status.updatedAt);
+      const redDays = Number.isFinite(updatedMs) ? (Date.now() - updatedMs) / 86_400_000 : Infinity;
+      if (redDays >= graceDays) {
+        const detail = `red across ${graceDays}d grace window (${Math.floor(redDays)}d since last update)`;
+        if (dryRun) {
+          outcomes.push({ pr: status.number, title: status.title, action: 'closed', detail: `[dry-run] ${detail}` });
+        } else {
+          await postPrComment(
+            repoPath,
+            status.number,
+            [
+              'DevAgent zombie-PR sweep: auto-closing this PR.',
+              `CI has been red for the full ${graceDays}-day grace window (${cv.summary});`,
+              'reopen with a fix or abandon the branch.',
+            ].join('\n'),
+            run,
+          );
+          await run(['pr', 'close', String(status.number)], repoPath);
+          log(`#${status.number} closed: ${detail}`);
+          outcomes.push({ pr: status.number, title: status.title, action: 'closed', detail });
+        }
+        continue;
+      }
+      outcomes.push({ pr: status.number, title: status.title, action: 'untouched', detail: `red within grace: ${cv.summary}` });
+      continue;
+    }
+    outcomes.push({ pr: status.number, title: status.title, action: 'untouched', detail: cv.pending ? `checks pending: ${cv.summary}` : `no superseding candidate: ${cv.summary}` });
   }
   return outcomes;
 }
