@@ -158,6 +158,14 @@ export function spawnCliStreaming(
     let exitCode: number | null = null;
     let done = false;
     let lastProgressAt = Date.now();
+    // Progress = meaningful output only. glm-style models stream
+    // thinking_delta continuously while making zero tool calls (2026-08-31:
+    // 60k+ deltas, 8-11 MB, full hour) — counting raw bytes as progress
+    // means the no-progress watchdog never fires for a run that is only
+    // deliberating. Mirrors the herdr pane watcher (src/integrations/herdr.ts
+    // meaningfulBytes): only non-thinking lines reset the watchdog clock.
+    let meaningfulBytes = 0;
+    const isMeaningful = (s: string): boolean => !s.includes('"thinking_delta"');
 
     const touch = () => {
       lastProgressAt = Date.now();
@@ -177,14 +185,21 @@ export function spawnCliStreaming(
     };
 
     child.stdout?.on('data', (c: Buffer) => {
-      stdoutChunks.push(c.toString('utf8'));
-      touch();
+      const s = c.toString('utf8');
+      stdoutChunks.push(s);
+      if (isMeaningful(s)) {
+        meaningfulBytes += s.length;
+        touch();
+      }
     });
     child.stderr?.on('data', (c: Buffer) => {
-      stderrChunks.push(c.toString('utf8'));
-      touch();
+      const s = c.toString('utf8');
+      stderrChunks.push(s);
+      if (isMeaningful(s)) {
+        meaningfulBytes += s.length;
+        touch();
+      }
     });
-
     // Drain readline to ensure line-based progress is observed even for
     // non-newline chunked parsers; the raw data handler already touches.
 
