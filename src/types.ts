@@ -100,6 +100,14 @@ export interface WorkerResult {
    * [claude-code:unrecognized_model] with no .result element).
    */
   errorText?: string;
+  /**
+   * True when the worker exited cleanly (exit 0) but produced zero events and
+   * no result text — the hung-worker/empty-output signature (loop 59 run-11:
+   * 30-minute burn on silent opencode runs). Distinct from both success and a
+   * normal failure so callers can fall back (branch + gh pr create) without
+   * burning the full retry budget on a dead endpoint.
+   */
+  noProgress?: boolean;
 }
 
 /** Uniform contract over heterogeneous headless coding-agent CLIs. */

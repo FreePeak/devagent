@@ -267,14 +267,18 @@ export async function executeTask(args: {
       // skip kill for herdr-detected panes (herdr.ts watchdog handles those).
       for (const s of stale) if (!useHerdr) killStaleProcessTree(s.pid);
     } catch {}
-    if (result.timedOut || result.exitCode !== 0 || result.errorText) {
+    if (result.timedOut || result.exitCode !== 0 || result.errorText || result.noProgress) {
       // Inspect both resultText and errorText: the proxy surfaces transient
       // provider outages (rate-limited empty streams) as stderr-only with no
       // .result field, so resultText alone misses them and the task used to
       // false-fail after 2 attempts instead of retrying.
+      // noProgress: the zero-event/empty-output signature (hung worker) —
+      // treated as transient infra so the scheduler can fall back cheaply
+      // instead of re-burning full-attempt budgets on a dead endpoint.
       const text = [result.resultText, result.errorText].filter(Boolean).join('\n');
       if (
         result.timedOut ||
+        result.noProgress ||
         (text && !isNonRetryable(text) && (isTransient(text) || isTransient(result.errorText ?? null)))
       ) {
         infraRetries++;
