@@ -65,6 +65,34 @@ export function appendAuditRecord(repoPath: string, record: AuditLedgerRecord): 
   }
 }
 
+/** CI-Fixer lifecycle event (Q35, Phase 4). */
+export interface FixerLedgerRecord extends LedgerRecordBase {
+  kind: 'event';
+  event: 'ci-fix-dispatched' | 'ci-fix-outcome';
+  /** PR number the fixer was dispatched against. */
+  pr: number;
+  /** Failed check names at dispatch (identify the round-trip with taskId). */
+  failedChecks: string[];
+  /** Terminal outcome; set only on 'ci-fix-outcome' rows. */
+  outcome?: 'failed-then-green' | 'still-red' | 'ci-fix-failed';
+  /** Human detail (dispatch note / check summary); best-effort. */
+  detail?: string;
+}
+
+/**
+ * Append a fixer lifecycle record. Never throws into the caller's path —
+ * best-effort observability by design.
+ */
+export function appendFixerRecord(repoPath: string, record: FixerLedgerRecord): void {
+  try {
+    const file = ledgerPath(repoPath);
+    mkdirSync(join(repoPath, LEDGER_DIR), { recursive: true });
+    appendFileSync(file, `${JSON.stringify(record)}\n`);
+  } catch {
+    // best-effort observability only
+  }
+}
+
 /** Read audit records, oldest first; optional task filter. Returns [] when absent. */
 export function readLedger(repoPath: string, opts: { taskId?: string } = {}): AuditLedgerRecord[] {
   const file = ledgerPath(repoPath);
