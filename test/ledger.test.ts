@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { LEDGER_DIR, appendAuditRecord, auditLedgerRecord, clusterFailures, ledgerTailFor, readLedger, summarizeLedger } from '../src/orchestrator/ledger.js';
+import { LEDGER_DIR, appendAuditRecord, appendTaskInterruptRecord, auditLedgerRecord, clusterFailures, ledgerTailFor, readLedger, summarizeLedger } from '../src/orchestrator/ledger.js';
 import type { AuditVerdict } from '../src/orchestrator/types.js';
 
 const pass: AuditVerdict = {
@@ -170,5 +170,72 @@ describe('failure clusters', () => {
     appendAuditRecord(repo, auditLedgerRecord({ taskId: 'T2', attempt: 1, verdict: failWithUnmet('pushed branch') }));
     const clusters = clusterFailures(repo);
     expect(clusters.map((c) => c.criterion).sort()).toEqual(['branch pushed', 'pushed branch']);
+  });
+});
+
+describe('taskInterrupt post-mortem (executor failure surface, PRD:775)', () => {
+  const dirs: string[] = [];
+  const tempRepo = () => {
+    const d = mkdtempSync(join(tmpdir(), 'da-ledger-interrupt-'));
+    dirs.push(d);
+    return d;
+  };
+  afterEach(() => {
+    for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  });
+
+  it('appends a taskInterrupt row with post-mortem payload (goal, failure class, gate excerpt, attempts, trail hash)', () => {
+    const repo = tempRepo();
+    appendTaskInterruptRecord(repo, {
+      ts: '2026-09-01T08:00:00Z',
+      kind: 'event',
+      event: 'taskInterrupt',
+      taskId: 'T1',
+      attempt: 3,
+      goal: 'ship release gate',
+      failureClass: 'test-gate',
+      lastGateExcerpt: 'npm test: 3 failed (same every time)',
+      attempts: 3,
+      trailHash: 'abc123def456',
+    });
+    const raw = readFileSync(join(repo, LEDGER_DIR, 'events.jsonl'), 'utf8').trim().split('\n');
+    expect(raw).toHaveLength(1);
+    const row = JSON.parse(raw[0]!);
+    expect(row).toMatchObject({
+      kind: 'event',
+      event: 'taskInterrupt',
+      taskId: 'T1',
+      goal: 'ship release gate',
+      failureClass: 'test-gate',
+      lastGateExcerpt: 'npm test: 3 failed (same every time)',
+      attempts: 3,
+      trailHash: 'abc123def456',
+    });
+    // Verify the full JSONL shape (all fields, including ts and attempt)
+    expect(row.ts).toBe('2026-09-01T08:00:00Z');
+    expect(row.attempt).toBe(3);
+  });
+
+  it('tolerates missing ledger directory (best-effort write)', () => {
+    const repo = mkdtempSync(join(tmpdir(), 'da-ledger-interrupt-noop-'));
+    dirs.push(repo);
+    // Should not throw even when the ledger dir does not exist — the
+    // append creates it unconditionally.
+    expect(() =>
+      appendTaskInterruptRecord(repo, {
+        ts: '2026-09-01T09:00:00Z',
+        kind: 'event',
+        event: 'taskInterrupt',
+        taskId: 'T2',
+        attempt: 2,
+        goal: 'fix build',
+        failureClass: 'worker-error',
+        lastGateExcerpt: 'worker crashed',
+        attempts: 2,
+        trailHash: 'xyz',
+      }),
+    ).not.toThrow();
+    const raw = readFileSync(join(repo, LEDGER_DIR, 'events.jsonl'), 'utf8').trim().split('\n');
+    expect(raw).toHaveLength(1);
   });
 });

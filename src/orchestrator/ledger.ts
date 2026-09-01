@@ -93,6 +93,45 @@ export function appendFixerRecord(repoPath: string, record: FixerLedgerRecord): 
   }
 }
 
+/**
+ * Executor interrupt post-mortem (PRD:775 / Q24 taxonomy mirror, PR #100): a
+ * structured failure record written when a task is aborted via `taskInterrupt`
+ * — N+ identical trailing trail.jsonl failure signatures. Carries the compact
+ * post-mortem (goal, failure class, last gate excerpt, attempts, trail hash)
+ * so the next bridge can plan around the same failure mode instead of mining
+ * raw trails by hand (loop-57/58 diagnostic gap).
+ */
+export interface TaskInterruptLedgerRecord extends LedgerRecordBase {
+  kind: 'event';
+  event: 'taskInterrupt';
+  /** Board goal the interrupted task belonged to (Q22 archive context). */
+  goal: string;
+  /** Executor failure class (Q24 taxonomy mirror). */
+  failureClass: string;
+  /** Last gate excerpt that repeated across attempts (bounded). */
+  lastGateExcerpt: string;
+  /** Attempts spent before the interrupt fired. */
+  attempts: number;
+  /** Hash of the identical trailing trail.jsonl failure signatures. */
+  trailHash: string;
+  /** Human detail; best-effort. */
+  detail?: string;
+}
+
+/**
+ * Append an executor-interrupt post-mortem. Never throws into the caller's
+ * path — best-effort observability by design.
+ */
+export function appendTaskInterruptRecord(repoPath: string, record: TaskInterruptLedgerRecord): void {
+  try {
+    const file = ledgerPath(repoPath);
+    mkdirSync(join(repoPath, LEDGER_DIR), { recursive: true });
+    appendFileSync(file, `${JSON.stringify(record)}\n`);
+  } catch {
+    // best-effort observability only
+  }
+}
+
 /** Read audit records, oldest first; optional task filter. Returns [] when absent. */
 export function readLedger(repoPath: string, opts: { taskId?: string } = {}): AuditLedgerRecord[] {
   const file = ledgerPath(repoPath);

@@ -3,6 +3,7 @@ import { recomputeReadiness } from './types.js';
 import type { RunLogger } from '../logger.js';
 import type { WorkerName } from '../types.js';
 import type { ResourceGovernor, OsSnapshot } from './governor.js';
+import { appendTaskInterruptRecord } from './ledger.js';
 
 /**
  * Wave scheduler (sprint-orchestrator lesson): repeatedly execute all ready
@@ -21,6 +22,16 @@ export interface ExecuteTaskResult {
   ok: boolean;
   worktreePath?: string;
   detail?: string;
+  /**
+   * Executor failure surface (PRD:775): set when the executor aborted the
+   * worker via taskInterrupt (N+ identical trailing trail.jsonl signatures).
+   * The task is terminal — no further retry or recovery grant.
+   */
+  interrupted?: boolean;
+  failureClass?: string;
+  lastGateExcerpt?: string;
+  attempts?: number;
+  trailHash?: string;
 }
 
 export interface SchedulerDeps {
@@ -265,6 +276,38 @@ export async function runScheduler(
                 gaps: gaps.length,
               });
             }
+          } else if (r.interrupted) {
+            // Executor failure surface (PRD:775): N+ identical trailing trail.jsonl
+            // failure signatures — taskInterrupt. Terminal; no retry budget, no
+            // recovery grant. The compact post-mortem (goal, failure class, last
+            // gate excerpt, attempts, trail hash) is threaded into the ledger (Q24
+            // taxonomy mirror, PR #100) so archived boards carry replayable evidence
+            // for the next bridge (closing the loop-57/58 diagnostic gap).
+            task.status = 'failed';
+            task.failureDetail = r.detail ?? r.failureClass ?? 'task interrupted';
+            task.interrupt = {
+              failureClass: r.failureClass ?? 'unknown',
+              lastGateExcerpt: r.lastGateExcerpt ?? '',
+              attempts: r.attempts ?? task.attempts,
+              trailHash: r.trailHash ?? '',
+            };
+            appendTaskInterruptRecord(opts.repoPath, {
+              ts: new Date().toISOString(),
+              kind: 'event',
+              event: 'taskInterrupt',
+              taskId: task.id,
+              attempt: task.attempts,
+              goal: board.goal,
+              failureClass: task.interrupt.failureClass,
+              lastGateExcerpt: task.interrupt.lastGateExcerpt.slice(0, 200),
+              attempts: task.interrupt.attempts,
+              trailHash: task.interrupt.trailHash,
+              detail: r.detail?.slice(0, 200),
+            });
+            log.warn('task', `${task.id} taskInterrupt: ${(r.detail ?? r.failureClass ?? '').slice(0, 200)}`, {
+              failureClass: r.failureClass,
+              trailHash: r.trailHash,
+            });
           } else {
             task.failureDetail = r.detail;
             // retryable within budget -> pending for the next wave; else one
