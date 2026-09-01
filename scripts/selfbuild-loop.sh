@@ -145,6 +145,14 @@ while :; do
     # Sweep auto-pr leftovers whose 30-min grace period has elapsed.
     sweep_cleanup
 
+    # Herdr hygiene: close idle/agentless panes the previous iteration left in
+    # the devagent session (killed tasks, stalled workers, crashed dispatches).
+    # Same session-scoped trust boundary as orchestrate-loop's sweep; the
+    # session name only ever holds automation-spawned panes. Non-fatal when
+    # herdr is down.
+    HERDR_SWEEP_OUT="$(${DEVAGENT[@]} herdr-sweep 2>&1)" || true
+    [ -n "$HERDR_SWEEP_OUT" ] && printf '%s\n' "$HERDR_SWEEP_OUT" | tail -3
+
     # Sync with remote; tolerate offline / diverged states.
     git pull --ff-only || echo "[sync] skipped (pull failed)"
 
