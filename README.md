@@ -140,7 +140,7 @@ Research sources backing the PRD are cited inline and collected in the [research
 v0.4.0 — factory (scout + Orca workers) landed (2026-08-25):
 
 - **Factory bootstrap**: `devagent create --repo . --scout --workers N [--auto-merge] [--self-update]` creates `.devagent/queue` + `.devagent/prds`, merges `devagent.json`, registers repo with `orca`, provisions Orca worktrees, installs scout LaunchAgent. `--dry-run` prints plan.
-- **Scout (24/7 researcher)**: `devagent scout [--once] [--dry-run] [--interval <min>] [--worker opencode|claude-code]` researches `docs/PRD.md §4+§17` + ledger + lessons, writes markdown PRD to `.devagent/prds/<id>.md` and task to `.devagent/queue/<id>.json`; heartbeat at `.devagent/scout.heartbeat.json`, `devagent scout-status` surfaces it. Live mode uses `opencode run --format json`; unparseable output or missing binary falls back deterministically so the queue never starves. `maxQueued` caps depth.
+- **Scout (24/7 researcher)**: `devagent scout [--once] [--dry-run] [--interval <min>] [--worker opencode|claude-code|omp|pi]` researches `docs/PRD.md §4+§17` + ledger + lessons, writes markdown PRD to `.devagent/prds/<id>.md` and task to `.devagent/queue/<id>.json`; heartbeat at `.devagent/scout.heartbeat.json`, `devagent scout-status` surfaces it. Live mode uses the configured worker CLI (default `omp -p --mode json`; also opencode, claude-code, pi); unparseable output or missing binary falls back deterministically so the queue never starves. `maxQueued` caps depth.
 - **Queue**: `devagent queue list [--status] [--json]`, `queue show <id>`; filesystem store `.devagent/queue/*.json`, no DB.
 - **Workers**: `devagent consume --auto-pr [--auto-merge]` claims oldest `pending` task, creates `.devagent-worktrees/<id>` worktree, runs pipeline (synthetic ticket, no tracker creds), validates G1/G3/G4, pushes `devagent/<id>` and opens PR via `gh`, optionally `gh pr merge --auto --squash` (see [SCOUT.md](docs/SCOUT.md)).
 - **Orca fleet provisioner**: `src/integrations/orca.ts` now exposes `ensureOrcaRepo`, `createOrcaWorktree`, `listOrcaWorktrees` (best-effort, degrades when Orca absent); `dropOrcaWorkspace` already existed.
@@ -153,7 +153,7 @@ v0.3.0 — v1 complete, fleet + observability landed (2026-08); evidence-gated
 orchestration landed 2026-08-24 (loops 40-46):
 
 - **CLI**: `devagent run|serve|validate|log|status|dashboard|fleet|config|orchestrate|project|mcp`
-- **Workers**: headless Claude Code (`claude -p`) and OpenCode (`opencode run`); fan-out mode (`--worker both`) runs parallel legs and picks the test-passing winner; retries carry gate evidence back as repair prompts
+- **Workers**: headless pi (`pi --mode json -p`, default), Claude Code (`claude -p`), OpenCode (`opencode run`), and omp (`omp -p --mode json`); fan-out mode (`--worker both`) runs parallel legs and picks the test-passing winner; retries carry gate evidence back as repair prompts
 - **Gates**: G1 repo-native tests, G2 up/down migration apply (compose; honest skips without Docker), G3 static migration analysis (8 rules), G4 concurrency review scoped to the run's own diff
 - **Auto-cleanup**: after every `run`/`task`/`fleet` run the worktree is finalized per `--cleanup auto|keep|always` (default `auto`: on success uncommitted output is snapshotted to the run branch, then the tree is removed; failed runs are preserved for debugging). `--drop-orca-workspace` additionally removes an enclosing Orca-managed workspace via orca-cli. Applies identically to Claude Code and OpenCode workers
 - **Fleet**: `devagent fleet --ticket A --ticket B --repo api=/repos/api ...` runs the ticket×repo matrix over a bounded pool with per-job failure isolation
@@ -178,7 +178,7 @@ devagent create --repo . --scout --workers 2 --dry-run   # preview without mutat
 
 # Scout
 devagent scout --once --dry-run                            # one deterministic cycle (no LLM)
-devagent scout --once                                      # one live cycle (opencode)
+devagent scout --once                                      # one live cycle (omp)
 devagent scout --interval 30                               # daemon: loop every 30m until SIGINT
 devagent scout-status                                      # heartbeat + queue depth
 

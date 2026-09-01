@@ -7,7 +7,7 @@ import { syncCli } from '../workers/spawn-utils.js';
  * Guarded: only kills PIDs whose cmdline matches known worker patterns.
  */
 
-const WORKER_PATTERN = /\b(opencode|claude|omp)(\s|$|--)/i;
+const WORKER_PATTERN = /\b(opencode|claude|omp|pi)(\s|$|--)/i;
 
 function cmdlineFor(pid: number): string {
   try {
@@ -125,9 +125,10 @@ export function isDevagentWorkerCmd(cmd: string): boolean {
   if (!headless) return false;
   // claude-code / opencode: --output-format json (unchanged)
   if (/\b(opencode|claude)\b/i.test(cmd)) return /--output-format\b/.test(cmd);
-  // omp: --mode json (adapter always emits `--mode json`; interactive omp has
-  // no flag and never matches)
+  // omp / pi: --mode json (adapters always emit `--mode json`; interactive
+  // omp/pi have no flag and never match)
   if (/\bomp\b/.test(cmd)) return OMP_MODE_JSON_CMD.test(cmd);
+  if (/(^|\b)pi(\s|$)/.test(cmd)) return OMP_MODE_JSON_CMD.test(cmd);
   return false;
 }
 

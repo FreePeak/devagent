@@ -22,7 +22,7 @@ export interface FleetRunOptions {
   governor?: ResourceGovernor;
   governorSnapshot?: OsSnapshot;
   timeoutMs: number;
-  worker: 'claude-code' | 'opencode' | 'omp' | 'both';
+  worker: 'claude-code' | 'opencode' | 'omp' | 'pi' | 'both';
   autoPr: boolean;
   maxLoops: number;
   /** Injected so fleet stays unit-testable; same shape the CLI builds. */

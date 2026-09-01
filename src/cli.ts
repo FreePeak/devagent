@@ -28,7 +28,7 @@ program
   .description('Execute the full pipeline for one ticket')
   .requiredOption('--ticket <id>', 'tracker ticket identifier')
   .option('--repo <path>', 'target repository', process.cwd())
-  .option('--worker <name>', 'claude-code | opencode | omp | both')
+  .option('--worker <name>', 'claude-code | opencode | omp | pi | both')
   .option('--model <id>', 'model override passed to the worker CLI (provider/model)')
   .option('--variant <name>', 'variant for opencode model (maps to --variant or #variant)')
   .option('--cleanup <mode>', "post-run worktree disposal: auto | keep | always")
@@ -114,7 +114,7 @@ program
   .requiredOption('--ticket <ids...>', 'ticket identifiers (one or more)')
   .requiredOption('--repo <entries...>', 'repo entries as name=path (one or more)')
   .option('--concurrency <n>', 'max parallel runs (number or "auto")', parseConcurrency, 2)
-  .option('--worker <name>', 'claude-code | opencode | omp | both')
+  .option('--worker <name>', 'claude-code | opencode | omp | pi | both')
   .option('--cleanup <mode>', "post-run worktree disposal: auto | keep | always")
   .option('--drop-orca-workspace', 'drop the enclosing Orca workspace after done (when repoPath is Orca-managed)', false)
   .option('--auto-pr', 'publish PRs without approval gates', false)
@@ -156,7 +156,7 @@ program
       concurrency: fleetConcurrency,
       ...(governorForFleet ? { governor: governorForFleet } : {}),
       timeoutMs: config.timeoutMinutes * 60_000,
-      worker: (opts.worker ?? config.worker) as 'claude-code' | 'opencode' | 'omp' | 'both',
+      worker: (opts.worker ?? config.worker) as 'claude-code' | 'opencode' | 'omp' | 'pi' | 'both',
       autoPr: opts.autoPr ?? false,
       maxLoops: opts.maxLoops ?? config.maxLoops,
       runOne: async ({ repoPath, ticketId, worker, autoPr, maxLoops, timeoutMs, log }) => {
@@ -463,7 +463,7 @@ program
     'task identity: names the worktree (.devagent-worktrees/<id>) and branch (devagent/<id>); default $DEVAGENT_TASK_ID, else a collision-free TASK-<suffix>',
   )
   .option('--repo <path>', 'target repository', process.cwd())
-  .option('--worker <name>', 'claude-code | opencode | omp | both')
+  .option('--worker <name>', 'claude-code | opencode | omp | pi | both')
   .option('--model <id>', 'model override passed to the worker CLI (provider/model)')
   .option('--variant <name>', 'variant for opencode model (maps to --variant or #variant)')
   .option('--cleanup <mode>', "post-run worktree disposal: auto | keep | always")
@@ -536,7 +536,7 @@ program
       const { implementStage } = await import('./deps.js');
       const { runMigrationStaticGate } = await import('./validation/runner.js');
 
-      const workerName = ((opts.worker ?? config.worker) as 'claude-code' | 'opencode' | 'omp' | 'both');
+      const workerName = ((opts.worker ?? config.worker) as 'claude-code' | 'opencode' | 'omp' | 'pi' | 'both');
       const deps: TaskDeps = {
         runPipelineDeps: {
           fetchTicket: async () => ({ id: cfg.taskId ?? 'TASK', title: '', description: '', labels: [], acceptanceCriteria: [] }),
@@ -1185,7 +1185,7 @@ program
   .command('scout')
   .description('24/7 opencode scout: research backlog -> PRD -> queue (FR-SCOUT-01)')
   .option('--repo <path>', 'target repository', process.cwd())
-  .option('--worker <name>', 'opencode | claude-code | omp')
+  .option('--worker <name>', 'opencode | claude-code | omp | pi')
   .option('--interval <minutes>', 'cycle interval minutes (loop mode only)', Number)
   .option('--timeout <minutes>', 'per-cycle wall-clock cap', Number)
   .option('--once', 'run exactly one cycle then exit (default in non-daemon mode)', false)
@@ -1208,7 +1208,7 @@ program
       return;
     }
     const config = loadConfig(opts.repo);
-    const worker = (opts.worker ?? config.scout?.worker ?? 'opencode') as 'opencode' | 'claude-code' | 'omp';
+    const worker = (opts.worker ?? config.scout?.worker ?? 'omp') as 'opencode' | 'claude-code' | 'omp' | 'pi';
     const intervalMinutes = opts.interval ?? config.scout?.intervalMinutes ?? 30;
     const timeoutMs = (opts.timeout ?? 5) * 60_000;
     if (opts.once || opts.dryRun) {
@@ -1312,7 +1312,7 @@ program
       selfUpdate: Boolean(opts.selfUpdate),
       dryRun: Boolean(opts.dryRun),
       intervalMinutes: opts.interval ? Number(opts.interval) : undefined,
-      scoutWorker: opts.scoutWorker as 'opencode' | 'claude-code' | undefined,
+      scoutWorker: opts.scoutWorker as 'opencode' | 'claude-code' | 'omp' | 'pi' | undefined,
       trackIntervalMinutes: opts.trackInterval ? Number(opts.trackInterval) : undefined,
     });
     console.log(r.detail);

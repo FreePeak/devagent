@@ -79,7 +79,7 @@ describe('config', () => {
   it('applies defaults', () => {
     const cfg = loadConfig('/nonexistent-path-for-sure');
     expect(cfg.maxLoops).toBe(3);
-    expect(cfg.worker).toBe('claude-code');
+    expect(cfg.worker).toBe('pi');
   });
 
   it('credential status never exposes values', () => {

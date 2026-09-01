@@ -6,7 +6,7 @@ import { spawnCli } from './workers/spawn-utils.js';
 
 export interface ScoutCycleOptions {
   repoPath: string;
-  worker?: 'opencode' | 'claude-code' | 'omp';
+  worker?: 'opencode' | 'claude-code' | 'omp' | 'pi';
   /** Override interval; not used in once mode but persisted to heartbeat */
   intervalMinutes?: number;
   dryRun?: boolean;
@@ -157,7 +157,7 @@ function fallbackTask(prompt: string, config: DevAgentConfig): { id: string; tit
 
 export async function runScoutOnce(opts: ScoutCycleOptions, config: DevAgentConfig): Promise<ScoutCycleResult> {
   const repoPath = opts.repoPath;
-  const worker = opts.worker ?? (config.scout?.worker as 'opencode' | 'claude-code' | 'omp' | undefined) ?? 'opencode';
+  const worker = opts.worker ?? (config.scout?.worker as 'opencode' | 'claude-code' | 'omp' | 'pi' | undefined) ?? 'omp';
   const intervalMinutes = opts.intervalMinutes ?? config.scout?.intervalMinutes ?? 30;
   const hbPath = heartbeatPath(repoPath);
 
@@ -205,15 +205,29 @@ export async function runScoutOnce(opts: ScoutCycleOptions, config: DevAgentConf
   // sessionId/result parsing stays compatible.
   const timeoutMs = opts.timeoutMs ?? 5 * 60_000;
   const cli =
-    worker === 'opencode' ? 'opencode' : worker === 'claude-code' ? 'claude' : 'omp';
+    worker === 'opencode' ? 'opencode' : worker === 'claude-code' ? 'claude' : worker === 'pi' ? 'pi' : 'omp';
+  // claude-code only: same guard as the worker adapter's baseArgs — tier
+  // aliases like "coding" 403 against the API key ("Combo "coding" is not
+  // allowed"), so drop anything that is not a claude family id and let the
+  // CLI fall back to ~/.claude/settings.json model.
+  const scoutModelRaw = worker === 'claude-code' ? config.model?.trim() : undefined;
   const scoutModel =
-    worker === 'claude-code' ? config.model?.trim() : undefined;
+    scoutModelRaw && (/^claude-/.test(scoutModelRaw) || /^(opus|sonnet|haiku)(-|$)/.test(scoutModelRaw))
+      ? scoutModelRaw.split('#')[0]!
+      : undefined;
+  // pi only: provider-qualified ids ("provider/model") pass through; driver
+  // tier aliases like "coding" are not pi ids and would fail model resolution.
+  const scoutPiModelRaw = worker === 'pi' ? config.model?.trim() : undefined;
+  const scoutPiModel =
+    scoutPiModelRaw && scoutPiModelRaw.includes('/') ? scoutPiModelRaw.split('#')[0]! : undefined;
   const args =
     worker === 'opencode'
       ? ['run', '--format', 'json', prompt]
       : worker === 'omp'
         ? ['-p', prompt, '--mode', 'json']
-        : ['-p', prompt, '--output-format', 'json', ...(scoutModel ? ['--model', scoutModel.split('#')[0]!] : [])];
+        : worker === 'pi'
+          ? ['--mode', 'json', '-p', prompt, ...(scoutPiModel ? ['--model', scoutPiModel] : [])]
+          : ['-p', prompt, '--output-format', 'json', ...(scoutModel ? ['--model', scoutModel] : [])];
 
   let raw = '';
   try {
@@ -381,7 +395,7 @@ export function writeHeartbeat(
 }
 
 export async function runScoutLoop(
-  opts: { repoPath: string; worker?: 'opencode' | 'claude-code' | 'omp'; intervalMinutes: number; timeoutMs?: number; signal?: AbortSignal },
+  opts: { repoPath: string; worker?: 'opencode' | 'claude-code' | 'omp' | 'pi'; intervalMinutes: number; timeoutMs?: number; signal?: AbortSignal },
   config: DevAgentConfig,
   onCycle?: (result: ScoutCycleResult) => void,
 ): Promise<void> {

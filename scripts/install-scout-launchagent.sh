@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Install/validate/uninstall the devagent scout LaunchAgent (macOS).
 # Usage:
-#   scripts/install-scout-launchagent.sh --repo <path> [--interval <min>] [--worker opencode|claude-code]
+#   scripts/install-scout-launchagent.sh --repo <path> [--interval <min>] [--worker opencode|claude-code|omp|pi]
 #   scripts/install-scout-launchagent.sh --validate                 # plutil -lint only
 #   scripts/install-scout-launchagent.sh --uninstall                # bootout + remove plist
 set -euo pipefail
@@ -13,7 +13,7 @@ LOG_FILE="${HOME}/Library/Logs/devagent-scout.log"
 
 REPO=""
 INTERVAL="30"
-WORKER="opencode"
+WORKER="omp"
 TIMEOUT_MIN="12"
 VALIDATE=0
 UNINSTALL=0

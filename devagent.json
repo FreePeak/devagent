@@ -1,17 +1,16 @@
 {
-  "worker": "claude-code",
+  "worker": "pi",
   "herdr": {
     "enabled": true,
     "session": "devagent"
   },
   "scout": {
     "enabled": true,
-    "worker": "claude-code",
+    "worker": "omp",
     "intervalMinutes": 30
   },
   "autoMerge": true,
   "selfUpdate": true,
-  "model": "coding",
   "timeoutMinutes": 60,
   "resilience": {
     "noProgressTimeoutMs": 900000

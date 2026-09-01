@@ -21,7 +21,7 @@ export interface CreateOptions {
   selfUpdate?: boolean;
   dryRun?: boolean;
   intervalMinutes?: number;
-  scoutWorker?: 'opencode' | 'claude-code' | 'omp';
+  scoutWorker?: 'opencode' | 'claude-code' | 'omp' | 'pi';
   trackIntervalMinutes?: number;
 }
 
@@ -197,7 +197,7 @@ export async function runCreate(opts: CreateOptions, runner: CliRunner = default
   }
 
   const intervalMinutes = opts.intervalMinutes ?? 30;
-  const scoutWorker = opts.scoutWorker ?? 'opencode';
+  const scoutWorker = opts.scoutWorker ?? 'omp';
   const dirs: string[] = [];
 
   if (opts.dryRun) {
@@ -288,7 +288,7 @@ export async function runCreate(opts: CreateOptions, runner: CliRunner = default
   return { ok: true, detail, dirs, configPath: cfgPath, launchAgentPlist: plistPath, launchAgentPlists: launchAgentPlists.length ? launchAgentPlists : undefined, orcaWorktrees };
 }
 
-export function launchAgentPlistContent(repoPath: string, intervalMinutes = 30, worker: string = 'opencode'): string {
+export function launchAgentPlistContent(repoPath: string, intervalMinutes = 30, worker: string = 'omp'): string {
   return buildLaunchAgentPlist(rolePlistSpecs({ repoPath, scout: true, intervalMinutes, scoutWorker: worker, trackIntervalMinutes: 15 })[0]!);
 }
 

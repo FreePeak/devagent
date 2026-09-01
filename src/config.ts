@@ -77,7 +77,7 @@ export interface Credentials {
 }
 
 export const DEFAULT_CONFIG: DevAgentConfig = {
-  worker: 'claude-code',
+  worker: 'pi',
   maxLoops: 3,
   timeoutMinutes: 30,
   githubBaseBranch: 'main',
@@ -121,15 +121,15 @@ export function loadConfig(repoPath: string = process.cwd()): DevAgentConfig {
       : {}),
   };
 
-  if (!['claude-code', 'opencode', 'omp', 'both'].includes(config.worker)) {
-    throw new Error(`Invalid worker "${config.worker}" in config; expected claude-code, opencode, omp, or both`);
+  if (!['claude-code', 'opencode', 'omp', 'pi', 'both'].includes(config.worker)) {
+    throw new Error(`Invalid worker "${config.worker}" in config; expected claude-code, opencode, omp, pi, or both`);
   }
   if (config.cleanup !== undefined && !['auto', 'keep', 'always'].includes(config.cleanup)) {
     throw new Error(`Invalid cleanup "${config.cleanup}" in config; expected auto, keep, or always`);
   }
   if (config.scout !== undefined) {
-    if (config.scout.worker !== undefined && !['claude-code', 'opencode', 'omp'].includes(config.scout.worker)) {
-      throw new Error(`Invalid scout.worker "${config.scout.worker}"; expected claude-code, opencode, or omp`);
+    if (config.scout.worker !== undefined && !['claude-code', 'opencode', 'omp', 'pi'].includes(config.scout.worker)) {
+      throw new Error(`Invalid scout.worker "${config.scout.worker}"; expected claude-code, opencode, omp, or pi`);
     }
     if (config.scout.intervalMinutes !== undefined && (!Number.isFinite(config.scout.intervalMinutes) || config.scout.intervalMinutes < 1)) {
       throw new Error(`Invalid scout.intervalMinutes "${config.scout.intervalMinutes}"; expected >= 1`);

@@ -36,6 +36,10 @@ const DEFAULT_ENV_ALLOWLIST = [
   'OPENAI_API_KEY', 'OPENAI_BASE_URL',
   // opencode provider config
   'OPENCODE_API_KEY',
+  // pi provider config (pi resolves provider keys from env; omniroute is the
+  // configured default provider in this deployment — see ~/.pi/agent/models.json).
+  // Other pi providers can be enabled via DEVAGENT_WORKER_ENV_ALLOWLIST.
+  'OMNIROUTE_API_KEY',
 ];
 
 /**
@@ -192,6 +196,7 @@ export function buildSeatbeltProfile(policy: SandboxPolicy): string {
     '/private/tmp', '/tmp',
     '/private/var/folders', // macOS per-user temp/cache roots
     join(home, '.claude'),
+    join(home, '.pi'), // pi config + session dir
     join(home, '.local', 'share'), // opencode data dir lives here
     join(home, '.cache'),
     join(home, '.npm'),

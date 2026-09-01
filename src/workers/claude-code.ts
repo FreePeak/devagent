@@ -117,13 +117,24 @@ export class ClaudeCodeAdapter implements WorkerAdapter {
 
 function baseArgs(opts: WorkerSpawnOptions): string[] {
   // claude-code ignores variant; model is the only knob.
+  // Driver tier aliases ("coding", devagent.json model) are claude-proxy
+  // selectors, not API-key model ids: `--model coding` fails with
+  // "403 Combo "coding" is not allowed for this API key" (2026-09-01 live
+  // loop 58: implement worker retried it forever because events=0 +
+  // null resultText reads as a logic failure, not transient). Drop any
+  // value without a "/" or known claude family prefix so claude falls back
+  // to ~/.claude/settings.json model. Pass explicit provider ids through.
   const rawModel = opts.model?.trim();
+  const model =
+    rawModel && (/^claude-/.test(rawModel) || /^(opus|sonnet|haiku)(-|$)/.test(rawModel))
+      ? rawModel.split('#')[0]!
+      : undefined;
   return [
     '-p',
     opts.prompt,
     '--output-format',
     'json',
-    ...(rawModel ? ['--model', rawModel.split('#')[0]!] : []),
+    ...(model ? ['--model', model] : []),
     ...(opts.maxSteps !== undefined ? ['--max-turns', String(opts.maxSteps)] : []),
   ];
 }
