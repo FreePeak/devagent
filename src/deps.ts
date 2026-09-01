@@ -1,6 +1,7 @@
 import { basename } from 'node:path';
 import { existsSync } from 'node:fs';
-import type { Credentials } from './config.js';
+import type { Credentials, } from './config.js';
+import { herdrEnabled, loadConfig } from './config.js';
 import type { PipelineDeps, ImplementResult } from './pipeline.js';
 import type { RunConfig, TicketClass, TicketSpec } from './types.js';
 import type { RunLogger } from './logger.js';
@@ -187,6 +188,12 @@ export async function implementStage(
   plan: ImplementationPlan,
   log: RunLogger,
 ): Promise<ImplementResult> {
+  // herdr pane runtime: opt-in from config (`herdr.enabled`) or env override.
+  // The task path (`devagent task`) historically skipped this — only the
+  // orchestrator executor passed herdr:true — so panes never appeared in the
+  // devagent session and the periodic herdr-sweep made it look empty while
+  // workers ran as invisible direct children (2026-09-01 diagnosis).
+  const useHerdr = herdrEnabled(loadConfig(cfg.repoPath));
   if (cfg.worker === 'both') {
     const { runFanout } = await import('./workers/fanout.js');
     const { runTestGate } = await import('./validation/test-gate.js');
@@ -306,6 +313,7 @@ export async function implementStage(
         ...(cfg.variant ? { variant: cfg.variant } : {}),
         ...(effectiveApiMaxAttempts !== undefined ? { apiMaxAttempts: effectiveApiMaxAttempts } : {}),
         ...(effectiveNoProgress !== undefined ? { noProgressTimeoutMs: effectiveNoProgress } : {}),
+        ...(useHerdr ? { herdr: true } : {}),
       };
       const result = await worker.spawn(spawnOpts as never);
       // Reap any stale provider workers that may be idling after a hung call
