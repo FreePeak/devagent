@@ -4,6 +4,8 @@ import {
   listOpenPrs,
   postPrComment,
   defaultRunGh,
+  baseBranchGone,
+  ageHours,
   type RunGh,
 } from '../integrations/autopr.js';
 import { appendPrHygieneRecord } from './ledger.js';
@@ -22,7 +24,6 @@ import { appendPrHygieneRecord } from './ledger.js';
  */
 
 const TASK_PR_RE = /^devagent\/TASK-/;
-const HOUR_MS = 3_600_000;
 
 export type PrHygieneAction = 'closed' | 'flagged' | 'skipped' | 'untouched';
 
@@ -54,21 +55,7 @@ export interface PrHygieneResult {
 }
 
 /** Pure grace-window age in hours; null when the timestamp is missing or unparseable. */
-export function graceAgeHours(updatedAt: string, now: number): number | null {
-  const ms = Date.parse(updatedAt);
-  if (!Number.isFinite(ms)) return null;
-  return Math.max(0, (now - ms) / HOUR_MS);
-}
-
-/** A base branch is gone when gh cannot resolve the ref (merged+deleted or deleted directly). */
-async function baseBranchGone(repoPath: string, base: string, run: RunGh): Promise<boolean> {
-  try {
-    await run(['api', `repos/{owner}/{repo}/branches/${base}`], repoPath);
-    return false;
-  } catch {
-    return true;
-  }
-}
+export const graceAgeHours = ageHours;
 
 /**
  * Zombie-PR hygiene sweep over open `devagent/TASK-*` PRs. Non-task PRs are

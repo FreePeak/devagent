@@ -176,6 +176,73 @@ export function evaluateAutoReview(status: PrStatus, evidence: ReviewEvidence): 
   return { event, reason: head, body };
 }
 
+export type MergeQueueSkipReason = 'red-across-grace' | 'superseded';
+
+export interface MergeQueueGateOptions {
+  /** Hours a PR may stay red before the queue skips it (config `prHygiene.graceHours`, default 24). */
+  graceHours?: number;
+  /** PR number superseding this one on the same base (batch view), when known. */
+  supersedingCandidate?: number;
+  /** Wall clock for grace-window math; injectable for tests. */
+  now?: number;
+}
+
+export interface MergeQueueGateVerdict {
+  /** True when the PR must be skipped with a reason instead of entering the merge path. */
+  skip: boolean;
+  /** Why the skip fired: red-across-grace | superseded. Absent when not skipping. */
+  reason?: MergeQueueSkipReason;
+  detail?: string;
+}
+
+/** Pure grace-window age in hours; null when the timestamp is missing or unparseable. */
+export function ageHours(updatedAt: string, now: number): number | null {
+  const ms = Date.parse(updatedAt);
+  if (!Number.isFinite(ms)) return null;
+  return Math.max(0, (now - ms) / 3_600_000);
+}
+
+/**
+ * Merge-queue gate (pure): decides whether an open PR should be skipped with
+ * a reason instead of parking the auto-merge pipeline:
+ * - red-across-grace: CI is red (completed failures, nothing pending) for the
+ *   full grace window — the CI-Fixer has already had its shot by the time
+ *   this gate runs, so waiting longer only parks the queue.
+ * - superseded: another open PR on the same base is a mergeable candidate
+ *   while this head is not (conflicting/blocked) — the base will move under
+ *   it, so merging this head first would ship the wrong candidate.
+ * Green, pending, and red-within-grace PRs pass through untouched.
+ */
+export function evaluateMergeQueueGate(status: PrStatus, opts: MergeQueueGateOptions = {}): MergeQueueGateVerdict {
+  const cv = evaluateChecks(status);
+  if (
+    opts.supersedingCandidate !== undefined &&
+    opts.supersedingCandidate !== status.number &&
+    status.mergeable !== 'MERGEABLE' &&
+    !cv.pending &&
+    cv.passed
+  ) {
+    return {
+      skip: true,
+      reason: 'superseded',
+      detail: `head is not a mergeable candidate (mergeable=${status.mergeable}); base ${status.baseRefName} superseded by open PR #${opts.supersedingCandidate}`,
+    };
+  }
+  if (!cv.pending && !cv.passed && status.checks.length > 0) {
+    const now = opts.now ?? Date.now();
+    const graceHours = opts.graceHours ?? 24;
+    const age = ageHours(status.updatedAt, now);
+    if (age === null || age >= graceHours) {
+      return {
+        skip: true,
+        reason: 'red-across-grace',
+        detail: `red across ${graceHours}h grace window (${age === null ? 'unknown age' : `${Math.floor(age)}h since last update`}): ${cv.summary}`,
+      };
+    }
+  }
+  return { skip: false };
+}
+
 export async function getPrStatus(
   repoPath: string,
   pr: number,
@@ -183,6 +250,20 @@ export async function getPrStatus(
 ): Promise<PrStatus> {
   const r = await run(['pr', 'view', String(pr), '--json', PR_FIELDS], repoPath);
   return parsePr(JSON.parse(r.stdout) as Record<string, unknown>);
+}
+
+/**
+ * A base branch is gone when gh cannot resolve the ref (merged+deleted or
+ * deleted directly). Shared by the merge-queue gate and the TASK-PR hygiene
+ * sweep: a PR whose head base branch died can never integrate.
+ */
+export async function baseBranchGone(repoPath: string, base: string, run: RunGh): Promise<boolean> {
+  try {
+    await run(['api', `repos/{owner}/{repo}/branches/${base}`], repoPath);
+    return false;
+  } catch {
+    return true;
+  }
 }
 
 export async function listOpenPrs(repoPath: string, run: RunGh = defaultRunGh): Promise<PrStatus[]> {
@@ -393,6 +474,17 @@ export interface AutoReviewAndMergeOptions {
    * request-changes; the merge only proceeds if checks are green afterward.
    */
   fixer?: CiFixer;
+  /**
+   * Merge-queue grace window in hours: a PR red across it is skipped with a
+   * `red-across-grace` reason instead of parking the pipeline (default from
+   * config `prHygiene.graceHours`, itself defaulting to 24).
+   */
+  graceHours?: number;
+  /**
+   * PR number superseding this one on the same base (computed by the batch
+   * entry point): a non-candidate head is skipped with a `superseded` reason.
+   */
+  supersedingCandidate?: number;
 }
 
 /** Process one PR end-to-end: status -> diff hazard scan -> review -> merge. */
@@ -432,6 +524,41 @@ export async function autoReviewAndMergeOne(
     log(`checks pending (${cv.summary}); retrying in 15s`);
     await new Promise((res) => setTimeout(res, opts.pollIntervalMs ?? 15_000));
     status = await getPrStatus(repoPath, pr, run);
+  }
+
+  // Merge-queue gate 1 (base-superseded): a PR whose head base branch was
+  // merged or deleted can never integrate — waiting cannot fix a dead base,
+  // so skip it with a reason instead of parking the pipeline. Auto-close of
+  // such PRs stays owned by the pr-hygiene sweep.
+  try {
+    if (await baseBranchGone(repoPath, status.baseRefName, run)) {
+      return {
+        pr,
+        title: status.title,
+        action: 'skipped',
+        detail: `base-superseded: base ${status.baseRefName} was merged or deleted; branch can never integrate`,
+      };
+    }
+  } catch {
+    // base probe failed (gh hiccup): fall through to the normal gates
+  }
+
+  // Merge-queue gate 2 (red-across-grace / superseded): skip PRs that would
+  // only park the queue — the CI-Fixer below runs for red-within-grace PRs.
+  let graceHours = opts.graceHours;
+  if (graceHours === undefined) {
+    try {
+      graceHours = loadConfig(repoPath).prHygiene?.graceHours ?? 24;
+    } catch {
+      graceHours = 24;
+    }
+  }
+  const gate = evaluateMergeQueueGate(status, {
+    graceHours,
+    supersedingCandidate: opts.supersedingCandidate,
+  });
+  if (gate.skip) {
+    return { pr, title: status.title, action: 'skipped', detail: `${gate.reason}: ${gate.detail}` };
   }
 
   let hazards: Finding[] = [];
@@ -642,10 +769,34 @@ export async function autoReviewAndMerge(
   opts: AutoReviewAndMergeOptions & { prNumbers?: number[]; log?: (msg: string) => void },
   run: RunGh = defaultRunGh,
 ): Promise<AutoMergeOutcome[]> {
-  const numbers = opts.prNumbers ?? (await listOpenPrs(repoPath, run)).map((p) => p.number).sort((a, b) => a - b);
+  // Supersession view (full listing only): per base, the lowest-numbered open
+  // PR that is a mergeable candidate. Non-candidate siblings on the same base
+  // are skipped with a `superseded` reason instead of parking the queue.
+  // Explicit --pr sets bypass the view: a hand-picked batch overrides it.
+  let supersedingByBase: Map<string, number> | undefined;
+  let baseByNumber: Map<number, string> | undefined;
+  let numbers: number[];
+  if (opts.prNumbers) {
+    numbers = opts.prNumbers;
+  } else {
+    const statuses = (await listOpenPrs(repoPath, run)).slice().sort((a, b) => a.number - b.number);
+    numbers = statuses.map((p) => p.number);
+    supersedingByBase = new Map();
+    baseByNumber = new Map();
+    for (const p of statuses) {
+      baseByNumber.set(p.number, p.baseRefName);
+      if (!isMergeCandidate(p)) continue;
+      const cur = supersedingByBase.get(p.baseRefName);
+      if (cur === undefined || p.number < cur) supersedingByBase.set(p.baseRefName, p.number);
+    }
+  }
   const outcomes: AutoMergeOutcome[] = [];
   for (const n of numbers) {
-    const outcome = await autoReviewAndMergeOne(repoPath, n, opts, run);
+    const base = baseByNumber?.get(n);
+    const outcome = await autoReviewAndMergeOne(repoPath, n, {
+      ...opts,
+      supersedingCandidate: base !== undefined ? supersedingByBase?.get(base) : undefined,
+    }, run);
     outcomes.push(outcome);
     opts.log?.(`${outcome.pr} ${outcome.action}: ${outcome.detail}`);
   }
