@@ -222,9 +222,18 @@ process_repo() {
     api_branch_merged "$forge" "$repo" "$br" && merged_rc=0 || merged_rc=$?
     if [ "$merged_rc" = 0 ]; then
       merged_reason="${forge} MR/PR merged"
-    elif [ "$merged_rc" = 2 ] && [ -n "$db" ] \
-        && git -C "$repo" merge-base --is-ancestor "$br" "refs/remotes/origin/$db" 2>/dev/null; then
-      merged_reason="fully merged into origin/$db"
+    else
+      # Ancestry fallback runs for rc=1 (forge reachable, no merged PR found —
+      # e.g. the branch was renamed after merge so the PR's head no longer
+      # matches) AND rc=2 (offline/no-forge). A branch whose tip is already
+      # contained in the default branch is safe to delete either way.
+      if [ -n "$db" ] \
+          && git -C "$repo" merge-base --is-ancestor "$br" "refs/remotes/origin/$db" 2>/dev/null; then
+        merged_reason="fully merged into origin/$db"
+      elif [ -n "$db" ] \
+          && git -C "$repo" merge-base --is-ancestor "$br" "refs/heads/$db" 2>/dev/null; then
+        merged_reason="merged into local $db (squash; remote gone)"
+      fi
     fi
 
     if [ -z "$merged_reason" ]; then
