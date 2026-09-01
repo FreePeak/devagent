@@ -234,7 +234,7 @@ describe('autoReviewAndMergeOne', () => {
     expect(calls.some((c) => c[1] === 'review')).toBe(false);
   });
 
-  it('posts request-changes and never merges when CI is red and no fixer dispatch is possible', async () => {
+  it('posts request-changes and never merges when CI is red and the local fixer cannot run (no repo)', async () => {
     const red = JSON.parse(viewJson) as Record<string, unknown>;
     red.statusCheckRollup = [{ name: 'test', status: 'COMPLETED', conclusion: 'FAILURE' }];
     const { run, calls } = scriptedGh({
@@ -244,10 +244,11 @@ describe('autoReviewAndMergeOne', () => {
       merge: new Error('should not be called'),
     });
     const o = await autoReviewAndMergeOne('/repo', 9, {}, run);
-    // default fixer is unconfigured (no DEVAGENT_REMOTE_TARGET): structured
-    // ci-fix-failed outcome instead of a bare request-changes dead end
+    // default fixer falls back to localCiFixer when DEVAGENT_REMOTE_TARGET is
+    // unset; '/repo' does not exist so the fixer fails fast and the outcome is
+    // the structured ci-fix-failed instead of a bare request-changes dead end
     expect(o.action).toBe('ci-fix-failed');
-    expect(o.detail).toContain('DEVAGENT_REMOTE_TARGET');
+    expect(o.detail).toContain('ci-fix local dispatch');
     expect(calls.some((c) => c[1] === 'merge')).toBe(false);
     expect(calls.some((c) => c[1] === 'review')).toBe(false);
   });
@@ -355,12 +356,12 @@ describe('autoReviewAndMergeOne', () => {
       expect(o.detail).toContain('ssh exploded');
     });
 
-    it('defaults to the built-in dispatcher, which reports not-ok without DEVAGENT_REMOTE_TARGET', async () => {
+    it('defaults to the built-in dispatcher, which falls back to the local fixer without DEVAGENT_REMOTE_TARGET', async () => {
       delete process.env.DEVAGENT_REMOTE_TARGET;
       const { run } = sequencedGh([redView], { diff: '', merge: '' });
       const o = await autoReviewAndMergeOne('/repo', 9, {}, run);
       expect(o.action).toBe('ci-fix-failed');
-      expect(o.detail).toContain('DEVAGENT_REMOTE_TARGET');
+      expect(o.detail).toContain('ci-fix local dispatch');
     });
 
     describe('ledger rows', () => {
@@ -468,8 +469,10 @@ describe('defaultCiFixer', () => {
     delete process.env.DEVAGENT_REMOTE_TARGET;
     const spy = vi.spyOn(await import('../src/remote.js'), 'runRemoteTask');
     const res = await defaultCiFixer(req);
+    // Falls back to localCiFixer on a nonexistent repo: fails fast with a
+    // prefixed note, and the remote transport is never touched.
     expect(res.ok).toBe(false);
-    expect(res.note).toContain('DEVAGENT_REMOTE_TARGET');
+    expect(res.note).toContain('ci-fix local dispatch');
     expect(spy).not.toHaveBeenCalled();
   });
 
@@ -493,6 +496,115 @@ describe('defaultCiFixer', () => {
       vi.doUnmock('../src/remote.js');
     }
   });
+});
+
+describe('localCiFixer', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.doUnmock('../src/workers/spawn-utils.js');
+    vi.doUnmock('../src/workers/index.js');
+    vi.resetModules();
+  });
+
+  /** Real temp git repo with one commit on main, wired to a bare 'origin'. Returns [repo, bare]. */
+  function tempRepoWithOrigin(): [string, string] {
+    const repo = mkdtempSync(join(tmpdir(), 'da-cifix-'));
+    const bare = repo + '-remote.git';
+    execFileSyncSafe('git', ['init', '-q', '--bare', '-b', 'main', bare], repo);
+    execFileSyncSafe('git', ['init', '-q', '-b', 'main', repo], repo);
+    execFileSyncSafe('git', ['-C', repo, 'config', 'user.email', 't@t'], repo);
+    execFileSyncSafe('git', ['-C', repo, 'config', 'user.name', 't'], repo);
+    execFileSyncSafe('git', ['-C', repo, 'commit', '--allow-empty', '-m', 'init'], repo);
+    execFileSyncSafe('git', ['-C', repo, 'remote', 'add', 'origin', bare], repo);
+    execFileSyncSafe('git', ['-C', repo, 'push', '-q', '-u', 'origin', 'main'], repo);
+    return [repo, bare];
+  }
+  function execFileSyncSafe(cmd: string, args: string[], cwd: string): void {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { execFileSync } = require('node:child_process') as { execFileSync: (c: string, a: string[], o?: object) => Buffer };
+    execFileSync(cmd, args, { cwd, stdio: 'pipe' });
+  }
+
+  it('fails fast when gh cannot resolve the PR head branch', async () => {
+    const [repo] = tempRepoWithOrigin();
+    const { localCiFixer } = await import('../src/integrations/autopr.js');
+    const res = await localCiFixer({ repoPath: repo, pr: 7, taskId: 'TASK-fix-7', failedChecks: ['test'], prompt: 'p' });
+    expect(res.ok).toBe(false);
+    expect(res.note).toContain('cannot resolve PR head branch');
+    rmSync(repo, { recursive: true, force: true });
+  });
+
+  it('end-to-end: checks out the PR branch in a worktree, runs the worker, pushes the fix, removes the worktree', async () => {
+    const [repo, bare] = tempRepoWithOrigin();
+    execFileSyncSafe('git', ['push', '-q', 'origin', 'main:refs/heads/devagent/fix-branch'], repo);
+    execFileSyncSafe('git', ['fetch', 'origin', 'devagent/fix-branch'], repo);
+
+    // Mock gh (headRefName resolution) and the worker (makes a real edit).
+    const ghSpy = vi.fn().mockResolvedValue({ exitCode: 0, stdout: 'devagent/fix-branch\n', stderr: '', timedOut: false });
+    const realSpawn = await vi.importActual<typeof import('../src/workers/spawn-utils.js')>('../src/workers/spawn-utils.js');
+    const spawnMock = vi.fn(async (cmd: string, args: string[], _opts: unknown) => {
+      if (cmd === 'gh') return ghSpy(args[0] === 'pr' ? { ...args } : args);
+      // Real git runs through.
+      return realSpawn.spawnCli(cmd, args, _opts as never);
+    });
+    vi.doMock('../src/workers/spawn-utils.js', () => ({
+      spawnCli: spawnMock,
+      runCli: realSpawn.runCli,
+    }));
+    const workerSpawn = vi.fn().mockImplementation(async (opts: { cwd: string }) => {
+      const { writeFileSync } = await import('node:fs');
+      writeFileSync(join(opts.cwd, 'ci-fix.txt'), 'fixed by localCiFixer test');
+      return { exitCode: 0, events: [], resultText: 'fixed', sessionId: null, durationMs: 1, timedOut: false };
+    });
+    vi.doMock('../src/workers/index.js', () => ({
+      getWorker: () => ({ name: 'pi', spawn: workerSpawn }),
+    }));
+
+    const { localCiFixer: freshFixer } = await import('../src/integrations/autopr.js');
+    const res = await freshFixer({ repoPath: repo, pr: 7, taskId: 'TASK-fix-7', failedChecks: ['test'], prompt: 'fix it' });
+    expect(res.ok).toBe(true);
+    expect(res.note).toContain('fix pushed to devagent/fix-branch');
+    expect(workerSpawn).toHaveBeenCalledTimes(1);
+    expect(workerSpawn.mock.calls[0]![0].prompt).toBe('fix it');
+    // Worker ran inside the fix worktree.
+    expect(workerSpawn.mock.calls[0]![0].cwd).toContain('TASK-fix-7');
+    // Worktree was removed afterwards.
+    expect(require('node:fs').existsSync(join(repo, '.devagent-worktrees', 'TASK-fix-7'))).toBe(false);
+    // The fix commit landed on the remote branch.
+    const { execFileSync } = require('node:child_process') as { execFileSync: (c: string, a: string[], o?: object) => Buffer };
+    const tip = execFileSync('git', ['ls-remote', bare, 'refs/heads/devagent/fix-branch'], { encoding: 'utf8' }).trim().split('\t')[0];
+    const local = execFileSync('git', ['-C', repo, 'rev-parse', 'main'], { encoding: 'utf8' }).trim();
+    expect(tip).not.toBe(local); // a new commit was pushed
+
+    rmSync(repo, { recursive: true, force: true });
+    rmSync(bare, { recursive: true, force: true });
+  }, 30_000);
+
+  it('refuses to push an empty fix (worker made no changes)', async () => {
+    const [repo, bare] = tempRepoWithOrigin();
+    execFileSyncSafe('git', ['push', '-q', 'origin', 'main:refs/heads/devagent/fix-branch'], repo);
+    execFileSyncSafe('git', ['fetch', 'origin', 'devagent/fix-branch'], repo);
+
+    const realSpawn2 = await vi.importActual<typeof import('../src/workers/spawn-utils.js')>('../src/workers/spawn-utils.js');
+    const spawnMock = vi.fn(async (cmd: string, args: string[], opts: never) => {
+      if (cmd === 'gh') return { exitCode: 0, stdout: 'devagent/fix-branch\n', stderr: '', timedOut: false };
+      return realSpawn2.spawnCli(cmd, args, opts);
+    });
+    vi.doMock('../src/workers/spawn-utils.js', () => ({
+      spawnCli: spawnMock,
+      runCli: realSpawn2.runCli,
+    }));
+    const workerSpawn = vi.fn().mockResolvedValue({ exitCode: 0, events: [], resultText: 'no-op', sessionId: null, durationMs: 1, timedOut: false });
+    vi.doMock('../src/workers/index.js', () => ({ getWorker: () => ({ name: 'pi', spawn: workerSpawn }) }));
+
+    const { localCiFixer: freshFixer } = await import('../src/integrations/autopr.js');
+    const res = await freshFixer({ repoPath: repo, pr: 7, taskId: 'TASK-fix-7', failedChecks: ['test'], prompt: 'fix it' });
+    expect(res.ok).toBe(false);
+    expect(res.note).toContain('no changes');
+
+    rmSync(repo, { recursive: true, force: true });
+    rmSync(bare, { recursive: true, force: true });
+  }, 30_000);
 });
 
 describe('sweepStalePrs', () => {

@@ -270,16 +270,98 @@ export interface CiFixRequest {
 export type CiFixer = (req: CiFixRequest) => Promise<{ ok: boolean; note: string }>;
 
 /**
+ * Local CI-Fixer dispatch: repair the PR in-place on this host when no remote
+ * pool is configured. Flow: checkout the PR head branch into a disposable
+ * worktree, run the configured worker with the fix prompt, commit everything,
+ * push with --force-with-lease, remove the worktree. The re-poll in
+ * autoReviewAndMergeOne judges the result from a fresh CI rollup — never from
+ * the fixer's own claim — so a no-op fix cannot turn into a merge.
+ */
+export async function localCiFixer(req: CiFixRequest): Promise<{ ok: boolean; note: string }> {
+  const { spawnCli } = await import('../workers/spawn-utils.js');
+  const runGit = async (args: string[], cwd: string, timeoutMs = 60_000) => {
+    const r = await spawnCli('git', args, { cwd, timeoutMs });
+    if (r.exitCode !== 0) {
+      throw new Error(`git ${args[0]} exited ${r.exitCode}: ${r.stderr.slice(0, 200)}`);
+    }
+    return r.stdout.trim();
+  };
+  const sh = (s: string): string => `'${s.replaceAll("'", `'\\''`)}'`;
+
+  // Resolve the PR's head branch (owner:branch form from gh pr view).
+  const head = await spawnCli(
+    'gh',
+    ['pr', 'view', String(req.pr), '--json', 'headRefName', '--jq', '.headRefName'],
+    { cwd: req.repoPath, timeoutMs: 15_000 },
+  );
+  if (head.exitCode !== 0) {
+    return { ok: false, note: `cannot resolve PR head branch: ${head.stderr.slice(0, 120)}` };
+  }
+  const branch = head.stdout.trim();
+  if (!branch) return { ok: false, note: 'PR head branch is empty' };
+
+  // Fetch the head branch tip, then check it out in a disposable worktree.
+  const wt = `${req.repoPath}/.devagent-worktrees/TASK-fix-${req.pr}`;
+  try {
+    await runGit(['fetch', 'origin', branch], req.repoPath);
+    // Worktree on a detached HEAD of the fetched tip: pushing back to the same
+    // branch never conflicts with a locally-checked-out branch, and the lease
+    // (FETCH_HEAD) still guards against a concurrent push.
+    await runGit(['worktree', 'add', '--detach', wt, 'FETCH_HEAD'], req.repoPath);
+
+    // Run the configured worker with the fix prompt inside the worktree.
+    const cfg = loadConfig(req.repoPath);
+    const timeoutMs = cfg.timeoutMinutes * 60_000;
+    if (cfg.worker === 'both') {
+      return { ok: false, note: 'local fixer requires a single worker, not fan-out (worker=both)' };
+    }
+    const workerName = cfg.worker;
+    const { getWorker } = await import('../workers/index.js');
+    const worker = getWorker(workerName);
+    const result = await worker.spawn({
+      prompt: req.prompt,
+      cwd: wt,
+      timeoutMs,
+      ...(process.env.DEVAGENT_NO_PROGRESS_TIMEOUT_MS ? { noProgressTimeoutMs: Number(process.env.DEVAGENT_NO_PROGRESS_TIMEOUT_MS) } : {}),
+    });
+    if (result.timedOut || result.exitCode !== 0) {
+      return { ok: false, note: `fix worker ${workerName} failed (exit ${result.exitCode}${result.timedOut ? ', timed out' : ''})` };
+    }
+
+    // Commit everything and push with lease against FETCH_HEAD.
+    const status = await spawnCli('git', ['status', '--porcelain'], { cwd: wt, timeoutMs: 15_000 });
+    if (status.exitCode !== 0) {
+      return { ok: false, note: `git status failed in fix worktree: ${status.stderr.slice(0, 120)}` };
+    }
+    if (!status.stdout.trim()) {
+      return { ok: false, note: 'fix worker made no changes — not pushing an empty commit' };
+    }
+    await runGit(['add', '-A'], wt);
+    await runGit(['commit', '-m', `devagent(TASK-fix-${req.pr}): fix failing CI checks`], wt);
+    await runGit(['push', '--force-with-lease=FETCH_HEAD', 'origin', `HEAD:refs/heads/${branch}`], wt);
+    return { ok: true, note: `fix pushed to ${branch} by ${workerName}` };
+  } catch (e) {
+    return { ok: false, note: `local fixer failed: ${(e as Error).message.slice(0, 200)}` };
+  } finally {
+    await spawnCli('git', ['worktree', 'remove', '--force', wt], { cwd: req.repoPath, timeoutMs: 30_000 });
+  }
+}
+
+/**
  * Built-in CI-Fixer dispatch: delegate a `devagent task` repair run to the
  * shared host over SSH (same transport as `task --remote`), keyed by a
- * TASK-fix-<pr> task id. Deployment opt-in: without DEVAGENT_REMOTE_TARGET the
- * dispatcher reports not-ok so the PR keeps a structured failure outcome
- * instead of pretending a fix ran.
+ * TASK-fix-<pr> task id. When DEVAGENT_REMOTE_TARGET is unset the dispatcher
+ * falls back to `localCiFixer` (repair in-place on this host) so a red PR
+ * always gets a fix attempt instead of a structured surrender.
  */
 export async function defaultCiFixer(req: CiFixRequest): Promise<{ ok: boolean; note: string }> {
   const target = process.env.DEVAGENT_REMOTE_TARGET;
   if (!target) {
-    return { ok: false, note: 'ci-fix not configured: set DEVAGENT_REMOTE_TARGET to enable the default fixer dispatch' };
+    const local = await localCiFixer(req);
+    if (!local.ok) {
+      return { ok: false, note: `ci-fix local dispatch: ${local.note}` };
+    }
+    return local;
   }
   const { runRemoteTask } = await import('../remote.js');
   const { spawnCli } = await import('../workers/spawn-utils.js');
