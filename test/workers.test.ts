@@ -393,3 +393,65 @@ describe('worker model passthrough', () => {
     );
   });
 });
+
+describe('opencode zero-event no-progress detection', () => {
+  const noSleep = async () => {};
+
+  it('classifies exit-0 zero-event empty-output as noProgress, not success', async () => {
+    ok('');
+    const res = await new OpenCodeAdapter(noSleep).spawn({ ...baseOpts, prompt: 'x' });
+    expect(res.exitCode).toBe(0);
+    expect(res.timedOut).toBe(false);
+    expect(res.events).toEqual([]);
+    expect(res.resultText).toBeNull();
+    expect(res.noProgress).toBe(true);
+  });
+
+  it('surfaces noProgress on the last zero-event attempt when the budget is exhausted', async () => {
+    // apiMaxAttempts=1: no probe budget remains, the zero-event attempt must
+    // surface as noProgress rather than a false success.
+    resultQueue = [{ error: null, stdout: '', stderr: '' }];
+    const res = await new OpenCodeAdapter(noSleep).spawn({ ...baseOpts, prompt: 'x', apiMaxAttempts: 1 });
+    expect(execFileMock).toHaveBeenCalledTimes(1);
+    expect(res.noProgress).toBe(true);
+  });
+
+  it('bails out immediately when the cheap probe returns empty output', async () => {
+    // First call: real prompt returns exit 0 with zero events. Second call:
+    // the cheap probe also returns empty output (dead endpoint).
+    resultQueue = [
+      { error: null, stdout: '', stderr: '' },
+      { error: null, stdout: '', stderr: '' },
+    ];
+    const res = await new OpenCodeAdapter(noSleep).spawn({ ...baseOpts, prompt: 'ship it', apiMaxAttempts: 3 });
+    expect(execFileMock).toHaveBeenCalledTimes(2);
+    const probeCall = (execFileMock.mock.calls[1] as unknown[])[1] as string[];
+    expect(probeCall.at(-1)).toBe('Reply with the single word: ok');
+    expect(res.noProgress).toBe(true);
+    expect(res.exitCode).toBe(0);
+    expect(res.resultText).toBeNull();
+  });
+
+  it('keeps retrying when the cheap probe proves the endpoint alive', async () => {
+    // Attempt 1: zero-event exit-0. Probe: alive (non-empty response).
+    // Attempt 2: normal success.
+    resultQueue = [
+      { error: null, stdout: '', stderr: '' },
+      { error: null, stdout: JSON.stringify({ type: 'text', text: 'pong', sessionID: 's-p1' }), stderr: '' },
+      { error: null, stdout: JSON.stringify({ type: 'text', text: 'real work done', sessionID: 's-p1' }), stderr: '' },
+    ];
+    const res = await new OpenCodeAdapter(noSleep).spawn({ ...baseOpts, prompt: 'ship it', apiMaxAttempts: 3 });
+    expect(execFileMock).toHaveBeenCalledTimes(3);
+    expect(res.noProgress).toBeUndefined();
+    expect(res.exitCode).toBe(0);
+    expect(res.resultText).toBe('real work done');
+  });
+
+  it('normal successful runs are unaffected (no noProgress flag)', async () => {
+    ok(JSON.stringify({ type: 'text', text: 'shipped', sessionID: 'oc-1' }));
+    const res = await new OpenCodeAdapter(noSleep).spawn({ ...baseOpts, prompt: 'x' });
+    expect(res.exitCode).toBe(0);
+    expect(res.resultText).toBe('shipped');
+    expect(res.noProgress).toBeUndefined();
+  });
+});

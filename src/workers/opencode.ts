@@ -9,6 +9,17 @@ import { isRetryableWithoutSession, isTransientProviderError } from '../resilien
 const RESUME_PROMPT = 'Continue';
 const DEFAULT_API_MAX_ATTEMPTS = Infinity;
 
+/**
+ * Cheap liveness probe for the zero-event/empty-output signature (loop 59
+ * run-11: a hung opencode burned all retry attempts on full-timeout runs
+ * while a trivial probe returned empty output). Short wall-clock deadline:
+ * an alive endpoint answers in seconds; anything else (empty output, error,
+ * timeout, spawn failure) means the endpoint is dead and retrying the real
+ * prompt would only burn the remaining budget.
+ */
+const PROBE_TIMEOUT_MS = 30_000;
+const PROBE_PROMPT = 'Reply with the single word: ok';
+
 function resolveNoProgressTimeoutMs(explicit: number | undefined): number {
   if (explicit !== undefined) return explicit;
   const env = process.env.DEVAGENT_NO_PROGRESS_TIMEOUT_MS;
@@ -53,6 +64,7 @@ export class OpenCodeAdapter implements WorkerAdapter {
     let lastEvents: WorkerEvent[] = [];
     let lastResultText: string | null = null;
     let binary: 'opencode' | 'opencode2' = 'opencode';
+    let noProgress = false;
     let args = baseArgs(opts, binary);
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -102,8 +114,31 @@ export class OpenCodeAdapter implements WorkerAdapter {
       lastEvents = outcome.events;
       lastResultText = outcome.resultText;
 
-      const ok = raw.exitCode === 0 && !outcome.isError && !raw.timedOut;
+      const zeroEvent = isZeroEventNoProgress(outcome, raw);
+      const ok = raw.exitCode === 0 && !outcome.isError && !raw.timedOut && !zeroEvent;
       if (ok) break;
+
+      // Zero-event empty-output signature: probe cheaply before burning the
+      // next full attempt (loop 59 run-11). A dead endpoint bails out
+      // immediately with noProgress so callers can fall back; a live one
+      // gets the normal backoff retry (fresh prompt, since a silent run
+      // typically emitted no session id to resume).
+      if (zeroEvent) {
+        if (attempt < maxAttempts && Date.now() < wallDeadline) {
+          const probe = await probeEndpointAlive(opts, binary, attempt);
+          if (!probe.alive) {
+            noProgress = true;
+            break;
+          }
+          await this.sleep(backoffDelay(attempt));
+          args = sessionId ? resumeArgs(sessionId, opts, binary) : baseArgs(opts, binary);
+          continue;
+        }
+        // No budget for another attempt: surface the no-progress outcome
+        // instead of a false success.
+        noProgress = true;
+        break;
+      }
 
       if (attempt === maxAttempts) break;
       if (raw.exitCode === -1 && !raw.timedOut) break; // spawn failure (ENOENT etc) — never loops forever
@@ -146,6 +181,9 @@ export class OpenCodeAdapter implements WorkerAdapter {
       sessionId,
       durationMs: Date.now() - start,
       timedOut: false,
+      // Zero-event attempts (probe-dead bail or exhausted budget) surface as
+      // noProgress, never as a false success.
+      ...(noProgress ? { noProgress: true } : {}),
     };
   }
 }
@@ -172,6 +210,45 @@ function resumeArgs(sessionId: string, opts: WorkerSpawnOptions, binary: 'openco
 
 function isSpawnFailure(run: SpawnCliResult): boolean {
   return run.exitCode === -1 && !run.stdout.trim() && !run.stderr.trim() && !run.timedOut;
+}
+
+/**
+ * The zero-event/empty-output signature: exit 0 but no parsed events and no
+ * result text (pure garbage or empty stdout parses the same). Not a success —
+ * the worker turned nothing. Classified as noProgress so callers can
+ * distinguish it from success and fall back cheaply.
+ */
+function isZeroEventNoProgress(outcome: OpencodeOutcome, run: SpawnCliResult): boolean {
+  return run.exitCode === 0 && !run.timedOut && outcome.events.length === 0 && !outcome.resultText;
+}
+
+interface ProbeResult {
+  /** True when the probe got a non-empty response (endpoint alive). */
+  alive: boolean;
+}
+
+/**
+ * Short-deadline trivial probe run before spending another full retry attempt
+ * on the zero-event signature. Alive = non-empty output; empty/error/timed-out
+ * responses all mean the endpoint is dead and further attempts are waste.
+ */
+async function probeEndpointAlive(
+  opts: WorkerSpawnOptions,
+  binary: 'opencode' | 'opencode2',
+  attempt: number,
+): Promise<ProbeResult> {
+  const probeArgs = baseArgs({ ...opts, prompt: PROBE_PROMPT }, binary);
+  const prepared = await prepareWorkerSpawn(binary, probeArgs, {
+    cwd: opts.cwd,
+    timeoutMs: PROBE_TIMEOUT_MS,
+    ...(opts.env ? { env: opts.env } : {}),
+  });
+  const raw = await runWorkerCli(prepared.cmd, prepared.args, {
+    ...prepared.opts,
+    ...(opts.herdr ? { herdr: true } : {}),
+    label: `devagent ${binary} probe #${attempt}`,
+  });
+  return { alive: raw.exitCode === 0 && !raw.timedOut && raw.stdout.trim().length > 0 };
 }
 
 interface OpencodeOutcome {
