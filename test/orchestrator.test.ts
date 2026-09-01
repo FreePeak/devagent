@@ -159,6 +159,27 @@ describe('runScheduler', () => {
     // the whole board finishing.
     expect(published).toEqual(['T1', 'T2']);
     expect(b.tasks.every((t) => t.status === 'done')).toBe(true);
+    // PR URL is persisted as published evidence for each done task
+    expect(b.tasks.every((t) => t.prUrl === 'https://github.com/x/y/pull/1')).toBe(true);
+  });
+
+  it('records task.prUrl on the audited path and leaves it unset when publish fails or returns null', async () => {
+    const b = board([task({ id: 'T1' }), task({ id: 'T2' })]);
+    await runScheduler(
+      b,
+      { repoPath: '.', executor: 'opencode', concurrency: 2, maxTaskRetries: 1, timeoutMs: 1000 },
+      {
+        executeTask: async () => ({ ok: true }),
+        auditTask: async () => ({ verdict: 'pass', integrity: 'clean', criteriaResults: [], summary: 'ok' }),
+        publishTaskPr: async ({ task: t }) => (t.id === 'T1' ? null : Promise.reject(new Error('gh down'))),
+      },
+      log,
+    );
+    expect(b.tasks.find((t) => t.id === 'T1')!.status).toBe('done');
+    expect(b.tasks.find((t) => t.id === 'T1')!.prUrl).toBeUndefined();
+    // publish failure is non-fatal: T2 still done, just without a PR URL
+    expect(b.tasks.find((t) => t.id === 'T2')!.status).toBe('done');
+    expect(b.tasks.find((t) => t.id === 'T2')!.prUrl).toBeUndefined();
   });
 
   it('does not publish a PR for a task that fails the gate', async () => {
