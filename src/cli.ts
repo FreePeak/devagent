@@ -803,6 +803,25 @@ program
       const allDone = result.tasks.length > 0 && result.tasks.every((t) => t.status === 'done');
       if (!allDone || cfg.dryRunMerge) return;
 
+      // Zombie-PR hygiene (PRD §17) on the all-done path: reap PRs whose base
+      // branch died and hold the merge-back while any TASK PR is still red
+      // across the grace window (merge only provably green work).
+      try {
+        const { sweepTaskPrHygiene } = await import('./orchestrator/pr-hygiene.js');
+        const hygiene = await sweepTaskPrHygiene(opts.repo, { autoMerge: true, log: (m) => logger.info('task', m, {}) });
+        for (const o of hygiene.outcomes) {
+          if (o.action !== 'untouched' && o.action !== 'skipped') logger.info('task', `pr-hygiene #${o.pr} ${o.action} (${o.reason}): ${o.detail.slice(0, 160)}`, {});
+        }
+        if (hygiene.skipAutoMerge) {
+          logger.warn('task', 'merge-back skipped: red-across-grace TASK PR(s) present; re-run when CI is green', {});
+          console.log('\nMerge-back skipped: red-across-grace TASK PR(s) present; re-run with --resume when CI is green.');
+          return;
+        }
+      } catch (err) {
+        // hygiene is best-effort; never block the merge-back on a sweep crash
+        logger.warn('task', `pr-hygiene sweep failed (continuing): ${(err as Error).message}`, {});
+      }
+
       const baseBranch = loadConfig(opts.repo).githubBaseBranch ?? 'main';
       console.log(`\nAll tasks done — merging into ${baseBranch}...`);
       const git = await import('./git/worktree.js');
@@ -1140,6 +1159,37 @@ program
       const acted = outcomes.filter((o) => o.action === 'superseded' || o.action === 'closed').length;
       console.log(`
 ${acted}/${outcomes.length} PR(s) ${opts.apply ? 'swept' : 'flagged (dry-run; pass --apply to act)'}`);
+    } catch (err) {
+      console.error((err as Error).message);
+      process.exitCode = 1;
+    }
+  });
+
+program
+  .command('pr-hygiene')
+  .description('Zombie-PR hygiene for devagent/TASK-* PRs: close base-superseded, flag red-across-grace (skips autoMerge until green)')
+  .option('--repo <path>', 'target repository (used for gh context)', process.cwd())
+  .option('--grace-hours <hours>', 'hours a PR may stay red before being flagged (default from config prHygiene.graceHours)', Number)
+  .option('--auto-merge', 'report skipAutoMerge when a red-across-grace PR would have merged (default from config autoMerge)', false)
+  .option('--apply', 'comment and close for real (default: config prHygiene.dryRun, itself defaulting to dry-run)', false)
+  .action(async (opts) => {
+    const { sweepTaskPrHygiene } = await import('./orchestrator/pr-hygiene.js');
+    try {
+      const { outcomes, skipAutoMerge } = await sweepTaskPrHygiene(opts.repo, {
+        graceHours: opts.graceHours,
+        dryRun: !opts.apply,
+        autoMerge: opts.autoMerge || loadConfig(opts.repo).autoMerge || false,
+        log: (msg) => console.log(msg),
+      });
+      for (const o of outcomes) {
+        console.log(`#${o.pr} ${o.action} (${o.reason}): ${o.detail}`);
+      }
+      const acted = outcomes.filter((o) => o.action === 'closed' || o.action === 'flagged').length;
+      console.log(
+        `\n${acted}/${outcomes.length} PR(s) ${opts.apply ? 'swept' : 'flagged (dry-run; pass --apply to act)'}` +
+          (skipAutoMerge ? '\nautoMerge skipped: red-across-grace PR(s) present' : ''),
+      );
+      if (skipAutoMerge) process.exitCode = 1;
     } catch (err) {
       console.error((err as Error).message);
       process.exitCode = 1;

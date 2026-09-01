@@ -69,6 +69,14 @@ export interface DevAgentConfig {
    * across `graceDays` get auto-closed. dryRun (the default) only reports.
    */
   zombiePrs?: { graceDays?: number; dryRun?: boolean };
+  /**
+   * Zombie-PR hygiene for `devagent/TASK-*` PRs (PRD §17, `devagent
+   * pr-hygiene`): auto-close PRs whose head base branch was merged or
+   * deleted (base-superseded), flag PRs red across `graceHours` (default 24)
+   * and skip autoMerge until a green check arrives. dryRun (the default)
+   * only reports.
+   */
+  prHygiene?: { graceHours?: number; dryRun?: boolean };
 }
 
 export interface Credentials {
@@ -156,6 +164,12 @@ export function loadConfig(repoPath: string = process.cwd()): DevAgentConfig {
     const z = config.zombiePrs;
     if (z.graceDays !== undefined && (!Number.isFinite(z.graceDays) || z.graceDays < 0)) {
       throw new Error(`Invalid zombiePrs.graceDays "${z.graceDays}"; expected >= 0`);
+    }
+  }
+  if (config.prHygiene !== undefined) {
+    const h = config.prHygiene;
+    if (h.graceHours !== undefined && (!Number.isFinite(h.graceHours) || h.graceHours < 0)) {
+      throw new Error(`Invalid prHygiene.graceHours "${h.graceHours}"; expected >= 0`);
     }
   }
   return config;
