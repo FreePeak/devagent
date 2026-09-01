@@ -191,6 +191,17 @@ export async function executeTask(args: {
   const { getWorker } = await import('../workers/index.js');
   const { runTestGate } = await import('../validation/test-gate.js');
 
+  // Model preflight (PRD Phase 4 "Provider model-id validation at dispatch", Q32):
+  // reject an invalid config.model BEFORE worktree creation or any worker spend
+  // so a bad id fails at the gate in seconds instead of burning attempts
+  // mid-board (loop 58: `--model coding` exit-1-in-12s repeated 3x).
+  const { validateWorkerModel, loadConfig: loadCfg } = await import('../config.js');
+  const modelProblem = validateWorkerModel(executor, loadCfg(repoPath).model);
+  if (modelProblem) {
+    log.error('task', `${task.id} dispatch preflight failed: ${modelProblem}`, {});
+    return { ok: false, detail: `dispatch preflight: ${modelProblem}`, failureClass: 'config' as ExecutorFailureClass };
+  }
+
   const criteria = [...(task.acceptanceCriteria ?? []), ...(task.expectedOutput ? [task.expectedOutput] : [])];
   const ticket = {
     id: task.id,

@@ -176,6 +176,34 @@ export function loadConfig(repoPath: string = process.cwd()): DevAgentConfig {
 }
 
 /**
+ * Validate `config.model` against the worker adapter's accepted id shape at
+ * dispatch preflight (PRD Phase 4 backlog: "Provider model-id validation at
+ * dispatch", Q32).
+ *
+ * Per-adapter semantics (mirrors what buildOmpArgs / buildPiArgs already do
+ * defensively at argv build time):
+ * - omp / pi: require provider-qualified `provider/model` ids (fuzzy matched).
+ *   Driver tier aliases like "coding" are claude-proxy selectors, not omp/pi
+ *   ids: `--model coding` exits 1 in ~12s with no output (loop 58, attempts
+ *   1-3). Rejecting at the gate turns a mid-board burn into a fast, explicit
+ *   failure.
+ * - claude-code / opencode: pass `config.model` through untouched (their
+ *   adapters own id normalization), so any value is accepted here.
+ * - unset/empty model: always valid (the worker CLI falls back to its own
+ *   configured default).
+ *
+ * Returns null when the model is acceptable; otherwise a one-line reason
+ * suitable for failure detail / log output.
+ */
+export function validateWorkerModel(worker: WorkerName, model: string | undefined): string | null {
+  if (worker !== 'omp' && worker !== 'pi') return null; // claude-code/opencode pass through
+  const raw = model?.trim();
+  if (raw === undefined || raw === '') return null; // unset = adapter default
+  if (raw.includes('/')) return null; // provider-qualified: pass through
+  return `worker "${worker}" requires a provider-qualified model id ("provider/model", e.g. omniroute/bai/glm-5.3-flash); got "${raw}" (driver tier aliases like "coding" are not valid ${worker} ids)`;
+}
+
+/**
  * Whether worker commands should execute inside herdr panes. Config opt-in
  * (`herdr.enabled`), with DEVAGENT_HERDR=1|0 as an env override.
  */

@@ -1,9 +1,9 @@
 import { basename } from 'node:path';
 import { existsSync } from 'node:fs';
 import type { Credentials, } from './config.js';
-import { herdrEnabled, loadConfig } from './config.js';
+import { herdrEnabled, loadConfig, validateWorkerModel } from './config.js';
 import type { PipelineDeps, ImplementResult } from './pipeline.js';
-import type { ExecutorFailureClass, RunConfig, TicketClass, TicketSpec } from './types.js';
+import type { ExecutorFailureClass, RunConfig, TicketClass, TicketSpec, WorkerName } from './types.js';
 import type { RunLogger } from './logger.js';
 import type { ImplementationPlan } from './planner.js';
 import type { FanoutLeg } from './workers/fanout.js';
@@ -97,7 +97,16 @@ export function buildDeps(creds: Credentials, cfg: StageConfig, log: RunLogger):
       const r = runMigrationStaticGate({ repoPath, classification });
       return { passed: r.passed, findings: r.findings, detail: r.detail };
     },
-    implementStage: (c, plan, lg) => implementStage(cfg, plan as ImplementationPlan, lg),
+    // Forward worker/model/variant from the pipeline's RunConfig — buildDeps'
+    // own StageConfig param doesn't carry model/variant, and direct callers
+    // (task path, tests) pass their own cfg — but the dispatch preflight and
+    // the worker adapters both need the effective worker + model id.
+    implementStage: (c, plan, lg) =>
+      implementStage(
+        { ...cfg, ...(c.worker !== undefined ? { worker: c.worker } : {}), model: c.model, variant: c.variant },
+        plan as ImplementationPlan,
+        lg,
+      ),
     publishStage: async (c, planRaw, impl) => {
       const plan = planRaw as ImplementationPlan;
       // With cleanup=auto a successful implement already snapshotted and removed
@@ -188,6 +197,24 @@ export async function implementStage(
   plan: ImplementationPlan,
   log: RunLogger,
 ): Promise<ImplementResult> {
+  // Model preflight (PRD Phase 4 "Provider model-id validation at dispatch", Q32):
+  // reject an invalid model id BEFORE worktree creation or any worker spend so
+  // a bad id fails at the gate in seconds instead of burning attempts
+  // mid-board (loop 58: `--model coding` exit-1-in-12s repeated 3x).
+  const modelWorkers: WorkerName[] = cfg.worker === 'both' ? ['claude-code', 'opencode'] : [cfg.worker];
+  for (const w of modelWorkers) {
+    const modelProblem = validateWorkerModel(w, cfg.model);
+    if (modelProblem) {
+      log.error('implement', `Dispatch preflight failed: ${modelProblem}`, {});
+      return {
+        ok: false,
+        worker: cfg.worker === 'both' ? 'claude-code' : w,
+        attempts: 0,
+        failureClass: 'config' as ExecutorFailureClass,
+      };
+    }
+  }
+
   // herdr pane runtime: opt-in from config (`herdr.enabled`) or env override.
   // The task path (`devagent task`) historically skipped this — only the
   // orchestrator executor passed herdr:true — so panes never appeared in the

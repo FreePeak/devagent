@@ -43,6 +43,8 @@ export type ExecutorFailureClass =
   | 'worktree'
   /** Transient provider failure that would normally be retried, not terminal. */
   | 'transient-provider'
+  /** Dispatch preflight rejected the run config (e.g. model id invalid for the adapter). */
+  | 'config'
   /** Failure we could not classify into a known class. */
   | 'unknown';
 
