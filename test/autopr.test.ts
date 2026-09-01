@@ -3,10 +3,13 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
+  ageHours,
+  autoReviewAndMerge,
   autoReviewAndMergeOne,
   defaultCiFixer,
   evaluateAutoReview,
   evaluateChecks,
+  evaluateMergeQueueGate,
   scanAddedLinesForHazards,
   sweepStalePrs,
   type CiFixRequest,
@@ -177,6 +180,73 @@ describe('evaluateAutoReview', () => {
   });
 });
 
+describe('evaluateMergeQueueGate', () => {
+  const red = prStatus({
+    checks: [{ name: 'test', status: 'COMPLETED', conclusion: 'FAILURE' }],
+    updatedAt: new Date(Date.now() - 30 * 3_600_000).toISOString(),
+  });
+
+  it('skips a PR red across the grace window', () => {
+    const v = evaluateMergeQueueGate(red, { graceHours: 24, now: Date.now() });
+    expect(v.skip).toBe(true);
+    expect(v.reason).toBe('red-across-grace');
+    expect(v.detail).toContain('24h grace');
+  });
+
+  it('passes a PR red within the grace window', () => {
+    const fresh = prStatus({
+      checks: [{ name: 'test', status: 'COMPLETED', conclusion: 'FAILURE' }],
+      updatedAt: new Date(Date.now() - 2 * 3_600_000).toISOString(),
+    });
+    const v = evaluateMergeQueueGate(fresh, { graceHours: 24, now: Date.now() });
+    expect(v).toEqual({ skip: false });
+  });
+
+  it('treats an unparseable updatedAt as overdue (consistent with the sweeps)', () => {
+    const v = evaluateMergeQueueGate(
+      prStatus({ checks: [{ name: 'test', status: 'COMPLETED', conclusion: 'FAILURE' }], updatedAt: 'not-a-date' }),
+      { graceHours: 24, now: Date.now() },
+    );
+    expect(v.skip).toBe(true);
+    expect(v.reason).toBe('red-across-grace');
+  });
+
+  it('never skips on grace when checks are pending or green', () => {
+    expect(evaluateMergeQueueGate(prStatus(), { graceHours: 0, now: Date.now() }).skip).toBe(false);
+    expect(
+      evaluateMergeQueueGate(prStatus({ checks: [{ name: 'test', status: 'IN_PROGRESS', conclusion: null }] }), {
+        graceHours: 0,
+        now: Date.now(),
+      }).skip,
+    ).toBe(false);
+  });
+
+  it('skips a non-candidate head superseded by a same-base candidate', () => {
+    const conflicting = prStatus({ number: 7, mergeable: 'CONFLICTING' });
+    const v = evaluateMergeQueueGate(conflicting, { supersedingCandidate: 9 });
+    expect(v.skip).toBe(true);
+    expect(v.reason).toBe('superseded');
+    expect(v.detail).toContain('#9');
+  });
+
+  it('does not skip when this PR is the candidate or no candidate is given', () => {
+    expect(evaluateMergeQueueGate(prStatus({ mergeable: 'CONFLICTING' }), {}).skip).toBe(false);
+    expect(evaluateMergeQueueGate(prStatus({ mergeable: 'CONFLICTING' }), { supersedingCandidate: 9 }).skip).toBe(false);
+  });
+
+  it('supersession requires completed checks with no failures (evidence rule)', () => {
+    const pending = prStatus({ number: 7, mergeable: 'CONFLICTING', checks: [{ name: 'test', status: 'IN_PROGRESS', conclusion: null }] });
+    const failing = prStatus({ number: 7, mergeable: 'CONFLICTING', checks: [{ name: 'test', status: 'COMPLETED', conclusion: 'FAILURE' }] });
+    expect(evaluateMergeQueueGate(pending, { supersedingCandidate: 9 }).skip).toBe(false);
+    expect(evaluateMergeQueueGate(failing, { supersedingCandidate: 9 }).skip).toBe(false);
+  });
+
+  it('ageHours matches the sweep implementation', () => {
+    expect(ageHours(new Date(Date.now() - 48 * 3_600_000).toISOString(), Date.now())).toBeGreaterThanOrEqual(47.9);
+    expect(ageHours('not-a-date', Date.now())).toBeNull();
+  });
+});
+
 describe('autoReviewAndMergeOne', () => {
   const basePr = {
     number: 9,
@@ -188,6 +258,8 @@ describe('autoReviewAndMergeOne', () => {
     reviewDecision: '',
     author: { login: 'someone-else' },
     statusCheckRollup: [{ name: 'test', status: 'COMPLETED', conclusion: 'SUCCESS' }],
+    // gh always reports updatedAt; the merge-queue grace gate reads it
+    updatedAt: new Date().toISOString(),
   };
   const viewJson = JSON.stringify(basePr);
 
@@ -607,6 +679,91 @@ describe('localCiFixer', () => {
   }, 30_000);
 });
 
+describe('merge-queue gate in autoReviewAndMergeOne (skip with a reason instead of parking the queue)', () => {
+  const basePr = {
+    number: 9,
+    title: 'T',
+    headRefName: 'devagent/x',
+    baseRefName: 'main',
+    state: 'OPEN',
+    mergeable: 'MERGEABLE',
+    reviewDecision: '',
+    author: { login: 'someone-else' },
+    statusCheckRollup: [{ name: 'test', status: 'COMPLETED', conclusion: 'SUCCESS' }],
+    updatedAt: new Date().toISOString(),
+  };
+  const viewJson = JSON.stringify(basePr);
+
+  const staleRedView = JSON.stringify({
+    ...basePr,
+    statusCheckRollup: [{ name: 'test', status: 'COMPLETED', conclusion: 'FAILURE' }],
+    updatedAt: new Date(Date.now() - 30 * 3_600_000).toISOString(),
+  });
+  const freshRedView = JSON.stringify({
+    ...basePr,
+    statusCheckRollup: [{ name: 'test', status: 'COMPLETED', conclusion: 'FAILURE' }],
+  });
+  const conflictingView = JSON.stringify({ ...basePr, number: 7, mergeable: 'CONFLICTING' });
+
+  it('skips a PR red across the grace window without a fixer dispatch or review', async () => {
+    const { run, calls } = scriptedGh({ view: staleRedView, diff: '', review: '', merge: '', comment: '' });
+    const o = await autoReviewAndMergeOne('/repo', 9, { graceHours: 24, fixer: async () => ({ ok: true, note: 'never' }) }, run);
+    expect(o.action).toBe('skipped');
+    expect(o.detail).toContain('red-across-grace');
+    expect(o.detail).toContain('24h grace');
+    expect(calls.some((c) => c[1] === 'review' || c[1] === 'comment')).toBe(false);
+    expect(calls.some((c) => c[1] === 'merge')).toBe(false);
+  });
+
+  it('lets a red-within-grace PR reach the CI-Fixer path (unchanged behavior)', async () => {
+    const { run, calls } = scriptedGh({ view: freshRedView, diff: '', merge: '' });
+    const fixCalls: CiFixRequest[] = [];
+    const o = await autoReviewAndMergeOne(
+      '/repo',
+      9,
+      { graceHours: 24, fixer: async (req) => { fixCalls.push(req); return { ok: false, note: 'pool busy' }; } },
+      run,
+    );
+    expect(fixCalls).toHaveLength(1); // the CI-Fixer still gets its shot
+    expect(o.action).toBe('ci-fix-failed');
+    expect(calls.some((c) => c[1] === 'merge')).toBe(false);
+  });
+
+  it('skips a PR whose head base branch was merged or deleted (base-superseded)', async () => {
+    const { run, calls } = scriptedGh({
+      view: JSON.stringify({ ...basePr, baseRefName: 'devagent/TASK-mtioq4ik-T0-a0' }),
+      diff: '',
+      review: '',
+      merge: '',
+      // the branch probe: gh api 404s for the dead base
+      api: new Error('gh: Not Found (404)'),
+    });
+    const o = await autoReviewAndMergeOne('/repo', 9, {}, run);
+    expect(o.action).toBe('skipped');
+    expect(o.detail).toContain('base-superseded');
+    expect(o.detail).toContain('merged or deleted');
+    expect(calls.some((c) => c[1] === 'review' || c[1] === 'comment')).toBe(false);
+    expect(calls.some((c) => c[1] === 'merge')).toBe(false);
+  });
+
+  it('skips a non-candidate head superseded by a same-base candidate', async () => {
+    const { run, calls } = scriptedGh({ view: conflictingView, diff: '', review: '', merge: '', comment: '', api: '' });
+    const o = await autoReviewAndMergeOne('/repo', 7, { supersedingCandidate: 9 }, run);
+    expect(o.action).toBe('skipped');
+    expect(o.detail).toContain('superseded');
+    expect(o.detail).toContain('#9');
+    expect(calls.some((c) => c[1] === 'review' || c[1] === 'comment')).toBe(false);
+    expect(calls.some((c) => c[1] === 'merge')).toBe(false);
+  });
+
+  it('never skips a green candidate even with a superseding number passed', async () => {
+    const { run, calls } = scriptedGh({ view: viewJson, diff: '', review: '', merge: '', api: '' });
+    const o = await autoReviewAndMergeOne('/repo', 9, { supersedingCandidate: 9 }, run);
+    expect(o.action).toBe('merged');
+    expect(calls.some((c) => c[1] === 'merge')).toBe(true);
+  });
+});
+
 describe('sweepStalePrs', () => {
   /** Raw gh JSON for a listOpenPrs response. */
   function prJson(overrides: Record<string, unknown>): string {
@@ -792,5 +949,83 @@ describe('sweepStalePrs', () => {
     expect(outcomes[0]!.action).toBe('skipped');
     expect(outcomes[0]!.detail).toContain('CLOSED');
     expect(calls.filter((c) => c[1] === 'close' || c[1] === 'comment')).toHaveLength(0);
+  });
+});
+
+describe('autoReviewAndMerge (supersession view)', () => {
+  function scriptedBatchGh(extra: Record<string, string | Error> = {}): { run: RunGh; calls: string[][] } {
+    const calls: string[][] = [];
+    const run: RunGh = async (args) => {
+      calls.push(args);
+      const key = args[0] === 'pr' ? args[1] : args[0];
+      const r = extra[key];
+      if (r instanceof Error) throw r;
+      return { stdout: r ?? '', stderr: '' };
+    };
+    return { run, calls };
+  }
+
+  it('skips superseded siblings and red-across-grace PRs in one batch, merges the candidate', async () => {
+    // Per-PR view payloads (the batch probes each PR individually).
+    const views: Record<number, string> = {
+      7: JSON.stringify({
+        number: 7, title: 'conflicting', headRefName: 'devagent/old', baseRefName: 'main',
+        state: 'OPEN', mergeable: 'CONFLICTING', reviewDecision: '', headRefOid: 'old111',
+        updatedAt: new Date().toISOString(), author: { login: 'devagent[bot]' },
+        statusCheckRollup: [{ name: 'test', status: 'COMPLETED', conclusion: 'SUCCESS' }],
+      }),
+      4: JSON.stringify({
+        number: 4, title: 'red across grace', headRefName: 'devagent/red', baseRefName: 'main',
+        state: 'OPEN', mergeable: 'MERGEABLE', reviewDecision: '', headRefOid: 'red444',
+        updatedAt: new Date(Date.now() - 30 * 3_600_000).toISOString(), author: { login: 'devagent[bot]' },
+        statusCheckRollup: [{ name: 'test', status: 'COMPLETED', conclusion: 'FAILURE' }],
+      }),
+      9: JSON.stringify({
+        number: 9, title: 'candidate', headRefName: 'devagent/new', baseRefName: 'main',
+        state: 'OPEN', mergeable: 'MERGEABLE', reviewDecision: '', headRefOid: 'new222',
+        updatedAt: new Date().toISOString(), author: { login: 'devagent[bot]' },
+        statusCheckRollup: [{ name: 'test', status: 'COMPLETED', conclusion: 'SUCCESS' }],
+      }),
+    };
+    const calls: string[][] = [];
+    const run: RunGh = async (args) => {
+      calls.push(args);
+      const key = args[0] === 'pr' ? args[1] : args[0];
+      if (key === 'list') {
+        return { stdout: JSON.stringify(Object.values(views).map((v) => JSON.parse(v))), stderr: '' };
+      }
+      if (key === 'view') {
+        const n = Number(args[2]);
+        return { stdout: views[n] ?? '', stderr: '' };
+      }
+      return { stdout: '', stderr: '' };
+    };
+    const outcomes = await autoReviewAndMerge('/repo', { graceHours: 24, log: () => {} }, run);
+    // #4 red across grace; #7 superseded by #9 (same base, non-candidate head); #9 merged.
+    expect(outcomes.map((o) => [o.pr, o.action])).toEqual([
+      [4, 'skipped'], [7, 'skipped'], [9, 'merged'],
+    ]);
+    expect(outcomes[0]!.detail).toContain('red-across-grace');
+    expect(outcomes[1]!.detail).toContain('superseded');
+    expect(outcomes[1]!.detail).toContain('#9');
+    // only the candidate was reviewed and merged
+    expect(calls.filter((c) => c[1] === 'review')).toHaveLength(1);
+    expect(calls.filter((c) => c[1] === 'merge')).toHaveLength(1);
+  });
+
+  it('an explicit --pr set bypasses the supersession view (hand-picked batches override)', async () => {
+    const conflictingView = JSON.stringify({
+      number: 7, title: 'conflicting', headRefName: 'devagent/old', baseRefName: 'main',
+      state: 'OPEN', mergeable: 'CONFLICTING', reviewDecision: '', headRefOid: 'old111',
+      updatedAt: new Date().toISOString(), author: { login: 'devagent[bot]' },
+      statusCheckRollup: [{ name: 'test', status: 'COMPLETED', conclusion: 'SUCCESS' }],
+    });
+    const { run, calls } = scriptedBatchGh({ view: conflictingView, diff: '', review: '', merge: '', api: '' });
+    // no `list` response: the view must come only from pr view; pr 7 reaches
+    // the review path because no superseding candidate was computed
+    const outcomes = await autoReviewAndMerge('/repo', { prNumbers: [7], log: () => {} }, run);
+    expect(outcomes).toHaveLength(1);
+    expect(outcomes[0]!.detail).not.toContain('superseded');
+    expect(calls.some((c) => c[0] === 'pr' && c[1] === 'list')).toBe(false);
   });
 });

@@ -1147,6 +1147,7 @@ program
   .option('--base <branch>', 'only PRs targeting this base branch')
   .option('--method <method>', 'squash | merge | rebase', 'squash')
   .option('--timeout <seconds>', 'max seconds to wait for pending checks', Number, 300)
+  .option('--grace-hours <hours>', 'hours a PR may stay red before the queue skips it (default from config prHygiene.graceHours)', Number)
   .option('--dry-run', 'evaluate and print verdicts without reviewing or merging', false)
   .action(async (opts) => {
     const { autoReviewAndMerge } = await import('./integrations/autopr.js');
@@ -1157,6 +1158,7 @@ program
         method: opts.method,
         dryRun: opts.dryRun,
         waitForChecksSec: opts.timeout,
+        graceHours: opts.graceHours,
         log: (msg) => console.log(msg),
       });
       const merged = outcomes.filter((o) => o.action === 'merged').length;
