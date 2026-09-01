@@ -1,5 +1,6 @@
 import type { AuditVerdict, OrchestratorTask, ProjectBoard } from './types.js';
 import { recomputeReadiness } from './types.js';
+import { appendTaskDiagnosticRecord, taskDiagnosticLedgerRecord, type TaskFailureClass } from './ledger.js';
 import type { RunLogger } from '../logger.js';
 import type { WorkerName } from '../types.js';
 import type { ResourceGovernor, OsSnapshot } from './governor.js';
@@ -21,6 +22,9 @@ export interface ExecuteTaskResult {
   ok: boolean;
   worktreePath?: string;
   detail?: string;
+  /** Scheduler-level failure evidence threaded into the ledger diagnostics row. */
+  lastCommand?: string;
+  durationMs?: number;
 }
 
 export interface SchedulerDeps {
@@ -136,6 +140,40 @@ export async function runScheduler(
 
   let activeWorkers = 0;
   let wave = 0;
+
+  /**
+   * Emit a structured diagnostic row on task termination (Phase 4 executor
+   * failure surface). Best-effort: a diagnostics failure must never fail the
+   * scheduler. `startedAt` bounds the terminated attempt's wall-clock cost.
+   */
+  const emitTaskDiagnostics = (args: {
+    task: OrchestratorTask;
+    status: OrchestratorTask['status'];
+    failureClass: TaskFailureClass;
+    lastError?: string | null;
+    lastCommand?: string | null;
+    startedAt: number;
+  }): void => {
+    try {
+      appendTaskDiagnosticRecord(
+        opts.repoPath,
+        taskDiagnosticLedgerRecord({
+          taskId: args.task.id,
+          attempt: args.task.attempts,
+          status: args.status,
+          failureClass: args.failureClass,
+          lastError: args.lastError ?? args.task.failureDetail ?? null,
+          retryCount: Math.max(0, args.task.attempts - 1),
+          workingDir: args.task.worktreePath ?? opts.repoPath,
+          durationMs: Date.now() - args.startedAt,
+          ...(args.lastCommand ? { lastCommand: args.lastCommand } : {}),
+        }),
+      );
+    } catch {
+      // diagnostics must never crash the scheduler
+    }
+  };
+
   for (;;) {
     board.tasks = recomputeReadiness(board.tasks);
     const queue = board.tasks.filter(
@@ -191,6 +229,7 @@ export async function runScheduler(
         activeWorkers += 1;
         task.status = 'dispatched';
         task.attempts += 1;
+        const startedAt = Date.now();
         log.info('task', `Dispatching ${task.id}: ${task.title}`, { attempt: task.attempts });
         try {
           const r = await deps.executeTask({ task, board, repoPath: opts.repoPath, timeoutMs: opts.timeoutMs, lessonsFile: opts.lessonsFile, lessonsMaxChars: opts.lessonsMaxChars, log });
@@ -231,6 +270,7 @@ export async function runScheduler(
               task.audit = v;
               task.status = 'ask';
               task.failureDetail = `needs human input: ${v.summary.slice(0, 200)}`;
+              emitTaskDiagnostics({ task, status: task.status, failureClass: 'ask-human-input', lastError: task.failureDetail, startedAt });
               log.warn('task', `${task.id} paused for human input`, { question: v.summary.slice(0, 200) });
             } else {
               // Externalize the failure into state so the retry targets the
@@ -260,6 +300,13 @@ export async function runScheduler(
                     : 'failed';
 
               task.failureDetail = gaps[0] ?? 'audit failed';
+              emitTaskDiagnostics({
+                task,
+                status: task.status,
+                failureClass: v ? 'audit-failed' : 'audit-inconclusive',
+                lastError: task.failureDetail,
+                startedAt,
+              });
               log.warn('task', `${task.id} audit rejected (${v ? v.verdict + '/' + v.integrity : 'inconclusive'})`, {
                 attempt: task.attempts,
                 gaps: gaps.length,
@@ -271,11 +318,20 @@ export async function runScheduler(
             // recovery re-contract, then terminal failure
             task.status =
               task.attempts < opts.maxTaskRetries ? 'pending' : (await grantRecovery(task)) ? 'pending' : 'failed';
+            emitTaskDiagnostics({
+              task,
+              status: task.status,
+              failureClass: /timed out|TIMED OUT|timeout/i.test(r.detail ?? '') ? 'worker-timeout' : 'worker-failed',
+              lastError: r.detail ?? null,
+              lastCommand: task.worktreePath ? `worker ${opts.executor} in ${task.worktreePath}` : null,
+              startedAt,
+            });
             log.warn('task', `${task.id} failed (attempt ${task.attempts})`, { detail: r.detail?.slice(0, 200) });
           }
         } catch (err) {
           task.status = 'failed';
           task.failureDetail = (err as Error).message;
+          emitTaskDiagnostics({ task, status: 'failed', failureClass: 'crashed', lastError: task.failureDetail, startedAt });
           log.error('task', `${task.id} crashed: ${(err as Error).message}`, {});
         } finally {
           activeWorkers = Math.max(0, activeWorkers - 1);

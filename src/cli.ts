@@ -454,10 +454,10 @@ program
     console.log(`${runs} run(s) -> ${path}`);
   });
 
-program
+const taskCmd = program
   .command('task')
   .description('Run one prompt-driven task headlessly (orchestrator integration mode)')
-  .requiredOption('--prompt <text>', 'task description (first line becomes the title)')
+  .option('--prompt <text>', 'task description (first line becomes the title)')
   .option(
     '--id <taskId>',
     'task identity: names the worktree (.devagent-worktrees/<id>) and branch (devagent/<id>); default $DEVAGENT_TASK_ID, else a collision-free TASK-<suffix>',
@@ -476,6 +476,11 @@ program
     'delegate to a shared host instead of running locally: [user@]host:/abs/repo/path or ssh://user@host:port/path',
   )
   .action(async (opts) => {
+    if (opts.prompt === undefined) {
+      console.error("error: required option '--prompt <text>' not specified");
+      process.exitCode = 1;
+      return;
+    }
     const config = loadConfig(opts.repo);
     const creds = loadCredentials();
     const logger = new RunLogger();
@@ -611,6 +616,31 @@ program
     } catch (err) {
       console.error((err as Error).message);
       process.exitCode = 1;
+    }
+  });
+
+// Executor failure surface (PRD Phase 4): structured post-mortem rows per
+// task termination, readable without mining the raw ledger.
+taskCmd
+  .command('diagnostics <id>')
+  .description('Show structured termination diagnostics for one task from the run ledger')
+  .option('--repo <path>', 'target repository', process.cwd())
+  .option('--json', 'emit JSON rows (newest first)', false)
+  .action(async (id, diagOpts, cmd) => {
+    const repo = (cmd as { optsWithGlobals: () => { repo: string } }).optsWithGlobals().repo ?? (diagOpts as { repo: string }).repo;
+    const records = (await import('./orchestrator/ledger.js')).readTaskDiagnostics(repo, id as string);
+    if ((diagOpts as { json?: boolean }).json) {
+      console.log(JSON.stringify(records, null, 2));
+      return;
+    }
+    if (records.length === 0) {
+      console.log(`No diagnostics for ${id as string}. Terminations append to .devagent/runs/orchestration/events.jsonl.`);
+      return;
+    }
+    for (const r of records) {
+      const icon = r.failureClass === 'none' ? '+' : 'x';
+      const detail = `${r.status}/${r.failureClass}${r.lastError ? ` \u2014 ${r.lastError.slice(0, 90)}` : ''}`;
+      console.log(`${icon} ${r.ts} [${r.event}] ${r.taskId} (attempt ${r.attempt}) ${detail}`);
     }
   });
 

@@ -1,6 +1,6 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { AuditVerdict } from './types.js';
+import type { AuditVerdict, TaskStatus } from './types.js';
 
 /**
  * Run ledger (ATSC/OTel-GenAI lesson: sparse-but-accurate records with an
@@ -63,6 +63,115 @@ export function appendAuditRecord(repoPath: string, record: AuditLedgerRecord): 
   } catch {
     // best-effort observability only
   }
+}
+
+/**
+ * Failure-class vocabulary for task-termination diagnostics (Phase 4:
+ * executor failure surface). Kept closed so CLI/tooling can switch on it.
+ */
+export type TaskFailureClass =
+  | 'none'
+  | 'worker-failed'
+  | 'worker-timeout'
+  | 'test-gate-failed'
+  | 'audit-failed'
+  | 'audit-inconclusive'
+  | 'ask-human-input'
+  | 'crashed'
+  | 'wave-budget';
+
+/**
+ * Task-termination diagnostic row (PRD Phase 4 executor failure surface).
+ * Emitted on EVERY task termination — cancelled/interrupted, retried, or
+ * terminal — so operators never have to mine raw ledger rows to answer
+ * "why did this task die" (loops 57/58 died on one goal with only
+ * `attempts: 3`-style evidence).
+ */
+export interface TaskDiagnosticLedgerRecord extends LedgerRecordBase {
+  kind: 'event';
+  event: 'taskInterrupt';
+  /** Terminal or interruption-point status of the task. */
+  status: TaskStatus | 'dispatched';
+  /** Closed failure-class vocabulary (see TaskFailureClass). */
+  failureClass: TaskFailureClass;
+  /** Last error / gap detail the task ended with (bounded, best-effort). */
+  lastError?: string;
+  /** Scheduler retry budget consumed so far. */
+  retryCount: number;
+  /** Final worker command or gate invocation ('<cmd> <args>'). */
+  lastCommand?: string;
+  /** Working directory the executor/worker ran in. */
+  workingDir?: string;
+  /** Wall-clock duration of the terminated attempt in ms. */
+  durationMs?: number;
+}
+
+/**
+ * Build a task-termination diagnostic record. Never throws; every field
+ * beyond the identity block is optional so partial evidence still rows.
+ */
+export function taskDiagnosticLedgerRecord(args: {
+  taskId: string;
+  attempt: number;
+  status: TaskDiagnosticLedgerRecord['status'];
+  failureClass: TaskFailureClass;
+  lastError?: string | null;
+  retryCount: number;
+  lastCommand?: string | null;
+  workingDir?: string | null;
+  durationMs?: number | null;
+  ts?: string;
+}): TaskDiagnosticLedgerRecord {
+  return {
+    ts: args.ts ?? new Date().toISOString(),
+    kind: 'event',
+    event: 'taskInterrupt',
+    taskId: args.taskId,
+    attempt: args.attempt,
+    status: args.status,
+    failureClass: args.failureClass,
+    ...(args.lastError ? { lastError: args.lastError.slice(0, 500) } : {}),
+    retryCount: args.retryCount,
+    ...(args.lastCommand ? { lastCommand: args.lastCommand.slice(0, 300) } : {}),
+    ...(args.workingDir ? { workingDir: args.workingDir } : {}),
+    ...(typeof args.durationMs === 'number' && Number.isFinite(args.durationMs)
+      ? { durationMs: Math.max(0, Math.round(args.durationMs)) }
+      : {}),
+  };
+}
+
+/**
+ * Append a task-termination diagnostic record. Never throws into the
+ * caller's path — diagnostics for a crash must not crash (best-effort).
+ */
+export function appendTaskDiagnosticRecord(repoPath: string, record: TaskDiagnosticLedgerRecord): void {
+  try {
+    const file = ledgerPath(repoPath);
+    mkdirSync(join(repoPath, LEDGER_DIR), { recursive: true });
+    appendFileSync(file, `${JSON.stringify(record)}\n`);
+  } catch {
+    // best-effort observability only
+  }
+}
+
+/**
+ * Task-termination diagnostics for one task, newest first. Returns [] when
+ * the ledger is absent or has no matching rows (data, not truth).
+ */
+export function readTaskDiagnostics(repoPath: string, taskId: string): TaskDiagnosticLedgerRecord[] {
+  const file = ledgerPath(repoPath);
+  if (!existsSync(file)) return [];
+  const out: TaskDiagnosticLedgerRecord[] = [];
+  for (const line of readFileSync(file, 'utf8').split('\n')) {
+    if (!line.trim()) continue;
+    try {
+      const r = JSON.parse(line) as TaskDiagnosticLedgerRecord;
+      if (r.kind === 'event' && r.event === 'taskInterrupt' && r.taskId === taskId) out.push(r);
+    } catch {
+      // skip corrupt lines; a ledger is data, not truth
+    }
+  }
+  return out.reverse();
 }
 
 /** CI-Fixer lifecycle event (Q35, Phase 4). */

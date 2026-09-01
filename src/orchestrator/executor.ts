@@ -79,6 +79,7 @@ export async function executeTask(args: {
   let attempt = 1;
   let logicAttempts = 0;
   let infraRetries = 0;
+  let lastGateDetail: string | undefined;
   while (logicAttempts < maxAttempts || infraRetries < 200) {
     const spawnOpts: Record<string, unknown> = {
       prompt: attempt === 1 ? prompt : buildRepairPrompt(plan, attempt - 1, 'previous attempt failed the test gate', lessons),
@@ -126,6 +127,7 @@ export async function executeTask(args: {
       continue;
     }
     const g1 = await runTestGate(worktreePath, timeoutMs);
+    lastGateDetail = g1.detail?.slice(0, 600);
     if (g1.passed) {
       // Commit the work: uncommitted changes never reach merge-back
       // (live-smoke lesson: gate passed in-tree but merge integrated nothing).
@@ -146,5 +148,5 @@ export async function executeTask(args: {
     attempt++;
     if (logicAttempts >= maxAttempts) break;
   }
-  return { ok: false, worktreePath, detail: 'test gate failed after executor attempts' };
+  return { ok: false, worktreePath, detail: lastGateDetail ?? 'test gate failed after executor attempts' };
 }
