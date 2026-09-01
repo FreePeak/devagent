@@ -14,6 +14,6 @@
   "selfUpdate": true,
   "timeoutMinutes": 60,
   "resilience": {
-    "noProgressTimeoutMs": 900000
+    "noProgressTimeoutMs": 300000
   }
 }
