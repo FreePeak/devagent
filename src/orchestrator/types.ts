@@ -93,6 +93,13 @@ export interface OrchestratorTask {
     attempts: number;
     trailHash: string;
   };
+  /**
+   * Per-task PR URL (PR #71 `publishTaskPr` flow): set when the scheduler
+   * published this task's branch as a PR on reaching done. Persisted as
+   * published evidence and used to gate the legacy all-done local
+   * merge-back so a fully-done board never double-merges the same branches.
+   */
+  prUrl?: string;
 }
 
 /** Branch/worktree attempt suffix; recovery grants extend it to stay collision-free. */

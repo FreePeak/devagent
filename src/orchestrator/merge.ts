@@ -37,6 +37,17 @@ export interface MergeResult {
   failure?: { taskId: string; stage: 'checkout' | 'merge' | 'gate'; detail: string };
 }
 
+/**
+ * True when the per-task PR flow (PR #71 `publishTaskPr`) already published
+ * at least one done task's branch as a PR. In that case the legacy all-done
+ * local merge-back must not run — it would double-merge branches whose
+ * integration is already owned by their open PRs (PRD Q20,
+ * IMPROVE-retire-legacy-mergeback).
+ */
+export function perTaskPrPublished(board: ProjectBoard): boolean {
+  return board.tasks.some((t) => t.status === 'done' && typeof t.prUrl === 'string' && t.prUrl.length > 0);
+}
+
 export async function mergeProjectBranches(
   repoPath: string,
   board: ProjectBoard,

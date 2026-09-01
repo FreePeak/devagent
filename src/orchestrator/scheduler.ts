@@ -212,9 +212,13 @@ export async function runScheduler(
             task.failureDetail = undefined;
             log.info('task', `${task.id} done`, {});
             if (deps.publishTaskPr) {
-              await deps.publishTaskPr({ task, board, repoPath: opts.repoPath, log }).catch((err) =>
-                log.warn('publish', `${task.id} PR publish failed (non-fatal): ${(err as Error).message}`, {}),
-              );
+              await deps.publishTaskPr({ task, board, repoPath: opts.repoPath, log })
+                .then((prUrl) => {
+                  if (prUrl) task.prUrl = prUrl;
+                })
+                .catch((err) =>
+                  log.warn('publish', `${task.id} PR publish failed (non-fatal): ${(err as Error).message}`, {}),
+                );
             }
           } else if (r.ok && deps.auditTask) {
             // Evidence gate: executor success is only a claim until audited
@@ -232,9 +236,13 @@ export async function runScheduler(
               task.failureDetail = undefined;
               log.info('task', `${task.id} done (audited)`, { criteria: v.criteriaResults.length });
               if (deps.publishTaskPr) {
-                await deps.publishTaskPr({ task, board, repoPath: opts.repoPath, log }).catch((err) =>
-                  log.warn('publish', `${task.id} PR publish failed (non-fatal): ${(err as Error).message}`, {}),
-                );
+                await deps.publishTaskPr({ task, board, repoPath: opts.repoPath, log })
+                  .then((prUrl) => {
+                    if (prUrl) task.prUrl = prUrl;
+                  })
+                  .catch((err) =>
+                    log.warn('publish', `${task.id} PR publish failed (non-fatal): ${(err as Error).message}`, {}),
+                  );
               }
             } else if (v && v.verdict === 'ask') {
               // Not a failure and not retryable: the branch waits for a human

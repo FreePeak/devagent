@@ -844,6 +844,20 @@ program
         logger.warn('task', `pr-hygiene sweep failed (continuing): ${(err as Error).message}`, {});
       }
 
+      // Gate the legacy merge-back (PRD Q20 / IMPROVE-retire-legacy-mergeback):
+      // when the per-task PR flow (PR #71 publishTaskPr) already opened PRs
+      // for done tasks, their integration is owned by those PRs — running
+      // mergeProjectBranches here would double-merge the same branches
+      // locally. Leave integration to the PRs and end the run.
+      const { perTaskPrPublished } = await import('./orchestrator/merge.js');
+      if (perTaskPrPublished(result)) {
+        const prTasks = result.tasks.filter((t) => t.status === 'done' && t.prUrl).length;
+        const note = `Merge-back skipped: ${prTasks} done task(s) already published per-task PR(s); integration is owned by those PRs.`;
+        logger.info('task', note, {});
+        console.log(`\n${note}`);
+        return;
+      }
+
       const baseBranch = loadConfig(opts.repo).githubBaseBranch ?? 'main';
       console.log(`\nAll tasks done — merging into ${baseBranch}...`);
       const git = await import('./git/worktree.js');

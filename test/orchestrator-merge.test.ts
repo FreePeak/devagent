@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { topoOrder } from '../src/orchestrator/merge.js';
+import { perTaskPrPublished, topoOrder } from '../src/orchestrator/merge.js';
 import type { ProjectBoard } from '../src/orchestrator/types.js';
 
 function board(tasks: ProjectBoard['tasks']): ProjectBoard {
@@ -26,5 +26,34 @@ describe('topoOrder', () => {
     ]);
     const done = new Set(b.tasks.filter((t) => t.status === 'done').map((t) => t.id));
     expect(topoOrder(b).filter((id) => done.has(id))).toEqual(['A']);
+  });
+});
+
+describe('perTaskPrPublished (legacy merge-back gate, PRD Q20)', () => {
+  it('is true when a done task published its per-task PR', () => {
+    const b = board([{ id: 'T1', title: '', prompt: '', dependsOn: [], status: 'done', attempts: 1, prUrl: 'https://github.com/x/y/pull/7' }]);
+    expect(perTaskPrPublished(b)).toBe(true);
+  });
+
+  it('is false when no done task has a PR URL (legacy merge-back still owns integration)', () => {
+    const b = board([{ id: 'T1', title: '', prompt: '', dependsOn: [], status: 'done', attempts: 1 }]);
+    expect(perTaskPrPublished(b)).toBe(false);
+  });
+
+  it('ignores empty PR URLs', () => {
+    const b = board([{ id: 'T1', title: '', prompt: '', dependsOn: [], status: 'done', attempts: 1, prUrl: '' }]);
+    expect(perTaskPrPublished(b)).toBe(false);
+  });
+
+  it('ignores PR URLs on tasks that are not done', () => {
+    const b = board([
+      { id: 'T1', title: '', prompt: '', dependsOn: [], status: 'failed', attempts: 1, prUrl: 'https://github.com/x/y/pull/7' },
+      { id: 'T2', title: '', prompt: '', dependsOn: [], status: 'blocked', attempts: 1 },
+    ]);
+    expect(perTaskPrPublished(b)).toBe(false);
+  });
+
+  it('is false for an empty board', () => {
+    expect(perTaskPrPublished(board([]))).toBe(false);
   });
 });
