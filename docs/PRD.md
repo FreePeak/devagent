@@ -401,6 +401,14 @@ Behavior:
 - Merge policy: HIGH or CRITICAL findings block `autoMergePr` — the task
   completes with `merged: false` and a `stride gate blocked merge` detail;
   MEDIUM and LOW are advisory.
+- Per-path allowlist (Q25): the PR may commit
+  `.devagent/stride-allowlist.json` (`{"paths": [...glob patterns...]}`, glob
+  semantics: `**` crosses path segments, `*` stays within one, a bare name
+  matches any basename). `consume` reads the file from the PR branch itself
+  (`git show <branch>:.devagent/stride-allowlist.json`) so the suppression is
+  reviewable in the diff, then `evaluateStride` drops findings whose file
+  matches an allowed path before severity is computed. An absent, unreadable,
+  or malformed allowlist fails closed (no suppression).
 - A missing, failed, or empty diff is treated as an empty diff (gate passes).
 - Every run logs a JSONL entry (DEVAGENT_HOME/runs/<runId>.jsonl) with
   `data.gate === 'stride'`, plus `severityMax` and a compact findings list.
@@ -800,7 +808,7 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 | Q22 | ~~PR #73 re-bridges a queued goal in the same cycle as board archive, but the archive itself burns the board's salvage history — should archived boards write a compact post-mortem (goal, failure class, gate excerpts) to the ledger so the next bridge can plan around the same failure mode, or is the existing ledger analytics query surface enough?~~ Resolved 2026-08-31: PRs #96/#97's `ci-fix-failed` outcome gives the ledger a structured failure record with summary evidence (matching the Q24 taxonomy); remaining failure-evidence work is tracked by the backlog item "Executor failure surface". | eng | Phase 4 |
 | Q23 | PR #77's herdr-sweep trusts the session name alone; if the sweep ever gains an `--all` mode, what stops it from killing a user-attached interactive claude pane that happens to sit in an automation-spawned session (2026-08-26 mass-kill class)? Require per-pane agent-state verification plus a managed-settings-style deny toggle, or keep `--all` out of scope permanently? | product | Phase 4 |
 | Q24 | Per-task PRs (PR #71) plus the auto-tag release workflow (PR #75) mean a fully-merged board can produce several PRs and a release in one cycle — should the ledger record release/tag events as first-class outcomes (so per-loop spend-to-shipped-artifact math counts a release), or stay PR-URL-only? | eng | Phase 4 |
-| Q25 | G5:STRIDE blocks on HIGH/CRITICAL with no suppression path; fixture credentials in test files (the exact pattern the golden suites ship) will trip it and stall autoMerge — add a per-path/per-finding allowlist committed with the PR, or keep it hard and force workers to rename literals? | eng | Phase 4 |
+| Q25 | ~~G5:STRIDE blocks on HIGH/CRITICAL with no suppression path; fixture credentials in test files (the exact pattern the golden suites ship) will trip it and stall autoMerge — add a per-path/per-finding allowlist committed with the PR, or keep it hard and force workers to rename literals?~~ Resolved: a PR may commit `.devagent/stride-allowlist.json` (`{"paths": [...glob patterns...]}`) read from the PR branch at gate time; findings whose file matches an allowed path are suppressed. Absent or malformed allowlists fail closed. | eng | Phase 4 |
 | Q26 | PR #84 auto-stashes a dirty main before merge-back, but the stash is keyed by SHA and never re-offered — if a curation PR (like #83) is open in the same worktree when the factory merges back, should the popped stash be surfaced as a ledger warning (operator reapplies by hand) or re-applied automatically on the next dispatch? | eng | Phase 4 |
 | Q27 | Loops 53-55 and 57/58 each re-burned multiple attempts on the same already-planned goal after a requeue with a fresh attempt budget — should the bridge attach the prior board's failure class to the re-bridged goal so the scout skips it until the root cause ships, or is cross-board retry memory out of scope for the single-tenant model? | product | Phase 4 |
 | Q28 | With FR-CTX-01 injecting a KG-derived digest at `COMPACT_CONTEXT_MARKER`, should that digest also be appended to `lessons.md` on a successful merge (so future runs learn from the same structural evidence the planner used), or stay scoped to the single run and rebuild fresh each time? Persisting makes the digest cross-run durable; scoping avoids stale evidence bleeding in. | eng | Phase 4 |

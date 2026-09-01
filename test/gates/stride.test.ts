@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { evaluateStride } from '../../src/gates/stride.js';
+import {
+  evaluateStride,
+  parseStrideAllowlist,
+  pathMatchesAllowlist,
+} from '../../src/gates/stride.js';
 
 /**
  * Build a synthetic unified diff around the given added/removed lines.
@@ -116,5 +120,63 @@ describe('evaluateStride (G5 gate executor)', () => {
     const r = await evaluateStride({ diff: diffFor('src/i.ts', ['console.log(req.body)']) });
     expect(r.findings[0]?.file).toBe('src/i.ts');
     expect(r.findings[0]?.line).toBe(1);
+  });
+
+  it('(j) suppresses findings whose file matches a committed allowlist path (PRD Q25)', async () => {
+    // Fixture credential in a test file: HIGH + CRITICAL promotion without the allowlist…
+    const diff = diffFor('test/fixtures/credentials.json', ['const api_key = "sk-live-abcd1234";']);
+    const blocked = await evaluateStride({ diff });
+    expect(blocked.severityMax).toBe('CRITICAL');
+
+    // …and fully suppressed once the PR carries the allowlist entry.
+    const allowed = await evaluateStride({ diff, allowlistPaths: ['test/fixtures/**'] });
+    expect(allowed.findings).toEqual([]);
+    expect(allowed.severityMax).toBeNull();
+  });
+
+  it('(k) does not suppress findings outside the allowlist paths', async () => {
+    const diff = [
+      diffFor('test/fixtures/credentials.json', ['const api_key = "sk-live-abcd1234";']),
+      diffFor('src/cred.ts', ['const api_key = "sk-live-src-9999";']),
+    ].join('\n');
+    const r = await evaluateStride({ diff, allowlistPaths: ['test/fixtures/**'] });
+    expect(r.findings.map((f) => f.file)).toEqual(['src/cred.ts']);
+    expect(r.severityMax).toBe('CRITICAL');
+  });
+
+  it('(l) treats a missing/empty allowlist as no suppression', async () => {
+    const diff = diffFor('src/key.ts', ['const api_key = "sk-live-abcd1234";']);
+    for (const allowlistPaths of [undefined, []]) {
+      const r = await evaluateStride({ diff, allowlistPaths });
+      expect(r.severityMax).toBe('CRITICAL');
+    }
+  });
+
+  it('(m) treats a malformed allowlist as fail-closed (no suppression)', async () => {
+    for (const text of ['not json', '["src/**"]', '{"paths": "src/**"}', '{"paths": [1]}', 'null']) {
+      expect(parseStrideAllowlist(text)).toBeNull();
+    }
+    const diff = diffFor('src/key.ts', ['const api_key = "sk-live-abcd1234";']);
+    const parsed = parseStrideAllowlist('{"paths": [1]}');
+    const r = await evaluateStride({ diff, allowlistPaths: parsed ?? undefined });
+    expect(r.severityMax).toBe('CRITICAL');
+  });
+
+  it('(n) parses a well-formed allowlist into its path patterns', () => {
+    expect(parseStrideAllowlist('{"paths": ["test/**", "fixtures/*.json"]}')).toEqual([
+      'test/**',
+      'fixtures/*.json',
+    ]);
+    expect(parseStrideAllowlist('')).toBeNull();
+  });
+
+  it('(o) matches allowlist globs: ** crosses slashes, * stays in segment, bare name matches basename', () => {
+    const patterns = ['test/**', 'src/fixtures/*.json', 'golden.pem'];
+    expect(pathMatchesAllowlist('test/fixtures/creds.json', patterns)).toBe(true);
+    expect(pathMatchesAllowlist('src/fixtures/creds.json', patterns)).toBe(true);
+    expect(pathMatchesAllowlist('src/fixtures/nested/creds.json', patterns)).toBe(false);
+    expect(pathMatchesAllowlist('golden.pem', patterns)).toBe(true);
+    expect(pathMatchesAllowlist('certs/golden.pem', patterns)).toBe(true);
+    expect(pathMatchesAllowlist('src/creds.json', patterns)).toBe(false);
   });
 });
