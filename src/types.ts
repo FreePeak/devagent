@@ -105,6 +105,15 @@ export interface WorkerResult {
 /** Uniform contract over heterogeneous headless coding-agent CLIs. */
 export interface WorkerAdapter {
   readonly name: WorkerName;
+  /** Optional per-adapter progress classifier (PRD Q33). When present, a
+   * JSON delta of the worker's event stream that satisfies it counts as
+   * progress for the no-progress watchdog; otherwise it is pure thinking
+   * and must not reset the clock. When absent, the runtime falls back to
+   * the shared 'meaningfulBytes' heuristic helpers (herdr/spawn-utils). An
+   * adapter that redeclares nothing still benefits from the watchdog — this
+   * hook only moves the decision closer to the adapter's stream shape.
+   */
+  isProgress?(line: string): boolean;
   spawn(opts: WorkerSpawnOptions): Promise<WorkerResult>;
 }
 

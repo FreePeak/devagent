@@ -236,11 +236,14 @@ export async function runCommandInHerdrPane(
     // full hour), so byte-counting treats deliberation as progress and the
     // no-progress watchdog never fires. Strip thinking_delta lines before
     // counting: a run that only thinks is a hang in headless mode.
+    // PRD Q33: progress via the shared classifier — only lines evidencing new
+    // work (tool calls, answer text) count; thinking-only lines never do.
+    const { isNdjsonProgressLine } = await import('../workers/progress.js');
     const meaningfulBytes = (p: string): number => {
       let n = 0;
       try {
         for (const line of readFileSync(p, 'utf8').split('\n')) {
-          if (line.includes('"thinking_delta"')) continue;
+          if (!isNdjsonProgressLine(line)) continue;
           n += line.length + 1;
         }
       } catch {

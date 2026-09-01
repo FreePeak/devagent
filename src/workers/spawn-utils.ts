@@ -1,4 +1,5 @@
 import { execFile, execFileSync, type ExecFileOptionsWithStringEncoding, spawn } from 'node:child_process';
+import { isNdjsonProgressLine } from './progress.js';
 
 export interface SpawnCliOptions {
   cwd: string;
@@ -165,7 +166,11 @@ export function spawnCliStreaming(
     // deliberating. Mirrors the herdr pane watcher (src/integrations/herdr.ts
     // meaningfulBytes): only non-thinking lines reset the watchdog clock.
     let meaningfulBytes = 0;
-    const isMeaningful = (s: string): boolean => !s.includes('"thinking_delta"');
+    // PRD Q33: per-chunk progress classification via the shared NDJSON core.
+    // A chunk counts when ANY line evidences new work (tool call or text);
+    // thinking-only chunks never reset the watchdog clock.
+    const isMeaningful = (s: string): boolean =>
+      s.split('\n').some((line) => isNdjsonProgressLine(line));
 
     const touch = () => {
       lastProgressAt = Date.now();

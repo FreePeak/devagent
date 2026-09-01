@@ -6,6 +6,8 @@ import { backoffDelay } from '../sessionguard/backoff.js';
 import { isNonRetryableApiError } from '../sessionguard/events.js';
 import { isRetryableWithoutSession } from '../resilience/classify.js';
 
+import { isNdjsonProgressLine } from './progress.js';
+
 const RESUME_PROMPT = 'Continue';
 const DEFAULT_API_MAX_ATTEMPTS = Infinity;
 /**
@@ -48,6 +50,16 @@ function resolveNoProgressTimeoutMs(explicit: number | undefined): number {
  */
 export class PiAdapter implements WorkerAdapter {
   readonly name = 'pi' as const;
+
+  /**
+   * PRD Q33: pi-specific progress classification. pi streams
+   * message_update/thinking_delta lines during deliberation and
+   * tool_execution_* lines when working; only the latter (plus answer text)
+   * reset the no-progress watchdog.
+   */
+  isProgress(line: string): boolean {
+    return isNdjsonProgressLine(line);
+  }
 
   constructor(
     private readonly sleep: (ms: number) => Promise<void> = (ms) =>
