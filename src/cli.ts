@@ -409,7 +409,29 @@ program
   .command('status')
   .description('List recent runs (id, last stage, last message)')
   .option('--limit <n>', 'number of runs', Number, 10)
+  .option('--repo <path>', 'target repository for --providers data', process.cwd())
+  .option('--providers', 'report proxy-probe result, last transient class, and circuit state (closed/half-open/open)', false)
   .action(async (opts) => {
+    if (opts.providers) {
+      const { readProxyState } = await import('./resilience/proxy-state.js');
+      const repoPath = (opts.repo as string) ?? process.cwd();
+      const state = readProxyState(repoPath);
+      if (!state) {
+        console.log('No provider state recorded yet. The orchestrate-loop probe gate populates .devagent/proxy-state.json.');
+        return;
+      }
+      console.log('Providers:');
+      const probeLine = state.lastProbe
+        ? `probe: ${state.lastProbe.ok ? 'ok' : 'fail'} @ ${state.lastProbe.at}${state.lastProbe.detail ? ` — ${state.lastProbe.detail}` : ''}`
+        : 'probe: never recorded';
+      console.log(`  ${probeLine}`);
+      const transientLine = state.lastTransient
+        ? `transient: ${state.lastTransient.class} @ ${state.lastTransient.at} — ${state.lastTransient.excerpt.slice(0, 120)}`
+        : 'transient: none recorded';
+      console.log(`  ${transientLine}`);
+      console.log(`  circuit: ${state.circuit} (since ${state.circuitChangedAt ?? state.updatedAt})`);
+      return;
+    }
     const home = process.env.DEVAGENT_HOME || join(process.env.HOME || '.', '.devagent');
     const runsDir = join(home, 'runs');
     let files: string[] = [];

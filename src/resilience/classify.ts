@@ -46,6 +46,35 @@ export function isTransientProviderError(text: string | undefined | null): boole
   return TRANSIENT_PATTERNS.some((p) => p.test(text));
 }
 
+/**
+ * Ordered coarse class labels for operator-visible transient errors. Most
+ * specific first so generic catch-alls (unavailable, timeout) never mask
+ * the actionable class. Exhaustive over TRANSIENT_PATTERNS: every pattern
+ * above maps to exactly one label. Reported by `devagent status --providers`
+ * so the proxy-gate decision is operator-observable instead of log-grep-only.
+ */
+const TRANSIENT_CLASS_RULES: Array<[RegExp, string]> = [
+  [/\[claude-code:unrecognized_model\]/, 'unrecognized-model'],
+  [/unrecognized_model/i, 'unrecognized-model'],
+  [/empty stream|empty response/i, 'empty-stream'],
+  [/rate limit|too many requests|429|529/i, 'rate-limit'],
+  [/overloaded/i, 'overloaded'],
+  [/upstream request failed|error from provider/i, 'upstream'],
+  [/bad gateway|gateway timeout/i, 'bad-gateway'],
+  [/ETIMEDOUT|timeout|timed out/i, 'timeout'],
+  [/connection lost|connection refused|ECONNRESET|ECONNREFUSED|ENOTFOUND|fetch failed|network error|socket hang up/i, 'network'],
+  [/endpoint is unavailable|provider.*unavailable|service unavailable|unavailable/i, 'unavailable'],
+];
+
+/** Coarse class for a transient provider error, or null when not transient. */
+export function transientErrorClass(text: string | undefined | null): string | null {
+  if (!isTransientProviderError(text)) return null;
+  for (const [pattern, label] of TRANSIENT_CLASS_RULES) {
+    if (pattern.test(text as string)) return label;
+  }
+  return 'transient';
+}
+
 /** Patterns that justify a retry even when no session id was emitted. */
 const SESSIONLESS_TRANSIENT: RegExp[] = [
   /endpoint is unavailable/i,

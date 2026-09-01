@@ -278,6 +278,12 @@ export async function executeTask(args: {
         (text && !isNonRetryable(text) && (isTransient(text) || isTransient(result.errorText ?? null)))
       ) {
         infraRetries++;
+        try {
+          const { recordTransientClass } = await import('../resilience/proxy-state.js');
+          recordTransientClass(repoPath, [text, result.timedOut ? 'no-progress watchdog timeout' : ''].filter(Boolean).join(' '));
+        } catch {
+          // observability must never break the retry
+        }
         const { backoffDelay } = await import('../sessionguard/backoff.js');
         await new Promise((r) => setTimeout(r, backoffDelay(infraRetries)));
         attempt++;

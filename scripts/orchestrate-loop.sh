@@ -175,14 +175,32 @@ while :; do
   # empty streams), every worker attempt dies within seconds. Burned attempts
   # do not queue work; they only churn herdr panes and risk the 2-attempt
   # logic-fail path on the old classifier. Probe cheaply; wait out the outage.
+  # Operator observability (TASK-mtj08w93): probe outcomes are recorded in
+  # .devagent/proxy-state.json so `devagent status --providers` can report
+  # the last proxy-probe result and circuit state before dispatch.
   if [ "$DRY_RUN" != "1" ] && [ -n "${ORCHESTRATOR_MODEL_PROBE:-1}" ]; then
     PROBE_OK=0
+    PROBE_ATTEMPT=0
     for _ in 1 2 3; do
+      PROBE_ATTEMPT=$(( PROBE_ATTEMPT + 1 ))
       if timeout 30 claude -p "OK" --output-format json --model "$(node -e 'console.log(JSON.parse(require("fs").readFileSync("devagent.json","utf8")).model || "")' 2>/dev/null)" 2>/dev/null | grep -q '"result"'; then
         PROBE_OK=1; break
       fi
       sleep 5
     done
+    # Operator observability: record the gate decision in the repo-scoped
+    # proxy state that `devagent status --providers` reads. Uses the compiled
+    # module so circuit logic stays in one place.
+    ( \
+      [ -f "$REPO/dist/src/resilience/proxy-state.js" ] || exit 0; \
+      node -e '
+        const stateMod = process.argv[1];
+        const repo = process.argv[2];
+        const ok = process.argv[3];
+        const detail = process.argv[4];
+        import("file://" + stateMod).then((m) => { m.recordProxyProbe(repo, { ok: ok === "1", ...(detail ? { detail } : {}) }); }).catch(() => {});
+      ' "$REPO/dist/src/resilience/proxy-state.js" "$REPO" "$PROBE_OK" "attempt $PROBE_ATTEMPT/3" 2>/dev/null || true \
+    )
     if [ "$PROBE_OK" -ne 1 ]; then
       echo "[proxy-down] all 3 probes failed; sleeping ${POLL_SECS}s before retry"
       sleep "$POLL_SECS"
