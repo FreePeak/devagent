@@ -20,6 +20,32 @@ export interface TicketSpec {
 
 export type TicketClass = 'endpoint-only' | 'migration-required' | 'consumer-only';
 
+// ---------- Executor failures ----------
+
+/**
+ * Executor failure class (PRD:775 / Q24 taxonomy mirror from PR #100). A
+ * structured classifier for the compact post-mortem written to the ledger on
+ * taskInterrupt, so operators see WHY a task died, not just `attempts: 3`.
+ * Mirrors the Q24 error taxonomy used by the CI-Fixer
+ * (`src/integrations/autopr.ts`): one bounded vocabulary of terminal failure
+ * modes instead of freeform detail strings.
+ */
+export type ExecutorFailureClass =
+  /** Repo test suite failed on the gate (G1) after the worker reported done. */
+  | 'test-gate'
+  /** Worker exited non-zero or produced an error the classifier cannot retry. */
+  | 'worker-error'
+  /** Worker timed out (wall-clock budget exhausted, no progress). */
+  | 'timeout'
+  /** Git commit of gate-passed work failed. */
+  | 'commit'
+  /** Worktree creation failed (repo/branch-level problem). */
+  | 'worktree'
+  /** Transient provider failure that would normally be retried, not terminal. */
+  | 'transient-provider'
+  /** Failure we could not classify into a known class. */
+  | 'unknown';
+
 // ---------- Workers ----------
 
 export type WorkerName = 'claude-code' | 'opencode' | 'omp' | 'pi';

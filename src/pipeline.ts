@@ -1,4 +1,4 @@
-import type { RunConfig, TicketSpec, WorkerName } from './types.js';
+import type { ExecutorFailureClass, RunConfig, TicketSpec, WorkerName } from './types.js';
 import type { RunLogger } from './logger.js';
 import type { ImplementationPlan } from './planner.js';
 import { checkSpec, planFromTicket } from './planner.js';
@@ -30,6 +30,8 @@ export interface ImplementResult {
   worktreePath?: string;
   branch?: string;
   attempts: number;
+  /** Executor failure class on failure (PRD:775 / Q24 taxonomy mirror). */
+  failureClass?: ExecutorFailureClass;
 }
 
 export interface PipelineDeps {

@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import type { Credentials, } from './config.js';
 import { herdrEnabled, loadConfig } from './config.js';
 import type { PipelineDeps, ImplementResult } from './pipeline.js';
-import type { RunConfig, TicketClass, TicketSpec } from './types.js';
+import type { ExecutorFailureClass, RunConfig, TicketClass, TicketSpec } from './types.js';
 import type { RunLogger } from './logger.js';
 import type { ImplementationPlan } from './planner.js';
 import type { FanoutLeg } from './workers/fanout.js';
@@ -244,7 +244,7 @@ export async function implementStage(
       onSelected: mergeAssistWinner,
     });
     if (!winner) {
-      return { ok: false, worker: 'claude-code', attempts: 1 };
+      return { ok: false, worker: 'claude-code', attempts: 1, failureClass: 'worker-error' as ExecutorFailureClass };
     }
     log.info('implement', `Fan-out winner: ${winner.worker} (tests ${winner.testsPassed})`, {});
     return { ok: true, worker: winner.worker, worktreePath: winner.worktreePath, attempts: 1 };
@@ -295,6 +295,7 @@ export async function implementStage(
 
   try {
     let logicAttempts = 0;
+    let lastFailureClass: ExecutorFailureClass = 'worker-error';
     let infraRetries = 0;
     const maxInfraBurst = 200; // safety cap even with Infinity so runaway env never truly never-terminates; large enough for real incidents
     for (;;) {
@@ -339,6 +340,7 @@ export async function implementStage(
           continue;
         }
         repairPrompt = buildRepairPrompt(plan, logicAttempts + 1, result.resultText ?? `worker exited ${result.exitCode}`, lessons);
+        lastFailureClass = 'worker-error';
         logicAttempts++;
         continue;
       }
@@ -353,9 +355,10 @@ export async function implementStage(
         return { ok: true, worker: workerName, attempts: displayAttempt, worktreePath };
       }
       repairPrompt = buildRepairPrompt(plan, logicAttempts + 1, g1.detail ?? 'test suite failed', lessons);
+      lastFailureClass = 'test-gate';
       logicAttempts++;
     }
-    return { ok: false, worker: workerName, attempts: logicAttempts || 1, worktreePath };
+    return { ok: false, worker: workerName, attempts: logicAttempts || 1, worktreePath, failureClass: lastFailureClass };
   } finally {
     if (worktreePath) {
       const mode = cfg.cleanup ?? 'auto';

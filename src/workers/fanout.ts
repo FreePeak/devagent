@@ -1,6 +1,6 @@
 import type { RunLogger } from '../logger.js';
 import type { ImplementationPlan } from '../planner.js';
-import type { WorkerName } from '../types.js';
+import type { ExecutorFailureClass, WorkerName } from '../types.js';
 import { buildImplementationPrompt, loadLessons } from '../prompt.js';
 import { getWorker } from './index.js';
 import { createWorktree } from '../git/worktree.js';
@@ -20,6 +20,8 @@ export interface FanoutLeg {
   /** True when tests failed once and passed on the single flaky rerun. */
   flaky?: boolean;
   durationMs: number;
+  /** Failure class when the leg failed (PRD:775 / Q24 taxonomy mirror). */
+  failureClass?: ExecutorFailureClass;
 }
 
 export interface FanoutOptions {
@@ -82,7 +84,16 @@ export async function runFanout(
           log.warn('implement', `Fanout ${workerName}: tests failed then passed on rerun (flaky)`);
         }
       }
-      return { worker: workerName, worktreePath, branch, ok, testsPassed, flaky, durationMs: Date.now() - started };
+      // Failure class (PRD:775 / Q24 taxonomy mirror): the leg's terminal
+      // failure mode when it did not produce usable work.
+      const failureClass: ExecutorFailureClass | undefined = ok
+        ? testsPassed === false
+          ? 'test-gate'
+          : undefined
+        : result.timedOut
+          ? 'timeout'
+          : 'worker-error';
+      return { worker: workerName, worktreePath, branch, ok, testsPassed, flaky, durationMs: Date.now() - started, failureClass };
     }),
   );
 

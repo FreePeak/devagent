@@ -80,7 +80,19 @@ export interface OrchestratorTask {
    * recovery re-contract instead of burning retries on the same wall).
    */
   repeatGaps?: number;
-
+  /**
+   * Executor failure surface (PRD:775): set when the executor aborted this
+   * task via taskInterrupt — N+ identical trailing trail.jsonl failure
+   * signatures caused the worker to be aborted and the post-mortem threaded
+   * into the ledger. The compact evidence (failure class, gate excerpt,
+   * attempts, trail hash) survives board archive for the next bridge.
+   */
+  interrupt?: {
+    failureClass: string;
+    lastGateExcerpt: string;
+    attempts: number;
+    trailHash: string;
+  };
 }
 
 /** Branch/worktree attempt suffix; recovery grants extend it to stay collision-free. */
