@@ -743,6 +743,20 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 > superseded-base PRs) is the surviving half and stays on the backlog; the
 > completed "Scout replay in CI" bullet (PR #86) is retired below.
 >
+> **Completed post-v0.3 (2026-09-01, curation run 21):** CI-Fixer ledger
+> rows — PR #100 writes one dispatch + one outcome row per `TASK-fix-<pr>`,
+> closing Q35 with round-trip regression tests for still-red sequences;
+> failure-cluster analytics can now count fixer attempts per goal. Q27
+> SHA re-burn guard — commit 60638d3 blocks the bridge from re-issuing an
+> already-shipped goal after a fresh requeue, narrowing the loop-53/55/57/58
+> failure class to a single-shot recovery (the deeper failure-class carryover
+> stays on the backlog). Scout deterministic fallback + maxQueued guard —
+> commit aefc6bf resolves empty/idless scout payloads to a stable task id
+> so the scout queue cannot silently grow unbounded. Default worker: pi
+> adapter — commit 20ce8fd adds pi to the worker registry and 34cf3d9 makes
+> task-path dispatch honor `herdr.enabled`, unblocking the selfbuild loop
+> when omp's model alias path is unavailable.
+>
 > **Queue sweep (2026-08-31, operator):** 25 queue rows resolved without new
 > code — 17 marked done citing shipped PRs (#84 pre-loop guard, #86
 > release-gate + scout-replay-in-CI, #96 CI-Fixer; `NESTED_ENV_BLOCKLIST`
@@ -753,16 +767,16 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 > Curator: before enqueuing, match candidate titles against merged PR titles
 > and these completion notes; skip or auto-done on match.
 
-#### Phase 4 — current backlog (2026-08-31, curation run 19)
+#### Phase 4 — current backlog (2026-09-01, curation run 21)
 
-- **Zombie-PR hygiene (surviving half of post-PR lifecycle automation)** — PRs #96/#97 shipped CI-Fixer re-dispatch, but nothing auto-closes or skips PRs whose CI stays red across a grace window or whose base is superseded; the queue sweep flagged the factory parking on unresolved PRs (#68 reviewer note).
-- **Watchdog regression coverage** — run 1261d6be burned 3x3601s and the suite still has no thinking-only NDJSON fixture (the only `thinking_delta` match in test/ is the omp smoke fixture); add golden fixtures (thinking-only, tool-bearing, mixed) asserting the herdr watcher and `spawnCliStreaming` both trip the no-progress clock.
-- **Provider model-id validation at dispatch** — loop 58 burned 3 attempts on `--model coding` exiting 1 in ~12s before PR #92 taught omp to drop aliases; validate `config.model` against each adapter's accepted id shape in preflight so the next adapter fails at the gate, not mid-board.
-- **Executor failure surface (`taskInterrupt` + failure evidence)** — kill a worker after 3+ identical `trail.jsonl` failures and write a compact post-mortem (goal, failure class, last gate excerpt) to the ledger on board archive; loops 57/58 both died on the same release-gating goal with only `attempts: 3`-style evidence, and PR #83 still had to mine ledger rows by hand to see why.
+- **Zombie-PR hygiene (surviving half of post-PR lifecycle automation)** — PRs #96/#97 shipped CI-Fixer re-dispatch and PR #100 logs each round-trip, but nothing auto-closes or skips PRs whose CI stays red across a grace window or whose base is superseded; the queue sweep flagged the factory parking on unresolved PRs (#68 reviewer note).
+- **Watchdog regression coverage** — run 1261d6be burned 3x3601s and the suite still has no thinking-only NDJSON fixture (the only `thinking_delta` match in test/ is the omp smoke fixture); add golden fixtures (thinking-only, tool-bearing, mixed) asserting the herdr watcher and `spawnCliStreaming` both trip the no-progress clock, covering the new pi adapter's stream shape alongside omp/glm.
+- **Provider model-id validation at dispatch** — PR #92 taught omp to drop aliases, but the same exit-1-in-12s class can hit claude-code/opencode/pi adapters (the new pi default worker ships no model-shape guard); validate `config.model` against each adapter's accepted id shape in preflight so the next adapter fails at the gate, not mid-board (Q32).
+- **Executor failure surface (`taskInterrupt` + failure evidence)** — kill a worker after 3+ identical `trail.jsonl` failures and write a compact post-mortem (goal, failure class, last gate excerpt) to the ledger on board archive; loops 57/58 both died on the same release-gating goal with only `attempts: 3`-style evidence, and PR #83 still had to mine ledger rows by hand to see why (loop 60 lesson: prompt-injection knobs must thread through deps/fanout/executor and the scheduler deps interface, so add the change in all three call sites).
+- **Cross-board retry memory beyond the SHA guard** — commit 60638d3 stops re-issuing already-shipped goals, but re-queued failures still get a fresh attempt budget; carry the prior board's failure class onto the re-bridged goal so the scout can deprioritize until the root-cause fix lands (Q27 deeper question).
 - **Reconcile merge-back with per-task PRs** — PR #71 opens per-task PRs while `src/cli.ts:814` still runs `mergeProjectBranches` on `allDone`; retire or gate the legacy path so a fully-done board does not double-merge (Q20).
-- **Structural progress signal instead of string matching** — PRs #93/#94 gate the watchdog by substring-matching `"thinking_delta"` (`src/workers/spawn-utils.ts:168`), which is omp/glm-specific; the next provider's streaming shape silently re-enables the silent-hang class, so let each `WorkerAdapter` declare what output counts as progress (Q30/Q33).
+- **Structural progress signal instead of string matching** — PRs #93/#94 gate the watchdog by substring-matching `"thinking_delta"` (`src/workers/spawn-utils.ts:168`), which is omp/glm-specific; the new pi adapter has its own stream shape, so let each `WorkerAdapter` declare what output counts as progress (Q30/Q33).
 - **Consolidate the loop scripts** — the tracked `orchestrate-loop.sh` carries PR #68/#77 recovery while untracked `scripts/orchestrator-loop.sh` runs divergent logic; fold recovery into `src/orchestrator/` and reduce the shell to a thin caller (Q19).
-- **Unqueued PRD ingestion** — `docs/prds/` holds four scoped designs (default-isolation, eval-harness, fleet-budget-governance, resource-aware-concurrency) that no curation pass has enqueued; make the curator audit step authoritative (Q15) so planned work stops sitting outside the roadmap while fresh backlog items get invented.
 
 ## 18. Open Questions
 
@@ -781,7 +795,7 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 | Q21 | ~~The Release workflow publishes on every push to `main` regardless of the `test` job's result — should releases hard-gate on CI green (`needs: test`), or tag first and yank on red? Hard-gate delays tags by one CI run; tag-first risks shipping a broken semver point.~~ Resolved 2026-08-31 (PR #86 hard-gated, unit-test-pinned); removed. | eng | Phase 4 |
 | Q33 | Watchdog progress gating is a substring match on `"thinking_delta"` (PRs #93/#94); with Q30's adapter capability block, should "counts as progress" be an adapter-declared classifier (per-line predicate or stream-shape schema) rather than a shared string heuristic, and where does the omp/glm fallback live until then? | eng | Phase 4 |
 | Q34 | Run 1261d6be proves the watchdog can silently never fire; should the herdr watcher and `spawnCliStreaming` emit a per-attempt watchdog-health line to the ledger (clock resets, bytes counted, last meaningful-output timestamp) so a never-firing watchdog is visible in analytics instead of inferred from three 3601s timeouts? | eng | Phase 4 |
-| Q35 | CI-Fixer (PRs #96/#97) re-dispatches `TASK-fix-<pr>` but fixer outcomes only surface as `autoReviewAndMergeOne` log lines and the terminal `ci-fix-failed` result — should fixer dispatches and outcomes write ledger rows like PR events do, so failure-cluster analytics can count fixer round-trips per goal, or stay log-only? | eng | Phase 4 |
+| Q35 | ~~CI-Fixer (PRs #96/#97) re-dispatches `TASK-fix-<pr>` but fixer outcomes only surface as `autoReviewAndMergeOne` log lines and the terminal `ci-fix-failed` result — should fixer dispatches and outcomes write ledger rows like PR events do, so failure-cluster analytics can count fixer round-trips per goal, or stay log-only?~~ Resolved 2026-09-01 (PR #100 writes one dispatch + one outcome ledger row per `TASK-fix-<pr>` with still-red round-trip tests); removed. | eng | Phase 4 |
 | Q36 | The CI-Fixer fix run (`TASK-fix-<pr>`) gets its own dispatch budget outside the originating task's `maxTaskRetries` — should fixer attempts count against the parent task's retry budget (linking to Q17's cumulative-attempt concern), or is one bounded fix attempt per PR run the right isolation? | eng | Phase 4 |
 | Q22 | ~~PR #73 re-bridges a queued goal in the same cycle as board archive, but the archive itself burns the board's salvage history — should archived boards write a compact post-mortem (goal, failure class, gate excerpts) to the ledger so the next bridge can plan around the same failure mode, or is the existing ledger analytics query surface enough?~~ Resolved 2026-08-31: PRs #96/#97's `ci-fix-failed` outcome gives the ledger a structured failure record with summary evidence (matching the Q24 taxonomy); remaining failure-evidence work is tracked by the backlog item "Executor failure surface". | eng | Phase 4 |
 | Q23 | PR #77's herdr-sweep trusts the session name alone; if the sweep ever gains an `--all` mode, what stops it from killing a user-attached interactive claude pane that happens to sit in an automation-spawned session (2026-08-26 mass-kill class)? Require per-pane agent-state verification plus a managed-settings-style deny toggle, or keep `--all` out of scope permanently? | product | Phase 4 |
