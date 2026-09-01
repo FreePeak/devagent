@@ -43,6 +43,32 @@ record() { # record <loop> <status> <goal>
 # Productive = shipped or handed to review; the ledger's richer statuses
 # ("pr-open", "merged", "pushed" — written by the Orca-driven runs) all count,
 # otherwise a healthy streak reads as starvation and halts the loop.
+# Q27 re-burn guard: a goal is "already handled" when any ledger entry with
+# a productive status (ok|pr-open|merged|pushed) carries the same goal text
+# (normalized: quotes stripped, whitespace collapsed). Phase 2-3 selection can
+# otherwise re-pick a goal whose PR already merged — loops 53-55/57/58 and the
+# 2026-09-01 Q35 re-burn (shipped as #100, then re-selected because the driver
+# restart lost the record) each burned attempts on an already-planned goal.
+already_shipped() { # already_shipped <goal-text>
+  [ -f "$STATE/ledger.jsonl" ] || return 1
+  local want
+  # Match on the PRD backlog item id (Q35, Q24, ...) when the goal names one —
+  # goal text is rewritten between selection and ledger record, but the item id
+  # is stable. Also match the normalized first 60 chars as a loose fallback.
+  want=$(printf '%s' "$1" | tr -d '"' | tr -s '[:space:]' ' ')
+  local item
+  item=$(printf '%s' "$want" | grep -oE 'Q[0-9]+' | head -1 || true)
+  awk -v want="$want" -v item="${item:-}" '
+    /"status":"(ok|pr-open|merged|pushed)"/ {
+      gsub(/"/, "", $0)
+      gsub(/[[:space:]]+/, " ", $0)
+      key = substr(want, 1, 60)
+      if ((item != "" && index($0, item) > 0) || index($0, key) > 0) found = 1
+    }
+    END { exit found ? 0 : 1 }
+  ' "$STATE/ledger.jsonl"
+}
+
 starved() {
   [ -f "$STATE/ledger.jsonl" ] || return 1
   local count
@@ -157,6 +183,18 @@ Output ONLY the goal statement (max 120 words), starting with 'Goal:' — this t
     if ! grep -q '^Goal:' "$GOAL_FILE"; then
       echo "[validate] goal file missing Goal: line — marking iteration invalid" ; record "$N" invalid "$(cat "$GOAL_FILE" 2>/dev/null)" ; fails=$(( fails + 1 )) ; else
       GOAL=$(cat "$GOAL_FILE")
+
+      # Q27 guard: never re-implement a goal that already shipped (a ledger
+      # entry with a productive status carries the same text). Loop 58 re-burned
+      # Q35 after its PR #100 merged because the driver restart lost the record;
+      # skip it so the iteration doesn't re-burn spend on already-planned work.
+      if already_shipped "$GOAL"; then
+        echo "[guard] goal already shipped — skipping (Q27 no re-burn)"
+        record "$N" skipped "$GOAL"
+        echo "[ok] loop $N skipped (already shipped)"
+        fails=0
+        continue
+      fi
 
       if [ "$DRY_RUN" = 1 ]; then
         echo "[dry-run] phases 4-7 skipped (implement/test/push)"
