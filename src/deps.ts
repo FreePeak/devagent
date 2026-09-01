@@ -334,6 +334,12 @@ export async function implementStage(
       if (result.timedOut || result.exitCode !== 0) {
         if (isInfraTransient(result)) {
           infraRetries++;
+          try {
+            const { recordTransientClass } = await import('./resilience/proxy-state.js');
+            recordTransientClass(cfg.repoPath, [result.resultText ?? '', result.timedOut ? 'watchdog timeout' : ''].filter(Boolean).join(' '));
+          } catch {
+            // observability must never break the retry
+          }
           log.warn('implement', `Transient infra failure, retrying (infra retry ${infraRetries})`, { resultText: result.resultText?.slice(0, 120) });
           const { backoffDelay } = await import('./sessionguard/backoff.js');
           await new Promise((r) => setTimeout(r, backoffDelay(infraRetries)));
