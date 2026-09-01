@@ -1,6 +1,7 @@
 import { analyzeAsyncHazards } from '../validation/async-review.js';
 import { runCli } from '../workers/spawn-utils.js';
 import { loadConfig, type DevAgentConfig } from '../config.js';
+import { appendFixerRecord } from '../orchestrator/ledger.js';
 import type { Finding } from '../types.js';
 
 /**
@@ -383,6 +384,17 @@ export async function autoReviewAndMergeOne(
       if (!fixRes.ok) {
         // Nothing was dispatched: record the structured failure and skip the
         // re-poll entirely (no pointless CI wait on an unchanged head SHA).
+        appendFixerRecord(repoPath, {
+          ts: new Date().toISOString(),
+          kind: 'event',
+          event: 'ci-fix-outcome',
+          taskId: `TASK-fix-${pr}`,
+          attempt: 1,
+          pr,
+          failedChecks,
+          outcome: 'ci-fix-failed',
+          detail: fixRes.note.slice(0, 200),
+        });
         return {
           pr,
           title: status.title,
@@ -394,6 +406,17 @@ export async function autoReviewAndMergeOne(
         };
       }
     } catch (e) {
+      appendFixerRecord(repoPath, {
+        ts: new Date().toISOString(),
+        kind: 'event',
+        event: 'ci-fix-outcome',
+        taskId: `TASK-fix-${pr}`,
+        attempt: 1,
+        pr,
+        failedChecks,
+        outcome: 'ci-fix-failed',
+        detail: (e as Error).message.slice(0, 200),
+      });
       return {
         pr,
         title: status.title,
@@ -404,6 +427,17 @@ export async function autoReviewAndMergeOne(
         summary: cv.summary,
       };
     }
+    // Dispatch succeeded: record the fixer round-trip start (goal id, PR
+    // number, failed check names) so analytics can count fix attempts per goal.
+    appendFixerRecord(repoPath, {
+      ts: new Date().toISOString(),
+      kind: 'event',
+      event: 'ci-fix-dispatched',
+      taskId: `TASK-fix-${pr}`,
+      attempt: 1,
+      pr,
+      failedChecks,
+    });
     // Re-poll to a completed rollup on the new head SHA, then re-evaluate.
     const fixDeadline = Date.now() + (opts.waitForChecksSec ?? 300) * 1000;
     for (;;) {
@@ -412,8 +446,30 @@ export async function autoReviewAndMergeOne(
       if (!fixCv.pending) {
         if (fixCv.passed) {
           log(`ci-fix: checks green after fix dispatch; merging PR #${pr}`);
+          appendFixerRecord(repoPath, {
+            ts: new Date().toISOString(),
+            kind: 'event',
+            event: 'ci-fix-outcome',
+            taskId: `TASK-fix-${pr}`,
+            attempt: 1,
+            pr,
+            failedChecks,
+            outcome: 'failed-then-green',
+            detail: fixCv.summary,
+          });
           break;
         }
+        appendFixerRecord(repoPath, {
+          ts: new Date().toISOString(),
+          kind: 'event',
+          event: 'ci-fix-outcome',
+          taskId: `TASK-fix-${pr}`,
+          attempt: 1,
+          pr,
+          failedChecks: fixCv.failedChecks.length ? fixCv.failedChecks : failedChecks,
+          outcome: 'still-red',
+          detail: fixCv.summary,
+        });
         return {
           pr,
           title: status.title,
@@ -425,6 +481,17 @@ export async function autoReviewAndMergeOne(
         };
       }
       if (Date.now() >= fixDeadline) {
+        appendFixerRecord(repoPath, {
+          ts: new Date().toISOString(),
+          kind: 'event',
+          event: 'ci-fix-outcome',
+          taskId: `TASK-fix-${pr}`,
+          attempt: 1,
+          pr,
+          failedChecks,
+          outcome: 'ci-fix-failed',
+          detail: fixCv.summary,
+        });
         return {
           pr,
           title: status.title,

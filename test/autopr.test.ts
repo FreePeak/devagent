@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import {
   autoReviewAndMergeOne,
   defaultCiFixer,
@@ -10,6 +13,7 @@ import {
   type PrStatus,
   type RunGh,
 } from '../src/integrations/autopr.js';
+import { LEDGER_DIR } from '../src/orchestrator/ledger.js';
 
 function prStatus(overrides: Partial<PrStatus> = {}): PrStatus {
   return {
@@ -58,6 +62,29 @@ function sequencedGh(views: string[], rest: Record<string, string | Error> = {})
     return { stdout: r ?? '', stderr: '' };
   };
   return { run, calls };
+}
+
+/** Fresh temp repo path so fixer ledger rows land on a real writable dir. */
+function tempRepo(dirs: string[]): string {
+  const d = mkdtempSync(join(tmpdir(), 'da-autopr-'));
+  dirs.push(d);
+  return d;
+}
+
+/** Parse the run ledger rows written under a repo path, oldest first. */
+function readLedgerRows(repo: string): Array<Record<string, unknown>> {
+  const file = join(repo, LEDGER_DIR, 'events.jsonl');
+  if (!existsSync(file)) return [];
+  const out: Array<Record<string, unknown>> = [];
+  for (const line of readFileSync(file, 'utf8').split('\n')) {
+    if (!line.trim()) continue;
+    try {
+      out.push(JSON.parse(line) as Record<string, unknown>);
+    } catch {
+      // skip corrupt lines; a ledger is data, not truth
+    }
+  }
+  return out;
 }
 
 describe('evaluateChecks', () => {
@@ -334,6 +361,91 @@ describe('autoReviewAndMergeOne', () => {
       const o = await autoReviewAndMergeOne('/repo', 9, {}, run);
       expect(o.action).toBe('ci-fix-failed');
       expect(o.detail).toContain('DEVAGENT_REMOTE_TARGET');
+    });
+
+    describe('ledger rows', () => {
+      const fixDirs: string[] = [];
+      afterEach(() => {
+        for (const d of fixDirs) rmSync(d, { recursive: true, force: true });
+        fixDirs.length = 0;
+      });
+
+      it('writes a dispatch row and a failed-then-green outcome row', async () => {
+        const repo = tempRepo(fixDirs);
+        const { run } = sequencedGh([redView, JSON.stringify(basePr)], { diff: '', review: '', merge: '' });
+        const o = await autoReviewAndMergeOne(repo, 9, { fixer: async () => ({ ok: true, note: 'fix pushed' }) }, run);
+        expect(o.action).toBe('merged');
+        const rows = readLedgerRows(repo);
+        expect(rows).toHaveLength(2);
+        expect(rows[0]).toMatchObject({
+          kind: 'event', event: 'ci-fix-dispatched', taskId: 'TASK-fix-9', pr: 9,
+          failedChecks: ['test=FAILURE'],
+        });
+        expect(rows[1]).toMatchObject({
+          kind: 'event', event: 'ci-fix-outcome', taskId: 'TASK-fix-9', pr: 9,
+          outcome: 'failed-then-green',
+        });
+      });
+
+      it('writes a dispatch row and a still-red outcome row', async () => {
+        const repo = tempRepo(fixDirs);
+        const { run } = sequencedGh([redView, redView], { diff: '', merge: '' });
+        const o = await autoReviewAndMergeOne(repo, 9, { fixer: async () => ({ ok: true, note: 'fix pushed' }) }, run);
+        expect(o.action).toBe('ci-fix-failed');
+        const rows = readLedgerRows(repo);
+        expect(rows).toHaveLength(2);
+        expect(rows[0]).toMatchObject({ event: 'ci-fix-dispatched', pr: 9 });
+        expect(rows[1]).toMatchObject({ event: 'ci-fix-outcome', outcome: 'still-red', pr: 9 });
+        // round-trip: one dispatch pairs with exactly one outcome
+        const dispatched = rows.filter((r) => r.event === 'ci-fix-dispatched');
+        const outcomes = rows.filter((r) => r.event === 'ci-fix-outcome');
+        expect(dispatched).toHaveLength(1);
+        expect(outcomes).toHaveLength(1);
+      });
+
+      it('writes only a ci-fix-failed outcome row when dispatch was never dispatched', async () => {
+        const repo = tempRepo(fixDirs);
+        const { run } = sequencedGh([redView], { diff: '', merge: '' });
+        const o = await autoReviewAndMergeOne(repo, 9, { fixer: async () => ({ ok: false, note: 'remote preflight failed' }) }, run);
+        expect(o.action).toBe('ci-fix-failed');
+        const rows = readLedgerRows(repo);
+        expect(rows).toHaveLength(1);
+        expect(rows[0]).toMatchObject({ event: 'ci-fix-outcome', outcome: 'ci-fix-failed', pr: 9 });
+      });
+
+      it('writes only a ci-fix-failed outcome row when dispatch throws', async () => {
+        const repo = tempRepo(fixDirs);
+        const { run } = sequencedGh([redView], { diff: '', merge: '' });
+        const o = await autoReviewAndMergeOne(repo, 9, { fixer: async () => { throw new Error('ssh exploded'); } }, run);
+        expect(o.action).toBe('ci-fix-failed');
+        const rows = readLedgerRows(repo);
+        expect(rows).toHaveLength(1);
+        expect(rows[0]).toMatchObject({ event: 'ci-fix-outcome', outcome: 'ci-fix-failed', pr: 9 });
+      });
+
+      it('still-red sequences emit countable round-trip rows across multiple fix attempts', async () => {
+        const repo = tempRepo(fixDirs);
+        // Two consecutive still-red fix attempts: both dispatch, both outcome
+        const { run } = sequencedGh([redView, redView, redView, redView], { diff: '', merge: '' });
+        // First attempt: still-red
+        let o = await autoReviewAndMergeOne(repo, 9, { fixer: async () => ({ ok: true, note: 'fix pushed' }) }, run);
+        expect(o.action).toBe('ci-fix-failed');
+        let rows = readLedgerRows(repo);
+        expect(rows).toHaveLength(2);
+        expect(rows[0]).toMatchObject({ event: 'ci-fix-dispatched' });
+        expect(rows[1]).toMatchObject({ event: 'ci-fix-outcome', outcome: 'still-red' });
+        // Second attempt: still-red again
+        o = await autoReviewAndMergeOne(repo, 9, { fixer: async () => ({ ok: true, note: 'fix pushed' }) }, run);
+        expect(o.action).toBe('ci-fix-failed');
+        rows = readLedgerRows(repo);
+        expect(rows).toHaveLength(4);
+        // Each dispatch has a matching outcome (round-trip)
+        const dispatched = rows.filter((r) => r.event === 'ci-fix-dispatched');
+        const outcomes = rows.filter((r) => r.event === 'ci-fix-outcome');
+        expect(dispatched).toHaveLength(2);
+        expect(outcomes).toHaveLength(2);
+        expect(outcomes.every((r) => r.outcome === 'still-red')).toBe(true);
+      });
     });
   });
 });
