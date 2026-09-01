@@ -582,8 +582,6 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
   > (`DEVAGENT_SANDBOX=seatbelt`) denies worker writes outside the worktree and temp
   > dirs, with network left default-allow as a named policy knob for future tightening.
   > Git/docker/gh/test-runner spawns keep the full parent env — they need credentials.
-- Selfbuild state bootstrap — auto-create and mirror the `selfbuild/state` orphan branch on first loop run; the durable-state mechanism shipped but no state branch exists on origin yet.
-- Merge-queue rebase automation — stacked loops land with expected conflicts against `main`; auto-rebase waves before dispatch instead of manual queue refreshes.
 - Lessons feedback loop — `selfbuild-state.sh` mirrors `lessons.md` to the state branch (PR #19) but nothing reads it back; inject curated lessons into worker repair and planning prompts so past failures stop repeating.
 - Flaky-test guard for fan-out judging — winner selection assumes deterministic tests; add quarantine/rerun handling for nondeterministic suites.
   > **Completed post-v0.3 (2026-08-28):** one flaky rerun before condemning a
@@ -775,16 +773,37 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 > Curator: before enqueuing, match candidate titles against merged PR titles
 > and these completion notes; skip or auto-done on match.
 
-#### Phase 4 — current backlog (2026-09-01, curation run 21)
+> **Completed post-v0.3 (2026-09-01 → 09-02, curation run 22):** Executor
+> failure surface — duplicate trailing `trail.jsonl` signatures mark
+> `taskInterrupt`, abort the worker, and write a ledger post-mortem (goal,
+> failure class, gate excerpt, trail hash) on board archive (PR #102,
+> `src/orchestrator/executor.ts:106`, `ledger.ts:126`). Zombie-PR hygiene —
+> `devagent pr-hygiene` + the `allDone` sweep close base-superseded `TASK-*`
+> PRs, flag red-across-grace ones, and skip `autoMerge` until green (PR #103,
+> `src/orchestrator/pr-hygiene.ts`). Legacy `mergeProjectBranches` gated so a
+> board that published per-task PRs no longer double-merges (PR #107,
+> `src/cli.ts:850`). Adapter-declared `WorkerAdapter.isProgress` replaces the
+> `"thinking_delta"` substring heuristic (Q33, commit 8d08e6f), and the
+> zero-event hung-worker signature now yields a distinct no-progress outcome
+> so callers fall back without the timeout burn (PR #106). `devagent status
+> --providers` exposes probe, transient class, and circuit state (PR #105).
+> Bullets retired: selfbuild state bootstrap (012d78c) and merge-queue rebase
+> automation — `devagent rebase-stack` rebases stacked branches onto updated
+> parents in a throwaway worktree (`src/git/rebase-stack.ts`). Loop-friction
+> fixes: queue-first goal selection ends the scout deadlock (aac28b6),
+> herdr-sweep each iteration (b302210), reviewer idle backoff (df7c6c9),
+> cleanup ancestry fallback (3ee9a9a), release remote-tag + idempotent tag
+> (9c7132a), CI-Fixer local dispatch fallback (ac100ba).
 
-- **Zombie-PR hygiene (surviving half of post-PR lifecycle automation)** — PRs #96/#97 shipped CI-Fixer re-dispatch and PR #100 logs each round-trip, but nothing auto-closes or skips PRs whose CI stays red across a grace window or whose base is superseded; the queue sweep flagged the factory parking on unresolved PRs (#68 reviewer note).
-- **Watchdog regression coverage** — run 1261d6be burned 3x3601s and the suite still has no thinking-only NDJSON fixture (the only `thinking_delta` match in test/ is the omp smoke fixture); add golden fixtures (thinking-only, tool-bearing, mixed) asserting the herdr watcher and `spawnCliStreaming` both trip the no-progress clock, covering the new pi adapter's stream shape alongside omp/glm.
-- **Provider model-id validation at dispatch** — PR #92 taught omp to drop aliases, but the same exit-1-in-12s class can hit claude-code/opencode/pi adapters (the new pi default worker ships no model-shape guard); validate `config.model` against each adapter's accepted id shape in preflight so the next adapter fails at the gate, not mid-board (Q32).
-- **Executor failure surface (`taskInterrupt` + failure evidence)** — kill a worker after 3+ identical `trail.jsonl` failures and write a compact post-mortem (goal, failure class, last gate excerpt) to the ledger on board archive; loops 57/58 both died on the same release-gating goal with only `attempts: 3`-style evidence, and PR #83 still had to mine ledger rows by hand to see why (loop 60 lesson: prompt-injection knobs must thread through deps/fanout/executor and the scheduler deps interface, so add the change in all three call sites).
-- **Cross-board retry memory beyond the SHA guard** — commit 60638d3 stops re-issuing already-shipped goals, but re-queued failures still get a fresh attempt budget; carry the prior board's failure class onto the re-bridged goal so the scout can deprioritize until the root-cause fix lands (Q27 deeper question).
-- **Reconcile merge-back with per-task PRs** — PR #71 opens per-task PRs while `src/cli.ts:814` still runs `mergeProjectBranches` on `allDone`; retire or gate the legacy path so a fully-done board does not double-merge (Q20).
-- **Structural progress signal instead of string matching** — PRs #93/#94 gate the watchdog by substring-matching `"thinking_delta"` (`src/workers/spawn-utils.ts:168`), which is omp/glm-specific; the new pi adapter has its own stream shape, so let each `WorkerAdapter` declare what output counts as progress (Q30/Q33).
-- **Consolidate the loop scripts** — the tracked `orchestrate-loop.sh` carries PR #68/#77 recovery while untracked `scripts/orchestrator-loop.sh` runs divergent logic; fold recovery into `src/orchestrator/` and reduce the shell to a thin caller (Q19).
+#### Phase 4 — current backlog (2026-09-02, curation run 22)
+
+- **Provider model-id validation at dispatch** — `status --providers` made health observable (PR #105), but `config.model` is still unvalidated for claude-code/opencode/pi; validate each adapter's accepted id shape in preflight so the exit-1-in-12s class dies at the gate, not mid-board (Q32).
+- **Cross-board retry memory beyond the SHA guard** — commit 60638d3 stops re-issuing shipped goals, but re-queued failures still get a fresh attempt budget; carry the prior board's failure class onto the re-bridged goal so the scout deprioritizes until the root-cause fix lands (Q27).
+- **Lessons eval guard** — every loop machine-appends to `lessons.md` and nothing verifies a lesson helps; wrap edits in a propose→evaluate→accept gate (regression suite green, must-beat-best-so-far, held-in AND held-out, per the AHE/Self-Harness precedents in `.selfbuild/lessons.md`) so a bad lesson cannot silently regress future prompts.
+- **Regression oracle before board merge** — gates judge single PRs and PR #108's committed STRIDE allowlist widens suppression paths; add a board-level "is the system at least as good?" check (full suite on the merged result) ahead of `autoMerge`, per the Kitchen Loop zero-regression rule.
+- **GRADIENT — structural gradient sensor** — exit-code scalar architecture gate (sentrux: `.sentrux/rules.toml`, lowest-scoring root cause per change) plus an adjacent-category scan (sensors, MCP servers, harness tooling) in scout/selfbuild research prompts; the agent-products-only funnel is why sentrux was missed entirely (2026-09-01 human deep-dive; Q38).
+- **Release/tag events as ledger outcomes** — the release workflow needed same-day hotfixes (9c7132a remote-tag resolution + idempotent tag) yet the ledger stays PR-URL-only; record tag/release outcomes so per-loop spend-to-shipped-artifact math can count releases (Q24).
+- **Consolidate the loop scripts** — recovery keeps landing in shell (aac28b6 queue-first selection, b302210 sweep-each-iteration, baa4eda discovery sweep) while untracked `scripts/orchestrator-loop.sh` runs divergent logic; fold recovery into `src/orchestrator/` and reduce the shell to a thin caller (Q19).
 
 ## 18. Open Questions
 
@@ -792,16 +811,16 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 |---|---|---|---|
 | Q11 | `.devagent/AGENTS.md` auto-load — trust prompt on the operator's managed-settings page (Codex CVE-2025-61260 pattern) or one-time per-repo confirm? | product | Phase 4 |
 | Q12 | With PR #57 merged, G0 plan-critic and G5:STRIDE both read the same `COMPACT_CONTEXT_MARKER` digest — should the audit track provenance (which gate, which loop, which trail line) per consumed entry, or treat the digest as opaque input? | eng | Phase 4 |
-| Q13 | `taskInterrupt` mid-flight (OpenCode v1.18.20 `task_id` + Codex 0.150.0 interrupt hook): should the orchestrator kill the worker process directly, or send a graceful-stop signal and only force-kill on a short grace timeout? | product | Phase 4 |
+| Q13 | ~~`taskInterrupt` mid-flight: kill the worker process directly, or graceful-stop signal with force-kill on grace timeout?~~ Resolved 2026-09-01 (PR #102): direct kill — duplicate trailing failure signatures mark `taskInterrupt` and `killStaleProcessTree` fires (`src/orchestrator/executor.ts:164`); no graceful-stop tier. Removed. | product | Phase 4 |
 | Q14 | With PR #64's governor on by default, should `devagent status` surface the live `effectiveConcurrency` + `lastSample` + per-worker RSS, or stay at the one-line readout added in PR #64 AC-10? Operators need enough to debug "why is auto-1 today" without leaking the per-pid sample into the human view. | eng | Phase 4 |
 | Q15 | Now that the curator/queue gap behind PR #64's "sat in docs/prds/ for weeks" is recognized, should the curator's audit step (proposed above) be authoritative (curator enqueues directly) or advisory-only (just emits a warning the next scout cycle reads)? Direct write simplifies, but couples the curator to scout's queue schema. | eng | Phase 4 |
 | Q16 | PR #68 archives stuck boards to `.devagent/archive/` and re-bridges from the oldest queued goal — should archive events emit a webhook/notification (the stalled factory ran 6h before a human noticed), and what is the retention policy for archived boards? | eng | Phase 4 |
 | Q17 | `requeue_parked` now resets `attempts` to 0 (PR #68), so a task that exhausts `maxTaskRetries` gets a fresh budget on every requeue round — is unbounded retry the right policy, or should cumulative attempt history across rounds cap a task permanently? | eng | Phase 4 |
 | Q18 | The 08-29 stuck board burned 3 salvage-instructed attempts on STRIDE wiring — should the executor refuse prompts above a size/complexity threshold (the salvage prompt was ~5 KB of step-by-step edits) and force a plan-split instead, or is dense prescriptive prompting the right shape and only the fail-signal capture (backlog item above) needs fixing? | eng | Phase 4 |
 | Q19 | `scripts/orchestrate-loop.sh` still carries PR #68's recovery logic only as an untracked-path script risk — PRs #67/#69 shipped within minutes of each other while the recovery fix lives in a tracked-but-shell-level layer; should stuck-board recovery move into `src/orchestrator/` (typed, tested) with the shell reduced to a thin caller, or stay in the script where iteration is cheaper? | eng | Phase 4 |
-| Q20 | With PR #71, per-task PRs open as soon as a task hits `done` while `mergeProjectBranches` still fires on `allDone` — should per-task PRs feed the reviewer/`autoMerge` flow directly (making merge-back a no-op), or stay review-only artifacts until a human decides? (Related: does a per-task PR count as "published" evidence for the task record?) | product | Phase 4 |
+| Q20 | ~~Per-task PRs vs `mergeProjectBranches` on `allDone` — feed reviewer/`autoMerge` directly, or stay review-only until a human decides?~~ Resolved 2026-09-01 (PR #107): the legacy path is gated — a board that already published per-task PRs skips `mergeProjectBranches` (`src/cli.ts:850`), so merge-back is a no-op there. Removed. | product | Phase 4 |
 | Q21 | ~~The Release workflow publishes on every push to `main` regardless of the `test` job's result — should releases hard-gate on CI green (`needs: test`), or tag first and yank on red? Hard-gate delays tags by one CI run; tag-first risks shipping a broken semver point.~~ Resolved 2026-08-31 (PR #86 hard-gated, unit-test-pinned); removed. | eng | Phase 4 |
-| Q33 | Watchdog progress gating is a substring match on `"thinking_delta"` (PRs #93/#94); with Q30's adapter capability block, should "counts as progress" be an adapter-declared classifier (per-line predicate or stream-shape schema) rather than a shared string heuristic, and where does the omp/glm fallback live until then? | eng | Phase 4 |
+| Q33 | ~~Adapter-declared progress classifier vs shared substring heuristic, and where does the omp/glm fallback live?~~ Resolved 2026-09-01 (commit 8d08e6f): adapter-declared — optional `WorkerAdapter.isProgress` predicate, shared omp/glm fallback in `src/workers/progress.ts`, unit-covered in `test/progress.test.ts`. Removed. | eng | Phase 4 |
 | Q34 | Run 1261d6be proves the watchdog can silently never fire; should the herdr watcher and `spawnCliStreaming` emit a per-attempt watchdog-health line to the ledger (clock resets, bytes counted, last meaningful-output timestamp) so a never-firing watchdog is visible in analytics instead of inferred from three 3601s timeouts? | eng | Phase 4 |
 | Q35 | ~~CI-Fixer (PRs #96/#97) re-dispatches `TASK-fix-<pr>` but fixer outcomes only surface as `autoReviewAndMergeOne` log lines and the terminal `ci-fix-failed` result — should fixer dispatches and outcomes write ledger rows like PR events do, so failure-cluster analytics can count fixer round-trips per goal, or stay log-only?~~ Resolved 2026-09-01 (PR #100 writes one dispatch + one outcome ledger row per `TASK-fix-<pr>` with still-red round-trip tests); removed. | eng | Phase 4 |
 | Q36 | The CI-Fixer fix run (`TASK-fix-<pr>`) gets its own dispatch budget outside the originating task's `maxTaskRetries` — should fixer attempts count against the parent task's retry budget (linking to Q17's cumulative-attempt concern), or is one bounded fix attempt per PR run the right isolation? | eng | Phase 4 |
@@ -816,7 +835,7 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 | Q31 | PR #91 strips LSP/extension discovery from headless omp but the same startup-stall class plausibly exists for other MCP-discovering CLIs; should worker preflight include a cold-start latency budget (fail fast above N seconds) or is the per-adapter no-progress watchdog enough? | eng | Phase 4 |
 | Q29 | PR #88 makes the run branch the source of truth after `cleanup=auto` (snapshot onto `devagent/<taskId>`, then publish from that branch), but snapshot and publish remain two stages with the deleted-cwd failure class between them — should auto-cleanup snapshot and per-task publish collapse into one commit path so the worktree's death cannot strand a green task, or is the regression-test guard enough? | eng | Phase 4 |
 | Q30 | omp (PRs #87/#89) needed adapter-specific hardening — prewalk off, stream-error parsing, capped retries, a bespoke no-progress timeout — none of which the registry declares. Should `WorkerAdapter` expose a capability/limit block (supported flags, stream quirks, watchdog defaults) the scheduler can honor, or stay as per-adapter internals patched case by case? | eng | Phase 4 |
-
+| Q38 | GRADIENT structural sensor (sentrux): should an external scalar architecture gate block dispatch/merge like G1–G5, or start advisory-only (report the lowest-scoring root cause to the scout) until it has a track record on this repo? | eng | Phase 4 |
 > Resolved 2026-08-24: Q1 (ecosystem conventions + `testCommand` override now
 > cover npm/Go/Python), Q2 (plain webhooks shipped in Phase 3), Q3 (policy is
 > one attempt, then fan-out on failure), Q6 (single-tenant CLI + webhook
