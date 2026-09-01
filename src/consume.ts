@@ -176,14 +176,41 @@ async function runQueuedTask(
       }
     }
 
-    const { evaluateStride } = await import('./gates/stride.js');
-    const evaluation = await evaluateStride({ diff });
+    const { evaluateStride, parseStrideAllowlist, STRIDE_ALLOWLIST_PATH } = await import(
+      './gates/stride.js'
+    );
+
+    // Per-path allowlist (PRD Q25): the PR may commit
+    // .devagent/stride-allowlist.json so findings in fixture/test files do
+    // not stall autoMerge. The file is read from the PR branch itself (so it
+    // is reviewable in the diff), never from the base; an absent, unreadable,
+    // or malformed allowlist fails closed (no suppression).
+    let allowlistPaths: string[] | undefined;
+    if (branch) {
+      const { spawnCli } = await import('./workers/index.js');
+      try {
+        const res = await spawnCli('git', ['show', `${branch}:${STRIDE_ALLOWLIST_PATH}`], {
+          cwd: opts.repoPath,
+          timeoutMs: 15_000,
+        });
+        if (res.exitCode === 0) {
+          const parsed = parseStrideAllowlist(res.stdout);
+          if (parsed) allowlistPaths = parsed;
+          else log.warn('validate', `G5 STRIDE allowlist ignored (malformed): ${STRIDE_ALLOWLIST_PATH}`);
+        }
+      } catch {
+        // no allowlist on the branch: fail closed, no suppression
+      }
+    }
+
+    const evaluation = await evaluateStride({ diff, allowlistPaths });
     log.info(
       'validate',
       `G5 STRIDE gate ${evaluation.severityMax === 'HIGH' || evaluation.severityMax === 'CRITICAL' ? 'blocked' : 'passed'}`,
       {
         gate: 'stride',
         severityMax: evaluation.severityMax,
+        allowlist: allowlistPaths ?? [],
         findings: evaluation.findings.map((f) => ({ category: f.category, severity: f.severity, file: f.file, line: f.line })),
       },
     );
