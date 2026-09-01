@@ -167,6 +167,21 @@ Afterwards, append any DURABLE new lessons (1-3 bullets, dated heading '## <date
       > "$STATE/research/loop-$N.md" || echo "[research] failed, continuing with backlog-only selection"
     fi
 
+    # Phase 2a: queue-first selection. Pending queue tasks (scout PRDs, backlog
+    # items) are concrete, already-validated work — they outrank LLM selection.
+    # Without this, a full queue blocks the scout at maxQueued while the loop
+    # keeps inventing fresh goals (2026-09-01 deadlock: 8 pending, 0 consumed).
+    QUEUE_JSON="$(node "$REPO/scripts/selfbuild-queue-claim.mjs" "$REPO" 2>/dev/null || true)"
+    if [ -n "$QUEUE_JSON" ] && [ "$QUEUE_JSON" != "{}" ]; then
+      QID="$(printf '%s' "$QUEUE_JSON" | node -e 'let d="";process.stdin.on("data",(c)=>d+=c).on("end",()=>console.log(JSON.parse(d).id))')"
+      QGOAL="$(printf '%s' "$QUEUE_JSON" | node -e 'let d="";process.stdin.on("data",(c)=>d+=c).on("end",()=>console.log(JSON.parse(d).goal))')"
+      echo "[queue] claimed $QID from .devagent/queue (queue-first outranks LLM selection)"
+      GOAL="$QGOAL"
+      QUEUED_TASK_ID="$QID"
+      printf '%s\n' "$GOAL" > goal.tmp && mv goal.tmp "$STATE/goals/loop-$N.md"
+    fi
+
+    if [ -z "${QUEUED_TASK_ID:-}" ]; then
     # Phases 2-3: Idea + Validate. Pick one PRD Phase 4 item, constrained by research.
     if [ "$DRY_RUN" != 1 ]; then
     $CLAUDE_BIN "You are phases 2-3 (Ideas + Validate) of the DevAgent self-build loop, iteration $N.
@@ -178,6 +193,7 @@ Validation checks (all must pass): maps to a PRD backlog item; no dependency on 
 Output ONLY the goal statement (max 120 words), starting with 'Goal:' — this text is passed directly to devagent task as the implementation prompt." \
       > goal.tmp && mv goal.tmp "$STATE/goals/loop-$N.md"
     fi
+    fi # end queue-first fallback to LLM selection
 
     GOAL_FILE="$STATE/goals/loop-$N.md"
     if ! grep -q '^Goal:' "$GOAL_FILE"; then
@@ -206,7 +222,7 @@ Output ONLY the goal statement (max 120 words), starting with 'Goal:' — this t
       TASK_ARGS=(task --prompt "$GOAL" --repo "$REPO" --worker "$WORKER")
       [ -n "${SELFBUILD_MODEL:-}" ] && TASK_ARGS+=(--model "$SELFBUILD_MODEL")
       [ "$PUSH_MODE" = pr ] && TASK_ARGS+=(--auto-pr)
-      "${DEVAGENT[@]}" "${TASK_ARGS[@]}" || { echo "[implement] task failed" ; record "$N" failed "$GOAL" ; fails=$(( fails + 1 )) ;
+      "${DEVAGENT[@]}" "${TASK_ARGS[@]}" || { echo "[implement] task failed" ; record "$N" failed "$GOAL" ; [ -n "${QUEUED_TASK_ID:-}" ] && node "$REPO/scripts/selfbuild-queue-done.mjs" "$REPO" "$QUEUED_TASK_ID" failed "implement failed at loop $N" >/dev/null 2>&1 || true ; fails=$(( fails + 1 )) ;
         [ "$fails" -ge "$MAX_FAILS" ] && { echo "circuit breaker: $fails consecutive failures" ; exit 1 ; } ; continue ; }
 
       # Post-merge-back repo-level test gate.
@@ -220,6 +236,7 @@ Output ONLY the goal statement (max 120 words), starting with 'Goal:' — this t
       fi
 
       record "$N" ok "$GOAL"
+      [ -n "${QUEUED_TASK_ID:-}" ] && node "$REPO/scripts/selfbuild-queue-done.mjs" "$REPO" "$QUEUED_TASK_ID" done >/dev/null 2>&1 || true
       [ "$PUSH_MODE" = pr ] && schedule_cleanup "$N"
       echo "[ok] loop $N complete"
       fi # DRY_RUN
