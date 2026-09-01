@@ -46,6 +46,21 @@ function randomTaskId(): string {
   return `SCOUT-${y}${m}${day}-${rand}`;
 }
 
+/**
+ * Deterministic fallback task id: one per UTC day. The fallback fires when
+ * scout LLM output is unparseable/failed — with a random id each cycle the
+ * queue accumulated 12 same-goal duplicates in one day (2026-09-01), because
+ * enqueueTask's exists-dedup never matched. A per-day id makes the dedup
+ * catch repeats; a new day legitimately gets a fresh fallback slot.
+ */
+function fallbackTaskId(): string {
+  const d = new Date();
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  return `SCOUT-${y}${m}${day}-fallback`;
+}
+
 function sanitizeForFile(s: string): string {
   return s.replace(/[^A-Za-z0-9._-]/g, '-').replace(/-+/g, '-').slice(0, 80);
 }
@@ -148,7 +163,7 @@ export function parseScoutOutput(text: string): { id: string; title: string; goa
 
 function fallbackTask(prompt: string, config: DevAgentConfig): { id: string; title: string; goal: string; criteria: string[]; prdMarkdown: string } {
   // Deterministic fallback when LLM output is unparseable or opencode unavailable
-  const id = randomTaskId();
+  const id = fallbackTaskId();
   const title = 'Scout fallback: improve devagent observability';
   const goal = 'Goal: Add a scout heartbeat status command so operators can verify the 24/7 scout is alive without reading files.';
   const prd = `# ${title}\n\n## Goal\nExpose \`devagent scout-status --repo <path>\` that prints heartbeat, queue depth, and last task.\n\n## Acceptance criteria\n- scout-status prints JSON or human table\n- heartbeat age is reported\n- missing heartbeat is reported cleanly\n\n## Notes\nFallback PRD generated when scout LLM output was unparseable.\n\nPrompt excerpt (first 400 chars): ${prompt.slice(0, 400)}`;
