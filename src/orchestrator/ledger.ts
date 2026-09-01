@@ -93,6 +93,34 @@ export function appendFixerRecord(repoPath: string, record: FixerLedgerRecord): 
   }
 }
 
+/** Zombie-PR hygiene event (PRD §17). */
+export interface PrHygieneLedgerRecord extends LedgerRecordBase {
+  kind: 'event';
+  event: 'pr-hygiene';
+  /** PR number the hygiene action targeted. */
+  pr: number;
+  /** Action taken; skips are not recorded (no action happened). */
+  action: 'closed' | 'flagged';
+  /** Why the action fired: base-superseded | red-across-grace. */
+  reason: string;
+  /** Hours since the PR's last update (grace-window age); null when unknown. */
+  graceAgeHours: number | null;
+  /** Human detail; best-effort. */
+  detail?: string;
+}
+/**
+ * Append a PR-hygiene record. Never throws into the caller's path —
+ * best-effort observability by design.
+ */
+export function appendPrHygieneRecord(repoPath: string, record: PrHygieneLedgerRecord): void {
+  try {
+    const file = ledgerPath(repoPath);
+    mkdirSync(join(repoPath, LEDGER_DIR), { recursive: true });
+    appendFileSync(file, `${JSON.stringify(record)}\n`);
+  } catch {
+    // best-effort observability only
+  }
+}
 /**
  * Executor interrupt post-mortem (PRD:775 / Q24 taxonomy mirror, PR #100): a
  * structured failure record written when a task is aborted via `taskInterrupt`

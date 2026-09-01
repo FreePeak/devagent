@@ -14,7 +14,7 @@ import type { Finding } from '../types.js';
 
 export type RunGh = (args: string[], cwd: string) => Promise<{ stdout: string; stderr: string }>;
 
-async function defaultRunGh(args: string[], cwd: string): Promise<{ stdout: string; stderr: string }> {
+export async function defaultRunGh(args: string[], cwd: string): Promise<{ stdout: string; stderr: string }> {
   // runCli routes through buildEnv so `gh` resolves from the fallback PATH
   // when the parent has a minimal env (live-smoke lesson). Translate
   // non-zero exit into a thrown Error so existing `try/catch` call sites
