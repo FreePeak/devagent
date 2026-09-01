@@ -86,4 +86,28 @@ describe('release workflow CI gating', () => {
     expect(releaseRaw).toContain('gh release create');
     expect(releaseRaw).toContain("if: github.ref == 'refs/heads/main'");
   });
+
+  it('release create step is idempotent against the tag race (2026-09-01 double-tap)', () => {
+    // A concurrent run may create the tag between this run's checkout and its
+    // create step. The step must detect the remote tag and skip (exit 0), not
+    // fail HTTP 422 and leave main red.
+    expect(releaseRaw).toContain('git ls-remote --exit-code --tags origin');
+    expect(releaseRaw).toContain('already exists on origin');
+  });
+});
+
+describe('next-version.mjs remote-tag resolution', () => {
+  it('resolves the last version from remote tags (ls-remote), not the stale local snapshot', () => {
+    const src = readFileSync(join(repoRoot, 'scripts/release/next-version.mjs'), 'utf8');
+    // The stale-checkout race: a locally-read tag list misses a tag created
+    // after checkout; ls-remote is authoritative.
+    expect(src).toContain("ls-remote");
+    expect(src).not.toMatch(/git\(\[\s*'describe'/);
+  });
+
+  it('ignores non-semver tags and sorts numerically (v0.9.10 > v0.9.9)', async () => {
+    const src = readFileSync(join(repoRoot, 'scripts/release/next-version.mjs'), 'utf8');
+    expect(src).toContain('/^v\\d+\\.\\d+\\.\\d+$/');
+    expect(src).toContain('return aM - bM || aN - bN || aP - bP;');
+  });
 });
