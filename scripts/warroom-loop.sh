@@ -89,6 +89,16 @@ printf '%s' "$GOAL" > "$STATE/goal.txt"
 git pull --ff-only >/dev/null 2>&1 || echo "[sync] skipped (pull failed)"
 echo "[init] war room open. goal: $(head -c 120 <<<"$GOAL")"
 
+# Operator preflight (Q40): probe the provider before any agent spend. On
+# failure the operator-degraded ledger row is written and the room closes
+# nonzero - visible degradation instead of research/spec/iter failures.
+if [ "$DRY_RUN" != 1 ] && ! "${DEVAGENT[@]}" preflight --role warroom --repo "$REPO"; then
+  echo "[preflight] provider degraded - closing war room (ledger row written)"
+  record provider-degraded "preflight: provider probe failed"
+  exit 1
+fi
+
+
 # ---- Phase 1: research -------------------------------------------------------
 WARROOM_PHASE=research
 if [ ! -s "$STATE/research.md" ]; then
@@ -166,6 +176,17 @@ while :; do
       exit 1
     fi
     [ "$MAX_ITERS" -gt 0 ] && [ "$N" -gt "$MAX_ITERS" ] && { echo "max iterations reached"; exit 1; }
+
+    # Operator preflight (Q40): skip the dispatch cycle when the provider is
+    # degraded; the operator-degraded ledger row keeps the outage visible.
+    if [ "$DRY_RUN" != 1 ] && ! "${DEVAGENT[@]}" preflight --role warroom --repo "$REPO"; then
+      echo "[preflight] provider degraded - skipping iteration $N (ledger row written)"
+      record provider-degraded "preflight: provider probe failed (iter $N)"
+      fails=$((fails+1))
+      [ "$fails" -ge "$MAX_FAILS" ] && { echo "circuit breaker: $fails consecutive failures"; exit 1; }
+      continue
+    fi
+
 
     GAP_CTX=""
     AC_LINE_NO=$(grep -m1 -nE '^[[:space:]]*- \[ \]' "$SPEC" | cut -d: -f1 || true)

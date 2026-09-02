@@ -160,6 +160,38 @@ export function appendTaskInterruptRecord(repoPath: string, record: TaskInterrup
   }
 }
 
+/** Operator-role provider preflight (PRD §17 Phase 4, Q40). */
+export interface OperatorDegradedLedgerRecord extends LedgerRecordBase {
+  kind: 'event';
+  event: 'operator-degraded';
+  /** Operator loop role the preflight gated: prd-curator | po | selfbuild | warroom | reviewer. */
+  role: string;
+  /** Worker CLI the probe exercised (from repo config; empty = unknown). */
+  worker: string;
+  /** Model id the probe passed (empty = CLI default). */
+  model: string;
+  /** Probe outcome. Rows are written on probe failure; ok rows only when explicitly recorded. */
+  ok: boolean;
+  /** Probe attempts made (1..3). */
+  attempts: number;
+  /** Bounded last-failure excerpt from the probe CLI. */
+  detail?: string;
+}
+
+/**
+ * Append an operator-degraded record. Never throws into the caller's path —
+ * best-effort observability by design.
+ */
+export function appendOperatorDegradedRecord(repoPath: string, record: OperatorDegradedLedgerRecord): void {
+  try {
+    const file = ledgerPath(repoPath);
+    mkdirSync(join(repoPath, LEDGER_DIR), { recursive: true });
+    appendFileSync(file, `${JSON.stringify(record)}\n`);
+  } catch {
+    // best-effort observability only
+  }
+}
+
 /** Read audit records, oldest first; optional task filter. Returns [] when absent. */
 export function readLedger(repoPath: string, opts: { taskId?: string } = {}): AuditLedgerRecord[] {
   const file = ledgerPath(repoPath);
