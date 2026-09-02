@@ -171,13 +171,19 @@ while :; do
       echo "# dry-run stub" > "$STATE/research/loop-$N.md"
       echo "Goal: (dry-run) verify driver phases execute without side effects" > "$STATE/goals/loop-$N.md"
     else
+    # Local-evidence research (no web crawl): the web-search version crawled
+    # 16-32 URLs per cycle and never fit the wall-clock budget — 34 consecutive
+    # timeouts (2026-09-02). Everything the loop acts on is already local:
+    # PRD backlog, ledger outcomes, lessons. Competitor scans are a separate
+    # manual cadence, not a per-iteration gate.
     timeout "$CLAUDE_TIMEOUT" $RESEARCH_BIN "You are phase 1 (Research) of the DevAgent self-build loop, iteration $N.
-Repo: $REPO. Read docs/PRD.md section 4 (competitive landscape) and section 17 (roadmap).
-Recent loop ledger: ${PREV_TAIL:-none}.
-$LESSONS_CTX
-Web-search what changed recently for: Devin/Cognition, GitHub Copilot coding agent, OpenHands, Factory Droid, Google Jules, OpenAI Codex cloud agent; and for projects that run agents in self-improving loops over their own codebase.
-Output compact markdown (<400 words): NEW competitor moves with URLs; self-build loop patterns worth copying; then a ranked recommendation of the single best next backlog item for this iteration and why.
-Afterwards, append any DURABLE new lessons (1-3 bullets, dated heading '## <date>') to $LESSONS — never delete or edit existing lessons (ratchet-only)." \
+Repo: $REPO. Use ONLY local evidence — no web searches, no network fetches:
+1. docs/PRD.md section 17 (Phase 4 backlog) and section 18 (open questions)
+2. Recent loop ledger: ${PREV_TAIL:-none}
+3. Accumulated lessons: $(tail -10 "$LESSONS" 2>/dev/null || echo none)
+4. git log --oneline -15 (what just shipped, what friction it caused)
+Rank the top 3 backlog items by (impact x tractability) for a single iteration. Consider: does an earlier failed loop already cover this? Does a merged PR already cover it? Output compact markdown (<300 words): your ranked top-3 with one-line rationale each, then THE single pick.
+Do NOT edit any files. Output only." \
       > "$STATE/research/loop-$N.md" || echo "[research] failed, continuing with backlog-only selection"
     fi
 
