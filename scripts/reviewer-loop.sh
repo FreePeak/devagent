@@ -38,6 +38,16 @@ while :; do
   ARGS=(automerge --base main)
   [ "$DRY_RUN" = "1" ] && ARGS+=(--dry-run)
   echo "=== reviewer cycle $(date -u +%FT%TZ) (next in ${sleep_secs}s) ===" >> "$LOG"
+  # Operator preflight (Q40): probe the provider before the review cycle. On
+  # failure the operator-degraded ledger row is written and the cycle is
+  # skipped with idle backoff - visible instead of a red herring in the log.
+  if [ "$DRY_RUN" != 1 ] && ! "${DEVAGENT[@]}" preflight --role reviewer --repo "$REPO"; then
+    echo "[preflight] provider degraded - skipping review cycle (ledger row written)" >> "$LOG"
+    sleep_secs=$(( sleep_secs * 2 ))
+    [ "$sleep_secs" -gt "$MAX_INTERVAL" ] && sleep_secs="$MAX_INTERVAL"
+    sleep "$sleep_secs"
+    continue
+  fi
   set +e
   OUT="$("${DEVAGENT[@]}" "${ARGS[@]}" 2>&1)"
   RC=$?

@@ -161,6 +161,21 @@ while :; do
     HERDR_SWEEP_OUT="$(${DEVAGENT[@]} herdr-sweep 2>&1)" || true
     [ -n "$HERDR_SWEEP_OUT" ] && printf '%s\n' "$HERDR_SWEEP_OUT" | tail -3
 
+    # Operator preflight (Q40): probe the provider before spending the
+    # iteration on research + PO + task. On failure the operator-degraded
+    # ledger row is written and this cycle is skipped - a degraded factory
+    # stays visible instead of surfacing as a bogus research/validate noop.
+    if [ "$DRY_RUN" != 1 ]; then
+      if ! "${DEVAGENT[@]}" preflight --role selfbuild --repo "$REPO"; then
+        echo "[preflight] provider degraded - skipping iteration $N (ledger row written)"
+        record "$N" provider-degraded "preflight: provider probe failed"
+        fails=$(( fails + 1 ))
+        [ "$fails" -ge "$MAX_FAILS" ] && { echo "circuit breaker: $fails consecutive failures" ; exit 1 ; }
+        continue
+      fi
+    fi
+
+
     # Sync with remote; tolerate offline / diverged states.
     git pull --ff-only || echo "[sync] skipped (pull failed)"
 
@@ -210,6 +225,16 @@ Do NOT edit any files. Output only." \
     if [ -z "${QUEUED_TASK_ID:-}" ]; then
     # Phases 2-3: Idea + Validate. Pick one PRD Phase 4 item, constrained by research.
     if [ "$DRY_RUN" != 1 ]; then
+      # PO preflight (Q40): the goal-selection dispatch dies silently under a
+      # degraded provider (empty goal.tmp -> "[validate] goal file missing");
+      # gate it so the skip lands as an operator-degraded row instead.
+      if ! "${DEVAGENT[@]}" preflight --role po --repo "$REPO"; then
+        echo "[preflight] provider degraded - skipping PO selection (ledger row written)"
+        record "$N" provider-degraded "preflight(po): provider probe failed"
+        fails=$(( fails + 1 ))
+        [ "$fails" -ge "$MAX_FAILS" ] && { echo "circuit breaker: $fails consecutive failures" ; exit 1 ; }
+        continue
+      fi
     timeout "$CLAUDE_TIMEOUT" $PO_BIN "You are phases 2-3 (Ideas + Validate) of the DevAgent self-build loop, iteration $N.
 Repo: $REPO. Inputs: docs/PRD.md (Phase 4 backlog), .selfbuild/research/loop-$N.md, recent ledger entries below.
 $PREV_TAIL

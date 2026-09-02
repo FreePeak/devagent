@@ -32,6 +32,15 @@ git pull --ff-only || echo "[sync] skipped (pull failed)"
 
 echo "=== prd curation start $STAMP ==="
 
+# Operator preflight (Q40): probe the provider before spending the cycle on
+# the curator agent. On failure the operator-degraded ledger row is written
+# and this cycle exits nonzero - visible degradation, not a silent noop.
+if [ "$DRY_RUN" != 1 ] && ! npx tsx "$REPO/src/cli.ts" preflight --role prd-curator --repo "$REPO"; then
+  echo "[preflight] provider degraded - skipping curation this cycle (ledger row written)"
+  exit 1
+fi
+
+
 {
   # Phase 1-3: research, analyze, propose (single agent pass).
   cat > "$CURLOG/research/curation-$DAY.md" <<EOF || true

@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { loadConfig, loadCredentials, credentialStatus, type CleanupMode } from './config.js';
 import { RunLogger } from './logger.js';
 import { ensureStateBranch } from './git/state-branch.js';
+import { runPreflightGate, PREFLIGHT_ROLES, isPreflightRole } from './resilience/preflight.js';
 import { runPipeline } from './pipeline.js';
 import { buildDeps, buildDryRunDeps } from './deps.js';
 import type { WorkerName } from './types.js';
@@ -14,6 +15,30 @@ function parseConcurrency(v: string): number | 'auto' {
   const n = Number(v);
   if (!Number.isFinite(n) || n < 1) throw new Error(`Invalid --concurrency "${v}"; expected positive integer or "auto"`);
   return Math.floor(n);
+}
+
+/**
+ * Probe argv for the operator preflight (Q40). Mirrors the orchestrate-loop
+ * probe (scripts/orchestrate-loop.sh): omp gets the headless hardening flags
+ * and requires a provider-qualified model id — an unqualified alias is
+ * dropped so the CLI default applies (same normalization buildOmpArgs does);
+ * the other workers take a plain prompt.
+ */
+function buildProbeArgv(worker: string, model: string | undefined): string[] {
+  if (worker === 'omp') {
+    const ompModel = model && model.includes('/') ? model : undefined;
+    return [
+      'omp',
+      '-p',
+      '--mode',
+      'json',
+      '--no-prewalk',
+      '--no-lsp',
+      '--no-extensions',
+      ...(ompModel ? ['--model', ompModel] : []),
+    ];
+  }
+  return [worker, '-p'];
 }
 
 const program = new Command();
@@ -1014,6 +1039,45 @@ program
   .action(async () => {
     const { startMcpServer } = await import('./server/mcp.js');
     startMcpServer();
+  });
+
+program
+  .command('preflight')
+  .description(
+    'Operator-role provider preflight (Q40): probe the configured worker CLI; on failure write an operator-degraded ledger row, open the circuit, and exit nonzero so the calling loop skips its agent dispatch this cycle',
+  )
+  .requiredOption('--role <name>', `operator role to gate (${PREFLIGHT_ROLES.join(' | ')})`)
+  .option('--repo <path>', 'target repository owning the ledger/proxy state', process.cwd())
+  .option('--worker <name>', 'worker CLI to probe (default from repo config)')
+  .option('--model <id>', 'model id passed to the probe (default from repo config)')
+  .action(async (opts) => {
+    if (!isPreflightRole(opts.role)) {
+      console.error(`[preflight] unknown role "${opts.role}"; expected one of: ${PREFLIGHT_ROLES.join(', ')}`);
+      process.exitCode = 1;
+      return;
+    }
+    const config = loadConfig(opts.repo);
+    const worker = (opts.worker as string | undefined) ?? config.worker;
+    const rawModel = (opts.model as string | undefined) ?? config.model;
+    const decision = await runPreflightGate({
+      repoPath: opts.repo,
+      role: opts.role,
+      worker,
+      model: rawModel ?? '',
+      argv: buildProbeArgv(worker, rawModel),
+      cwd: opts.repo,
+    });
+    if (decision.ok) {
+      console.log(
+        `[preflight] ok role=${decision.role} worker=${worker} model=${rawModel || '(default)'} attempts=${decision.attempts}`,
+      );
+    } else {
+      console.error(
+        `[preflight] DEGRADED role=${decision.role} worker=${worker} model=${rawModel || '(default)'} attempts=${decision.attempts} — skip this cycle's agent dispatch (ledger: .devagent/runs/orchestration/events.jsonl)`,
+      );
+      if (decision.detail) console.error(`[preflight] last probe: ${decision.detail}`);
+      process.exitCode = 1;
+    }
   });
 
 program
