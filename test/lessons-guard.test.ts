@@ -2,17 +2,19 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { loadLessons, loadLessonsDigest } from '../src/prompt.js';
 import {
   appendLessonGuarded,
   appendPredictedImpact,
   checkLessonsDedupe,
   DEFAULT_LESSONS_DEDUPE_SIMILARITY,
+  lessonExcerptHash,
   lessonSimilarity,
   normalizeLessonText,
   readLessonEntries,
+  runLessonsSuite,
   SELFBUILD_LESSONS_PATH,
 } from '../src/lessons/guard.js';
-import { loadLessons, loadLessonsDigest } from '../src/prompt.js';
 
 describe('normalizeLessonText / lessonSimilarity (shingle Jaccard)', () => {
   it('scores identical texts at 1', () => {
@@ -50,6 +52,44 @@ describe('readLessonEntries (comparison surface)', () => {
     writeFileSync(file, '---\n## 2026-09-02\n\n- Keep migrations expand-first.\n\n---\n');
     try {
       expect(readLessonEntries(file)).toEqual(['- Keep migrations expand-first.']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('lessonExcerptHash / runLessonsSuite (evaluate step primitives)', () => {
+  it('excerpt hash is stable across formatting-only changes and 16 hex chars', () => {
+    const h1 = lessonExcerptHash('Keep migrations expand-first.');
+    const h2 = lessonExcerptHash('keep  migrations  expand-first!');
+    expect(h1).toMatch(/^[0-9a-f]{16}$/);
+    expect(h1).toBe(h2);
+    expect(lessonExcerptHash('a different lesson')).not.toBe(h1);
+  });
+
+  it('runLessonsSuite passes a green repo and fails a red one without throwing', () => {
+    const green = mkdtempSync(join(tmpdir(), 'da-suite-green-'));
+    const red = mkdtempSync(join(tmpdir(), 'da-suite-red-'));
+    try {
+      writeFileSync(join(green, 'package.json'), JSON.stringify({ name: 'g', scripts: { test: 'node -e ""' } }));
+      writeFileSync(join(red, 'package.json'), JSON.stringify({ name: 'r', scripts: { test: 'node -e "process.exit(1)"' } }));
+      const g = runLessonsSuite(green, { timeoutMs: 30_000 });
+      expect(g.ok).toBe(true);
+      const b = runLessonsSuite(red, { timeoutMs: 30_000 });
+      expect(b.ok).toBe(false);
+    } finally {
+      rmSync(green, { recursive: true, force: true });
+      rmSync(red, { recursive: true, force: true });
+    }
+  });
+
+  it('runLessonsSuite never throws: an unrunnable suite is a red result', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'da-suite-broken-'));
+    try {
+      // No package.json at all: npm test cannot run.
+      const r = runLessonsSuite(dir, { timeoutMs: 30_000 });
+      expect(r.ok).toBe(false);
+      expect(r.detail).toBeTruthy();
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -131,67 +171,105 @@ describe('checkLessonsDedupe (lessons eval guard)', () => {
   });
 });
 
-describe('appendLessonGuarded (guarded append)', () => {
+describe('appendLessonGuarded (eval-gated append: impact → dedupe → evaluate)', () => {
   const dirs: string[] = [];
-  const tempRepo = () => {
+  /** Temp repo with a package.json whose `npm test` exits with `code` (0 = green). */
+  const tempRepo = (code = 0) => {
     const d = mkdtempSync(join(tmpdir(), 'da-lessons-append-'));
     dirs.push(d);
+    writeFileSync(
+      join(d, 'package.json'),
+      JSON.stringify({ name: 'fixture', scripts: { test: `node -e "process.exit(${code})"` } }),
+    );
     return d;
   };
   afterEach(() => {
     for (const d of dirs) rmSync(d, { recursive: true, force: true });
     dirs.length = 0;
   });
+  const ledgerRows = (repo: string) =>
+    readFileSync(join(repo, '.devagent', 'runs', 'orchestration', 'events.jsonl'), 'utf8')
+      .trim()
+      .split('\n')
+      .map((l) => JSON.parse(l) as Record<string, unknown>);
 
-  it('unique-append path: writes the entry and records no rejection', () => {
+  it('missing predictedImpact → rejected before dedupe/suite, nothing written', () => {
     const repo = tempRepo();
     const r = appendLessonGuarded(repo, 'New durable lesson.');
-    expect(r.ok).toBe(true);
-    expect(readFileSync(join(repo, SELFBUILD_LESSONS_PATH), 'utf8')).toBe('New durable lesson.\n');
-    expect(existsSync(join(repo, '.devagent', 'runs', 'orchestration'))).toBe(false);
+    expect(r.ok).toBe(true); // ok tracks the dedupe verdict, not acceptance
+    expect(r.reason).toBe('missing-predictedImpact');
+    expect(r.suite).toBe('skipped');
+    expect(existsSync(join(repo, SELFBUILD_LESSONS_PATH))).toBe(false);
+    const rows = ledgerRows(repo);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ event: 'lessons-eval', accepted: false, reason: 'missing-predictedImpact', suite: 'skipped' });
   });
 
-  it('exact-dup path: writes nothing and records a lessons-dedupe-rejected event row', () => {
+  it('blank predictedImpact counts as missing (whitespace-only cannot bypass the gate)', () => {
     const repo = tempRepo();
-    const entry = 'Keep the lessons digest under 4000 chars.';
-    expect(appendLessonGuarded(repo, entry).ok).toBe(true);
-    const r = appendLessonGuarded(repo, entry);
-    expect(r.ok).toBe(false);
-    expect(r.similarity).toBe(1);
-    // Exactly one entry remains in the file.
-    expect(readFileSync(join(repo, SELFBUILD_LESSONS_PATH), 'utf8')).toBe(`${entry}\n`);
-    const raw = readFileSync(join(repo, '.devagent', 'runs', 'orchestration', 'events.jsonl'), 'utf8').trim().split('\n');
-    expect(raw).toHaveLength(1);
-    const row = JSON.parse(raw[0]!) as Record<string, unknown>;
-    expect(row).toMatchObject({
+    const r = appendLessonGuarded(repo, 'New durable lesson.', { predictedImpact: '   ' });
+    expect(r.reason).toBe('missing-predictedImpact');
+    expect(existsSync(join(repo, SELFBUILD_LESSONS_PATH))).toBe(false);
+  });
+
+  it('unique entry with predictedImpact + green suite → accepted, appended with impact suffix, ledger row written', () => {
+    const repo = tempRepo(0);
+    const impact = 'avoids re-picking shipped goals';
+    const r = appendLessonGuarded(repo, 'New durable lesson.', { predictedImpact: impact, suiteTimeoutMs: 30_000 });
+    expect(r.ok).toBe(true);
+    expect(r.reason).toBe('accepted');
+    expect(r.suite).toBe('green');
+    expect(readFileSync(join(repo, SELFBUILD_LESSONS_PATH), 'utf8')).toBe(`New durable lesson. [predictedImpact: ${impact}]\n`);
+    const rows = ledgerRows(repo);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
       kind: 'event',
-      event: 'lessons-dedupe-rejected',
-      similarity: 1,
-      threshold: DEFAULT_LESSONS_DEDUPE_SIMILARITY,
-      matchedEntry: entry,
-      entry,
+      event: 'lessons-eval',
+      accepted: true,
+      reason: 'accepted',
+      suite: 'green',
+      similarity: 0,
+      predictedImpact: impact,
+      excerptHash: lessonExcerptHash('New durable lesson.'),
     });
   });
 
-  it('near-dup-reject path: reworded duplicate is rejected before append and leaves the file untouched', () => {
-    const repo = tempRepo();
-    expect(appendLessonGuarded(repo, 'Guard rejects near duplicate lessons before append.').ok).toBe(true);
-    const nearDup = 'guard rejects near-duplicate lessons before append!'; // punctuation-only rewrite
-    const r = appendLessonGuarded(repo, nearDup);
-    expect(r.ok).toBe(false);
-    expect(r.matchedEntry).toBe('Guard rejects near duplicate lessons before append.');
-    expect(readFileSync(join(repo, SELFBUILD_LESSONS_PATH), 'utf8')).toBe(
-      'Guard rejects near duplicate lessons before append.\n',
-    );
-    const raw = readFileSync(join(repo, '.devagent', 'runs', 'orchestration', 'events.jsonl'), 'utf8').trim().split('\n');
-    expect(raw).toHaveLength(1);
-    expect(JSON.parse(raw[0]!) as Record<string, unknown>).toMatchObject({ event: 'lessons-dedupe-rejected' });
+  it('red suite → rejected + file reverted byte-for-byte (created case removes the file)', () => {
+    const repo = tempRepo(1);
+    const r = appendLessonGuarded(repo, 'New durable lesson.', { predictedImpact: 'must not land', suiteTimeoutMs: 30_000 });
+    expect(r.ok).toBe(true); // dedupe passed
+    expect(r.reason).toBe('suite-red');
+    expect(r.suite).toBe('red');
+    expect(r.suiteDetail).toBeTruthy();
+    expect(existsSync(join(repo, SELFBUILD_LESSONS_PATH))).toBe(false);
+    const rows = ledgerRows(repo);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ event: 'lessons-eval', accepted: false, reason: 'suite-red', suite: 'red' });
   });
 
-  it('creates the lessons parent dir on the first unique append', () => {
-    const repo = tempRepo();
-    appendLessonGuarded(repo, 'Seed lesson.');
-    expect(existsSync(join(repo, '.selfbuild'))).toBe(true);
+  it('red suite → rejected + pre-existing file restored byte-for-byte', () => {
+    const repo = tempRepo(1);
+    mkdirSync(join(repo, '.selfbuild'), { recursive: true });
+    const seed = 'Seed lesson that must survive the revert.';
+    writeFileSync(join(repo, SELFBUILD_LESSONS_PATH), `${seed}\n`);
+    const r = appendLessonGuarded(repo, 'A different candidate lesson.', { predictedImpact: 'must not land', suiteTimeoutMs: 30_000 });
+    expect(r.reason).toBe('suite-red');
+    expect(readFileSync(join(repo, SELFBUILD_LESSONS_PATH), 'utf8')).toBe(`${seed}\n`);
+  });
+
+  it('duplicate → rejected before the suite runs, exactly one ledger row', () => {
+    const repo = tempRepo(0);
+    const entry = 'Keep the lessons digest under 4000 chars.';
+    expect(appendLessonGuarded(repo, entry, { predictedImpact: 'budget hygiene', suiteTimeoutMs: 30_000 }).reason).toBe('accepted');
+    const r = appendLessonGuarded(repo, entry, { predictedImpact: 'budget hygiene', suiteTimeoutMs: 30_000 });
+    expect(r.ok).toBe(false);
+    expect(r.similarity).toBe(1);
+    expect(r.reason).toBe('duplicate');
+    expect(r.suite).toBe('skipped');
+    expect(readFileSync(join(repo, SELFBUILD_LESSONS_PATH), 'utf8')).toBe(`${entry} [predictedImpact: budget hygiene]\n`);
+    const rows = ledgerRows(repo);
+    expect(rows).toHaveLength(2);
+    expect(rows[1]).toMatchObject({ event: 'lessons-eval', accepted: false, reason: 'duplicate', suite: 'skipped' });
   });
 });
 
@@ -212,8 +290,10 @@ describe('predictedImpact round-trip (AHE/Meta-Harness field)', () => {
     try {
       const file = join(dir, SELFBUILD_LESSONS_PATH);
       mkdirSync(join(dir, '.selfbuild'), { recursive: true });
+      // Green-suite fixture: the evaluate step must pass for the append to land.
+      writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'fixture', scripts: { test: 'node -e ""' } }));
       const impact = 'avoids burning the digest budget on repeats';
-      const r = appendLessonGuarded(dir, 'A distinct lesson about the eval guard.', { predictedImpact: impact });
+      const r = appendLessonGuarded(dir, 'A distinct lesson about the eval guard.', { predictedImpact: impact, suiteTimeoutMs: 30_000 });
       expect(r.ok).toBe(true);
       const written = readFileSync(file, 'utf8');
       expect(written).toContain(`[predictedImpact: ${impact}]`);
@@ -254,9 +334,12 @@ describe('budget interaction: dedupe-before-append respects the 40-line / 4000-c
       // 49 seed lines so the 40-line digest cap is already engaged.
       const seed = Array.from({ length: 49 }, (_, i) => `seed lesson ${i} with some padding`);
       writeFileSync(file, `${seed.join('\n')}\n`);
+      // Green-suite fixture: the evaluate step must pass for the append to land.
+      writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'fixture', scripts: { test: 'node -e ""' } }));
 
       const r = appendLessonGuarded(dir, 'A brand new distinct lesson worth echoing.', {
         predictedImpact: 'must survive the cap',
+        suiteTimeoutMs: 30_000,
       });
       expect(r.ok).toBe(true);
       // 50 lines in the file, but the digest is capped at the newest 40.

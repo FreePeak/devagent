@@ -1426,14 +1426,15 @@ program
 
 program
   .command('lessons')
-  .description('Append a lesson behind the eval-guard dedupe gate (PRD Phase 4 "Lessons eval guard"). Machine appends to the lessons file must go through this so near-duplicate content is rejected before it burns the digest budget; a rejected entry leaves the file untouched and records a lessons-dedupe-rejected event.')
+  .description('Append a lesson behind the eval guard (PRD Phase 4 "Lessons eval guard", evaluate→accept slice). Machine appends must go through this: a candidate needs a non-empty --predicted-impact, must clear the dedupe gate, and must leave the repo regression suite green against the proposed lessons-file state (red reverts the file). Exactly one lessons-eval ledger row is written per gated append.')
   .requiredOption('--repo <path>', 'repository containing the lessons file')
   .requiredOption('--entry <text>', 'lesson entry to append (one line)')
+  .requiredOption('--predicted-impact <text>', 'predictedImpact field required by the eval guard (AHE/Meta-Harness propose→evaluate→accept precedent); empty values are rejected')
   .option('--lessons-file <path>', 'repo-relative lessons file path (default .selfbuild/lessons.md)')
   .option('--threshold <n>', 'similarity reject threshold in [0,1] (default 0.8)', Number)
-  .option('--predicted-impact <text>', 'optional predictedImpact field captured on the appended lesson and echoed verbatim in the digest (AHE/Meta-Harness propose→evaluate→accept precedent)')
+  .option('--suite-timeout-ms <n>', 'evaluate-step wall-clock budget in ms (default 600000)', Number)
   .action(async (opts) => {
-    const { appendLessonGuarded, DEFAULT_LESSONS_DEDUPE_SIMILARITY } = await import('./lessons/guard.js');
+    const { appendLessonGuarded, DEFAULT_LESSONS_DEDUPE_SIMILARITY, DEFAULT_LESSONS_SUITE_TIMEOUT_MS } = await import('./lessons/guard.js');
     const config = loadConfig(opts.repo);
     const lessonsFile = (opts.lessonsFile as string | undefined) ?? config.lessonsFile ?? '.selfbuild/lessons.md';
     const threshold = opts.threshold === undefined ? (config.lessonsDedupeSimilarity ?? DEFAULT_LESSONS_DEDUPE_SIMILARITY) : Number(opts.threshold);
@@ -1441,9 +1442,12 @@ program
       lessonsFile,
       threshold,
       predictedImpact: opts.predictedImpact as string | undefined,
+      suiteTimeoutMs: opts.suiteTimeoutMs === undefined ? DEFAULT_LESSONS_SUITE_TIMEOUT_MS : Number(opts.suiteTimeoutMs),
     });
-    console.log(JSON.stringify({ appended: r.ok, similarity: r.similarity, threshold: r.threshold, matchedEntry: r.matchedEntry }));
-    if (!r.ok) process.exitCode = 1;
+    console.log(JSON.stringify({ appended: r.ok, reason: r.reason, suite: r.suite, similarity: r.similarity, threshold: r.threshold, matchedEntry: r.matchedEntry }));
+    // `ok` tracks the dedupe verdict; acceptance is the reason — a suite-red
+    // revert or missing predictedImpact must also fail the invocation.
+    if (r.reason !== 'accepted') process.exitCode = 1;
   });
 
 program
