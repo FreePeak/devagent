@@ -1,0 +1,60 @@
+Switched to branch 'main'
+fatal: 'origin' does not appear to be a git repository
+fatal: Could not read from remote repository.
+
+Please make sure you have the correct access rights
+and the repository exists.
+Switched to a new branch 'feature'
+ ✓ test/self-update.test.ts (6 tests) 7046ms
+   ✓ runSelfUpdate > skips on a dirty worktree without pulling 971ms
+   ✓ runSelfUpdate > treats untracked .devagent noise as clean and proceeds 1249ms
+   ✓ runSelfUpdate > fails cleanly when git pull fails and never leaks remote credentials in the detail 1249ms
+   ✓ runSelfUpdate > runs the full pull -> install -> build sequence on a clean tree 1225ms
+   ✓ runSelfUpdate > falls back to npm install when npm ci fails 1496ms
+   ✓ runSelfUpdate > reports failure when build fails 856ms
+Switched to a new branch 'devagent/loop60'
+Switched to a new branch 'devagent/loop61'
+Switched to branch 'main'
+ ✓ test/rebase-stack.test.ts (7 tests) 10085ms
+   ✓ rebaseStack > rebases drifted children onto the moved base in order 1585ms
+   ✓ rebaseStack > reports up-to-date when nothing drifted 1627ms
+   ✓ rebaseStack > stops at a conflicting branch with earlier siblings rebased and children untouched 1458ms
+   ✓ rebaseStack > rejects a disconnected history before touching anything 1519ms
+   ✓ rebaseStack > refuses branches checked out in a worktree 1635ms
+   ✓ rebaseStack > errors on unknown branch or missing onto 1370ms
+   ✓ rebaseStack > handles an empty stack as a no-op success 856ms
+fatal: 'origin' does not appear to be a git repository
+fatal: Could not read from remote repository.
+
+Please make sure you have the correct access rights
+and the repository exists.
+ ✓ test/clean-main-worktree.test.ts (6 tests) 6871ms
+   ✓ stashMainWorktree > returns null on a clean tree without creating a stash 1054ms
+   ✓ stashMainWorktree > stashes tracked and untracked changes and restores them on pop by SHA 1361ms
+   ✓ assertCleanMainWorktree > resolves on a clean tree checked out on main 1087ms
+   ✓ assertCleanMainWorktree > rejects with a diagnostic message on detached HEAD 1474ms
+   ✓ assertCleanMainWorktree > rejects with the branch name on a non-main branch 1025ms
+   ✓ assertCleanMainWorktree > rejects with a porcelain preview when the tree is dirty 854ms
+fatal: 'origin' does not appear to be a git repository
+fatal: Could not read from remote repository.
+
+Please make sure you have the correct access rights
+and the repository exists.
+fatal: 'origin' does not appear to be a git repository
+fatal: Could not read from remote repository.
+
+Please make sure you have the correct access rights
+and the repository exists.
+ ✓ test/next-version.test.ts (6 tests) 5662ms
+   ✓ next-version > seeds 0.1.0 (minor) when no tag exists and feat commits are present 1450ms
+   ✓ next-version > bumps patch for fix-only history since the last tag 1499ms
+   ✓ next-version > bumps minor for feat since the last tag 1022ms
+   ✓ next-version > bumps major on breaking-change titles (bang) 837ms
+   ✓ next-version > floors to patch for docs/chore/config-only history 435ms
+   ✓ next-version > ignores commits before the last tag 419ms
+
+ Test Files  71 passed (71)
+      Tests  750 passed (750)
+   Start at  08:28:16
+   Duration  14.63s (transform 1.39s, setup 0ms, collect 2.82s, tests 96.13s, environment 7ms, prepare 2.61s)
+

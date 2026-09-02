@@ -1,0 +1,19 @@
+{
+  "id": "bd7a2b9cc",
+  "name": "full vitest suite",
+  "command": "cd /Users/linh.doan/work/harvey/freepeak/devagent/.devagent-worktrees/TASK-mtjf0nb2-7o7z && npx vitest run 2>&1 | tail -60",
+  "status": "completed",
+  "outputPath": ".pi/tasks/session-31259-31259/bd7a2b9cc.output",
+  "cwd": "/Users/linh.doan/work/harvey/freepeak/devagent/.devagent-worktrees/TASK-mtjf0nb2-7o7z",
+  "startTime": 1788312495677,
+  "endTime": 1788312510769,
+  "exitCode": 0,
+  "signal": null,
+  "pid": 37183,
+  "bytesWritten": 3357,
+  "isAgent": false,
+  "notified": true,
+  "notifyOnCompletion": true,
+  "triggerOnCompletion": true,
+  "timeoutSeconds": 1800
+}
