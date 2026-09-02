@@ -1,0 +1,18 @@
+{
+  "id": "b5d1ad330",
+  "name": "full test suite",
+  "command": "cd /Users/linh.doan/work/harvey/freepeak/devagent/.devagent-worktrees/TASK-mtjfkd61-891l && npm test 2>&1 | tail -25",
+  "status": "completed",
+  "outputPath": ".pi/tasks/session-54284-54284/b5d1ad330.output",
+  "cwd": "/Users/linh.doan/work/harvey/freepeak/devagent/.devagent-worktrees/TASK-mtjfkd61-891l",
+  "startTime": 1788313428991,
+  "endTime": 1788313447266,
+  "exitCode": 0,
+  "signal": null,
+  "pid": 60327,
+  "bytesWritten": 1253,
+  "isAgent": false,
+  "notified": true,
+  "notifyOnCompletion": true,
+  "triggerOnCompletion": true
+}

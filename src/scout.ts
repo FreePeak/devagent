@@ -385,7 +385,12 @@ export function readHeartbeat(repoPath: string): ScoutHeartbeat | null {
   const p = heartbeatPath(repoPath);
   if (!existsSync(p)) return null;
   try {
-    return JSON.parse(readFileSync(p, 'utf8')) as ScoutHeartbeat;
+    const hb = JSON.parse(readFileSync(p, 'utf8')) as Partial<ScoutHeartbeat>;
+    // A heartbeat whose timestamp cannot be parsed is as good as missing:
+    // scout-status reports an age from it, and a NaN age would mislead
+    // operators about whether the 24/7 scout is alive.
+    if (typeof hb.lastRunAt !== 'string' || Number.isNaN(Date.parse(hb.lastRunAt))) return null;
+    return hb as ScoutHeartbeat;
   } catch {
     return null;
   }
