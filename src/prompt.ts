@@ -2,13 +2,10 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync } from
 import { dirname, join } from 'node:path';
 import type { TicketSpec } from './types.js';
 import type { ImplementationPlan } from './planner.js';
+import { LESSONS_MAX_CHARS, LESSONS_MAX_LINES, LESSONS_PATH } from './lessons/guard.js';
 
 /** Default repo-local lessons file; overridable via config `lessonsFile`. */
-export const DEFAULT_LESSONS_FILE = '.devagent/lessons.md';
-/** Lessons are context, not the task: cap to the tail so prompts stay bounded. */
-const LESSONS_MAX_LINES = 40;
-/** Hard character budget for injected lessons (PRD Q9: distilled, not verbatim). */
-export const LESSONS_MAX_CHARS = 4000;
+export const DEFAULT_LESSONS_FILE = LESSONS_PATH;
 /**
  * Sentinel spliced into the planner prompt where the prior child-worker trail
  * block should land. The planner builder embeds this exact string at a fixed
@@ -40,6 +37,18 @@ function trailFile(cwd: string, loopId: string, taskId: string): string {
  * payloads across implementation, repair, and fan-out legs.
  */
 export function loadLessons(repoPath: string, lessonsFile?: string, maxChars?: number): string {
+  return loadLessonsDigest(repoPath, lessonsFile, maxChars);
+}
+
+/**
+ * Shared digest cursor behind `loadLessons` and the guarded append path
+ * (src/lessons/guard.ts): read the newest `LESSONS_MAX_LINES` lines, then drop
+ * oldest entries whole until the surviving block fits `LESSONS_MAX_CHARS`
+ * (config `lessonsMaxChars`). Never splits a line and never strips content
+ * from a kept line, so an optional `predictedImpact:` suffix appended to a
+ * lesson round-trips verbatim through the injected digest.
+ */
+export function loadLessonsDigest(repoPath: string, lessonsFile?: string, maxChars?: number): string {
   const p = join(repoPath, lessonsFile || DEFAULT_LESSONS_FILE);
   if (!existsSync(p)) return '';
   try {

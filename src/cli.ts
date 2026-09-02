@@ -1425,6 +1425,28 @@ program
   });
 
 program
+  .command('lessons')
+  .description('Append a lesson behind the eval-guard dedupe gate (PRD Phase 4 "Lessons eval guard"). Machine appends to the lessons file must go through this so near-duplicate content is rejected before it burns the digest budget; a rejected entry leaves the file untouched and records a lessons-dedupe-rejected event.')
+  .requiredOption('--repo <path>', 'repository containing the lessons file')
+  .requiredOption('--entry <text>', 'lesson entry to append (one line)')
+  .option('--lessons-file <path>', 'repo-relative lessons file path (default .selfbuild/lessons.md)')
+  .option('--threshold <n>', 'similarity reject threshold in [0,1] (default 0.8)', Number)
+  .option('--predicted-impact <text>', 'optional predictedImpact field captured on the appended lesson and echoed verbatim in the digest (AHE/Meta-Harness propose→evaluate→accept precedent)')
+  .action(async (opts) => {
+    const { appendLessonGuarded, DEFAULT_LESSONS_DEDUPE_SIMILARITY } = await import('./lessons/guard.js');
+    const config = loadConfig(opts.repo);
+    const lessonsFile = (opts.lessonsFile as string | undefined) ?? config.lessonsFile ?? '.selfbuild/lessons.md';
+    const threshold = opts.threshold === undefined ? (config.lessonsDedupeSimilarity ?? DEFAULT_LESSONS_DEDUPE_SIMILARITY) : Number(opts.threshold);
+    const r = appendLessonGuarded(opts.repo as string, opts.entry as string, {
+      lessonsFile,
+      threshold,
+      predictedImpact: opts.predictedImpact as string | undefined,
+    });
+    console.log(JSON.stringify({ appended: r.ok, similarity: r.similarity, threshold: r.threshold, matchedEntry: r.matchedEntry }));
+    if (!r.ok) process.exitCode = 1;
+  });
+
+program
   .command('queue')
   .description('Queue operations (FR-QUEUE-01)')
   .action(() => {
