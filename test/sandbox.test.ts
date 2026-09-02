@@ -73,15 +73,16 @@ describe('sanitizeWorkerEnv', () => {
 
   it('strips secret-shaped vars regardless of provider prefix', () => {
     const { env, stripped } = sanitizeWorkerEnv(baseEnv);
+    // GITHUB_TOKEN is allowlisted (worker-side gh/curl api.github.com calls —
+    // research crawls exhausted the anonymous 60 req/h IP budget, 2026-09-02).
     expect(stripped.sort()).toEqual([
       'AWS_SECRET_ACCESS_KEY',
-      'GITHUB_TOKEN',
       'MY_SERVICE_PASSWORD',
       'NPM_TOKEN',
       'SLACK_CLIENT_SECRET',
       'STRIPE_API_KEY',
     ]);
-    expect(env.GITHUB_TOKEN).toBeUndefined();
+    expect(env.GITHUB_TOKEN).toBe('ghp-secret');
     expect(env.NPM_TOKEN).toBeUndefined();
     expect(env.AWS_SECRET_ACCESS_KEY).toBeUndefined();
   });
@@ -116,8 +117,8 @@ describe('sanitizeWorkerEnv', () => {
       expect(env.CUSTOM_TOKEN).toBe('needed-by-worker');
       expect(stripped).not.toContain('STRIPE_API_KEY');
       expect(stripped).not.toContain('CUSTOM_TOKEN');
-      // other secrets still stripped
-      expect(env.GITHUB_TOKEN).toBeUndefined();
+      // other secrets still stripped (GITHUB_TOKEN is baseline-allowlisted)
+      expect(env.NPM_TOKEN).toBeUndefined();
     });
   });
 });
@@ -238,12 +239,12 @@ describe('prepareWorkerSpawn', () => {
   });
 
   it('scrubs the worker env by default and flags replaceEnv', async () => {
-    vi.stubEnv('GITHUB_TOKEN', 'x');
+    vi.stubEnv('NPM_TOKEN', 'x');
     const prepared = await prepareWorkerSpawn('claude', ['-p', 'hi'], SPAWN_OPTS);
     expect(prepared.cmd).toBe('claude');
     expect(prepared.opts.replaceEnv).toBe(true);
-    expect(prepared.opts.env!.GITHUB_TOKEN).toBeUndefined();
-    expect(prepared.strippedEnv).toContain('GITHUB_TOKEN');
+    expect(prepared.opts.env!.NPM_TOKEN).toBeUndefined();
+    expect(prepared.strippedEnv).toContain('NPM_TOKEN');
   });
 
   it('lets caller-provided opts.env win over the scrubbed base', async () => {
@@ -361,7 +362,7 @@ describe('worker adapters route through the sandbox', () => {
   });
 
   it('claude-code spawn reaches execFile scrubbed', async () => {
-    vi.stubEnv('GITHUB_TOKEN', 'x');
+    vi.stubEnv('NPM_TOKEN', 'x');
     const adapter = new ClaudeCodeAdapter();
     const result = await adapter.spawn({
       prompt: 'do thing',
@@ -371,12 +372,12 @@ describe('worker adapters route through the sandbox', () => {
     expect(result.exitCode).toBe(0);
     expect(captured).toHaveLength(1);
     expect(captured[0].cmd).toBe('claude');
-    expect(captured[0].env!.GITHUB_TOKEN).toBeUndefined();
+    expect(captured[0].env!.NPM_TOKEN).toBeUndefined();
     expect(captured[0].env!.PATH).toBeDefined();
   });
 
   it('opencode spawn reaches execFile scrubbed', async () => {
-    vi.stubEnv('GITHUB_TOKEN', 'x');
+    vi.stubEnv('NPM_TOKEN', 'x');
     const adapter = new OpenCodeAdapter();
     const result = await adapter.spawn({
       prompt: 'do thing',
@@ -387,6 +388,6 @@ describe('worker adapters route through the sandbox', () => {
     expect(captured).toHaveLength(1);
     expect(captured[0].cmd).toBe('opencode');
     expect(captured[0].args.slice(0, 3)).toEqual(['run', '--format', 'json']);
-    expect(captured[0].env!.GITHUB_TOKEN).toBeUndefined();
+    expect(captured[0].env!.NPM_TOKEN).toBeUndefined();
   });
 });

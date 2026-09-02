@@ -40,6 +40,11 @@ const DEFAULT_ENV_ALLOWLIST = [
   // configured default provider in this deployment — see ~/.pi/agent/models.json).
   // Other pi providers can be enabled via DEVAGENT_WORKER_ENV_ALLOWLIST.
   'OMNIROUTE_API_KEY',
+  // GitHub API access for worker-side gh/curl calls (research competitor
+  // scans hit api.github.com; anonymous = 60 req/h shared per IP, exhausted
+  // after ~2 crawls — 2026-09-02 rate-limit stall). Authenticated = 5,000/h.
+  'GITHUB_TOKEN',
+  'GH_TOKEN',
 ];
 
 /**

@@ -23,6 +23,10 @@ CLAUDE_BIN="${SELFBUILD_CLAUDE:-claude -p --dangerously-skip-permissions}"
 RESEARCH_BIN="${SELFBUILD_RESEARCH_BIN:-omp -p --mode json --no-prewalk --no-lsp --no-extensions --model omniroute/dev}"
 PO_BIN="${SELFBUILD_PO_BIN:-pi --mode json --no-extensions --model omniroute/dev}"
 CLAUDE_TIMEOUT="${SELFBUILD_CLAUDE_TIMEOUT:-300}"
+# Research runs omp with URL-fetch tooling; competitor crawls need 10-15 min
+# even when healthy (2026-09-02 live: 32 fetches, killed at 300s). PO picks a
+# single backlog item from local evidence — 300s is ample. Split budgets.
+RESEARCH_TIMEOUT="${SELFBUILD_RESEARCH_TIMEOUT:-900}"
 DEVAGENT=(npx tsx "$REPO/src/cli.ts")
 
 mkdir -p "$STATE/research" "$STATE/goals" "$STATE/logs"
@@ -176,7 +180,7 @@ while :; do
     # timeouts (2026-09-02). Everything the loop acts on is already local:
     # PRD backlog, ledger outcomes, lessons. Competitor scans are a separate
     # manual cadence, not a per-iteration gate.
-    timeout "$CLAUDE_TIMEOUT" $RESEARCH_BIN "You are phase 1 (Research) of the DevAgent self-build loop, iteration $N.
+    timeout "$RESEARCH_TIMEOUT" $RESEARCH_BIN "You are phase 1 (Research) of the DevAgent self-build loop, iteration $N.
 Repo: $REPO. Use ONLY local evidence — no web searches, no network fetches:
 1. docs/PRD.md section 17 (Phase 4 backlog) and section 18 (open questions)
 2. Recent loop ledger: ${PREV_TAIL:-none}
