@@ -67,6 +67,13 @@ export interface DevAgentConfig {
   /** Character budget for injected lessons; oldest entries are dropped whole (default 4000). */
   lessonsMaxChars?: number;
   /**
+   * Trigram-Jaccard similarity threshold for the lessons dedupe guard (PRD
+   * Phase 4 "Lessons eval guard"): a candidate lesson at or above this
+   * similarity to an existing entry is rejected before append (default 0.8,
+   * see src/lessons/guard.ts). Must be within [0, 1].
+   */
+  lessonsDedupeSimilarity?: number;
+  /**
    * Zombie-PR hygiene sweep (`devagent autosweep --stale-prs`): open PRs that
    * are not mergeable candidates get skipped with a comment, and PRs red
    * across `graceDays` get auto-closed. dryRun (the default) only reports.
@@ -173,6 +180,12 @@ export function loadConfig(repoPath: string = process.cwd()): DevAgentConfig {
     const h = config.prHygiene;
     if (h.graceHours !== undefined && (!Number.isFinite(h.graceHours) || h.graceHours < 0)) {
       throw new Error(`Invalid prHygiene.graceHours "${h.graceHours}"; expected >= 0`);
+    }
+  }
+  if (config.lessonsDedupeSimilarity !== undefined) {
+    const t = config.lessonsDedupeSimilarity;
+    if (!Number.isFinite(t) || t < 0 || t > 1) {
+      throw new Error(`Invalid lessonsDedupeSimilarity "${t}"; expected a number between 0 and 1`);
     }
   }
   return config;

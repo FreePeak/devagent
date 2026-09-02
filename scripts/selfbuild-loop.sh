@@ -169,7 +169,11 @@ while :; do
     # Phase 1: Research. Feed prior failures back in so defects compound into fixes.
     PREV_TAIL=""
     [ -f "$STATE/ledger.jsonl" ] && PREV_TAIL=$(tail -3 "$STATE/ledger.jsonl" || true)
-    LESSONS_CTX=""; [ -f "$LESSONS" ] && LESSONS_CTX="Accumulated lessons (do not re-derive): $(tail -20 "$LESSONS")"
+    # Lessons digest echoed into the research/validate prompts: the same
+    # 40-line/4000-char cap the worker-prompt digest enforces (PRD Q9). The
+    # eval-guard keeps the ratchet deduped at append time; the digest stays a
+    # text cursor so optional `predictedImpact:` suffixes echo verbatim.
+    LESSONS_CTX=""; [ -f "$LESSONS" ] && LESSONS_CTX="Accumulated lessons (do not re-derive): $(tail -40 "$LESSONS" | head -c 4000)"
     if [ "$DRY_RUN" = 1 ]; then
       echo "[dry-run] phase 1 research skipped"
       echo "# dry-run stub" > "$STATE/research/loop-$N.md"
@@ -184,7 +188,7 @@ while :; do
 Repo: $REPO. Use ONLY local evidence — no web searches, no network fetches:
 1. docs/PRD.md section 17 (Phase 4 backlog) and section 18 (open questions)
 2. Recent loop ledger: ${PREV_TAIL:-none}
-3. Accumulated lessons: $(tail -10 "$LESSONS" 2>/dev/null || echo none)
+3. Accumulated lessons: $(tail -40 "$LESSONS" 2>/dev/null | head -c 4000 || echo none)
 4. git log --oneline -15 (what just shipped, what friction it caused)
 Rank the top 3 backlog items by (impact x tractability) for a single iteration. Consider: does an earlier failed loop already cover this? Does a merged PR already cover it? Output compact markdown (<300 words): your ranked top-3 with one-line rationale each, then THE single pick.
 Do NOT edit any files. Output only." \
