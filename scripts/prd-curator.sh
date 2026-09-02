@@ -12,7 +12,9 @@ REPO="${SELFBUILD_REPO:-$(cd "$(dirname "$0")/.." && pwd)}"
 STATE="$REPO/.selfbuild"
 CURLOG="$STATE/curation"
 DRY_RUN="${SELFBUILD_DRY_RUN:-0}"
-CLAUDE_BIN="${SELFBUILD_CLAUDE:-claude -p --dangerously-skip-permissions}"
+# PO role runs pi per the operator tool mapping (2026-09-02): scout=omp,
+# PO=pi, dev=pi, reviewer=pi — claude-code is not the default tool.
+CLAUDE_BIN="${SELFBUILD_CLAUDE:-pi --mode json --no-extensions --model omniroute/dev}"
 # Forward the configured model so the curator doesn't fall back to the
 # settings.json default (same unrecognized_model failure mode as the
 # scout worker path fixed in 3c67178 / PR #53).
