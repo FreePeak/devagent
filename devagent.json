@@ -8,7 +8,8 @@
     "enabled": true,
     "worker": "omp",
     "intervalMinutes": 30,
-    "maxQueued": 3
+    "maxQueued": 3,
+    "model": "omniroute/dev"
   },
   "autoMerge": true,
   "selfUpdate": true,
