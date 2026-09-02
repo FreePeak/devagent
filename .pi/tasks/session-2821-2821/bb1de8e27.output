@@ -1,0 +1,8 @@
+   ✓ next-version > floors to patch for docs/chore/config-only history 1088ms
+   ✓ next-version > ignores commits before the last tag 469ms
+
+ Test Files  71 passed (71)
+      Tests  751 passed (751)
+   Start at  08:48:57
+   Duration  17.35s (transform 1.52s, setup 0ms, collect 3.39s, tests 113.90s, environment 7ms, prepare 3.17s)
+

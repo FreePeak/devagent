@@ -113,6 +113,21 @@ describe('devagent scout-status (human output)', () => {
       rmSync(repo, { recursive: true, force: true });
     }
   });
+
+  it('treats a heartbeat with an unparseable lastRunAt as missing instead of printing a NaN age', () => {
+    const repo = tmpRepo();
+    try {
+      mkdirSync(join(repo, '.devagent'), { recursive: true });
+      writeFileSync(join(repo, '.devagent', 'scout.heartbeat.json'), '{"lastRunAt":"not-a-date","lastStatus":"ok","lastDetail":"x","worker":"omp","intervalMinutes":30}');
+      expect(readHeartbeat(repo)).toBeNull();
+      const out = runCli(['scout-status', '--repo', repo]);
+      expect(out.status).toBe(0);
+      expect(out.out).toContain('No scout heartbeat yet');
+      expect(out.out).not.toContain('NaN');
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('devagent scout-status --json', () => {

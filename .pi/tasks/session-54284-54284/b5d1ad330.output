@@ -1,0 +1,25 @@
+   ✓ assertCleanMainWorktree > rejects with the branch name on a non-main branch 1568ms
+   ✓ assertCleanMainWorktree > rejects with a porcelain preview when the tree is dirty 1141ms
+fatal: 'origin' does not appear to be a git repository
+fatal: Could not read from remote repository.
+
+Please make sure you have the correct access rights
+and the repository exists.
+fatal: 'origin' does not appear to be a git repository
+fatal: Could not read from remote repository.
+
+Please make sure you have the correct access rights
+and the repository exists.
+ ✓ test/next-version.test.ts (6 tests) 8271ms
+   ✓ next-version > seeds 0.1.0 (minor) when no tag exists and feat commits are present 1918ms
+   ✓ next-version > bumps patch for fix-only history since the last tag 1876ms
+   ✓ next-version > bumps minor for feat since the last tag 1832ms
+   ✓ next-version > bumps major on breaking-change titles (bang) 1568ms
+   ✓ next-version > floors to patch for docs/chore/config-only history 584ms
+   ✓ next-version > ignores commits before the last tag 493ms
+
+ Test Files  71 passed (71)
+      Tests  750 passed (750)
+   Start at  08:43:49
+   Duration  17.90s (transform 1.25s, setup 0ms, collect 2.83s, tests 119.12s, environment 8ms, prepare 2.72s)
+
