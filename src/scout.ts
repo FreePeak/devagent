@@ -235,11 +235,18 @@ export async function runScoutOnce(opts: ScoutCycleOptions, config: DevAgentConf
   const scoutPiModelRaw = worker === 'pi' ? config.model?.trim() : undefined;
   const scoutPiModel =
     scoutPiModelRaw && scoutPiModelRaw.includes('/') ? scoutPiModelRaw.split('#')[0]! : undefined;
+  // scout.model (ScoutConfig) wins over the global config.model; provider-
+  // qualified ids ("provider/model") pass through for omp like for pi.
+  const scoutOmpModelRaw = (config.scout?.model ?? (worker === 'omp' ? config.model?.trim() : undefined))?.trim();
+  const scoutOmpModel =
+    worker === 'omp' && scoutOmpModelRaw && scoutOmpModelRaw.includes('/')
+      ? scoutOmpModelRaw.split('#')[0]!
+      : undefined;
   const args =
     worker === 'opencode'
       ? ['run', '--format', 'json', prompt]
       : worker === 'omp'
-        ? ['-p', prompt, '--mode', 'json']
+        ? ['-p', prompt, '--mode', 'json', ...(scoutOmpModel ? ['--model', scoutOmpModel] : [])]
         : worker === 'pi'
           ? ['--mode', 'json', '-p', prompt, ...(scoutPiModel ? ['--model', scoutPiModel] : [])]
           : ['-p', prompt, '--output-format', 'json', ...(scoutModel ? ['--model', scoutModel] : [])];

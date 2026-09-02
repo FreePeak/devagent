@@ -17,6 +17,7 @@ LESSONS="$STATE/lessons.md"
 WORKER="${SELFBUILD_WORKER:-pi}"
 PUSH_MODE="${SELFBUILD_PUSH_MODE:-pr}"
 CLAUDE_BIN="${SELFBUILD_CLAUDE:-claude -p --dangerously-skip-permissions}"
+RESEARCH_BIN="${SELFBUILD_RESEARCH_CLAUDE:-${RESEARCH_BIN:-omp -p --mode json --no-prewalk --no-lsp --no-extensions --model omniroute/dev}}"
 CLAUDE_TIMEOUT="${SELFBUILD_CLAUDE_TIMEOUT:-300}"
 DEVAGENT=(npx tsx "$REPO/src/cli.ts")
 
@@ -166,7 +167,7 @@ while :; do
       echo "# dry-run stub" > "$STATE/research/loop-$N.md"
       echo "Goal: (dry-run) verify driver phases execute without side effects" > "$STATE/goals/loop-$N.md"
     else
-    timeout "$CLAUDE_TIMEOUT" $CLAUDE_BIN "You are phase 1 (Research) of the DevAgent self-build loop, iteration $N.
+    timeout "$CLAUDE_TIMEOUT" $RESEARCH_BIN "You are phase 1 (Research) of the DevAgent self-build loop, iteration $N.
 Repo: $REPO. Read docs/PRD.md section 4 (competitive landscape) and section 17 (roadmap).
 Recent loop ledger: ${PREV_TAIL:-none}.
 $LESSONS_CTX
@@ -193,7 +194,7 @@ Afterwards, append any DURABLE new lessons (1-3 bullets, dated heading '## <date
     if [ -z "${QUEUED_TASK_ID:-}" ]; then
     # Phases 2-3: Idea + Validate. Pick one PRD Phase 4 item, constrained by research.
     if [ "$DRY_RUN" != 1 ]; then
-    timeout "$CLAUDE_TIMEOUT" $CLAUDE_BIN "You are phases 2-3 (Ideas + Validate) of the DevAgent self-build loop, iteration $N.
+    timeout "$CLAUDE_TIMEOUT" $RESEARCH_BIN "You are phases 2-3 (Ideas + Validate) of the DevAgent self-build loop, iteration $N.
 Repo: $REPO. Inputs: docs/PRD.md (Phase 4 backlog), .selfbuild/research/loop-$N.md, recent ledger entries below.
 $PREV_TAIL
 $LESSONS_CTX

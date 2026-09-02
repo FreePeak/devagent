@@ -1,5 +1,6 @@
 {
   "worker": "pi",
+  "model": "omniroute/dev",
   "herdr": {
     "enabled": true,
     "session": "devagent"

@@ -399,10 +399,15 @@ export async function localCiFixer(req: CiFixRequest): Promise<{ ok: boolean; no
     const workerName = cfg.worker;
     const { getWorker } = await import('../workers/index.js');
     const worker = getWorker(workerName);
+    // Reviewer fixer model pin (operator spec: all agents on combo dev):
+    // provider-qualified config.model ("provider/model") is forwarded to the
+    // worker so reviews/CI-fixes run on the same engine as implement.
+    const fixerModel = cfg.model?.trim();
     const result = await worker.spawn({
       prompt: req.prompt,
       cwd: wt,
       timeoutMs,
+      ...(fixerModel && fixerModel.includes('/') ? { model: fixerModel } : {}),
       ...(process.env.DEVAGENT_NO_PROGRESS_TIMEOUT_MS ? { noProgressTimeoutMs: Number(process.env.DEVAGENT_NO_PROGRESS_TIMEOUT_MS) } : {}),
     });
     if (result.timedOut || result.exitCode !== 0) {

@@ -20,6 +20,8 @@ export interface ScoutConfig {
   worker?: WorkerName;
   intervalMinutes?: number;
   maxQueued?: number;
+  /** Model override forwarded to the scout worker CLI (provider/model). */
+  model?: string;
 }
 
 export interface DevAgentConfig {
