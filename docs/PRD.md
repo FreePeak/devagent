@@ -800,15 +800,34 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 > cleanup ancestry fallback (3ee9a9a), release remote-tag + idempotent tag
 > (9c7132a), CI-Fixer local dispatch fallback (ac100ba).
 
-#### Phase 4 — current backlog (2026-09-02, curation run 22)
+> **Completed post-v0.3 (2026-09-02, curation run 23):** Provider
+> model-id validation at dispatch (Q32) — `validateModelId` declares
+> each adapter's accepted id shape (`src/workers/model-id.ts:62`) and
+> preflight rejects unsupported ids before worker spend
+> (`src/deps.ts:206`, `src/orchestrator/executor.ts:199`), surfaced in
+> `status --providers` (`src/cli.ts:436`). Lessons eval guard,
+> deterministic slices — content-similarity dedupe rejects
+> near-duplicate appends (PR #116), then the evaluate→accept step runs
+> the regression suite on the staged lessons state, reverting on red,
+> one accept/reject ledger row per gated append (PR #117,
+> `src/lessons/guard.ts:278`, wired at `src/cli.ts:1437`); the
+> must-beat-best-so-far and held-out tiers stay future work. Scout
+> heartbeat — `devagent scout-status` prints liveness + queue depth
+> (`src/cli.ts:1333`, PRs #112–#114). Operator hardening same day,
+> outside the backlog: research moved to local-evidence-only at a 900s
+> budget after 34 consecutive 300s-cap kills (5d8a319, 063831e), NDJSON
+> assistant-text extraction into goal files (d3adf17), and all agent
+> roles defaulted to omp (799fd86).
++
+#### Phase 4 — current backlog (2026-09-02, curation run 23)
 
-- **Provider model-id validation at dispatch** — `status --providers` made health observable (PR #105), but `config.model` is still unvalidated for claude-code/opencode/pi; validate each adapter's accepted id shape in preflight so the exit-1-in-12s class dies at the gate, not mid-board (Q32).
 - **Cross-board retry memory beyond the SHA guard** — commit 60638d3 stops re-issuing shipped goals, but re-queued failures still get a fresh attempt budget; carry the prior board's failure class onto the re-bridged goal so the scout deprioritizes until the root-cause fix lands (Q27).
-- **Lessons eval guard** — every loop machine-appends to `lessons.md` and nothing verifies a lesson helps; wrap edits in a propose→evaluate→accept gate (regression suite green, must-beat-best-so-far, held-in AND held-out, per the AHE/Self-Harness precedents in `.selfbuild/lessons.md`) so a bad lesson cannot silently regress future prompts.
 - **Regression oracle before board merge** — gates judge single PRs and PR #108's committed STRIDE allowlist widens suppression paths; add a board-level "is the system at least as good?" check (full suite on the merged result) ahead of `autoMerge`, per the Kitchen Loop zero-regression rule.
 - **GRADIENT — structural gradient sensor** — exit-code scalar architecture gate (sentrux: `.sentrux/rules.toml`, lowest-scoring root cause per change) plus an adjacent-category scan (sensors, MCP servers, harness tooling) in scout/selfbuild research prompts; the agent-products-only funnel is why sentrux was missed entirely (2026-09-01 human deep-dive; Q38).
 - **Release/tag events as ledger outcomes** — the release workflow needed same-day hotfixes (9c7132a remote-tag resolution + idempotent tag) yet the ledger stays PR-URL-only; record tag/release outcomes so per-loop spend-to-shipped-artifact math can count releases (Q24).
 - **Consolidate the loop scripts** — recovery keeps landing in shell (aac28b6 queue-first selection, b302210 sweep-each-iteration, baa4eda discovery sweep) while untracked `scripts/orchestrator-loop.sh` runs divergent logic; fold recovery into `src/orchestrator/` and reduce the shell to a thin caller (Q19).
+- **Operator-role provider preflight** — the worker path dies loudly at the model-id gate (PR #115) but the curator noop'd 3x on 2026-09-02 under dead provider auth while reporting "[noop] PRD already accurate"; apply the cheap probe + `isTransientProviderError` gate to curator/warroom/PO loops and emit a ledger row so a degraded factory is visible, not silent (Q40).
+- **Lessons impact telemetry** — the eval guard (PRs #116/#117) requires `predictedImpact` but nothing scores it; aggregate accept/reject outcomes against loop results so the 4000-char `lessonsMaxChars` digest is ranked by measured effect instead of recency — the prerequisite for the AHE-style held-out evaluation tier (Q39).
 
 ## 18. Open Questions
 
@@ -836,11 +855,13 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 | Q26 | PR #84 auto-stashes a dirty main before merge-back, but the stash is keyed by SHA and never re-offered — if a curation PR (like #83) is open in the same worktree when the factory merges back, should the popped stash be surfaced as a ledger warning (operator reapplies by hand) or re-applied automatically on the next dispatch? | eng | Phase 4 |
 | Q27 | Loops 53-55 and 57/58 each re-burned multiple attempts on the same already-planned goal after a requeue with a fresh attempt budget — should the bridge attach the prior board's failure class to the re-bridged goal so the scout skips it until the root cause ships, or is cross-board retry memory out of scope for the single-tenant model? | product | Phase 4 |
 | Q28 | With FR-CTX-01 injecting a KG-derived digest at `COMPACT_CONTEXT_MARKER`, should that digest also be appended to `lessons.md` on a successful merge (so future runs learn from the same structural evidence the planner used), or stay scoped to the single run and rebuild fresh each time? Persisting makes the digest cross-run durable; scoping avoids stale evidence bleeding in. | eng | Phase 4 |
-| Q32 | PR #92 drops driver-tier model aliases for omp only, leaving claude-code/opencode adapters to interpret `config.model` their own way — should the model field be normalized once at config load (provider-qualified ids everywhere, aliases resolved to a concrete id), or does each adapter own its id semantics? | eng | Phase 4 |
+| Q32 | ~~PR #92 drops driver-tier model aliases for omp only, leaving claude-code/opencode adapters to interpret `config.model` their own way — should the model field be normalized once at config load (provider-qualified ids everywhere, aliases resolved to a concrete id), or does each adapter own its id semantics?~~ Resolved 2026-09-02 (PR #115): each adapter owns its id semantics behind a declared predicate — `validateModelId` (`src/workers/model-id.ts:62`) gates preflight dispatch (`src/deps.ts:206`, `src/orchestrator/executor.ts:199`) with unit-covered valid/alias cases. Removed. | eng | Phase 4 |
 | Q31 | PR #91 strips LSP/extension discovery from headless omp but the same startup-stall class plausibly exists for other MCP-discovering CLIs; should worker preflight include a cold-start latency budget (fail fast above N seconds) or is the per-adapter no-progress watchdog enough? | eng | Phase 4 |
 | Q29 | PR #88 makes the run branch the source of truth after `cleanup=auto` (snapshot onto `devagent/<taskId>`, then publish from that branch), but snapshot and publish remain two stages with the deleted-cwd failure class between them — should auto-cleanup snapshot and per-task publish collapse into one commit path so the worktree's death cannot strand a green task, or is the regression-test guard enough? | eng | Phase 4 |
 | Q30 | omp (PRs #87/#89) needed adapter-specific hardening — prewalk off, stream-error parsing, capped retries, a bespoke no-progress timeout — none of which the registry declares. Should `WorkerAdapter` expose a capability/limit block (supported flags, stream quirks, watchdog defaults) the scheduler can honor, or stay as per-adapter internals patched case by case? | eng | Phase 4 |
 | Q38 | GRADIENT structural sensor (sentrux): should an external scalar architecture gate block dispatch/merge like G1–G5, or start advisory-only (report the lowest-scoring root cause to the scout) until it has a track record on this repo? | eng | Phase 4 |
+| Q39 | PR #117's eval guard requires `predictedImpact` on machine-appended lessons but never scores it — should accept/reject outcomes be aggregated against loop results (accept rate, repeat-failure delta) to rank the 4000-char `lessonsMaxChars` digest by measured effect, or is gate-level counting enough? | eng | Phase 4 |
+| Q40 | The curator noop'd 3x on 2026-09-02 under dead provider auth (`unrecognized_model`, disabled-key 403, missing omniroute key) while writing "[noop] PRD already accurate" — should operator loops (curator/warroom/PO) fail loud with a ledger row on provider-probe failure, or write a structured `operator-degraded` outcome and keep cycling? | eng | Phase 4 |
 > Resolved 2026-08-24: Q1 (ecosystem conventions + `testCommand` override now
 > cover npm/Go/Python), Q2 (plain webhooks shipped in Phase 3), Q3 (policy is
 > one attempt, then fan-out on failure), Q6 (single-tenant CLI + webhook
