@@ -183,7 +183,7 @@ while :; do
     PROBE_ATTEMPT=0
     for _ in 1 2 3; do
       PROBE_ATTEMPT=$(( PROBE_ATTEMPT + 1 ))
-      if timeout 30 claude -p "OK" --output-format json --model "$(node -e 'console.log(JSON.parse(require("fs").readFileSync("devagent.json","utf8")).model || "")' 2>/dev/null)" 2>/dev/null | grep -q '"result"'; then
+      if timeout 30 omp -p "OK" --mode json --no-prewalk --no-lsp --no-extensions --model "$(node -e 'console.log(JSON.parse(require("fs").readFileSync("devagent.json","utf8")).model || "")' 2>/dev/null)" 2>/dev/null | grep -q '"text":"OK"'; then
         PROBE_OK=1; break
       fi
       sleep 5

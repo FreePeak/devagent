@@ -56,7 +56,7 @@ export async function bridgeQueueToBoard(
   let tasks: OrchestratorTask[] = planned && Array.isArray(planned) && planned.length > 0 ? planned : fallbackPlan(goal);
   if (tasks.length > 12) tasks = tasks.slice(0, 12);
 
-  const roles: ProjectBoard['roles'] = { planner: 'pi' as WorkerName, executor: 'pi' as WorkerName };
+  const roles: ProjectBoard['roles'] = { planner: 'omp' as WorkerName, executor: 'omp' as WorkerName };
   const board = createBoard(goal, tasks, roles);
   saveBoard(repoPath, board);
   // Retire the source queue item: the board now owns this goal, and leaving it

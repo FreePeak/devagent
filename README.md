@@ -153,7 +153,7 @@ v0.3.0 — v1 complete, fleet + observability landed (2026-08); evidence-gated
 orchestration landed 2026-08-24 (loops 40-46):
 
 - **CLI**: `devagent run|serve|validate|log|status|dashboard|fleet|config|orchestrate|project|mcp`
-- **Workers**: headless pi (`pi --mode json -p`, default), Claude Code (`claude -p`), OpenCode (`opencode run`), and omp (`omp -p --mode json`); fan-out mode (`--worker both`) runs parallel legs and picks the test-passing winner; retries carry gate evidence back as repair prompts
+- **Workers**: headless omp (`omp -p --mode json`, default), Claude Code (`claude -p`), OpenCode (`opencode run`), and pi (`pi --mode json -p`); fan-out mode (`--worker both`) runs parallel legs and picks the test-passing winner; retries carry gate evidence back as repair prompts
 - **Gates**: G1 repo-native tests, G2 up/down migration apply (compose; honest skips without Docker), G3 static migration analysis (8 rules), G4 concurrency review scoped to the run's own diff
 - **Auto-cleanup**: after every `run`/`task`/`fleet` run the worktree is finalized per `--cleanup auto|keep|always` (default `auto`: on success uncommitted output is snapshotted to the run branch, then the tree is removed; failed runs are preserved for debugging). `--drop-orca-workspace` additionally removes an enclosing Orca-managed workspace via orca-cli. Applies identically to Claude Code and OpenCode workers
 - **Fleet**: `devagent fleet --ticket A --ticket B --repo api=/repos/api ...` runs the ticket×repo matrix over a bounded pool with per-job failure isolation

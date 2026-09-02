@@ -1311,7 +1311,7 @@ program
     const config = loadConfig(opts.repo);
     const worker = (opts.worker ?? config.scout?.worker ?? 'omp') as 'opencode' | 'claude-code' | 'omp' | 'pi';
     const intervalMinutes = opts.interval ?? config.scout?.intervalMinutes ?? 30;
-    const timeoutMs = (opts.timeout ?? 5) * 60_000;
+    const timeoutMs = (opts.timeout ?? 30) * 60_000;
     if (opts.once || opts.dryRun) {
       const r = await runScoutOnce({ repoPath: opts.repo, worker, intervalMinutes, dryRun: Boolean(opts.dryRun), timeoutMs }, config);
       console.log(r.detail);

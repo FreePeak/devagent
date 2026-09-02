@@ -123,7 +123,7 @@ async function main(): Promise<void> {
     const cfg = {
       ticketId: id,
       repoPath,
-      worker: 'claude-code' as const,
+      worker: 'omp' as const,
       autoPr: false,
       interactive: true,
       maxLoops: 2,

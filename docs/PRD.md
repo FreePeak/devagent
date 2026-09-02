@@ -758,8 +758,8 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 > failure class to a single-shot recovery (the deeper failure-class carryover
 > stays on the backlog). Scout deterministic fallback + maxQueued guard —
 > commit aefc6bf resolves empty/idless scout payloads to a stable task id
-> so the scout queue cannot silently grow unbounded. Default worker: pi
-> adapter — commit 20ce8fd adds pi to the worker registry and 34cf3d9 makes
+> so the scout queue cannot silently grow unbounded. Commits 20ce8fd adds pi
+> to the worker registry and 34cf3d9 makes
 > task-path dispatch honor `herdr.enabled`, unblocking the selfbuild loop
 > when omp's model alias path is unavailable.
 >
@@ -772,7 +772,12 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 > `OBSERVE-provider-health`). Queue now 15 pending / 33 done / 1 failed.
 > Curator: before enqueuing, match candidate titles against merged PR titles
 > and these completion notes; skip or auto-done on match.
-
+>
+> **Worker default (2026-09-02, operator):** all agents — run/task/fleet,
+> orchestrate planner+executor+auditor, selfbuild dev+PO, PRD curator,
+> warroom, dogfood — now default to omp (`omp -p --mode json`). pi remains
+> a registered worker; historical notes above describe the pi era.
+>
 > **Completed post-v0.3 (2026-09-01 → 09-02, curation run 22):** Executor
 > failure surface — duplicate trailing `trail.jsonl` signatures mark
 > `taskInterrupt`, abort the worker, and write a ledger post-mortem (goal,

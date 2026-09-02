@@ -1,5 +1,5 @@
 {
-  "worker": "pi",
+  "worker": "omp",
   "model": "omniroute/dev",
   "herdr": {
     "enabled": true,

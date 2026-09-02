@@ -14,7 +14,7 @@ LOG_FILE="${HOME}/Library/Logs/devagent-scout.log"
 REPO=""
 INTERVAL="30"
 WORKER="omp"
-TIMEOUT_MIN="12"
+TIMEOUT_MIN="30"
 VALIDATE=0
 UNINSTALL=0
 

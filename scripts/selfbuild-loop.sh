@@ -14,14 +14,12 @@ STARVATION_LIMIT="${SELFBUILD_STARVATION_LIMIT:-5}"
 CLEANUP_DELAY="${SELFBUILD_CLEANUP_DELAY_SECS:-1800}"
 DRY_RUN="${SELFBUILD_DRY_RUN:-0}"
 LESSONS="$STATE/lessons.md"
-WORKER="${SELFBUILD_WORKER:-pi}"
+WORKER="${SELFBUILD_WORKER:-omp}"
 PUSH_MODE="${SELFBUILD_PUSH_MODE:-pr}"
-CLAUDE_BIN="${SELFBUILD_CLAUDE:-claude -p --dangerously-skip-permissions}"
-# Role-to-tool mapping (operator spec 2026-09-02): scout=omp, PO=pi, dev=pi,
-# reviewer=pi. Research (phase 1) stays on omp; PO (phases 2-3: idea selection
-# + validation) runs pi. Both on the dev combo.
+CLAUDE_BIN="${SELFBUILD_CLAUDE:-omp -p --mode json --no-prewalk --no-lsp --no-extensions --model omniroute/dev}"
+# Role-to-tool mapping (operator spec 2026-09-02): all agents on omp.
 RESEARCH_BIN="${SELFBUILD_RESEARCH_BIN:-omp -p --mode json --no-prewalk --no-lsp --no-extensions --model omniroute/dev}"
-PO_BIN="${SELFBUILD_PO_BIN:-pi --mode json --no-extensions --model omniroute/dev}"
+PO_BIN="${SELFBUILD_PO_BIN:-omp -p --mode json --no-prewalk --no-lsp --no-extensions --model omniroute/dev}"
 CLAUDE_TIMEOUT="${SELFBUILD_CLAUDE_TIMEOUT:-300}"
 # Research runs omp with URL-fetch tooling; competitor crawls need 10-15 min
 # even when healthy (2026-09-02 live: 32 fetches, killed at 300s). PO picks a

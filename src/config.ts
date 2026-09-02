@@ -95,7 +95,7 @@ export interface Credentials {
 }
 
 export const DEFAULT_CONFIG: DevAgentConfig = {
-  worker: 'pi',
+  worker: 'omp',
   maxLoops: 3,
   timeoutMinutes: 30,
   githubBaseBranch: 'main',

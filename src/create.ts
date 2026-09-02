@@ -137,7 +137,7 @@ export function rolePlistSpecs(opts: {
       label: 'com.devagent.scout',
       logName: 'devagent-scout.log',
       repoPath: opts.repoPath,
-      programArgs: [nodePath, devagentBin, 'scout', '--repo', opts.repoPath, '--interval', String(opts.intervalMinutes), '--worker', opts.scoutWorker],
+      programArgs: [nodePath, devagentBin, 'scout', '--repo', opts.repoPath, '--interval', String(opts.intervalMinutes), '--worker', opts.scoutWorker, '--timeout', '30'],
     });
   }
   if (opts.tracker) {

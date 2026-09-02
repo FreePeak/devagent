@@ -28,7 +28,7 @@ done
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO="${REPO_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 STATE="$REPO/.warroom"
-WORKER="${WARMROOM_WORKER:-claude-code}"
+WORKER="${WARMROOM_WORKER:-omp}"
 MODEL="${WARMROOM_MODEL:-}"
 MAX_ITERS="${WARMROOM_MAX_ITERS:-0}"
 MAX_FAILS="${WARMROOM_MAX_CONSECUTIVE_FAILURES:-3}"
