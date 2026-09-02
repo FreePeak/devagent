@@ -211,7 +211,25 @@ $LESSONS_CTX
 Select exactly ONE backlog item scoped to a single implementable+testable iteration.
 Validation checks (all must pass): maps to a PRD backlog item; no dependency on an earlier failed loop; verifiable by the repo test suite or CLI smoke run.
 Output ONLY the goal statement (max 120 words), starting with 'Goal:' — this text is passed directly to devagent task as the implementation prompt." \
-      > goal.tmp && mv goal.tmp "$STATE/goals/loop-$N.md"
+      > goal.tmp.raw
+      # headless pi/omp emit an NDJSON event stream; extract the assistant's
+      # final text block into the plain-text goal file the driver expects.
+      node -e '
+        const fs = require("fs");
+        const lines = fs.readFileSync("goal.tmp.raw", "utf8").split("\n");
+        let out = "";
+        for (const line of lines) {
+          try {
+            const o = JSON.parse(line);
+            if (o.type === "message_end" && o.message?.role === "assistant") {
+              for (const c of o.message.content ?? []) {
+                if (c.type === "text" && c.text) out = c.text;
+              }
+            }
+          } catch {}
+        }
+        fs.writeFileSync("goal.tmp", out || fs.readFileSync("goal.tmp.raw", "utf8"));
+      ' && rm -f goal.tmp.raw && mv goal.tmp "$STATE/goals/loop-$N.md"
     fi
     fi # end queue-first fallback to LLM selection
 
