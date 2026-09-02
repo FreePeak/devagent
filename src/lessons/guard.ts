@@ -1,4 +1,6 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 /**
@@ -11,9 +13,14 @@ import { dirname, join } from 'node:path';
  * precedent (AHE/Meta-Harness) is: normalize, shingle, and reject a candidate
  * whose trigram-Jaccard similarity to an existing entry meets the threshold.
  *
- * This module owns two responsibilities, both shared with `src/prompt.ts`:
- *  - the guard (pure `checkLessonsDedupe` + append wrapper
- *    `appendLessonGuarded`);
+ * This module owns the eval guard, shared with `src/prompt.ts`:
+ *  - the dedupe gate (pure `checkLessonsDedupe`) — PR #116;
+ *  - the evaluate→accept step (`runLessonsSuite` + the gated append wrapper
+ *    `appendLessonGuarded`): the repo regression suite (`npm test`, vitest)
+ *    runs against the PROPOSED lessons-file state before the append is
+ *    accepted — green keeps the entry, red reverts the file and rejects;
+ *  - one accept/reject `lessons-eval` ledger row per gated append (lesson
+ *    excerpt hash, similarity score, predictedImpact, suite result);
  *  - the lessons-file cursor (`LESSONS_PATH`, `LESSONS_MAX_LINES`,
  *    `LESSONS_MAX_CHARS`) that both the guard and the digest
  *    (`loadLessons` / `loadLessonsDigest`) read from, so dedupe-before-append
@@ -43,14 +50,26 @@ export const LESSONS_MAX_CHARS = 4000;
  */
 export const DEFAULT_LESSONS_DEDUPE_SIMILARITY = 0.8;
 
+/** Wall-clock budget for one evaluate-step suite run (default 10 minutes). */
+export const DEFAULT_LESSONS_SUITE_TIMEOUT_MS = 600_000;
+
+/** Why a gated append landed the way it did. */
+export type LessonsEvalReason = 'missing-predictedImpact' | 'duplicate' | 'suite-red' | 'accepted';
+
+/** Outcome of the evaluate step for one gated append. */
+export type LessonsSuiteOutcome = 'green' | 'red' | 'skipped';
+
 /**
- * Normalize lesson text for comparison: lowercase, replace every run of
+ * Normalize lesson text for comparison: strip the optional `[predictedImpact: ...]`
+ * metadata suffix (it is captured separately in the lessons-eval ledger row and
+ * must neither dilute nor bypass dedupe), lowercase, replace every run of
  * non-alphanumeric characters with a single space, then collapse whitespace.
  * Punctuation-only rewordings ("Lessons eval guard" vs "Lessons-eval-guard")
  * normalize to the same token stream; word changes still register.
  */
 export function normalizeLessonText(text: string): string {
   return text
+    .replace(/\s*\[predictedImpact:[^\]]*\]/gi, ' ')
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, ' ')
     .replace(/\s+/g, ' ')
@@ -103,6 +122,12 @@ export interface LessonsDedupeResult {
   matchedEntry: string;
   /** The threshold that was applied. */
   threshold: number;
+  /** Why the gated append landed this way (set by `appendLessonGuarded`). */
+  reason?: LessonsEvalReason;
+  /** Evaluate-step outcome for the gated append (set by `appendLessonGuarded`). */
+  suite?: LessonsSuiteOutcome;
+  /** Bounded tail of the failing suite output when the suite ran and failed. */
+  suiteDetail?: string;
 }
 
 /**
@@ -129,6 +154,46 @@ export function readLessonEntries(lessonsPath: string): string[] {
     out.push(line.trimEnd());
   }
   return out;
+}
+
+/**
+ * Stable content hash of a lesson excerpt: sha256 over the normalized text,
+ * truncated to 16 hex chars (same shape as the executor trail signature). It
+ * keys the `lessons-eval` ledger row so replay can match a row to its entry
+ * without embedding the full line.
+ */
+export function lessonExcerptHash(entry: string): string {
+  return createHash('sha256').update(normalizeLessonText(entry)).digest('hex').slice(0, 16);
+}
+
+/** Result of one evaluate-step suite run. */
+export interface LessonsSuiteResult {
+  /** True when the suite exited 0. */
+  ok: boolean;
+  /** Bounded output tail (or failure detail) for the ledger row. */
+  detail: string;
+}
+
+/**
+ * Evaluate step of the propose→evaluate→accept gate: run the repo regression
+ * suite (`npm test` — vitest in this repo) against the proposed lessons-file
+ * state. Never throws: a suite that cannot even start is a red result, not a
+ * crash path — a bad lesson must never land because the runner broke.
+ */
+export function runLessonsSuite(repoPath: string, opts: { timeoutMs?: number } = {}): LessonsSuiteResult {
+  try {
+    const r = spawnSync('npm', ['test'], {
+      cwd: repoPath,
+      encoding: 'utf8',
+      timeout: opts.timeoutMs ?? DEFAULT_LESSONS_SUITE_TIMEOUT_MS,
+      shell: process.platform === 'win32',
+    });
+    const detail = `${r.stdout ?? ''}\n${r.stderr ?? ''}`.trim();
+    if (r.status === 0) return { ok: true, detail: detail.slice(-300) };
+    return { ok: false, detail: (detail || `npm test exited ${r.status} ${r.signal ?? ''}`).slice(-300) };
+  } catch (e) {
+    return { ok: false, detail: `npm test failed to run: ${(e as Error).message}`.slice(0, 300) };
+  }
 }
 
 /**
@@ -159,44 +224,97 @@ export function checkLessonsDedupe(
 }
 
 /**
- * Guarded append: run the dedupe gate, and only when the candidate is not a
- * near-duplicate write it to the lessons file (creating the parent directory
- * on the first append). On rejection nothing is written and a
- * `lessons-dedupe-rejected` event row is recorded in the orchestration
- * events ledger (best-effort, mirroring every other append* helper), so the
- * loop's replayable evidence shows why a recommendation never landed.
+ * Eval-gated append (PRD §17 "Lessons eval guard", evaluate→accept slice).
  *
- * Returns the guard result so callers can branch on `ok` and report the
- * similarity + matched entry.
+ * A candidate lesson is accepted only when ALL of the following hold:
+ *  1. it carries a non-empty `predictedImpact` (PR #116 captured the field but
+ *     nothing required it — a lesson that predicts nothing cannot be verified);
+ *  2. the dedupe gate passes (trigram-Jaccard below the threshold);
+ *  3. the evaluate step is green: the repo regression suite (`npm test`)
+ *     passes against the PROPOSED lessons-file state. The entry is staged by
+ *     writing it to the file first, the suite runs, and on failure the file is
+ *     restored byte-for-byte to its pre-append state — a lesson that regresses
+ *     anything (including the suite itself) never lands.
+ *
+ * Exactly one `lessons-eval` ledger row is written per gated append, accept or
+ * reject, carrying the lesson excerpt hash, similarity score, predictedImpact,
+ * and suite result so the loop's replayable evidence shows why content landed.
  */
 export function appendLessonGuarded(
   repoPath: string,
   entry: string,
-  opts: { lessonsFile?: string; threshold?: number; predictedImpact?: string } = {},
+  opts: { lessonsFile?: string; threshold?: number; predictedImpact?: string; suiteTimeoutMs?: number } = {},
 ): LessonsDedupeResult {
   const lessonsFile = opts.lessonsFile || SELFBUILD_LESSONS_PATH;
-  const check = checkLessonsDedupe(repoPath, entry, { lessonsFile, threshold: opts.threshold });
-  if (!check.ok) {
-    recordLessonsDedupeRejection(repoPath, {
-      similarity: check.similarity,
-      threshold: check.threshold,
-      matchedEntry: check.matchedEntry,
+  const excerptHash = lessonExcerptHash(entry);
+  const suiteLedger = (suite: LessonsSuiteOutcome, reason: LessonsEvalReason, base: LessonsDedupeResult, suiteDetail?: string): LessonsDedupeResult => {
+    recordLessonsEval(repoPath, {
+      excerptHash,
+      similarity: base.similarity,
+      threshold: base.threshold,
+      predictedImpact: opts.predictedImpact,
+      suite,
+      accepted: reason === 'accepted',
+      reason,
       entry,
+      suiteDetail,
     });
-    return check;
+    return { ...base, reason, suite, ...(suiteDetail !== undefined ? { suiteDetail } : {}) };
+  };
+
+  // Gate 1: predictedImpact is required for machine appends.
+  if (!opts.predictedImpact || !opts.predictedImpact.trim()) {
+    const check = checkLessonsDedupe(repoPath, entry, { lessonsFile, threshold: opts.threshold });
+    return suiteLedger('skipped', 'missing-predictedImpact', check);
   }
+
+  const check = checkLessonsDedupe(repoPath, entry, { lessonsFile, threshold: opts.threshold });
+
+  // Gate 2: dedupe (similarity below threshold).
+  if (!check.ok) {
+    return suiteLedger('skipped', 'duplicate', check);
+  }
+
+  // Gate 3: evaluate step — stage the proposed state, run the suite, revert on red.
   const p = join(repoPath, lessonsFile);
-  mkdirSync(dirname(p), { recursive: true });
   const entryText = appendPredictedImpact(entry, opts.predictedImpact);
-  const existing = existsSync(p) ? readFileSync(p, 'utf8') : '';
-  appendFileSync(p, existing.length > 0 && !existing.endsWith('\n') ? `\n${entryText}\n` : `${entryText}\n`);
-  return check;
+  const existing = existsSync(p) ? readFileSync(p, 'utf8') : null;
+  mkdirSync(dirname(p), { recursive: true });
+  appendFileSync(p, existing !== null && existing.length > 0 && !existing.endsWith('\n') ? `\n${entryText}\n` : `${entryText}\n`);
+
+  const suite = runLessonsSuite(repoPath, { timeoutMs: opts.suiteTimeoutMs });
+  if (!suite.ok) {
+    // Revert: restore the pre-append bytes exactly (including file absence).
+    try {
+      if (existing === null) rmSync(p);
+      else writeFileSync(p, existing);
+    } catch {
+      // best-effort: a failed revert still records as rejected below
+    }
+    return suiteLedger('red', 'suite-red', check, suite.detail);
+  }
+
+  return suiteLedger('green', 'accepted', check);
 }
 
-/** Best-effort `lessons-dedupe-rejected` event row (never throws). */
-function recordLessonsDedupeRejection(
+/**
+ * One accept/reject ledger row per gated append (best-effort, never throws):
+ * carries the lesson excerpt hash, similarity score, predictedImpact, and
+ * suite result so replay can answer "why did this lesson land or not".
+ */
+function recordLessonsEval(
   repoPath: string,
-  args: { similarity: number; threshold: number; matchedEntry: string; entry: string },
+  args: {
+    excerptHash: string;
+    similarity: number;
+    threshold: number;
+    predictedImpact?: string;
+    suite: LessonsSuiteOutcome;
+    accepted: boolean;
+    reason: LessonsEvalReason;
+    entry: string;
+    suiteDetail?: string;
+  },
 ): void {
   try {
     const { LEDGER_DIR } = { LEDGER_DIR: '.devagent/runs/orchestration' };
@@ -205,11 +323,16 @@ function recordLessonsDedupeRejection(
     const record = {
       ts: new Date().toISOString(),
       kind: 'event',
-      event: 'lessons-dedupe-rejected',
+      event: 'lessons-eval',
+      excerptHash: args.excerptHash,
       similarity: Math.round(args.similarity * 1000) / 1000,
       threshold: args.threshold,
-      matchedEntry: args.matchedEntry.slice(0, 300),
+      predictedImpact: args.predictedImpact ? args.predictedImpact.trim().replace(/\s+/g, ' ').slice(0, 300) : '',
+      suite: args.suite,
+      accepted: args.accepted,
+      reason: args.reason,
       entry: args.entry.slice(0, 300),
+      ...(args.suiteDetail ? { suiteDetail: args.suiteDetail } : {}),
     };
     appendFileSync(file, `${JSON.stringify(record)}\n`);
   } catch {
