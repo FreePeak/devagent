@@ -2,7 +2,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync } from
 import { dirname, join } from 'node:path';
 import type { TicketSpec } from './types.js';
 import type { ImplementationPlan } from './planner.js';
-import { LESSONS_MAX_CHARS, LESSONS_MAX_LINES, LESSONS_PATH } from './lessons/guard.js';
+import { LESSONS_MAX_CHARS, LESSONS_MAX_LINES, LESSONS_PATH, lessonExcerptHash, loadLessonScores } from './lessons/guard.js';
 
 /** Default repo-local lessons file; overridable via config `lessonsFile`. */
 export const DEFAULT_LESSONS_FILE = LESSONS_PATH;
@@ -42,27 +42,52 @@ export function loadLessons(repoPath: string, lessonsFile?: string, maxChars?: n
 
 /**
  * Shared digest cursor behind `loadLessons` and the guarded append path
- * (src/lessons/guard.ts): read the newest `LESSONS_MAX_LINES` lines, then drop
- * oldest entries whole until the surviving block fits `LESSONS_MAX_CHARS`
- * (config `lessonsMaxChars`). Never splits a line and never strips content
- * from a kept line, so an optional `predictedImpact:` suffix appended to a
- * lesson round-trips verbatim through the injected digest.
+ * (src/lessons/guard.ts): read the newest `LESSONS_MAX_LINES` lines, rank them
+ * by measured impact (Q39), then drop the lowest-ranked entries whole until
+ * the surviving block fits `LESSONS_MAX_CHARS` (config `lessonsMaxChars`).
+ * Ranking uses the per-lesson score from the orchestration ledger
+ * (`loadLessonScores`): lines whose excerpt hash has a score sort by score
+ * (descending, oldest-first tiebreak) ahead of unscored lines, which keep the
+ * existing newest-first order so the recency behavior is preserved when no
+ * impact data exists. Never splits a line and never strips content from a
+ * kept line, so an optional `predictedImpact:` suffix appended to a lesson
+ * round-trips verbatim through the injected digest.
  */
 export function loadLessonsDigest(repoPath: string, lessonsFile?: string, maxChars?: number): string {
   const p = join(repoPath, lessonsFile || DEFAULT_LESSONS_FILE);
   if (!existsSync(p)) return '';
   try {
-    const lines = readFileSync(p, 'utf8').trimEnd().split('\n').slice(-LESSONS_MAX_LINES);
+    const allLines = readFileSync(p, 'utf8').trimEnd().split('\n');
+    const window = allLines.slice(-LESSONS_MAX_LINES);
+    const base = allLines.length - window.length;
+    const scores = loadLessonScores(repoPath);
+    const indexed = window.map((line, i) => {
+      const score = scores.get(lessonExcerptHash(line));
+      return { line, score: score ?? -Infinity, idx: base + i };
+    });
+    // Score descending; scored ties break oldest-first, unscored keep the
+    // existing newest-first order (so the oldest unscored lines are dropped
+    // first when the budget bites — same recency semantics as before).
+    indexed.sort((a, b) => {
+      if (a.score !== b.score) return b.score - a.score;
+      if (a.score === -Infinity) return b.idx - a.idx;
+      return a.idx - b.idx;
+    });
     const budget = maxChars ?? LESSONS_MAX_CHARS;
     let total = -1; // joining N lines adds N-1 newlines
-    let start = lines.length;
-    while (start > 0) {
-      const cost = lines[start - 1]!.length + 1;
-      if (start < lines.length && total + cost > budget) break;
+    let end = 0;
+    for (const entry of indexed) {
+      const cost = entry.line.length + 1;
+      if (end > 0 && total + cost > budget) break;
       total += cost;
-      start--;
+      end++;
     }
-    return lines.slice(start).join('\n').trim();
+    return indexed
+      .slice(0, end)
+      .sort((a, b) => a.idx - b.idx)
+      .map((e) => e.line)
+      .join('\n')
+      .trim();
   } catch {
     return '';
   }

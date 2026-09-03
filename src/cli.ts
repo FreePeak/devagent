@@ -1491,13 +1491,22 @@ program
 program
   .command('lessons')
   .description('Append a lesson behind the eval guard (PRD Phase 4 "Lessons eval guard", evaluate→accept slice). Machine appends must go through this: a candidate needs a non-empty --predicted-impact, must clear the dedupe gate, and must leave the repo regression suite green against the proposed lessons-file state (red reverts the file). Exactly one lessons-eval ledger row is written per gated append.')
-  .requiredOption('--repo <path>', 'repository containing the lessons file')
-  .requiredOption('--entry <text>', 'lesson entry to append (one line)')
-  .requiredOption('--predicted-impact <text>', 'predictedImpact field required by the eval guard (AHE/Meta-Harness propose→evaluate→accept precedent); empty values are rejected')
+  .option('--repo <path>', 'repository containing the lessons file', process.cwd())
+  .option('--entry <text>', 'lesson entry to append (one line)')
+  .option('--predicted-impact <text>', 'predictedImpact field required by the eval guard (AHE/Meta-Harness propose→evaluate→accept precedent); empty values are rejected')
   .option('--lessons-file <path>', 'repo-relative lessons file path (default .selfbuild/lessons.md)')
   .option('--threshold <n>', 'similarity reject threshold in [0,1] (default 0.8)', Number)
   .option('--suite-timeout-ms <n>', 'evaluate-step wall-clock budget in ms (default 600000)', Number)
+  .option('--loop <n>', 'self-build loop number; written to the lessons-eval ledger row so impact scoring can join it to the loop-result row (Q39)', Number)
   .action(async (opts) => {
+    // Runtime required-option check: --entry and --predicted-impact are
+    // .option() (not .requiredOption()) so the `scores` subcommand can
+    // dispatch without Commander validating them at parse time.
+    if (!opts.entry || !opts.predictedImpact) {
+      console.error('--entry and --predicted-impact are required for the append action.');
+      process.exitCode = 1;
+      return;
+    }
     const { appendLessonGuarded, DEFAULT_LESSONS_DEDUPE_SIMILARITY, DEFAULT_LESSONS_SUITE_TIMEOUT_MS } = await import('./lessons/guard.js');
     const config = loadConfig(opts.repo);
     const lessonsFile = (opts.lessonsFile as string | undefined) ?? config.lessonsFile ?? '.selfbuild/lessons.md';
@@ -1507,11 +1516,41 @@ program
       threshold,
       predictedImpact: opts.predictedImpact as string | undefined,
       suiteTimeoutMs: opts.suiteTimeoutMs === undefined ? DEFAULT_LESSONS_SUITE_TIMEOUT_MS : Number(opts.suiteTimeoutMs),
+      loop: opts.loop === undefined ? undefined : Number(opts.loop),
     });
     console.log(JSON.stringify({ appended: r.ok, reason: r.reason, suite: r.suite, similarity: r.similarity, threshold: r.threshold, matchedEntry: r.matchedEntry }));
     // `ok` tracks the dedupe verdict; acceptance is the reason — a suite-red
     // revert or missing predictedImpact must also fail the invocation.
     if (r.reason !== 'accepted') process.exitCode = 1;
+  });
+
+const lessonsCmd = program.commands.find((c) => c.name() === 'lessons')!;
+lessonsCmd
+  .command('scores')
+  .description('Show measured lesson impact scores (Q39): per-excerptHash accept rate, repeat-failure delta, and composite score aggregated from the orchestration ledger (lessons-eval rows joined with loop-result rows).')
+  .option('--json', 'emit JSON', false)
+  .action(async function (this: Command, opts) {
+    // --repo is declared on the parent `lessons` command; Commander binds it
+    // to the parent even when given after the subcommand name (v12 behavior).
+    const repoPath = (this.parent?.opts()?.repo as string | undefined) ?? process.cwd();
+    const { readEvents, computeLessonScores } = await import('./lessons/guard.js');
+    const events = readEvents(repoPath);
+    const scores = computeLessonScores(events);
+    if (scores.size === 0) {
+      console.log('No lesson impact scores: no lessons-eval rows in the orchestration ledger yet.');
+      return;
+    }
+    const rows = [...scores.entries()].sort((a, b) => b[1].score - a[1].score);
+    if (opts.json) {
+      console.log(JSON.stringify(Object.fromEntries(rows), null, 2));
+      return;
+    }
+    console.log('excerptHash      score   acceptRate  delta   evals  loopFailRate');
+    for (const [hash, s] of rows) {
+      console.log(
+        `${hash.padEnd(16)} ${s.score.toFixed(3).padStart(6)}  ${s.acceptRate.toFixed(3).padStart(6)}    ${s.delta.toFixed(3).padStart(6)}  ${String(s.evalCount).padStart(5)}  ${s.lessonLoopFailureRate.toFixed(3)}`,
+      );
+    }
   });
 
 program
