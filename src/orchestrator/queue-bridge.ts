@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { QueuedTask } from '../queue.js';
 import { listTasks, setTaskStatus } from '../queue.js';
@@ -6,12 +6,58 @@ import type { ProjectBoard, OrchestratorTask } from './types.js';
 import { loadBoard, saveBoard, createBoard } from './store.js';
 import { fallbackPlan, parsePlan } from './planner.js';
 import type { WorkerName } from '../types.js';
-
 /**
  * Bridge: turn a queued idea (goal string) into a board DAG via the planner,
  * or flatten board tasks back to queue items for Orca workers watching the queue.
  * Mirrors store.ts atomic writes, never logs secrets.
+ *
+ * Cross-board retry memory (Q27): when a stuck board is archived (orchestrate-loop
+ * moves it to .devagent/archive/), its executor failure class (task.interrupt.failureClass,
+ * PRD:775 / Q24 taxonomy) is carried onto the re-bridged board so the scout
+ * deprioritizes the goal until the root cause ships instead of burning a fresh
+ * attempt budget on each requeue round.
  */
+
+/** Where stuck/completed boards are archived by the orchestrate loop. */
+const ARCHIVE_DIR = '.devagent/archive';
+
+/** Normalize goal text for cross-board matching (mirror already_shipped in selfbuild-loop.sh). */
+function normalizeGoal(goal: string): string {
+  return goal.replace(/"/g, '').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Prior board's executor failure class for a re-bridged goal. Scans archived
+ * boards (newest first) for one whose goal matches `goal`; returns its carried
+ * failureClass, else the first task's interrupt failure class. Best-effort:
+ * missing/corrupt archive entries are skipped.
+ */
+export function archivedBoardFailureClass(repoPath: string, goal: string): string | undefined {
+  const archiveDir = join(repoPath, ARCHIVE_DIR);
+  if (!existsSync(archiveDir)) return undefined;
+  let files: string[];
+  try {
+    files = readdirSync(archiveDir).filter((f) => f.startsWith('board-') && f.endsWith('.json')).sort().reverse();
+  } catch {
+    return undefined;
+  }
+  const want = normalizeGoal(goal);
+  for (const file of files) {
+    let board: ProjectBoard;
+    try {
+      board = JSON.parse(readFileSync(join(archiveDir, file), 'utf8')) as ProjectBoard;
+    } catch {
+      continue; // corrupt archive entry — skip, never fail the bridge
+    }
+    if (!board || typeof board.goal !== 'string') continue;
+    const have = normalizeGoal(board.goal);
+    if (want !== have && want.slice(0, 60) !== have.slice(0, 60)) continue;
+    if (board.failureClass) return board.failureClass;
+    const interrupted = board.tasks?.find((t) => t.interrupt?.failureClass);
+    if (interrupted?.interrupt?.failureClass) return interrupted.interrupt.failureClass;
+  }
+  return undefined;
+}
 
 export interface BridgeOptions {
   repoPath: string;
@@ -58,6 +104,11 @@ export async function bridgeQueueToBoard(
 
   const roles: ProjectBoard['roles'] = { planner: 'omp' as WorkerName, executor: 'omp' as WorkerName };
   const board = createBoard(goal, tasks, roles);
+  // Q27 cross-board retry memory: a re-bridged goal carries the prior archived
+  // board's executor failure class so the scout deprioritizes it until the root
+  // cause ships, instead of burning a fresh attempt budget each requeue round.
+  const priorFailureClass = archivedBoardFailureClass(repoPath, goal);
+  if (priorFailureClass) board.failureClass = priorFailureClass;
   saveBoard(repoPath, board);
   // Retire the source queue item: the board now owns this goal, and leaving it
   // pending would make the builder lane double-build the same idea.

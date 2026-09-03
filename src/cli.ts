@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { loadConfig, loadCredentials, credentialStatus, type CleanupMode } from './config.js';
 import { RunLogger } from './logger.js';
@@ -9,6 +9,7 @@ import { runPreflightGate, PREFLIGHT_ROLES, isPreflightRole } from './resilience
 import { runPipeline } from './pipeline.js';
 import { buildDeps, buildDryRunDeps } from './deps.js';
 import type { WorkerName } from './types.js';
+import { appendReleaseRecord } from './orchestrator/ledger.js';
 
 function parseConcurrency(v: string): number | 'auto' {
   if (v === 'auto' || v.toLowerCase() === 'auto') return 'auto';
@@ -516,8 +517,10 @@ program
 
 program
   .command('task')
-  .description('Run one prompt-driven task headlessly (orchestrator integration mode)')
-  .requiredOption('--prompt <text>', 'task description (first line becomes the title)')
+  .description('Run one prompt-driven task headlessly (orchestrator integration mode); --pick resolves a PRD Phase 4 backlog item and cross-checks it before dispatch')
+  .option('--prompt <text>', 'task description (first line becomes the title); required unless --pick is used')
+  .option('--pick <backlog-id>', 'PRD Phase 4 backlog item id (e.g. Q40): resolved from docs/PRD.md and cross-checked against merged PR titles + completion notes before dispatch; a shipped pick is rejected with "already shipped" and struck from the backlog')
+  .option('--dry-run', 'validate the pick only; no workers, no remotes, no PRD write', false)
   .option(
     '--id <taskId>',
     'task identity: names the worktree (.devagent-worktrees/<id>) and branch (devagent/<id>); default $DEVAGENT_TASK_ID, else a collision-free TASK-<suffix>',
@@ -540,6 +543,44 @@ program
     const creds = loadCredentials();
     const logger = new RunLogger();
 
+    // PRD backlog reconciliation at pick time (curation run 24 decision):
+    // validate a --pick against merged PR titles + completion notes BEFORE
+    // any dispatch. A shipped pick (the Q40 re-selected-3x class) is rejected
+    // with a clear message; confirmed-shipped items are struck from the Phase
+    // 4 backlog section in the same run (dry-run validates only, no writes).
+    let prompt = opts.prompt as string | undefined;
+    if (opts.pick) {
+      const { checkBacklogPick, listMergedPrTitles, strikeBacklogItems } = await import('./task.js');
+      const prdPath = join(opts.repo, 'docs', 'PRD.md');
+      if (!existsSync(prdPath)) {
+        console.error(`task: no docs/PRD.md in ${opts.repo}`);
+        process.exitCode = 1;
+        return;
+      }
+      const prd = readFileSync(prdPath, 'utf8');
+      const mergedTitles = await listMergedPrTitles(opts.repo);
+      const check = checkBacklogPick(opts.pick, prd, mergedTitles);
+      if (!opts.dryRun && check.struckIds.length > 0) {
+        writeFileSync(prdPath, strikeBacklogItems(prd, check.struckIds));
+        if (check.shipped) console.log(`[task] struck confirmed-shipped backlog items: ${check.struckIds.join(', ')}`);
+      }
+      if (!check.ok) {
+        console.error(check.message);
+        process.exitCode = 1;
+        return;
+      }
+      if (opts.dryRun) {
+        console.log(`[dry-run] pick ${opts.pick}: ${check.message}`);
+        return;
+      }
+      prompt = check.prompt;
+    }
+    if (!prompt) {
+      console.error('task: --prompt or --pick is required');
+      process.exitCode = 1;
+      return;
+    }
+
     // Remote execution: the shared host owns its checkout, workers and
     // credentials; this process is a thin client that ships the prompt over
     // SSH and reports the outcome.
@@ -550,7 +591,7 @@ program
       const result = await runRemoteTask(
         {
           target: opts.remote as string,
-          prompt: opts.prompt as string,
+          prompt,
           taskId: ((opts.id as string | undefined) ?? process.env.DEVAGENT_TASK_ID) || undefined,
           worker: opts.worker as string | undefined,
           timeoutMs: config.timeoutMinutes * 60_000,
@@ -565,7 +606,7 @@ program
     }
 
     const cfg = {
-      prompt: opts.prompt as string,
+      prompt,
       autoMerge: opts.autoMerge || config.autoMerge || undefined,
       repoPath: opts.repo,
       autoPr: opts.autoPr ?? false,
@@ -1056,6 +1097,12 @@ program
       process.exitCode = 1;
       return;
     }
+    // Default-on opt-out: env var disables the probe gate entirely so
+    // operator loops proceed without gating (Q40).
+    if (process.env.OPERATOR_PROBE_DISABLED === '1') {
+      console.log(`[preflight] disabled by OPERATOR_PROBE_DISABLED=1 — skipping probe for role=${opts.role}`);
+      return;
+    }
     const config = loadConfig(opts.repo);
     const worker = (opts.worker as string | undefined) ?? config.worker;
     const rawModel = (opts.model as string | undefined) ?? config.model;
@@ -1491,13 +1538,22 @@ program
 program
   .command('lessons')
   .description('Append a lesson behind the eval guard (PRD Phase 4 "Lessons eval guard", evaluate→accept slice). Machine appends must go through this: a candidate needs a non-empty --predicted-impact, must clear the dedupe gate, and must leave the repo regression suite green against the proposed lessons-file state (red reverts the file). Exactly one lessons-eval ledger row is written per gated append.')
-  .requiredOption('--repo <path>', 'repository containing the lessons file')
-  .requiredOption('--entry <text>', 'lesson entry to append (one line)')
-  .requiredOption('--predicted-impact <text>', 'predictedImpact field required by the eval guard (AHE/Meta-Harness propose→evaluate→accept precedent); empty values are rejected')
+  .option('--repo <path>', 'repository containing the lessons file', process.cwd())
+  .option('--entry <text>', 'lesson entry to append (one line)')
+  .option('--predicted-impact <text>', 'predictedImpact field required by the eval guard (AHE/Meta-Harness propose→evaluate→accept precedent); empty values are rejected')
   .option('--lessons-file <path>', 'repo-relative lessons file path (default .selfbuild/lessons.md)')
   .option('--threshold <n>', 'similarity reject threshold in [0,1] (default 0.8)', Number)
   .option('--suite-timeout-ms <n>', 'evaluate-step wall-clock budget in ms (default 600000)', Number)
+  .option('--loop <n>', 'self-build loop number; written to the lessons-eval ledger row so impact scoring can join it to the loop-result row (Q39)', Number)
   .action(async (opts) => {
+    // Runtime required-option check: --entry and --predicted-impact are
+    // .option() (not .requiredOption()) so the `scores` subcommand can
+    // dispatch without Commander validating them at parse time.
+    if (!opts.entry || !opts.predictedImpact) {
+      console.error('--entry and --predicted-impact are required for the append action.');
+      process.exitCode = 1;
+      return;
+    }
     const { appendLessonGuarded, DEFAULT_LESSONS_DEDUPE_SIMILARITY, DEFAULT_LESSONS_SUITE_TIMEOUT_MS } = await import('./lessons/guard.js');
     const config = loadConfig(opts.repo);
     const lessonsFile = (opts.lessonsFile as string | undefined) ?? config.lessonsFile ?? '.selfbuild/lessons.md';
@@ -1507,11 +1563,41 @@ program
       threshold,
       predictedImpact: opts.predictedImpact as string | undefined,
       suiteTimeoutMs: opts.suiteTimeoutMs === undefined ? DEFAULT_LESSONS_SUITE_TIMEOUT_MS : Number(opts.suiteTimeoutMs),
+      loop: opts.loop === undefined ? undefined : Number(opts.loop),
     });
     console.log(JSON.stringify({ appended: r.ok, reason: r.reason, suite: r.suite, similarity: r.similarity, threshold: r.threshold, matchedEntry: r.matchedEntry }));
     // `ok` tracks the dedupe verdict; acceptance is the reason — a suite-red
     // revert or missing predictedImpact must also fail the invocation.
     if (r.reason !== 'accepted') process.exitCode = 1;
+  });
+
+const lessonsCmd = program.commands.find((c) => c.name() === 'lessons')!;
+lessonsCmd
+  .command('scores')
+  .description('Show measured lesson impact scores (Q39): per-excerptHash accept rate, repeat-failure delta, and composite score aggregated from the orchestration ledger (lessons-eval rows joined with loop-result rows).')
+  .option('--json', 'emit JSON', false)
+  .action(async function (this: Command, opts) {
+    // --repo is declared on the parent `lessons` command; Commander binds it
+    // to the parent even when given after the subcommand name (v12 behavior).
+    const repoPath = (this.parent?.opts()?.repo as string | undefined) ?? process.cwd();
+    const { readEvents, computeLessonScores } = await import('./lessons/guard.js');
+    const events = readEvents(repoPath);
+    const scores = computeLessonScores(events);
+    if (scores.size === 0) {
+      console.log('No lesson impact scores: no lessons-eval rows in the orchestration ledger yet.');
+      return;
+    }
+    const rows = [...scores.entries()].sort((a, b) => b[1].score - a[1].score);
+    if (opts.json) {
+      console.log(JSON.stringify(Object.fromEntries(rows), null, 2));
+      return;
+    }
+    console.log('excerptHash      score   acceptRate  delta   evals  loopFailRate');
+    for (const [hash, s] of rows) {
+      console.log(
+        `${hash.padEnd(16)} ${s.score.toFixed(3).padStart(6)}  ${s.acceptRate.toFixed(3).padStart(6)}    ${s.delta.toFixed(3).padStart(6)}  ${String(s.evalCount).padStart(5)}  ${s.lessonLoopFailureRate.toFixed(3)}`,
+      );
+    }
   });
 
 program
@@ -1622,5 +1708,39 @@ program
     else for (const s of killed) console.log(`killed ${s.pid} ${Math.round(s.elapsedMs / 1000)}s ${s.command}`);
   });
 
+
+program
+  .command('record')
+  .description('Append a structured event to the orchestration run ledger (Q24)')
+  .action(() => {
+    // subcommands handle dispatch; bare `record` prints help
+    program.commands.find((c) => c.name() === 'record')!.outputHelp();
+  });
+
+const recordCmd = program.commands.find((c) => c.name() === 'record')!;
+recordCmd
+  .command('release')
+  .description('Record a release/tag event as a first-class ledger outcome (Q24)')
+  .requiredOption('--tag <tag>', 'git tag created, e.g. v0.1.0')
+  .requiredOption('--sha <sha>', 'commit SHA the tag points to')
+  .option('--repo <path>', 'target repository owning the ledger', process.cwd())
+  .option('--source <source>', 'recording source (default cli)', 'cli')
+  .action(async (opts) => {
+    const tag = String(opts.tag);
+    const sha = String(opts.sha);
+    const version = tag.replace(/^v/, '');
+    appendReleaseRecord(opts.repo, {
+      ts: new Date().toISOString(),
+      kind: 'event',
+      event: 'release-created',
+      taskId: `release/${version}`,
+      attempt: 1,
+      tag,
+      sha,
+      version,
+      source: String(opts.source),
+    });
+    console.log(`recorded release-created ${version} (${tag} @ ${sha}) -> .devagent/runs/orchestration/events.jsonl`);
+  });
 
 program.parseAsync();
