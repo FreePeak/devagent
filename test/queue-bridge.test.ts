@@ -50,6 +50,68 @@ describe('queue-bridge', () => {
     }
   });
 
+  it('carries the prior archived board failure class onto a re-bridged goal (Q27)', async () => {
+    const repo = tmpRepo();
+    try {
+      // A stuck board archived by orchestrate-loop (PR #68/#102 path): its goal is
+      // the composed queued-goal string, and the interrupted task carries the
+      // executor failure class (taskInterrupt post-mortem, scheduler.ts:302).
+      const q: QueuedTask = enqueueTask(repo, { id: 'REBRIDGE-1', title: 'Add audit trail', goal: 'Goal: add audit table', acceptanceCriteria: ['migration applies'] });
+      const goal = 'Goal: add audit table\nAcceptance criteria:\n- migration applies';
+      const archiveDir = join(repo, '.devagent', 'archive');
+      mkdirSync(archiveDir, { recursive: true });
+      writeFileSync(
+        join(archiveDir, 'board-stuck-20260903-120000.json'),
+        JSON.stringify({
+          goal,
+          createdAt: '2026-09-03T04:00:00.000Z',
+          updatedAt: '2026-09-03T05:00:00.000Z',
+          roles: { planner: 'omp', executor: 'omp' },
+          tasks: [
+            {
+              id: 'T1',
+              title: 'Draft migration',
+              prompt: 'create migration',
+              dependsOn: [],
+              status: 'failed',
+              attempts: 3,
+              interrupt: {
+                failureClass: 'test-gate',
+                lastGateExcerpt: '1 failed',
+                attempts: 3,
+                trailHash: 'abc123',
+              },
+            },
+          ],
+        }),
+      );
+
+      const planner = async (g: string): Promise<OrchestratorTask[]> => [
+        { id: 'T1', title: 'Draft migration', prompt: 'create migration', dependsOn: [], status: 'pending', attempts: 0 },
+      ];
+      const r = await bridgeQueueToBoard(q, { repoPath: repo, planner });
+      expect(r.created).toBe(true);
+      const board = JSON.parse(readFileSync(join(repo, '.devagent-project.json'), 'utf8'));
+      // Re-bridged goal carries the prior board's failure class instead of a
+      // fresh attempt budget with no memory of why the last board died.
+      expect(board.failureClass).toBe('test-gate');
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it('leaves failureClass unset when no archived board matches the goal', async () => {
+    const repo = tmpRepo();
+    try {
+      const q: QueuedTask = enqueueTask(repo, { id: 'FRESH-1', title: 'x', goal: 'Goal: brand new work' });
+      const r = await bridgeQueueToBoard(q, { repoPath: repo, planner: async () => null });
+      expect(r.created).toBe(true);
+      const board = JSON.parse(readFileSync(join(repo, '.devagent-project.json'), 'utf8'));
+      expect(board.failureClass).toBeUndefined();
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
   it('bridgeIfQueued picks oldest pending and is no-op when no pending', async () => {
     const repo = tmpRepo();
     try {

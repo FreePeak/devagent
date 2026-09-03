@@ -118,6 +118,14 @@ export interface ProjectBoard {
     auditor?: WorkerName;
   };
   tasks: OrchestratorTask[];
+  /**
+   * Cross-board retry memory (Q27): executor failure class carried from the
+   * prior archived board when the same goal is re-bridged, so the scout
+   * deprioritizes the goal until the root cause ships instead of burning a
+   * fresh attempt budget on each requeue round. Mirrors the ExecutorFailureClass
+   * taxonomy from src/types.ts (stored as string like task.interrupt.failureClass).
+   */
+  failureClass?: string;
 }
 
 export const BOARD_FILE = '.devagent-project.json';
