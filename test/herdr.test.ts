@@ -99,7 +99,6 @@ describe('herdr integration', () => {
     const r = await runCommandInHerdrPane('echo', ['hello'], {
       cwd: stubDir,
       timeoutMs: 10_000,
-      label: 'test worker',
     });
     expect(r).not.toBeNull();
     expect(r!.timedOut).toBe(false);

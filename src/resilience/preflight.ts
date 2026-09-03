@@ -29,8 +29,12 @@ export function isPreflightRole(value: string): value is PreflightRole {
 /** Probe invocations per gate run. */
 export const PREFLIGHT_PROBE_ATTEMPTS = 3;
 
-/** Hard wall-clock cap per probe. A probe must stay cheap. */
-export const PREFLIGHT_PROBE_TIMEOUT_MS = 30_000;
+/** Hard wall-clock cap per probe. Must stay cheap but clear the slowest
+ * observed gateway round-trip: omniroute/dev replies land at 25-38s (2026-09-03
+ * live: shell probe 26s, execFile 25s, several >30s), so a 30s cap turned the
+ * gate into a coin-flip that tripped the selfbuild circuit breaker. 60s keeps
+ * the probe bounded while clearing the tail. */
+export const PREFLIGHT_PROBE_TIMEOUT_MS = 60_000;
 
 /** Sleep between failed probes (mirrors orchestrate-loop's 5s). */
 export const PREFLIGHT_RETRY_DELAY_MS = 5_000;
@@ -143,7 +147,13 @@ export async function runPreflightGate(args: {
     ...(args.model !== undefined ? { model: args.model } : {}),
     ...(last.ok ? {} : { detail: last.detail }),
   };
-  if (!last.ok) {
+  if (last.ok) {
+    // Advance the shared circuit on success too: without this a provider
+    // recovery leaves a stale `open` from the last failure, and consumers
+    // reading the circuit keep short-circuiting (2026-09-03: circuit stuck
+    // open since 13:21Z despite green probes from 01:58Z).
+    recordProxyProbe(args.repoPath, { ok: true });
+  } else {
     // Shared circuit state so `devagent status --providers` reports the
     // operator-loop degradation exactly like the orchestrate-loop gate.
     recordProxyProbe(args.repoPath, { ok: false, detail: `preflight[${args.role}]: ${last.detail ?? 'failed'}` });

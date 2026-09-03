@@ -290,7 +290,6 @@ export class OmpAdapter implements WorkerAdapter {
         ...prepared.opts,
         noProgressTimeoutMs,
         ...(opts.herdr ? { herdr: true } : {}),
-        label: `devagent omp #${attempt}`,
       });
 
       const outcome = interpretOmp(last);

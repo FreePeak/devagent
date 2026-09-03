@@ -20,10 +20,13 @@ CLAUDE_BIN="${SELFBUILD_CLAUDE:-omp -p --mode json --no-prewalk --no-lsp --no-ex
 # Role-to-tool mapping (operator spec 2026-09-02): all agents on omp.
 RESEARCH_BIN="${SELFBUILD_RESEARCH_BIN:-omp -p --mode json --no-prewalk --no-lsp --no-extensions --model omniroute/dev}"
 PO_BIN="${SELFBUILD_PO_BIN:-omp -p --mode json --no-prewalk --no-lsp --no-extensions --model omniroute/dev}"
-CLAUDE_TIMEOUT="${SELFBUILD_CLAUDE_TIMEOUT:-300}"
+CLAUDE_TIMEOUT="${SELFBUILD_CLAUDE_TIMEOUT:-600}"
 # Research runs omp with URL-fetch tooling; competitor crawls need 10-15 min
 # even when healthy (2026-09-02 live: 32 fetches, killed at 300s). PO picks a
-# single backlog item from local evidence — 300s is ample. Split budgets.
+# single backlog item from local evidence, but a full generation + teardown
+# measured 244s + ~56s on omniroute/dev (2026-09-03 live: 300s budget fired at
+# 300s on a completed agent) — keep 600s so a slow provider cannot kill the
+# loop via the unguarded dispatch below.
 RESEARCH_TIMEOUT="${SELFBUILD_RESEARCH_TIMEOUT:-900}"
 DEVAGENT=(npx tsx "$REPO/src/cli.ts")
 
@@ -43,6 +46,14 @@ record() { # record <loop> <status> <goal>
     "$(printf '%s' "$3" | tr -d '"' | cut -c1-160)" >> "$STATE/ledger.jsonl"
   # Publish immediately (even for failures) so the next run continues here.
   bash "$REPO/scripts/selfbuild-state.sh" push || echo "[state] push deferred"
+  # Q39 impact telemetry: mirror one loop-result event row per iteration so
+  # lesson impact scoring can join lessons-eval rows (devagent lessons --loop)
+  # to the deterministic loop outcome in .devagent/runs/orchestration/events.jsonl.
+  EVENTS="$REPO/.devagent/runs/orchestration/events.jsonl"
+  mkdir -p "$(dirname "$EVENTS")"
+  printf '{"ts":"%s","kind":"event","event":"loop-result","loop":%s,"status":"%s","goal":"%s"}\n' \
+    "$(date -u +%FT%TZ)" "$1" "$2" \
+    "$(printf '%s' "$3" | tr -d '"' | cut -c1-160)" >> "$EVENTS"
 }
 
 # Starvation gate: consecutive non-productive iterations across ALL runs.
@@ -205,7 +216,7 @@ Repo: $REPO. Use ONLY local evidence — no web searches, no network fetches:
 4. git log --oneline -15 (what just shipped, what friction it caused)
 Rank the top 3 backlog items by (impact x tractability) for a single iteration. Consider: does an earlier failed loop already cover this? Does a merged PR already cover it? Output compact markdown (<300 words): your ranked top-3 with one-line rationale each, then THE single pick.
 Do NOT edit any files. Output only." \
-      > "$STATE/research/loop-$N.md" || echo "[research] failed, continuing with backlog-only selection"
+      < /dev/null > "$STATE/research/loop-$N.md" || echo "[research] failed, continuing with backlog-only selection"
     fi
 
     # Phase 2a: queue-first selection. Pending queue tasks (scout PRDs, backlog
@@ -242,7 +253,7 @@ $LESSONS_CTX
 Select exactly ONE backlog item scoped to a single implementable+testable iteration.
 Validation checks (all must pass): maps to a PRD backlog item; no dependency on an earlier failed loop; verifiable by the repo test suite or CLI smoke run.
 Output ONLY the goal statement (max 120 words), starting with 'Goal:' — this text is passed directly to devagent task as the implementation prompt." \
-      > goal.tmp.raw
+      < /dev/null > goal.tmp.raw || { echo "[po] dispatch failed (rc=$?) — attempting partial extraction" ; }
       # headless pi/omp emit an NDJSON event stream; extract the assistant's
       # final text block into the plain-text goal file the driver expects.
       node -e '

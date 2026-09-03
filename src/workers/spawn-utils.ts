@@ -95,7 +95,7 @@ export function spawnCli(cmd: string, args: string[], opts: SpawnCliOptions): Pr
     }, opts.timeoutMs);
 
     const baseEnv = buildEnv(opts);
-    execFile(
+    const child = execFile(
       cmd,
       args,
       {
@@ -129,6 +129,14 @@ export function spawnCli(cmd: string, args: string[], opts: SpawnCliOptions): Pr
         });
       },
     );
+    // Close our end of the stdin pipe immediately: the prompt comes via argv,
+    // and an open stdin makes omp -p sit in readPipedInput until the pipe
+    // closes (2026-09-03: preflight probes hit their 30s wall while the shell
+    // equivalent finished in 25s; claude -p is unaffected — it keeps stdin a
+    // pipe but never reads it, and the pipe stays open, not closed).
+    try {
+      child.stdin?.end();
+    } catch {}
   });
 }
 

@@ -82,7 +82,6 @@ export class OpenCodeAdapter implements WorkerAdapter {
         ...prepared.opts,
         ...(noProgressTimeoutMs ? { noProgressTimeoutMs } : {}),
         ...(opts.herdr ? { herdr: true } : {}),
-        label: `devagent ${binary} #${attempt}`,
       });
       // Binary fallback: if `opencode` is not installed, try `opencode2` once.
       if (isSpawnFailure(raw) && binary === 'opencode') {
@@ -98,7 +97,6 @@ export class OpenCodeAdapter implements WorkerAdapter {
           ...fallbackPrepared.opts,
           ...(noProgressTimeoutMs ? { noProgressTimeoutMs } : {}),
           ...(opts.herdr ? { herdr: true } : {}),
-          label: `devagent ${binary} #${attempt}`,
         });
         if (isSpawnFailure(raw)) {
           last = raw;
@@ -246,7 +244,6 @@ async function probeEndpointAlive(
   const raw = await runWorkerCli(prepared.cmd, prepared.args, {
     ...prepared.opts,
     ...(opts.herdr ? { herdr: true } : {}),
-    label: `devagent ${binary} probe #${attempt}`,
   });
   return { alive: raw.exitCode === 0 && !raw.timedOut && raw.stdout.trim().length > 0 };
 }
