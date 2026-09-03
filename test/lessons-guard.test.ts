@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { loadLessons, loadLessonsDigest } from '../src/prompt.js';
+import { loadLessons, loadLessonsDigest, DEFAULT_LESSON_EFFECT_SCORE } from '../src/prompt.js';
 import {
   appendLessonGuarded,
   appendPredictedImpact,
@@ -12,7 +12,10 @@ import {
   lessonSimilarity,
   normalizeLessonText,
   readLessonEntries,
+  readLessonsEvalLedger,
   runLessonsSuite,
+  scoreLessonEffect,
+  scoreLessonsImpact,
   SELFBUILD_LESSONS_PATH,
 } from '../src/lessons/guard.js';
 
@@ -387,5 +390,172 @@ describe('budget interaction: dedupe-before-append respects the 40-line / 4000-c
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('scoreLessonEffect (per-lesson measured-effect scoring)', () => {
+  const row = (over: Partial<Record<string, unknown>> = {}) =>
+    ({ ts: '2026-09-03T00:00:00.000Z', accepted: false, suite: 'skipped', reason: 'duplicate', ...over }) as unknown as Parameters<typeof scoreLessonEffect>[0][number];
+
+  it('untested lesson (no rows) scores neutral 0.5 with zero accept rate', () => {
+    const s = scoreLessonEffect([]);
+    expect(s).toEqual({ excerptHash: '', acceptRate: 0, repeatFailures: 0, effectScore: 0.5 });
+  });
+
+  it('accepted once, never re-proposed → effectScore 1, acceptRate 1', () => {
+    const s = scoreLessonEffect([row({ accepted: true, suite: 'green', reason: 'accepted' })]);
+    expect(s.acceptRate).toBe(1);
+    expect(s.repeatFailures).toBe(0);
+    expect(s.effectScore).toBe(1);
+  });
+
+  it('never accepted → effectScore 0 regardless of proposal count', () => {
+    const s = scoreLessonEffect([
+      row({ accepted: false, suite: 'red', reason: 'suite-red' }),
+      row({ accepted: false, suite: 'skipped', reason: 'duplicate' }),
+    ]);
+    expect(s.acceptRate).toBe(0);
+    expect(s.effectScore).toBe(0);
+  });
+
+  it('repeat-failure delta: duplicate rejections after first acceptance drop the score to 0.5', () => {
+    const s = scoreLessonEffect([
+      row({ accepted: true, suite: 'green', reason: 'accepted' }),
+      row({ accepted: false, suite: 'skipped', reason: 'duplicate' }),
+      row({ accepted: false, suite: 'skipped', reason: 'duplicate' }),
+    ]);
+    expect(s.acceptRate).toBeCloseTo(1 / 3);
+    expect(s.repeatFailures).toBe(2);
+    expect(s.effectScore).toBe(0.5);
+  });
+
+  it('duplicate rejections BEFORE any acceptance do not count as repeat failures', () => {
+    const s = scoreLessonEffect([
+      row({ accepted: false, suite: 'skipped', reason: 'duplicate' }),
+      row({ accepted: true, suite: 'green', reason: 'accepted' }),
+    ]);
+    expect(s.repeatFailures).toBe(0);
+    expect(s.effectScore).toBe(1);
+  });
+});
+
+describe('scoreLessonsImpact (aggregation + lessons-impact ledger row)', () => {
+  const dirs: string[] = [];
+  const tempRepo = () => {
+    const d = mkdtempSync(join(tmpdir(), 'da-lessons-impact-'));
+    dirs.push(d);
+    return d;
+  };
+  afterEach(() => {
+    for (const d of dirs) rmSync(d, { recursive: true, force: true });
+    dirs.length = 0;
+  });
+  const writeEvalRows = (repo: string, rows: Array<Record<string, unknown>>) => {
+    const dir = join(repo, '.devagent', 'runs', 'orchestration');
+    mkdirSync(dir, { recursive: true });
+    const lines = rows.map((r) => JSON.stringify({ ts: '2026-09-03T00:00:00.000Z', kind: 'event', event: 'lessons-eval', ...r }));
+    writeFileSync(join(dir, 'events.jsonl'), `${lines.join('\n')}\n`);
+  };
+
+  it('aggregates accept rate and repeat-failure delta per lesson and writes one lessons-impact row', () => {
+    const repo = tempRepo();
+    const hashA = lessonExcerptHash('Lesson A');
+    const hashB = lessonExcerptHash('Lesson B');
+    writeEvalRows(repo, [
+      { excerptHash: hashA, accepted: true, suite: 'green', reason: 'accepted' },
+      { excerptHash: hashA, accepted: false, suite: 'skipped', reason: 'duplicate' },
+      { excerptHash: hashB, accepted: false, suite: 'red', reason: 'suite-red' },
+    ]);
+
+    const scores = scoreLessonsImpact(repo);
+    expect(scores[hashA]).toMatchObject({ acceptRate: 0.5, repeatFailures: 1, effectScore: 0.5 });
+    expect(scores[hashB]).toMatchObject({ acceptRate: 0, repeatFailures: 0, effectScore: 0 });
+
+    const ledger = readFileSync(join(repo, '.devagent', 'runs', 'orchestration', 'events.jsonl'), 'utf8')
+      .trim()
+      .split('\n')
+      .map((l) => JSON.parse(l) as Record<string, unknown>);
+    const impactRows = ledger.filter((r) => r.event === 'lessons-impact');
+    expect(impactRows).toHaveLength(1);
+    expect(impactRows[0]).toMatchObject({
+      kind: 'event',
+      event: 'lessons-impact',
+      lessonCount: 2,
+      acceptedLessonCount: 1,
+      totalRepeatFailures: 1,
+    });
+    expect((impactRows[0]!.scores as Array<Record<string, unknown>>).map((s) => s.excerptHash).sort()).toEqual([hashA, hashB].sort());
+  });
+
+  it('returns an empty map and writes no row when the ledger has no lessons-eval events', () => {
+    const repo = tempRepo();
+    const dir = join(repo, '.devagent', 'runs', 'orchestration');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'events.jsonl'), `${JSON.stringify({ kind: 'audit', taskId: 'x', attempt: 1 })}\n`);
+    expect(scoreLessonsImpact(repo)).toEqual({});
+    const ledger = readFileSync(join(dir, 'events.jsonl'), 'utf8');
+    expect(ledger).not.toContain('lessons-impact');
+  });
+
+  it('readLessonsEvalLedger returns rows in file order and tolerates corrupt lines', () => {
+    const repo = tempRepo();
+    const dir = join(repo, '.devagent', 'runs', 'orchestration');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'events.jsonl'), 'not json\n{"event":"lessons-eval","excerptHash":"h1"}\n{"event":"other"}\n{"event":"lessons-eval","excerptHash":"h2"}\n');
+    const rows = readLessonsEvalLedger(repo);
+    expect(rows.map((r) => r.excerptHash)).toEqual(['h1', 'h2']);
+  });
+});
+
+describe('loadLessonsDigest re-ranking by measured effect', () => {
+  const dirs: string[] = [];
+  const weak = 'A lesson that was never accepted.';
+  const proven = 'A lesson accepted once with no repeats.';
+  const untested = 'A brand new lesson with no ledger history.';
+  const setup = () => {
+    const dir = mkdtempSync(join(tmpdir(), 'da-lessons-rank-'));
+    dirs.push(dir);
+    const p = join(dir, SELFBUILD_LESSONS_PATH);
+    mkdirSync(join(dir, '.selfbuild'), { recursive: true });
+    writeFileSync(p, `${weak}\n${proven}\n${untested}\n`);
+    return dir;
+  };
+  afterEach(() => {
+    for (const d of dirs) rmSync(d, { recursive: true, force: true });
+    dirs.length = 0;
+  });
+
+  it('re-ranks by effect score descending with recency as tiebreak', () => {
+    const dir = setup();
+    const effectScores = {
+      [lessonExcerptHash(proven)]: 1,
+      [lessonExcerptHash(weak)]: 0,
+    };
+    const lines = loadLessonsDigest(dir, SELFBUILD_LESSONS_PATH, undefined, effectScores).split('\n');
+    expect(lines[0]).toBe(proven);
+    expect(lines[1]).toBe(untested); // untested falls to default 0.5, beats weak 0
+    expect(lines[2]).toBe(weak);
+  });
+
+  it('ties break by recency (newest line first) via DEFAULT_LESSON_EFFECT_SCORE', () => {
+    const dir = setup();
+    // All three default to 0.5: untested (newest) leads, then proven, then weak.
+    const lines = loadLessonsDigest(dir, SELFBUILD_LESSONS_PATH, undefined, {}).split('\n');
+    expect(lines).toEqual([untested, proven, weak]);
+    expect(DEFAULT_LESSON_EFFECT_SCORE).toBe(0.5);
+  });
+
+  it('without effectScores the digest keeps file order (back-compat)', () => {
+    const dir = setup();
+    expect(loadLessonsDigest(dir, SELFBUILD_LESSONS_PATH).split('\n')).toEqual([weak, proven, untested]);
+  });
+
+  it('keeps every line whole: re-ranking never splits lines or drops kept entries', () => {
+    const dir = setup();
+    const digest = loadLessonsDigest(dir, SELFBUILD_LESSONS_PATH, 1000, {
+      [lessonExcerptHash(proven)]: 1,
+      [lessonExcerptHash(weak)]: 0,
+    });
+    expect(digest.split('\n').sort()).toEqual([weak, proven, untested].sort());
   });
 });

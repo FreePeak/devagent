@@ -2,7 +2,10 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync } from
 import { dirname, join } from 'node:path';
 import type { TicketSpec } from './types.js';
 import type { ImplementationPlan } from './planner.js';
-import { LESSONS_MAX_CHARS, LESSONS_MAX_LINES, LESSONS_PATH } from './lessons/guard.js';
+import { LESSONS_MAX_CHARS, LESSONS_MAX_LINES, LESSONS_PATH, lessonExcerptHash } from './lessons/guard.js';
+
+/** Neutral default measured-effect score for lessons with no ledger history yet. */
+export const DEFAULT_LESSON_EFFECT_SCORE = 0.5;
 
 /** Default repo-local lessons file; overridable via config `lessonsFile`. */
 export const DEFAULT_LESSONS_FILE = LESSONS_PATH;
@@ -47,8 +50,20 @@ export function loadLessons(repoPath: string, lessonsFile?: string, maxChars?: n
  * (config `lessonsMaxChars`). Never splits a line and never strips content
  * from a kept line, so an optional `predictedImpact:` suffix appended to a
  * lesson round-trips verbatim through the injected digest.
+ *
+ * When `effectScores` (excerpt hash → measured-effect score from
+ * `scoreLessonsImpact`) is supplied, the surviving block is re-ranked by
+ * measured effect — highest first, recency (position in the file, newest
+ * first) as tiebreak — so the most proven lessons lead the digest instead of
+ * the most recent. Untested lessons (no hash in the map) keep the neutral
+ * default score and fall back to recency ordering among themselves.
  */
-export function loadLessonsDigest(repoPath: string, lessonsFile?: string, maxChars?: number): string {
+export function loadLessonsDigest(
+  repoPath: string,
+  lessonsFile?: string,
+  maxChars?: number,
+  effectScores?: Record<string, number>,
+): string {
   const p = join(repoPath, lessonsFile || DEFAULT_LESSONS_FILE);
   if (!existsSync(p)) return '';
   try {
@@ -62,7 +77,15 @@ export function loadLessonsDigest(repoPath: string, lessonsFile?: string, maxCha
       total += cost;
       start--;
     }
-    return lines.slice(start).join('\n').trim();
+    const kept = lines.slice(start);
+    if (!effectScores || kept.length < 2) return kept.join('\n').trim();
+    // Re-rank by measured effect (highest first); recency = file position
+    // (newest line last in `kept`) is the tiebreak, newest first.
+    const ranked = kept
+      .map((line, i) => ({ line, i, score: effectScores[lessonExcerptHash(line)] ?? DEFAULT_LESSON_EFFECT_SCORE }))
+      .sort((a, b) => b.score - a.score || b.i - a.i)
+      .map(({ line }) => line);
+    return ranked.join('\n').trim();
   } catch {
     return '';
   }

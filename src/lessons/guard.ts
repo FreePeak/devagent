@@ -55,9 +55,40 @@ export const DEFAULT_LESSONS_SUITE_TIMEOUT_MS = 600_000;
 
 /** Why a gated append landed the way it did. */
 export type LessonsEvalReason = 'missing-predictedImpact' | 'duplicate' | 'suite-red' | 'accepted';
-
 /** Outcome of the evaluate step for one gated append. */
 export type LessonsSuiteOutcome = 'green' | 'red' | 'skipped';
+/** One `lessons-eval` ledger row, as written by `recordLessonsEval`. */
+export interface LessonsEvalLedgerRow {
+  ts?: string;
+  excerptHash?: string;
+  similarity?: number;
+  threshold?: number;
+  predictedImpact?: string;
+  suite?: LessonsSuiteOutcome;
+  accepted?: boolean;
+  reason?: LessonsEvalReason;
+  entry?: string;
+  suiteDetail?: string;
+}
+
+/**
+ * Per-lesson aggregation of its `lessons-eval` ledger history. `acceptRate`
+ * is the share of gated appends that landed; `repeatFailures` counts how
+ * often the loop re-proposed the same excerpt after it was already accepted
+ * (the dedupe gate's duplicate rejections) — the deterministic signal that
+ * the lesson's predicted effect did not stick. `effectScore` folds both into
+ * one ranking scalar for the digest (see `scoreLessonEffect`).
+ */
+export interface LessonsLessonScore {
+  /** Excerpt hash the `lessons-eval` rows key on. */
+  excerptHash: string;
+  /** Accepted gated appends over total proposals; 0 when untested. */
+  acceptRate: number;
+  /** Duplicate rejections after the first acceptance (repeat-failure delta). */
+  repeatFailures: number;
+  /** Ranking scalar in [0, 1]; see `scoreLessonEffect`. */
+  effectScore: number;
+}
 
 /**
  * Normalize lesson text for comparison: strip the optional `[predictedImpact: ...]`
@@ -355,4 +386,130 @@ export function appendPredictedImpact(entry: string, predictedImpact?: string): 
   return text.endsWith('predictedImpact:') || /\bpredictedImpact:\s*\S/.test(text)
     ? text
     : `${text} [predictedImpact: ${impact}]`;
+}
+
+/**
+ * Read all `lessons-eval` rows from the shared events.jsonl ledger. Returns
+ * an empty array when the ledger is absent or unreadable (best-effort).
+ */
+export function readLessonsEvalLedger(repoPath: string): LessonsEvalLedgerRow[] {
+  try {
+    const { LEDGER_DIR } = { LEDGER_DIR: '.devagent/runs/orchestration' };
+    const file = join(repoPath, LEDGER_DIR, 'events.jsonl');
+    if (!existsSync(file)) return [];
+    const out: LessonsEvalLedgerRow[] = [];
+    for (const line of readFileSync(file, 'utf8').split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      try {
+        const r = JSON.parse(trimmed) as Record<string, unknown>;
+        if (r.event === 'lessons-eval') {
+          out.push(r as unknown as LessonsEvalLedgerRow);
+        }
+      } catch {
+        // skip corrupt lines; best-effort
+      }
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Compute a single lesson's effect score from its `lessons-eval` ledger rows.
+ * Deterministic — uses only gate-results signals (accept/reject reasons and
+ * suite outcomes). The score is a ranking scalar in [0, 1]:
+ *
+ *   - 1.0  accepted at least once, zero repeat failures (never re-proposed
+ *          after acceptance — the lesson's effect held)
+ *   - 0.5  accepted at least once but re-proposed as duplicate afterwards
+ *          (the lesson's effect needed reinforcement)
+ *   - 0.0  never accepted (all proposals rejected)
+ *   - 0.5  default for untested lessons (no ledger rows yet)
+ */
+export function scoreLessonEffect(rows: LessonsEvalLedgerRow[]): LessonsLessonScore {
+  const excerptHash = rows.length > 0 ? (rows[0]!.excerptHash ?? '') : '';
+  if (rows.length === 0) {
+    return { excerptHash, acceptRate: 0, repeatFailures: 0, effectScore: 0.5 };
+  }
+  const total = rows.length;
+  const accepted = rows.filter((r) => r.accepted === true).length;
+  const acceptRate = total > 0 ? accepted / total : 0;
+
+  // Find the index of the first accepted row.
+  const firstAcceptIdx = rows.findIndex((r) => r.accepted === true);
+  // Repeat failures: duplicate rejections that occur after the first acceptance.
+  const repeatFailures = firstAcceptIdx >= 0
+    ? rows.slice(firstAcceptIdx + 1).filter((r) => r.reason === 'duplicate').length
+    : 0;
+
+  let effectScore: number;
+  if (accepted === 0) {
+    effectScore = 0;
+  } else if (repeatFailures === 0) {
+    effectScore = 1;
+  } else {
+    effectScore = 0.5;
+  }
+
+  return { excerptHash, acceptRate, repeatFailures, effectScore };
+}
+
+/**
+ * Read the lessons-eval ledger, group by excerpt hash, score each lesson,
+ * write one aggregated `lessons-impact` ledger row, and return the per-lesson
+ * scores keyed by excerpt hash. Best-effort: never throws.
+ */
+export function scoreLessonsImpact(repoPath: string): Record<string, LessonsLessonScore> {
+  try {
+    const rows = readLessonsEvalLedger(repoPath);
+    const byHash = new Map<string, LessonsEvalLedgerRow[]>();
+    for (const r of rows) {
+      const hash = r.excerptHash;
+      if (!hash) continue;
+      const list = byHash.get(hash) ?? [];
+      list.push(r);
+      byHash.set(hash, list);
+    }
+    const scores: Record<string, LessonsLessonScore> = {};
+    let acceptedLessonCount = 0;
+    let totalRepeatFailures = 0;
+    let acceptRateSum = 0;
+    const lessonCount = byHash.size;
+    // No eval rows → nothing to score, skip the lessons-impact row entirely.
+    if (lessonCount === 0) return scores;
+    for (const [hash, hashRows] of byHash) {
+      const s = scoreLessonEffect(hashRows);
+      scores[hash] = s;
+      if (s.acceptRate > 0) acceptedLessonCount++;
+      totalRepeatFailures += s.repeatFailures;
+      acceptRateSum += s.acceptRate;
+    }
+    const meanAcceptRate = lessonCount > 0 ? acceptRateSum / lessonCount : 0;
+
+    // Write the aggregated lessons-impact ledger row.
+    const { LEDGER_DIR } = { LEDGER_DIR: '.devagent/runs/orchestration' };
+    const file = join(repoPath, LEDGER_DIR, 'events.jsonl');
+    mkdirSync(join(repoPath, LEDGER_DIR), { recursive: true });
+    const record = {
+      ts: new Date().toISOString(),
+      kind: 'event',
+      event: 'lessons-impact',
+      lessonCount,
+      acceptedLessonCount,
+      meanAcceptRate: Math.round(meanAcceptRate * 1000) / 1000,
+      totalRepeatFailures,
+      scores: Object.values(scores).map((s) => ({
+        excerptHash: s.excerptHash,
+        acceptRate: Math.round(s.acceptRate * 1000) / 1000,
+        repeatFailures: s.repeatFailures,
+        effectScore: s.effectScore,
+      })),
+    };
+    appendFileSync(file, `${JSON.stringify(record)}\n`);
+    return scores;
+  } catch {
+    return {};
+  }
 }
