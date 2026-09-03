@@ -1056,6 +1056,12 @@ program
       process.exitCode = 1;
       return;
     }
+    // Default-on opt-out: env var disables the probe gate entirely so
+    // operator loops proceed without gating (Q40).
+    if (process.env.OPERATOR_PROBE_DISABLED === '1') {
+      console.log(`[preflight] disabled by OPERATOR_PROBE_DISABLED=1 — skipping probe for role=${opts.role}`);
+      return;
+    }
     const config = loadConfig(opts.repo);
     const worker = (opts.worker as string | undefined) ?? config.worker;
     const rawModel = (opts.model as string | undefined) ?? config.model;
