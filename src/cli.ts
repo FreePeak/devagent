@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { loadConfig, loadCredentials, credentialStatus, type CleanupMode } from './config.js';
 import { RunLogger } from './logger.js';
@@ -516,8 +516,10 @@ program
 
 program
   .command('task')
-  .description('Run one prompt-driven task headlessly (orchestrator integration mode)')
-  .requiredOption('--prompt <text>', 'task description (first line becomes the title)')
+  .description('Run one prompt-driven task headlessly (orchestrator integration mode); --pick resolves a PRD Phase 4 backlog item and cross-checks it before dispatch')
+  .option('--prompt <text>', 'task description (first line becomes the title); required unless --pick is used')
+  .option('--pick <backlog-id>', 'PRD Phase 4 backlog item id (e.g. Q40): resolved from docs/PRD.md and cross-checked against merged PR titles + completion notes before dispatch; a shipped pick is rejected with "already shipped" and struck from the backlog')
+  .option('--dry-run', 'validate the pick only; no workers, no remotes, no PRD write', false)
   .option(
     '--id <taskId>',
     'task identity: names the worktree (.devagent-worktrees/<id>) and branch (devagent/<id>); default $DEVAGENT_TASK_ID, else a collision-free TASK-<suffix>',
@@ -540,6 +542,44 @@ program
     const creds = loadCredentials();
     const logger = new RunLogger();
 
+    // PRD backlog reconciliation at pick time (curation run 24 decision):
+    // validate a --pick against merged PR titles + completion notes BEFORE
+    // any dispatch. A shipped pick (the Q40 re-selected-3x class) is rejected
+    // with a clear message; confirmed-shipped items are struck from the Phase
+    // 4 backlog section in the same run (dry-run validates only, no writes).
+    let prompt = opts.prompt as string | undefined;
+    if (opts.pick) {
+      const { checkBacklogPick, listMergedPrTitles, strikeBacklogItems } = await import('./task.js');
+      const prdPath = join(opts.repo, 'docs', 'PRD.md');
+      if (!existsSync(prdPath)) {
+        console.error(`task: no docs/PRD.md in ${opts.repo}`);
+        process.exitCode = 1;
+        return;
+      }
+      const prd = readFileSync(prdPath, 'utf8');
+      const mergedTitles = await listMergedPrTitles(opts.repo);
+      const check = checkBacklogPick(opts.pick, prd, mergedTitles);
+      if (!opts.dryRun && check.struckIds.length > 0) {
+        writeFileSync(prdPath, strikeBacklogItems(prd, check.struckIds));
+        if (check.shipped) console.log(`[task] struck confirmed-shipped backlog items: ${check.struckIds.join(', ')}`);
+      }
+      if (!check.ok) {
+        console.error(check.message);
+        process.exitCode = 1;
+        return;
+      }
+      if (opts.dryRun) {
+        console.log(`[dry-run] pick ${opts.pick}: ${check.message}`);
+        return;
+      }
+      prompt = check.prompt;
+    }
+    if (!prompt) {
+      console.error('task: --prompt or --pick is required');
+      process.exitCode = 1;
+      return;
+    }
+
     // Remote execution: the shared host owns its checkout, workers and
     // credentials; this process is a thin client that ships the prompt over
     // SSH and reports the outcome.
@@ -550,7 +590,7 @@ program
       const result = await runRemoteTask(
         {
           target: opts.remote as string,
-          prompt: opts.prompt as string,
+          prompt,
           taskId: ((opts.id as string | undefined) ?? process.env.DEVAGENT_TASK_ID) || undefined,
           worker: opts.worker as string | undefined,
           timeoutMs: config.timeoutMinutes * 60_000,
@@ -565,7 +605,7 @@ program
     }
 
     const cfg = {
-      prompt: opts.prompt as string,
+      prompt,
       autoMerge: opts.autoMerge || config.autoMerge || undefined,
       repoPath: opts.repo,
       autoPr: opts.autoPr ?? false,
