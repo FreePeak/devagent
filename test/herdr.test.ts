@@ -59,6 +59,7 @@ beforeAll(() => {
 });
 
 afterEach(() => {
+  delete process.env.DEVAGENT_HERDR_KEEP_PANES;
   delete process.env.DEVAGENT_HERDR;
   delete process.env.DEVAGENT_HERDR_SESSION;
   // The stub inherits this process's env; never leak failure simulation.
