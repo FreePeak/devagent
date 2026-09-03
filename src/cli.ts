@@ -1085,7 +1085,7 @@ program
 program
   .command('preflight')
   .description(
-    'Operator-role provider preflight (Q40): probe the configured worker CLI; on failure write an operator-degraded ledger row, open the circuit, and exit nonzero so the calling loop skips its agent dispatch this cycle',
+    'Operator-role provider preflight (Q40): probe the configured worker CLI; on failure write an operator-degraded ledger row, open the circuit, and exit nonzero so the calling loop skips its agent dispatch this cycle (opt-outs ORCHESTRATOR_MODEL_PROBE=0 or OPERATOR_PROBE_DISABLED=1)',
   )
   .requiredOption('--role <name>', `operator role to gate (${PREFLIGHT_ROLES.join(' | ')})`)
   .option('--repo <path>', 'target repository owning the ledger/proxy state', process.cwd())
@@ -1101,6 +1101,13 @@ program
     // operator loops proceed without gating (Q40).
     if (process.env.OPERATOR_PROBE_DISABLED === '1') {
       console.log(`[preflight] disabled by OPERATOR_PROBE_DISABLED=1 — skipping probe for role=${opts.role}`);
+      return;
+    }
+    // Explicit opt-out (mirrors the orchestrate-loop probe's documented
+    // ORCHESTRATOR_MODEL_PROBE=0, PRD §17): a disabled probe must not block
+    // the cycle, write a ledger row, or touch circuit state.
+    if (process.env.ORCHESTRATOR_MODEL_PROBE === '0') {
+      console.log(`[preflight] probe disabled for role=${opts.role} (ORCHESTRATOR_MODEL_PROBE=0) — cycle proceeds unprobed`);
       return;
     }
     const config = loadConfig(opts.repo);

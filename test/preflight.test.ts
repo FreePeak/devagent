@@ -202,12 +202,17 @@ describe('devagent preflight CLI (skip semantics end to end)', () => {
     while (dirs.length) rmSync(dirs.pop()!, { recursive: true, force: true });
   });
 
-  const runCli = (extraEnv: Record<string, string> = {}) => {
+  const runCli = (envOverrides: NodeJS.ProcessEnv = {}) => {
+    // Pin the probe opt-outs so host env cannot flip gate behavior under test.
+    const childEnv: NodeJS.ProcessEnv = { ...process.env, PATH: `${binDir}:${process.env.PATH}` };
+    delete childEnv.ORCHESTRATOR_MODEL_PROBE;
+    delete childEnv.OPERATOR_PROBE_DISABLED;
+    Object.assign(childEnv, envOverrides);
     try {
       const out = execFileSync(
         'npx',
         ['tsx', cli, 'preflight', '--role', 'selfbuild', '--repo', repo],
-        { env: { ...process.env, PATH: `${binDir}:${process.env.PATH}`, ...extraEnv }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
+        { env: childEnv, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
       );
       return { code: 0, out };
     } catch (err) {
@@ -215,7 +220,6 @@ describe('devagent preflight CLI (skip semantics end to end)', () => {
       return { code: e.status ?? 1, out: `${e.stdout ?? ''}${e.stderr ?? ''}` };
     }
   };
-
   it('healthy provider: exit 0, no ledger row', () => {
     writeFileSync(
       join(binDir, 'omp'),
@@ -254,5 +258,15 @@ describe('devagent preflight CLI (skip semantics end to end)', () => {
     expect(r.out).toContain('disabled by OPERATOR_PROBE_DISABLED=1');
     expect(readProxyState(repo)?.lastProbe).toBeUndefined();
     expect(existsSync(join(repo, LEDGER_DIR, 'events.jsonl'))).toBe(false);
+  }, 240_000);
+
+  it('ORCHESTRATOR_MODEL_PROBE=0 opts out: dead provider still exits 0, no ledger row, no circuit state', () => {
+    writeFileSync(join(binDir, 'omp'), '#!/bin/sh\necho "unrecognized_model: no key" >&2\nexit 1\n');
+    chmodSync(join(binDir, 'omp'), 0o755);
+    const r = runCli({ ORCHESTRATOR_MODEL_PROBE: '0' });
+    expect(r.code).toBe(0);
+    expect(r.out).toContain('probe disabled');
+    expect(existsSync(join(repo, LEDGER_DIR, 'events.jsonl'))).toBe(false);
+    expect(readProxyState(repo)).toBeNull();
   }, 240_000);
 });
