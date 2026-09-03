@@ -7,11 +7,15 @@ import {
   appendLessonGuarded,
   appendPredictedImpact,
   checkLessonsDedupe,
+  computeLessonScores,
   DEFAULT_LESSONS_DEDUPE_SIMILARITY,
   lessonExcerptHash,
   lessonSimilarity,
+  loadLessonScores,
   normalizeLessonText,
+  readEvents,
   readLessonEntries,
+  recordLoopResult,
   runLessonsSuite,
   SELFBUILD_LESSONS_PATH,
 } from '../src/lessons/guard.js';
@@ -234,6 +238,15 @@ describe('appendLessonGuarded (eval-gated append: impact → dedupe → evaluate
     });
   });
 
+  it('acceptance writes the optional loop join key into the ledger row (Q39)', () => {
+    const repo = tempRepo(0);
+    const r = appendLessonGuarded(repo, 'A loop-scoped durable lesson.', { predictedImpact: 'joinable', suiteTimeoutMs: 30_000, loop: 42 });
+    expect(r.reason).toBe('accepted');
+    const rows = ledgerRows(repo);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ event: 'lessons-eval', loop: 42, accepted: true });
+  });
+
   it('red suite → rejected + file reverted byte-for-byte (created case removes the file)', () => {
     const repo = tempRepo(1);
     const r = appendLessonGuarded(repo, 'New durable lesson.', { predictedImpact: 'must not land', suiteTimeoutMs: 30_000 });
@@ -387,5 +400,185 @@ describe('budget interaction: dedupe-before-append respects the 40-line / 4000-c
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('recordLoopResult (Q39 impact telemetry)', () => {
+  const dirs: string[] = [];
+  afterEach(() => { for (const d of dirs) rmSync(d, { recursive: true, force: true }); });
+
+  it('writes a loop-result event row with the correct schema', () => {
+    const repo = mkdtempSync(join(tmpdir(), 'da-loop-result-'));
+    dirs.push(repo);
+    recordLoopResult(repo, 42, 'ok', 'Test goal.');
+    const events = readEvents(repo);
+    expect(events).toHaveLength(1);
+    const row = events[0]!;
+    expect(row.event).toBe('loop-result');
+    expect(row.loop).toBe(42);
+    expect(row.status).toBe('ok');
+    expect(row.kind).toBe('event');
+    expect(row.ts).toBeDefined();
+    expect(row.goal).toContain('Test goal');
+  });
+
+  it('normalizes unknown status to failed', () => {
+    const repo = mkdtempSync(join(tmpdir(), 'da-loop-result-'));
+    dirs.push(repo);
+    recordLoopResult(repo, 7, 'bogus-status', '');
+    const row = readEvents(repo)[0]!;
+    expect(row.status).toBe('failed');
+  });
+
+  it('writes multiple rows idempotently', () => {
+    const repo = mkdtempSync(join(tmpdir(), 'da-loop-result-'));
+    dirs.push(repo);
+    recordLoopResult(repo, 1, 'ok', 'first');
+    recordLoopResult(repo, 2, 'failed', 'second');
+    const events = readEvents(repo);
+    expect(events).toHaveLength(2);
+    expect(events.map((r) => r.loop)).toEqual([1, 2]);
+  });
+});
+
+describe('computeLessonScores (impact scoring)', () => {
+  it('returns empty map when no lessons-eval rows exist', () => {
+    const events = [{ kind: 'event', event: 'loop-result', loop: 1, status: 'ok', ts: '2026-01-01T00:00:00Z', goal: '' }];
+    const scores = computeLessonScores(events);
+    expect(scores.size).toBe(0);
+  });
+
+  it('computes acceptRate, delta, and composite score for a lesson with loop data', () => {
+    // Lesson A (hash a1b2): 3 evals, 2 accepted. Loops 1,2,3. Loop 1 ok, 2 failed, 3 ok.
+    // Lesson B (hash c3d4): 2 evals, 0 accepted. Loops 4,5. Loop 4 failed, 5 failed.
+    const events = [
+      { ts: '2026-01-01T01:00:00Z', kind: 'event', event: 'lessons-eval', excerptHash: 'a1b2', accepted: true, loop: 1 },
+      { ts: '2026-01-01T02:00:00Z', kind: 'event', event: 'lessons-eval', excerptHash: 'a1b2', accepted: false, loop: 2 },
+      { ts: '2026-01-01T03:00:00Z', kind: 'event', event: 'lessons-eval', excerptHash: 'a1b2', accepted: true, loop: 3 },
+      { ts: '2026-01-01T04:00:00Z', kind: 'event', event: 'lessons-eval', excerptHash: 'c3d4', accepted: false, loop: 4 },
+      { ts: '2026-01-01T05:00:00Z', kind: 'event', event: 'lessons-eval', excerptHash: 'c3d4', accepted: false, loop: 5 },
+      { ts: '2026-01-01T06:00:00Z', kind: 'event', event: 'loop-result', loop: 1, status: 'ok' },
+      { ts: '2026-01-01T07:00:00Z', kind: 'event', event: 'loop-result', loop: 2, status: 'failed' },
+      { ts: '2026-01-01T08:00:00Z', kind: 'event', event: 'loop-result', loop: 3, status: 'ok' },
+      { ts: '2026-01-01T09:00:00Z', kind: 'event', event: 'loop-result', loop: 4, status: 'failed' },
+      { ts: '2026-01-01T10:00:00Z', kind: 'event', event: 'loop-result', loop: 5, status: 'failed' },
+    ];
+    const scores = computeLessonScores(events);
+    expect(scores.size).toBe(2);
+
+    // Lesson A: 3 evals, 2 accepted, loops 1,2,3 (1 ok, 2 failed)
+    const a = scores.get('a1b2')!;
+    expect(a.acceptRate).toBeCloseTo(2 / 3, 3);
+    expect(a.lessonLoopFailureRate).toBeCloseTo(1 / 3, 3);
+    expect(a.overallLoopFailureRate).toBeCloseTo(3 / 5, 3);
+    expect(a.delta).toBeCloseTo(1 / 3 - 3 / 5, 3); // -0.267
+    expect(a.evalCount).toBe(3);
+    // score = acceptRate - delta = 2/3 - (1/3 - 3/5) = 2/3 - (-0.267) = 10/15 + 4/15 = 14/15 ≈ 0.933
+    expect(a.score).toBeCloseTo(14 / 15, 3);
+
+    // Lesson B: 2 evals, 0 accepted, loops 4,5 (both failed)
+    const b = scores.get('c3d4')!;
+    expect(b.acceptRate).toBeCloseTo(0, 3);
+    expect(b.lessonLoopFailureRate).toBeCloseTo(1, 3);
+    expect(b.overallLoopFailureRate).toBeCloseTo(3 / 5, 3);
+    expect(b.delta).toBeCloseTo(1 - 3 / 5, 3); // 0.4
+    expect(b.evalCount).toBe(2);
+    expect(b.score).toBeCloseTo(0 - 0.4, 3); // -0.4
+  });
+
+  it('falls back to timestamp matching when lessons-eval row has no loop field', () => {
+    const events = [
+      { ts: '2026-01-01T01:00:00Z', kind: 'event', event: 'lessons-eval', excerptHash: 'hash1', accepted: true },
+      { ts: '2026-01-01T02:00:00Z', kind: 'event', event: 'loop-result', loop: 1, status: 'ok' },
+    ];
+    const scores = computeLessonScores(events);
+    expect(scores.size).toBe(1);
+    const s = scores.get('hash1')!;
+    expect(s.delta).toBeLessThanOrEqual(0); // no failures → delta <= 0
+    expect(s.lessonLoopFailureRate).toBe(0); // the fallback matched loop 1 (ok)
+  });
+
+  it('sets delta 0 and score = acceptRate when no loop-result data exists', () => {
+    const events = [
+      { ts: '2026-01-01T01:00:00Z', kind: 'event', event: 'lessons-eval', excerptHash: 'hash1', accepted: true },
+      { ts: '2026-01-01T02:00:00Z', kind: 'event', event: 'lessons-eval', excerptHash: 'hash1', accepted: false },
+    ];
+    const scores = computeLessonScores(events);
+    expect(scores.size).toBe(1);
+    const s = scores.get('hash1')!;
+    expect(s.delta).toBe(0);
+    expect(s.score).toBe(s.acceptRate);
+    expect(s.lessonLoopFailureRate).toBe(0);
+    expect(s.overallLoopFailureRate).toBe(0);
+  });
+
+  it('counts only non-ok loop statuses as failures', () => {
+    const events = [
+      { ts: '2026-01-01T01:00:00Z', kind: 'event', event: 'lessons-eval', excerptHash: 'h1', accepted: true, loop: 1 },
+      // Other lessons evaluated in loops 2-4 give the overall baseline loops to measure.
+      { ts: '2026-01-01T02:00:00Z', kind: 'event', event: 'lessons-eval', excerptHash: 'h2', accepted: true, loop: 2 },
+      { ts: '2026-01-01T03:00:00Z', kind: 'event', event: 'lessons-eval', excerptHash: 'h2', accepted: true, loop: 3 },
+      { ts: '2026-01-01T04:00:00Z', kind: 'event', event: 'lessons-eval', excerptHash: 'h2', accepted: true, loop: 4 },
+      { ts: '2026-01-01T05:00:00Z', kind: 'event', event: 'loop-result', loop: 1, status: 'ok' },
+      { ts: '2026-01-01T06:00:00Z', kind: 'event', event: 'loop-result', loop: 2, status: 'failed-tests' },
+      { ts: '2026-01-01T07:00:00Z', kind: 'event', event: 'loop-result', loop: 3, status: 'provider-degraded' },
+      { ts: '2026-01-01T08:00:00Z', kind: 'event', event: 'loop-result', loop: 4, status: 'invalid' },
+    ];
+    // Lesson h1 has loop 1 (ok) → 0 failures
+    const scores = computeLessonScores(events);
+    expect(scores.size).toBe(2);
+    expect(scores.get('h1')!.lessonLoopFailureRate).toBe(0);
+    // overall uses loops 1-4: 1 ok, 3 non-ok → 3/4 = 0.75
+    expect(scores.get('h1')!.overallLoopFailureRate).toBeCloseTo(0.75, 3);
+  });
+});
+
+describe('loadLessonScores (disk-based scoring)', () => {
+  const dirs: string[] = [];
+  afterEach(() => { for (const d of dirs) rmSync(d, { recursive: true, force: true }); });
+
+  it('reads events.jsonl and returns a Map<excerptHash, score>', () => {
+    const repo = mkdtempSync(join(tmpdir(), 'da-load-scores-'));
+    dirs.push(repo);
+    const eventsDir = join(repo, '.devagent', 'runs', 'orchestration');
+    mkdirSync(eventsDir, { recursive: true });
+    const events = [
+      { ts: '2026-01-01T01:00:00Z', kind: 'event', event: 'lessons-eval', excerptHash: 'aaa', accepted: true, loop: 1 },
+      { ts: '2026-01-01T02:00:00Z', kind: 'event', event: 'lessons-eval', excerptHash: 'bbb', accepted: false, loop: 1 },
+      { ts: '2026-01-01T03:00:00Z', kind: 'event', event: 'loop-result', loop: 1, status: 'ok' },
+    ];
+    writeFileSync(join(eventsDir, 'events.jsonl'), events.map((e) => JSON.stringify(e)).join('\n') + '\n');
+
+    const scores = loadLessonScores(repo);
+    expect(scores.size).toBe(2);
+    expect(scores.get('aaa')).toBeGreaterThan(scores.get('bbb')!);
+  });
+
+  it('returns empty map when no events file exists', () => {
+    const repo = mkdtempSync(join(tmpdir(), 'da-load-scores-'));
+    dirs.push(repo);
+    expect(loadLessonScores(repo).size).toBe(0);
+  });
+});
+
+describe('readEvents (parsing)', () => {
+  const dirs: string[] = [];
+  afterEach(() => { for (const d of dirs) rmSync(d, { recursive: true, force: true }); });
+
+  it('skips corrupt lines and returns only parseable rows', () => {
+    const repo = mkdtempSync(join(tmpdir(), 'da-read-events-'));
+    dirs.push(repo);
+    const eventsDir = join(repo, '.devagent', 'runs', 'orchestration');
+    mkdirSync(eventsDir, { recursive: true });
+    writeFileSync(join(eventsDir, 'events.jsonl'), '{"valid": true}\ncorrupt garbage\n{"also": "valid"}\n');
+    const rows = readEvents(repo);
+    expect(rows).toHaveLength(2);
+    expect(rows[0]!.valid).toBe(true);
+  });
+
+  it('returns empty array when the events file is absent', () => {
+    const repo = mkdtempSync(join(tmpdir(), 'da-read-events-'));
+    dirs.push(repo);
+    expect(readEvents(repo)).toEqual([]);
   });
 });

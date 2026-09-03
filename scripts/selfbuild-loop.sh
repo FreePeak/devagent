@@ -46,6 +46,14 @@ record() { # record <loop> <status> <goal>
     "$(printf '%s' "$3" | tr -d '"' | cut -c1-160)" >> "$STATE/ledger.jsonl"
   # Publish immediately (even for failures) so the next run continues here.
   bash "$REPO/scripts/selfbuild-state.sh" push || echo "[state] push deferred"
+  # Q39 impact telemetry: mirror one loop-result event row per iteration so
+  # lesson impact scoring can join lessons-eval rows (devagent lessons --loop)
+  # to the deterministic loop outcome in .devagent/runs/orchestration/events.jsonl.
+  EVENTS="$REPO/.devagent/runs/orchestration/events.jsonl"
+  mkdir -p "$(dirname "$EVENTS")"
+  printf '{"ts":"%s","kind":"event","event":"loop-result","loop":%s,"status":"%s","goal":"%s"}\n' \
+    "$(date -u +%FT%TZ)" "$1" "$2" \
+    "$(printf '%s' "$3" | tr -d '"' | cut -c1-160)" >> "$EVENTS"
 }
 
 # Starvation gate: consecutive non-productive iterations across ALL runs.
