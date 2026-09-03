@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { LEDGER_DIR, appendAuditRecord, appendTaskInterruptRecord, auditLedgerRecord, clusterFailures, ledgerTailFor, readLedger, summarizeLedger } from '../src/orchestrator/ledger.js';
+import { LEDGER_DIR, appendAuditRecord, appendReleaseRecord, appendTaskInterruptRecord, auditLedgerRecord, clusterFailures, ledgerTailFor, readLedger, summarizeLedger } from '../src/orchestrator/ledger.js';
 import type { AuditVerdict } from '../src/orchestrator/types.js';
 
 const pass: AuditVerdict = {
@@ -233,6 +233,68 @@ describe('taskInterrupt post-mortem (executor failure surface, PRD:775)', () => 
         lastGateExcerpt: 'worker crashed',
         attempts: 2,
         trailHash: 'xyz',
+      }),
+    ).not.toThrow();
+    const raw = readFileSync(join(repo, LEDGER_DIR, 'events.jsonl'), 'utf8').trim().split('\n');
+    expect(raw).toHaveLength(1);
+  });
+});
+
+describe('release-created ledger record (Q24 release/tag outcome)', () => {
+  const dirs: string[] = [];
+  const tempRepo = () => {
+    const d = mkdtempSync(join(tmpdir(), 'da-ledger-release-'));
+    dirs.push(d);
+    return d;
+  };
+  afterEach(() => {
+    for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  });
+
+  it('appends a release-created row with the full shape (tag, sha, version, source) and reads it back', () => {
+    const repo = tempRepo();
+    appendReleaseRecord(repo, {
+      ts: '2026-09-03T10:00:00Z',
+      kind: 'event',
+      event: 'release-created',
+      taskId: 'release/0.1.0',
+      attempt: 1,
+      tag: 'v0.1.0',
+      sha: 'abc123def456',
+      version: '0.1.0',
+      source: 'release.yml',
+    });
+    const raw = readFileSync(join(repo, LEDGER_DIR, 'events.jsonl'), 'utf8').trim().split('\n');
+    expect(raw).toHaveLength(1);
+    const row = JSON.parse(raw[0]!);
+    expect(row).toMatchObject({
+      kind: 'event',
+      event: 'release-created',
+      taskId: 'release/0.1.0',
+      attempt: 1,
+      tag: 'v0.1.0',
+      sha: 'abc123def456',
+      version: '0.1.0',
+      source: 'release.yml',
+    });
+    // Verify the full JSONL shape (all fields, including ts)
+    expect(row.ts).toBe('2026-09-03T10:00:00Z');
+  });
+
+  it('tolerates missing ledger directory (best-effort write)', () => {
+    const repo = mkdtempSync(join(tmpdir(), 'da-ledger-release-noop-'));
+    dirs.push(repo);
+    expect(() =>
+      appendReleaseRecord(repo, {
+        ts: '2026-09-03T11:00:00Z',
+        kind: 'event',
+        event: 'release-created',
+        taskId: 'release/0.2.0',
+        attempt: 1,
+        tag: 'v0.2.0',
+        sha: 'deadbeef',
+        version: '0.2.0',
+        source: 'cli',
       }),
     ).not.toThrow();
     const raw = readFileSync(join(repo, LEDGER_DIR, 'events.jsonl'), 'utf8').trim().split('\n');

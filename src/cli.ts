@@ -9,6 +9,7 @@ import { runPreflightGate, PREFLIGHT_ROLES, isPreflightRole } from './resilience
 import { runPipeline } from './pipeline.js';
 import { buildDeps, buildDryRunDeps } from './deps.js';
 import type { WorkerName } from './types.js';
+import { appendReleaseRecord } from './orchestrator/ledger.js';
 
 function parseConcurrency(v: string): number | 'auto' {
   if (v === 'auto' || v.toLowerCase() === 'auto') return 'auto';
@@ -1622,5 +1623,39 @@ program
     else for (const s of killed) console.log(`killed ${s.pid} ${Math.round(s.elapsedMs / 1000)}s ${s.command}`);
   });
 
+
+program
+  .command('record')
+  .description('Append a structured event to the orchestration run ledger (Q24)')
+  .action(() => {
+    // subcommands handle dispatch; bare `record` prints help
+    program.commands.find((c) => c.name() === 'record')!.outputHelp();
+  });
+
+const recordCmd = program.commands.find((c) => c.name() === 'record')!;
+recordCmd
+  .command('release')
+  .description('Record a release/tag event as a first-class ledger outcome (Q24)')
+  .requiredOption('--tag <tag>', 'git tag created, e.g. v0.1.0')
+  .requiredOption('--sha <sha>', 'commit SHA the tag points to')
+  .option('--repo <path>', 'target repository owning the ledger', process.cwd())
+  .option('--source <source>', 'recording source (default cli)', 'cli')
+  .action(async (opts) => {
+    const tag = String(opts.tag);
+    const sha = String(opts.sha);
+    const version = tag.replace(/^v/, '');
+    appendReleaseRecord(opts.repo, {
+      ts: new Date().toISOString(),
+      kind: 'event',
+      event: 'release-created',
+      taskId: `release/${version}`,
+      attempt: 1,
+      tag,
+      sha,
+      version,
+      source: String(opts.source),
+    });
+    console.log(`recorded release-created ${version} (${tag} @ ${sha}) -> .devagent/runs/orchestration/events.jsonl`);
+  });
 
 program.parseAsync();

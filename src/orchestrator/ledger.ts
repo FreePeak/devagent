@@ -192,6 +192,36 @@ export function appendOperatorDegradedRecord(repoPath: string, record: OperatorD
   }
 }
 
+/** Release/tag event as a first-class ledger outcome (Q24). */
+export interface ReleaseLedgerRecord extends LedgerRecordBase {
+  kind: 'event';
+  event: 'release-created';
+  /** Git tag created (e.g. v0.1.0). */
+  tag: string;
+  /** Commit SHA the tag points to. */
+  sha: string;
+  /** Semantic version carried by the tag (no leading v). */
+  version: string;
+  /** Who recorded the release: cli | release.yml (workflow hook). */
+  source: string;
+  /** Human detail; best-effort. */
+  detail?: string;
+}
+
+/**
+ * Append a release-created record. Never throws into the caller's path —
+ * best-effort observability by design.
+ */
+export function appendReleaseRecord(repoPath: string, record: ReleaseLedgerRecord): void {
+  try {
+    const file = ledgerPath(repoPath);
+    mkdirSync(join(repoPath, LEDGER_DIR), { recursive: true });
+    appendFileSync(file, `${JSON.stringify(record)}\n`);
+  } catch {
+    // best-effort observability only
+  }
+}
+
 /** Read audit records, oldest first; optional task filter. Returns [] when absent. */
 export function readLedger(repoPath: string, opts: { taskId?: string } = {}): AuditLedgerRecord[] {
   const file = ledgerPath(repoPath);
