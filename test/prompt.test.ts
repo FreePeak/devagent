@@ -2,7 +2,8 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { buildImplementationPrompt, buildRepairPrompt, DEFAULT_LESSONS_FILE, loadLessons } from '../src/prompt.js';
+import { buildImplementationPrompt, buildRepairPrompt, DEFAULT_LESSONS_FILE, loadLessons, loadLessonsDigest } from '../src/prompt.js';
+import { lessonExcerptHash } from '../src/lessons/guard.js';
 import { planFromTicket } from '../src/planner.js';
 
 const plan = planFromTicket({
@@ -116,5 +117,100 @@ describe('lessons feedback loop (PRD Phase 4)', () => {
     expect(withLessons).toContain('## Lessons from previous runs');
     expect(withLessons).toContain('Run npm test before claiming done.');
     expect(withoutLessons).not.toContain('Lessons from previous runs');
+  });
+});
+
+describe('lessons digest ranking by measured impact (Q39)', () => {
+  let dir: string;
+
+  afterEach(() => {
+    if (dir) rmSync(dir, { recursive: true, force: true });
+  });
+
+  const writeLessons = (lines: string[]) => {
+    dir = mkdtempSync(join(tmpdir(), 'da-lessons-rank-'));
+    writeFileSync(join(dir, 'lessons.md'), `${lines.join('\n')}\n`);
+  };
+
+  const writeEvents = (events: Array<Record<string, unknown>>) => {
+    const eventsDir = join(dir, '.devagent', 'runs', 'orchestration');
+    mkdirSync(eventsDir, { recursive: true });
+    writeFileSync(join(eventsDir, 'events.jsonl'), events.map((e) => JSON.stringify(e)).join('\n') + '\n');
+  };
+
+  it('ranks a high-score lesson ahead of a low-score one when the budget is tight', () => {
+    const high = 'First lesson that prevents failures.';
+    const low = 'Second lesson that correlates with failures.';
+    const unscored = 'Third lesson with no ledger rows yet.';
+    writeLessons([high, low, unscored]);
+    writeEvents([
+      { ts: '2026-01-01T01:00:00Z', kind: 'event', event: 'lessons-eval', excerptHash: lessonExcerptHash(high), accepted: true, loop: 1 },
+      { ts: '2026-01-01T02:00:00Z', kind: 'event', event: 'lessons-eval', excerptHash: lessonExcerptHash(low), accepted: false, loop: 2 },
+      { ts: '2026-01-01T03:00:00Z', kind: 'event', event: 'loop-result', loop: 1, status: 'ok' },
+      { ts: '2026-01-01T04:00:00Z', kind: 'event', event: 'loop-result', loop: 2, status: 'failed' },
+    ]);
+    // Budget fits roughly one line: the highest-scored lesson survives whole.
+    const digest = loadLessonsDigest(dir, 'lessons.md', 50);
+    expect(digest).toContain(high);
+    expect(digest).not.toContain(low);
+    expect(digest).not.toContain(unscored);
+  });
+
+  it('outputs surviving lines in file order regardless of score order', () => {
+    const low = 'Low score lesson first in file.';
+    const high = 'High score lesson later in file.';
+    writeLessons([low, high]);
+    writeEvents([
+      { ts: '2026-01-01T01:00:00Z', kind: 'event', event: 'lessons-eval', excerptHash: lessonExcerptHash(high), accepted: true, loop: 1 },
+      { ts: '2026-01-01T02:00:00Z', kind: 'event', event: 'lessons-eval', excerptHash: lessonExcerptHash(low), accepted: false, loop: 2 },
+      { ts: '2026-01-01T03:00:00Z', kind: 'event', event: 'loop-result', loop: 1, status: 'ok' },
+      { ts: '2026-01-01T04:00:00Z', kind: 'event', event: 'loop-result', loop: 2, status: 'failed' },
+    ]);
+    const digest = loadLessonsDigest(dir, 'lessons.md', 4000);
+    expect(digest.split('\n')).toEqual([low, high]);
+  });
+
+  it('breaks score ties oldest-first', () => {
+    const older = 'Older lesson with a perfect record.';
+    const newer = 'Newer lesson with a perfect record.';
+    writeLessons([older, newer]);
+    writeEvents([
+      { ts: '2026-01-01T01:00:00Z', kind: 'event', event: 'lessons-eval', excerptHash: lessonExcerptHash(older), accepted: true, loop: 1 },
+      { ts: '2026-01-01T02:00:00Z', kind: 'event', event: 'lessons-eval', excerptHash: lessonExcerptHash(newer), accepted: true, loop: 2 },
+      { ts: '2026-01-01T03:00:00Z', kind: 'event', event: 'loop-result', loop: 1, status: 'ok' },
+      { ts: '2026-01-01T04:00:00Z', kind: 'event', event: 'loop-result', loop: 2, status: 'ok' },
+    ]);
+    // Both score 1 (accepted, in ok loops, no overall failures). Budget fits one line.
+    const digest = loadLessonsDigest(dir, 'lessons.md', older.length + 5);
+    expect(digest).toBe(older);
+  });
+
+  it('keeps newest-first recency behavior when no scores exist', () => {
+    const lines = Array.from({ length: 10 }, (_, i) => `x`.repeat(900) + ` entry-${i}`);
+    writeLessons(lines);
+    const digest = loadLessonsDigest(dir, 'lessons.md', 2000);
+    expect(digest).toContain('entry-9');
+    expect(digest).toContain('entry-8');
+    expect(digest).not.toContain('entry-7');
+  });
+
+  it('held-out tier: digest order matches held-out ranking — a lesson cannot rank on its informing loop', () => {
+    // rider: accepted on its informing loop 1 only, never re-evaluated → no
+    // held-out evidence → score 0.
+    // earner: accepted on informing loop 1 AND on held-out loop 2 → score 1.
+    const rider = 'Rider lesson accepted on its own informing loop.';
+    const earner = 'Earner lesson re-validated on a later loop.';
+    writeLessons([rider, earner]);
+    writeEvents([
+      { ts: '2026-01-01T01:00:00Z', kind: 'event', event: 'lessons-eval', excerptHash: lessonExcerptHash(rider), accepted: true, loop: 1 },
+      { ts: '2026-01-01T02:00:00Z', kind: 'event', event: 'lessons-eval', excerptHash: lessonExcerptHash(earner), accepted: true, loop: 1 },
+      { ts: '2026-01-01T03:00:00Z', kind: 'event', event: 'lessons-eval', excerptHash: lessonExcerptHash(earner), accepted: true, loop: 2 },
+      { ts: '2026-01-01T04:00:00Z', kind: 'event', event: 'loop-result', loop: 1, status: 'ok' },
+      { ts: '2026-01-01T05:00:00Z', kind: 'event', event: 'loop-result', loop: 2, status: 'ok' },
+    ]);
+    // Budget fits one line: under in-sample scoring both lessons would tie at
+    // 1 and the rider (older) would win; held-out ranking keeps the earner.
+    const digest = loadLessonsDigest(dir, 'lessons.md', earner.length + 5);
+    expect(digest).toBe(earner);
   });
 });

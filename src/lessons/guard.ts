@@ -59,6 +59,264 @@ export type LessonsEvalReason = 'missing-predictedImpact' | 'duplicate' | 'suite
 /** Outcome of the evaluate step for one gated append. */
 export type LessonsSuiteOutcome = 'green' | 'red' | 'skipped';
 
+/** Why a loop terminated (self-build loop outcomes; matches ledger statuses). */
+export type LoopResultStatus = 'ok' | 'failed' | 'failed-tests' | 'invalid' | 'skipped' | 'provider-degraded' | 'push-failed';
+
+/**
+ * One `loop-result` ledger row per loop iteration: the deterministic outcome
+ * (status) the lessons-eval accept/reject rows from the same loop join against
+ * (Q39 impact telemetry). The self-build driver writes one row per iteration
+ * via `recordLoopResult`; the join key is the numeric `loop`.
+ */
+export interface LoopResultLedgerRecord {
+  ts: string;
+  kind: 'event';
+  event: 'loop-result';
+  loop: number;
+  status: LoopResultStatus;
+  goal: string;
+}
+
+/** Repo-relative ledger of orchestration events (lessons-eval, loop-result). */
+export const EVENTS_FILE = '.devagent/runs/orchestration/events.jsonl';
+
+/**
+ * Best-effort, never-throws write of one loop-result ledger row (the
+ * deterministic loop outcome for impact scoring). `status` must be a known
+ * self-build loop status (ok | failed | failed-tests | invalid | skipped |
+ * provider-degraded | push-failed); anything else is normalized to `failed`.
+ */
+export function recordLoopResult(repoPath: string, loop: number, status: string, goal: string): void {
+  try {
+    const file = join(repoPath, EVENTS_FILE);
+    mkdirSync(dirname(file), { recursive: true });
+    const record: LoopResultLedgerRecord = {
+      ts: new Date().toISOString(),
+      kind: 'event',
+      event: 'loop-result',
+      loop,
+      status: (
+        ['ok', 'failed', 'failed-tests', 'invalid', 'skipped', 'provider-degraded', 'push-failed'].includes(status)
+          ? status
+          : 'failed'
+      ) as LoopResultStatus,
+      goal: goal.trim().replace(/\s+/g, ' ').slice(0, 160),
+    };
+    appendFileSync(file, `${JSON.stringify(record)}\n`);
+  } catch {
+    // best-effort observability only
+  }
+}
+
+/**
+ * Read all structured events from the orchestration events.jsonl ledger.
+ * Returns every parseable row; corrupt lines are silently skipped (best-effort).
+ * Cost: O(N) in rows, linear in the file size. Call once per scoring pass.
+ */
+export function readEvents(repoPath: string): Record<string, unknown>[] {
+  try {
+    const file = join(repoPath, EVENTS_FILE);
+    if (!existsSync(file)) return [];
+    const raw = readFileSync(file, 'utf8');
+    const out: Record<string, unknown>[] = [];
+    for (const line of raw.split('\n').filter(Boolean)) {
+      try {
+        const parsed = JSON.parse(line) as Record<string, unknown>;
+        if (parsed && typeof parsed === 'object') out.push(parsed);
+      } catch {
+        // skip corrupt line
+      }
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Per-excerptHash impact score. Higher = more effective lesson.
+ * `score` = acceptRate - repeatFailureDelta.
+ * `acceptRate` = acceptedCount / evalCount (0 when no evals).
+ * `repeatFailureDelta` = lessonLoopFailureRate - overallLoopFailureRate.
+ *   Negative delta = lesson correlates with fewer failures (good).
+ */
+export interface LessonScore {
+  score: number;
+  acceptRate: number;
+  delta: number;
+  evalCount: number;
+  lessonLoopFailureRate: number;
+  overallLoopFailureRate: number;
+}
+
+/**
+ * Compute lesson impact scores from the orchestration events.jsonl ledger.
+ * Joins `lessons-eval` rows with `loop-result` rows on the numeric `loop` field.
+ * A lessons-eval row without a `loop` field is matched to the nearest subsequent
+ * loop-result row by timestamp fallback (existing rows from before the `--loop` flag).
+ * Pure function: no I/O, operates on the parsed events array.
+ *
+ * Held-out evaluation (PRD §17 held-out tier): each lesson is scored ONLY on
+ * loops strictly after its first-seen loop. The first-seen (informing) loop —
+ * the loop the lesson rode when it first entered the lessons file — is held
+ * out, so a lesson cannot lift its own digest rank on the loop it informed
+ * (in-sample leakage, per AHE/Meta-Harness). The informing loop still counts
+ * toward `evalCount` (it happened), but contributes neither to acceptRate nor
+ * to any failure-rate numerator/denominator. A lesson evaluated only on its
+ * informing loop has no held-out evidence: its acceptRate and delta stay 0
+ * (score 0) so it never outranks a lesson with real held-out results.
+ *
+ * Impact formula:
+ *   score = acceptRate - (lessonLoopFailureRate - overallLoopFailureRate)
+ *
+ * Where (all held-out only):
+ *   acceptRate = accepted / evalCount for the lesson
+ *   lessonLoopFailureRate = failed loops with this lesson / total loops with this lesson
+ *   overallLoopFailureRate = all failed loops / all loops (with lessons-eval rows)
+ *
+ * When no held-out loop-result data exists for a lesson, delta = 0 and score = held-out acceptRate.
+ */
+export function computeLessonScores(events: Record<string, unknown>[]): Map<string, LessonScore> {
+  const lessonsEvalRows = events.filter((r) => r.event === 'lessons-eval');
+  const loopResultRows = events.filter((r) => r.event === 'loop-result');
+
+  if (lessonsEvalRows.length === 0) return new Map();
+
+  // Build loop-result lookup: numeric loop → status
+  const loopResultMap = new Map<number, string>();
+  for (const row of loopResultRows) {
+    const loop = Number(row.loop);
+    if (!Number.isFinite(loop)) continue;
+    loopResultMap.set(loop, String(row.status ?? 'failed'));
+  }
+
+  // For rows without a loop field, try timestamp-based matching:
+  // find the nearest loop-result with ts >= this lessons-eval ts.
+  const loopResultByTs = loopResultRows
+    .filter((r) => r.ts && typeof r.ts === 'string')
+    .sort((a, b) => String(a.ts).localeCompare(String(b.ts)));
+
+  function findLoopResultByTs(ts: string): number | undefined {
+    for (const row of loopResultByTs) {
+      if (String(row.ts) >= ts) return Number(row.loop);
+    }
+    return undefined;
+  }
+
+  // Per-excerptHash aggregation. The first-seen (informing) loop is held out
+  // of the score: a lesson must earn its rank on loops it did not inform.
+  interface LessonEvalAgg {
+    evalCount: number;
+    firstSeenLoop: number | undefined;
+    loopIds: Set<number>;
+  }
+  const lessonEvals = new Map<string, LessonEvalAgg>();
+  const allLoopsWithEval = new Set<number>();
+
+  for (const row of lessonsEvalRows) {
+    const hash = String(row.excerptHash ?? '');
+    if (!hash) continue;
+    let loop = row.loop !== undefined ? Number(row.loop) : NaN;
+    if (!Number.isFinite(loop)) {
+      loop = row.ts && typeof row.ts === 'string' ? (findLoopResultByTs(row.ts) ?? NaN) : NaN;
+    }
+
+    let entry = lessonEvals.get(hash);
+    if (!entry) {
+      entry = { evalCount: 0, firstSeenLoop: undefined, loopIds: new Set() };
+      lessonEvals.set(hash, entry);
+    }
+    entry.evalCount++;
+    if (Number.isFinite(loop)) {
+      if (entry.firstSeenLoop === undefined || loop < entry.firstSeenLoop) entry.firstSeenLoop = loop;
+      entry.loopIds.add(loop);
+      allLoopsWithEval.add(loop);
+    }
+  }
+
+  // Compute overall failure rate over held-out loop observations only: a
+  // lesson's informing loop is excluded everywhere so no lesson is graded in
+  // its own sample.
+  const heldOutLoopsByLesson = new Set<number>();
+  for (const entry of lessonEvals.values()) {
+    if (entry.firstSeenLoop === undefined) continue;
+    for (const loop of entry.loopIds) {
+      if (loop > entry.firstSeenLoop) heldOutLoopsByLesson.add(loop);
+    }
+  }
+  let overallFailedCount = 0;
+  let overallLoopCount = 0;
+  for (const loop of heldOutLoopsByLesson) {
+    const status = loopResultMap.get(loop);
+    if (status) {
+      overallLoopCount++;
+      if (status !== 'ok') overallFailedCount++;
+    }
+  }
+  const overallLoopFailureRate = overallLoopCount > 0 ? overallFailedCount / overallLoopCount : 0;
+
+  // Per-lesson scoring on held-out observations only (loops strictly after
+  // the first-seen loop); accept counts and loop failure rates both exclude
+  // the informing loop.
+  const scores = new Map<string, LessonScore>();
+  for (const [hash, entry] of lessonEvals) {
+    const firstSeenLoop = entry.firstSeenLoop;
+    let heldOutAccepted = 0;
+    let heldOutEvals = 0;
+    let lessonFailedCount = 0;
+    let lessonLoopCount = 0;
+    if (firstSeenLoop !== undefined) {
+      for (const row of lessonsEvalRows) {
+        if (String(row.excerptHash ?? '') !== hash) continue;
+        let loop = row.loop !== undefined ? Number(row.loop) : NaN;
+        if (!Number.isFinite(loop)) {
+          loop = row.ts && typeof row.ts === 'string' ? (findLoopResultByTs(row.ts) ?? NaN) : NaN;
+        }
+        if (!Number.isFinite(loop) || loop <= firstSeenLoop) continue;
+        heldOutEvals++;
+        if (row.accepted) heldOutAccepted++;
+        const status = loopResultMap.get(loop);
+        if (status) {
+          lessonLoopCount++;
+          if (status !== 'ok') lessonFailedCount++;
+        }
+      }
+    }
+    const acceptRate = heldOutEvals > 0 ? heldOutAccepted / heldOutEvals : 0;
+    const lessonLoopFailureRate = lessonLoopCount > 0 ? lessonFailedCount / lessonLoopCount : 0;
+    const delta = lessonLoopFailureRate - overallLoopFailureRate;
+    const score = acceptRate - delta;
+
+    scores.set(hash, {
+      score,
+      acceptRate,
+      delta,
+      evalCount: entry.evalCount,
+      lessonLoopFailureRate,
+      overallLoopFailureRate,
+    });
+  }
+
+  return scores;
+}
+
+/**
+ * Load held-out lesson scores from the repo's events.jsonl ledger for digest
+ * ranking. Returns a Map<excerptHash, score> for use by `loadLessonsDigest`;
+ * scores come from `computeLessonScores`, which counts only loops strictly
+ * after each lesson's first-seen (informing) loop — a lesson cannot lift its
+ * own digest rank on the loop it rode.
+ * When no events exist, returns an empty map (digest falls back to file-order).
+ */
+export function loadLessonScores(repoPath: string): Map<string, number> {
+  const events = readEvents(repoPath);
+  const scores = computeLessonScores(events);
+  const out = new Map<string, number>();
+  for (const [hash, s] of scores) {
+    out.set(hash, s.score);
+  }
+  return out;
+}
 /**
  * Normalize lesson text for comparison: strip the optional `[predictedImpact: ...]`
  * metadata suffix (it is captured separately in the lessons-eval ledger row and
@@ -243,7 +501,7 @@ export function checkLessonsDedupe(
 export function appendLessonGuarded(
   repoPath: string,
   entry: string,
-  opts: { lessonsFile?: string; threshold?: number; predictedImpact?: string; suiteTimeoutMs?: number } = {},
+  opts: { lessonsFile?: string; threshold?: number; predictedImpact?: string; suiteTimeoutMs?: number; loop?: number } = {},
 ): LessonsDedupeResult {
   const lessonsFile = opts.lessonsFile || SELFBUILD_LESSONS_PATH;
   const excerptHash = lessonExcerptHash(entry);
@@ -258,6 +516,7 @@ export function appendLessonGuarded(
       reason,
       entry,
       suiteDetail,
+      loop: opts.loop,
     });
     return { ...base, reason, suite, ...(suiteDetail !== undefined ? { suiteDetail } : {}) };
   };
@@ -314,12 +573,12 @@ function recordLessonsEval(
     reason: LessonsEvalReason;
     entry: string;
     suiteDetail?: string;
+    loop?: number;
   },
 ): void {
   try {
-    const { LEDGER_DIR } = { LEDGER_DIR: '.devagent/runs/orchestration' };
-    const file = join(repoPath, LEDGER_DIR, 'events.jsonl');
-    mkdirSync(join(repoPath, LEDGER_DIR), { recursive: true });
+    const file = join(repoPath, EVENTS_FILE);
+    mkdirSync(dirname(file), { recursive: true });
     const record = {
       ts: new Date().toISOString(),
       kind: 'event',
@@ -332,6 +591,7 @@ function recordLessonsEval(
       accepted: args.accepted,
       reason: args.reason,
       entry: args.entry.slice(0, 300),
+      ...(args.loop !== undefined ? { loop: args.loop } : {}),
       ...(args.suiteDetail ? { suiteDetail: args.suiteDetail } : {}),
     };
     appendFileSync(file, `${JSON.stringify(record)}\n`);
