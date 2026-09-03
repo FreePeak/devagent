@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import type { TicketSpec } from './types.js';
 import type { ImplementationPlan } from './planner.js';
 import { LESSONS_MAX_CHARS, LESSONS_MAX_LINES, LESSONS_PATH } from './lessons/guard.js';
+import { fitDigestBudget, rankDigestLines, readLessonsEvalRows, readLoopOutcomes, scoreLessons } from './lessons/impact.js';
 
 /** Default repo-local lessons file; overridable via config `lessonsFile`. */
 export const DEFAULT_LESSONS_FILE = LESSONS_PATH;
@@ -47,6 +48,14 @@ export function loadLessons(repoPath: string, lessonsFile?: string, maxChars?: n
  * (config `lessonsMaxChars`). Never splits a line and never strips content
  * from a kept line, so an optional `predictedImpact:` suffix appended to a
  * lesson round-trips verbatim through the injected digest.
+ *
+ * Ranking (PRD §17 "Lessons impact telemetry", Q39): when the repo carries a
+ * `lessons-eval` ledger (`.devagent/runs/orchestration/events.jsonl`) with
+ * matching excerpt hashes, the digest is ranked by measured effect — accept
+ * rate and repeat-failure delta from loop outcomes (`.selfbuild/ledger.jsonl`)
+ * — instead of recency, then capped by the same budget. Without ledger
+ * evidence there is no measured effect: the legacy newest-block cursor runs
+ * unchanged, so prompts without evidence are byte-identical to before.
  */
 export function loadLessonsDigest(repoPath: string, lessonsFile?: string, maxChars?: number): string {
   const p = join(repoPath, lessonsFile || DEFAULT_LESSONS_FILE);
@@ -54,15 +63,23 @@ export function loadLessonsDigest(repoPath: string, lessonsFile?: string, maxCha
   try {
     const lines = readFileSync(p, 'utf8').trimEnd().split('\n').slice(-LESSONS_MAX_LINES);
     const budget = maxChars ?? LESSONS_MAX_CHARS;
-    let total = -1; // joining N lines adds N-1 newlines
-    let start = lines.length;
-    while (start > 0) {
-      const cost = lines[start - 1]!.length + 1;
-      if (start < lines.length && total + cost > budget) break;
-      total += cost;
-      start--;
+    const evalRows = readLessonsEvalRows(repoPath);
+    const loopOutcomes = readLoopOutcomes(repoPath);
+    const scores = evalRows.length > 0 || loopOutcomes.length > 0 ? scoreLessons(evalRows, loopOutcomes) : new Map();
+    if (scores.size === 0) {
+      // Legacy cursor: keep the newest lines while they fit, in file order.
+      let total = -1; // joining N lines adds N-1 newlines
+      let start = lines.length;
+      while (start > 0) {
+        const cost = lines[start - 1]!.length + 1;
+        if (start < lines.length && total + cost > budget) break;
+        total += cost;
+        start--;
+      }
+      return lines.slice(start).join('\n').trim();
     }
-    return lines.slice(start).join('\n').trim();
+    const ranked = rankDigestLines(lines, scores);
+    return fitDigestBudget(ranked, budget);
   } catch {
     return '';
   }
