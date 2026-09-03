@@ -4,8 +4,6 @@ import { spawnCli, type SpawnCliOptions, type SpawnCliResult } from './spawn-uti
 export interface RunWorkerCliOptions extends SpawnCliOptions {
   /** Route this launch through the herdr pane runtime (see integrations/herdr.ts). */
   herdr?: boolean;
-  /** Pane/workspace label shown in the herdr session. */
-  label?: string;
 }
 
 let fallbackWarned = false;

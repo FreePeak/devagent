@@ -94,7 +94,6 @@ export class PiAdapter implements WorkerAdapter {
         ...prepared.opts,
         ...(noProgressTimeoutMs ? { noProgressTimeoutMs } : {}),
         ...(opts.herdr ? { herdr: true } : {}),
-        label: `devagent pi #${attempt}`,
       });
 
       const outcome = interpretPi(last);

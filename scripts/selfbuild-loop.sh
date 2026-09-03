@@ -20,10 +20,13 @@ CLAUDE_BIN="${SELFBUILD_CLAUDE:-omp -p --mode json --no-prewalk --no-lsp --no-ex
 # Role-to-tool mapping (operator spec 2026-09-02): all agents on omp.
 RESEARCH_BIN="${SELFBUILD_RESEARCH_BIN:-omp -p --mode json --no-prewalk --no-lsp --no-extensions --model omniroute/dev}"
 PO_BIN="${SELFBUILD_PO_BIN:-omp -p --mode json --no-prewalk --no-lsp --no-extensions --model omniroute/dev}"
-CLAUDE_TIMEOUT="${SELFBUILD_CLAUDE_TIMEOUT:-300}"
+CLAUDE_TIMEOUT="${SELFBUILD_CLAUDE_TIMEOUT:-600}"
 # Research runs omp with URL-fetch tooling; competitor crawls need 10-15 min
 # even when healthy (2026-09-02 live: 32 fetches, killed at 300s). PO picks a
-# single backlog item from local evidence — 300s is ample. Split budgets.
+# single backlog item from local evidence, but a full generation + teardown
+# measured 244s + ~56s on omniroute/dev (2026-09-03 live: 300s budget fired at
+# 300s on a completed agent) — keep 600s so a slow provider cannot kill the
+# loop via the unguarded dispatch below.
 RESEARCH_TIMEOUT="${SELFBUILD_RESEARCH_TIMEOUT:-900}"
 DEVAGENT=(npx tsx "$REPO/src/cli.ts")
 
@@ -242,7 +245,7 @@ $LESSONS_CTX
 Select exactly ONE backlog item scoped to a single implementable+testable iteration.
 Validation checks (all must pass): maps to a PRD backlog item; no dependency on an earlier failed loop; verifiable by the repo test suite or CLI smoke run.
 Output ONLY the goal statement (max 120 words), starting with 'Goal:' — this text is passed directly to devagent task as the implementation prompt." \
-      > goal.tmp.raw
+      > goal.tmp.raw || { echo "[po] dispatch failed (rc=$?) — attempting partial extraction" ; }
       # headless pi/omp emit an NDJSON event stream; extract the assistant's
       # final text block into the plain-text goal file the driver expects.
       node -e '

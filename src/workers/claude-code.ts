@@ -65,7 +65,6 @@ export class ClaudeCodeAdapter implements WorkerAdapter {
         ...prepared.opts,
         ...(noProgressTimeoutMs ? { noProgressTimeoutMs } : {}),
         ...(opts.herdr ? { herdr: true } : {}),
-        label: `devagent claude-code #${attempt}`,
       });
 
       const outcome = interpret(last);

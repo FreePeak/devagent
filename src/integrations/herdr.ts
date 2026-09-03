@@ -1,7 +1,7 @@
 import { execFile, spawn } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { buildEnv, type SpawnCliOptions, type SpawnCliResult } from '../workers/spawn-utils.js';
 
 /**
@@ -153,19 +153,30 @@ interface PaneRefs {
   paneId: string;
 }
 
-async function openPane(label: string, cwd: string, session: string): Promise<PaneRefs | null> {
+/**
+ * Pane/workspace name: the cwd's basename. Worktree checkouts encode the
+ * task in their directory name (.devagent-worktrees/T1-a1), so the name
+ * identifies what is running without any per-call label plumbing.
+ */
+function paneNameForCwd(cwd: string): string {
+  const base = basename(cwd).trim();
+  return base.length > 0 ? base : 'devagent worker';
+}
+
+async function openPane(cwd: string, session: string): Promise<PaneRefs | null> {
+  const name = paneNameForCwd(cwd);
   const r = await herdrCli([
     '--session', session,
     'workspace', 'create',
-    '--label', label,
+    '--label', name,
     '--cwd', cwd,
   ]);
   const parsed = parseCliJson(r.stdout);
   const result = parsed?.result as { workspace?: { workspace_id?: string }; root_pane?: { pane_id?: string } } | undefined;
   if (r.code !== 0 || !result?.workspace?.workspace_id || !result?.root_pane?.pane_id) return null;
   const refs = { workspaceId: result.workspace.workspace_id, paneId: result.root_pane.pane_id };
-  // Best-effort label on the pane itself so it reads well in the tab bar.
-  await herdrCli(['--session', session, 'pane', 'rename', refs.paneId, label]);
+  // Best-effort name on the pane itself so it reads well in the tab bar.
+  await herdrCli(['--session', session, 'pane', 'rename', refs.paneId, name]);
   return refs;
 }
 
@@ -189,12 +200,12 @@ function fileSize(p: string): number {
 export async function runCommandInHerdrPane(
   cmd: string,
   args: string[],
-  opts: SpawnCliOptions & HerdrRuntimeOptions & { label?: string },
+  opts: SpawnCliOptions & HerdrRuntimeOptions,
 ): Promise<SpawnCliResult | null> {
   const session = resolveSession(opts.session);
   if (!(await ensureHerdrServer(session))) return null;
 
-  const refs = await openPane(opts.label ?? 'devagent worker', opts.cwd, session);
+  const refs = await openPane(opts.cwd, session);
   if (!refs) return null;
 
   const dir = mkdtempSync(join(tmpdir(), 'devagent-herdr-'));

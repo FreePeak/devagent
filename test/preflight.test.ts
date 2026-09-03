@@ -11,7 +11,7 @@ import {
   isPreflightRole,
   runPreflightGate,
 } from '../src/resilience/preflight.js';
-import { readProxyState } from '../src/resilience/proxy-state.js';
+import { readProxyState, recordProxyProbe } from '../src/resilience/proxy-state.js';
 import { LEDGER_DIR } from '../src/orchestrator/ledger.js';
 
 const noDelay = () => Promise.resolve();
@@ -40,7 +40,7 @@ describe('runPreflightGate (decision function)', () => {
     while (dirs.length) rmSync(dirs.pop()!, { recursive: true, force: true });
   });
 
-  it('proceeds on a first-attempt pass without writing ledger or circuit state', async () => {
+  it('proceeds on a first-attempt pass and advances the circuit (closed), writing no ledger row', async () => {
     const repo = tempRepo();
     const probes: string[][] = [];
     const decision = await runPreflightGate({
@@ -58,7 +58,32 @@ describe('runPreflightGate (decision function)', () => {
     expect(decision).toEqual({ ok: true, role: 'selfbuild', worker: 'omp', model: 'omniroute/dev', attempts: 1 });
     // Prompt sits immediately after -p, before caller flags (buildOmpArgs shape).
     expect(probes[0]).toEqual(['-p', 'OK', '--mode', 'json']);
-    expect(existsSync(join(repo, '.devagent', 'proxy-state.json'))).toBe(false);
+    // Success advances the shared circuit (open -> half-open) so consumers
+    // never see a stale open after recovery; no operator-degraded row lands.
+    const state = readProxyState(repo);
+    expect(state?.circuit).toBe('closed');
+    expect(state?.lastProbe?.ok).toBe(true);
+    expect(existsSync(join(repo, LEDGER_DIR, 'events.jsonl'))).toBe(false);
+  });
+
+  it('advances a previously open circuit to half-open on a passing probe', async () => {
+    const repo = tempRepo();
+    // Seed an open circuit (as a failed gate would leave it).
+    recordProxyProbe(repo, { ok: false, detail: 'preflight[selfbuild]: seeded failure' });
+    expect(readProxyState(repo)?.circuit).toBe('open');
+    const decision = await runPreflightGate({
+      repoPath: repo,
+      role: 'selfbuild',
+      worker: 'omp',
+      model: 'omniroute/dev',
+      argv: ['omp', '-p', '--mode', 'json'],
+      probe: async () => ({ ok: true }),
+      delayMs: noDelay,
+    });
+    expect(decision.ok).toBe(true);
+    const state = readProxyState(repo);
+    expect(state?.circuit).toBe('half-open');
+    expect(state?.lastProbe?.ok).toBe(true);
     expect(existsSync(join(repo, LEDGER_DIR, 'events.jsonl'))).toBe(false);
   });
 
@@ -125,7 +150,11 @@ describe('runPreflightGate (decision function)', () => {
     expect(decision.ok).toBe(true);
     expect(decision.attempts).toBe(2);
     expect(existsSync(join(repo, LEDGER_DIR, 'events.jsonl'))).toBe(false);
-    expect(readProxyState(repo)).toBeNull();
+    // Recovery still advances the shared circuit so a later gate/consumer
+    // sees a live (non-open) state.
+    const state = readProxyState(repo);
+    expect(state?.circuit).toBe('closed');
+    expect(state?.lastProbe?.ok).toBe(true);
   });
 
   it('treats a thrown probe as a failure and still writes the degraded row', async () => {
