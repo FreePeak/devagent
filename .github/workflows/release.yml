@@ -66,3 +66,15 @@ jobs:
             --title "Release $TAG" \
             --generate-notes \
             --target "$GITHUB_SHA"
+
+      - name: Install dependencies and build
+        run: |
+          npm ci
+          npm run build
+
+      - name: Record release event in ledger
+        env:
+          TAG: ${{ steps.semver.outputs.tag }}
+          SHA: ${{ github.sha }}
+        run: |
+          node ./dist/src/cli.js record release --tag "$TAG" --sha "$SHA" --source release.yml
