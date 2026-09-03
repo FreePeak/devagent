@@ -208,7 +208,7 @@ Repo: $REPO. Use ONLY local evidence — no web searches, no network fetches:
 4. git log --oneline -15 (what just shipped, what friction it caused)
 Rank the top 3 backlog items by (impact x tractability) for a single iteration. Consider: does an earlier failed loop already cover this? Does a merged PR already cover it? Output compact markdown (<300 words): your ranked top-3 with one-line rationale each, then THE single pick.
 Do NOT edit any files. Output only." \
-      > "$STATE/research/loop-$N.md" || echo "[research] failed, continuing with backlog-only selection"
+      < /dev/null > "$STATE/research/loop-$N.md" || echo "[research] failed, continuing with backlog-only selection"
     fi
 
     # Phase 2a: queue-first selection. Pending queue tasks (scout PRDs, backlog
@@ -245,7 +245,7 @@ $LESSONS_CTX
 Select exactly ONE backlog item scoped to a single implementable+testable iteration.
 Validation checks (all must pass): maps to a PRD backlog item; no dependency on an earlier failed loop; verifiable by the repo test suite or CLI smoke run.
 Output ONLY the goal statement (max 120 words), starting with 'Goal:' — this text is passed directly to devagent task as the implementation prompt." \
-      > goal.tmp.raw || { echo "[po] dispatch failed (rc=$?) — attempting partial extraction" ; }
+      < /dev/null > goal.tmp.raw || { echo "[po] dispatch failed (rc=$?) — attempting partial extraction" ; }
       # headless pi/omp emit an NDJSON event stream; extract the assistant's
       # final text block into the plain-text goal file the driver expects.
       node -e '
