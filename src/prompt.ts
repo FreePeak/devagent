@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import type { TicketSpec } from './types.js';
 import type { ImplementationPlan } from './planner.js';
 import { LESSONS_MAX_CHARS, LESSONS_MAX_LINES, LESSONS_PATH } from './lessons/guard.js';
+import { computeRepoLessonImpact, rankLinesByImpact } from './lessons/impact.js';
 
 /** Default repo-local lessons file; overridable via config `lessonsFile`. */
 export const DEFAULT_LESSONS_FILE = LESSONS_PATH;
@@ -42,27 +43,56 @@ export function loadLessons(repoPath: string, lessonsFile?: string, maxChars?: n
 
 /**
  * Shared digest cursor behind `loadLessons` and the guarded append path
- * (src/lessons/guard.ts): read the newest `LESSONS_MAX_LINES` lines, then drop
- * oldest entries whole until the surviving block fits `LESSONS_MAX_CHARS`
- * (config `lessonsMaxChars`). Never splits a line and never strips content
- * from a kept line, so an optional `predictedImpact:` suffix appended to a
- * lesson round-trips verbatim through the injected digest.
+ * (src/lessons/guard.ts). Two modes:
+ *
+ *  - No measured-impact evidence (no lessons-eval ledger rows, or none of the
+ *    file's lines carry an accepted verdict): the pre-Q39 cursor — read the
+ *    newest `LESSONS_MAX_LINES` lines, then drop oldest entries whole until
+ *    the surviving block fits `LESSONS_MAX_CHARS` (config `lessonsMaxChars`).
+ *  - Impact data present (Q39, lessons impact telemetry): rank ALL lines by
+ *    measured effect (per-lesson accept/reject outcomes correlated against
+ *    subsequent loop results), recency as tiebreak, then cap at the same
+ *    40-line / char budgets — dropping the LOWEST-ranked (zero-effect) lines
+ *    whole instead of the oldest. Zero-effect lessons sink to the bottom and
+ *    are the first dropped when the budget is tight.
+ *
+ * Never splits a line and never strips content from a kept line, so an
+ * optional `predictedImpact:` suffix appended to a lesson round-trips verbatim
+ * through the injected digest. Impact scores are recomputed from the ledgers
+ * on every build (both files are small), so they can never go stale.
  */
 export function loadLessonsDigest(repoPath: string, lessonsFile?: string, maxChars?: number): string {
   const p = join(repoPath, lessonsFile || DEFAULT_LESSONS_FILE);
   if (!existsSync(p)) return '';
   try {
-    const lines = readFileSync(p, 'utf8').trimEnd().split('\n').slice(-LESSONS_MAX_LINES);
     const budget = maxChars ?? LESSONS_MAX_CHARS;
-    let total = -1; // joining N lines adds N-1 newlines
-    let start = lines.length;
-    while (start > 0) {
-      const cost = lines[start - 1]!.length + 1;
-      if (start < lines.length && total + cost > budget) break;
-      total += cost;
-      start--;
+    const lines = readFileSync(p, 'utf8').trimEnd().split('\n');
+    const impact = computeRepoLessonImpact(repoPath);
+    const ranked = rankLinesByImpact(lines, impact);
+    if (ranked === null) {
+      // Pre-Q39 recency cursor: newest lines, drop oldest whole under budget.
+      const tail = lines.slice(-LESSONS_MAX_LINES);
+      let total = -1; // joining N lines adds N-1 newlines
+      let start = tail.length;
+      while (start > 0) {
+        const cost = tail[start - 1]!.length + 1;
+        if (start < tail.length && total + cost > budget) break;
+        total += cost;
+        start--;
+      }
+      return tail.slice(start).join('\n').trim();
     }
-    return lines.slice(start).join('\n').trim();
+    // Impact ranking: best-first order, then the same budgets over rank.
+    const capped = ranked.slice(0, LESSONS_MAX_LINES);
+    let total = -1; // joining N lines adds N-1 newlines
+    let kept = 0;
+    while (kept < capped.length) {
+      const cost = capped[kept]!.length + 1;
+      if (kept > 0 && total + cost > budget) break;
+      total += cost;
+      kept++;
+    }
+    return capped.slice(0, kept).join('\n').trim();
   } catch {
     return '';
   }
