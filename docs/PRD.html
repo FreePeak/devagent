@@ -2078,7 +2078,21 @@ join <code>lessons-eval</code> accept/reject rows;
 delta) ranks the <code>lessonsMaxChars</code> digest by measured effect
 instead of recency (PR #120, <code>src/lessons/guard.ts</code>,
 <code>src/prompt.ts</code>). Closes Q40 + Q39; must-beat-best-so-far and
-held-out tiers stay future work.</p>
+held-out tiers stay future work. <strong>Completed post-v0.3
+(2026-09-04):</strong> PRD freshness gate (operator fix, outside the
+backlog) — the scout and the selfbuild loop select work from
+<code>docs/PRD.md</code>, but nothing refreshed the tree from origin
+before reading it, so a manual PRD update pushed from another machine
+stayed invisible until an unrelated <code>git pull</code> landed and the
+factory kept building the older doc version.
+<code>syncWorkSelectionDocs</code> (<code>src/git/doc-sync.ts</code>)
+fetches origin and fast-forwards before each live scout cycle (opt-out
+<code>scout.syncDocs=false</code>) and each loop iteration
+(<code>SELFBUILD_NO_SYNC_DOCS=1</code> or <code>--no-sync-docs</code>),
+refusing the sync while <code>docs/PRD.md</code> is locally modified —
+the loop then records a <code>provider-degraded</code> row and skips its
+agent cycle instead of silently building stale work, and a failed scout
+sync degrades to a skipped heartbeat cycle (ace2b88).</p>
 </blockquote>
 <h4 id="phase-4--current-backlog-2026-09-03-curation-run-24">Phase 4 —
 current backlog (2026-09-03, curation run 24)</h4>

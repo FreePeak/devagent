@@ -865,6 +865,18 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 > repeat-failure delta) ranks the `lessonsMaxChars` digest by measured effect
 > instead of recency (PR #120, `src/lessons/guard.ts`, `src/prompt.ts`).
 > Closes Q40 + Q39; must-beat-best-so-far and held-out tiers stay future work.
+> **Completed post-v0.3 (2026-09-04):** PRD freshness gate (operator fix,
+> outside the backlog) — the scout and the selfbuild loop select work from
+> `docs/PRD.md`, but nothing refreshed the tree from origin before reading
+> it, so a manual PRD update pushed from another machine stayed invisible
+> until an unrelated `git pull` landed and the factory kept building the
+> older doc version. `syncWorkSelectionDocs` (`src/git/doc-sync.ts`) fetches
+> origin and fast-forwards before each live scout cycle (opt-out
+> `scout.syncDocs=false`) and each loop iteration (`SELFBUILD_NO_SYNC_DOCS=1`
+> or `--no-sync-docs`), refusing the sync while `docs/PRD.md` is locally
+> modified — the loop then records a `provider-degraded` row and skips its
+> agent cycle instead of silently building stale work, and a failed scout
+> sync degrades to a skipped heartbeat cycle (ace2b88).
 
 #### Phase 4 — current backlog (2026-09-03, curation run 24)
 
