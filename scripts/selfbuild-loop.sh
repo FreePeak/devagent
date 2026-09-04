@@ -147,8 +147,15 @@ sweep_cleanup() {
 
 fails=0
 while :; do
-  N=$(( $(awk 'match($0,/"loop":[0-9]+/){n=substr($0,RSTART+7,RLENGTH-7)+0; if(n>m)m=n} END{if(NR==0)print 0; else print m+1}' "$STATE/ledger.jsonl" 2>/dev/null) || echo 0 ) + 1 )
+  # Next iteration number = max(loop)+1 over the ledger (line-count numbering
+  # collided after state-merge dedupe collapsed repeated numbers).
+  N=$(awk 'match($0,/"loop":[0-9]+/){n=substr($0,RSTART+7,RLENGTH-7)+0; if(n>m)m=n} END{print m+1}' "$STATE/ledger.jsonl" 2>/dev/null || echo 1)
+  N=$(( N + 0 ))
   LOG="$STATE/logs/loop-$N.log"
+  # Iteration cap checked at loop head: the tail check was unreachable for
+  # skip/continue paths (Q27 guard, preflight, research) — a capped run could
+  # skip-cycle forever until starvation halted it (2026-09-04 smoke evidence).
+  [ "$MAX_ITERS" -gt 0 ] && [ "$N" -ge "$MAX_ITERS" ] && { echo "max iterations reached" ; break ; }
   {
     echo "=== self-build loop $N start $(date -u +%FT%TZ) ==="
 
@@ -333,6 +340,6 @@ Output ONLY the goal statement (max 120 words), starting with 'Goal:' — this t
   } >> "$LOG" 2>&1
 
   tail -5 "$LOG"
+  # Success resets the consecutive-failure breaker (pre-loop-tail behavior).
   fails=0
-  [ "$MAX_ITERS" -gt 0 ] && [ "$N" -ge "$MAX_ITERS" ] && { echo "max iterations reached" ; break ; }
 done
