@@ -987,11 +987,15 @@ without spawning workers or touching remotes</td>
 </tbody>
 </table>
 <h3 id="77-context-area-ctx">7.7 Context (area: CTX)</h3>
-<p>Optional, budget-bounded structural context derived from an external
-knowledge graph (default: local <code>leankg</code> MCP for freepeak
-workspaces; off otherwise). Assembled at the same
+<p>Optional, budget-bounded structural context assembled at the same
 <code>COMPACT_CONTEXT_MARKER</code> as the lessons and childTrails
-digests so G0/G5 read identical content.</p>
+digests so G0/G5 read identical content. Two layers: (1) an always-on
+<strong>local markdown baseline</strong>
+(<code>.devagent/context/*.md</code>, commitable, zero dependencies — no
+server, no index); (2) an opt-in <strong>LeanKG</strong> layer (<a
+href="https://github.com/FreePeak/LeanKG">github.com/FreePeak/LeanKG</a>,
+Postgres-backed knowledge-graph MCP) that adds indexed structural
+context when a server is attached, <code>off</code> otherwise.</p>
 <table>
 <thead>
 <tr>
@@ -1003,35 +1007,48 @@ digests so G0/G5 read identical content.</p>
 <tbody>
 <tr>
 <td>FR-CTX-01</td>
-<td>Inject a KG-derived context digest into the scout, planner, and
-repair prompts at <code>COMPACT_CONTEXT_MARKER</code>, ratchet-capped at
-the same character budget as <code>lessonsMaxChars</code> (default
-4000); oldest entries dropped whole, never split</td>
+<td>Inject a context digest into the scout, planner, and repair prompts
+at <code>COMPACT_CONTEXT_MARKER</code>, ratchet-capped at the same
+character budget as <code>lessonsMaxChars</code> (default 4000); oldest
+entries dropped whole, never split. Content is layered: baseline
+markdown sections plus a KG digest when the KG layer is on</td>
 <td>M</td>
 </tr>
 <tr>
 <td>FR-CTX-02</td>
-<td>Make the KG provider opt-in via config
-(<code>devagent.context.kg: "leankg" | "off"</code>, default
-<code>off</code>); when <code>off</code> or the provider is unreachable,
-return an empty digest and continue without it — never block the
-pipeline</td>
+<td>The local markdown baseline is always available and requires no
+configuration: every file under <code>.devagent/context/</code> feeds
+the digest subject to the shared budget; absence of a KG backend
+degrades nothing</td>
 <td>M</td>
 </tr>
 <tr>
 <td>FR-CTX-03</td>
-<td>Wrap every KG client call in a 1s wall-clock budget; on timeout,
-downgrade to a cheaper query (<code>search_code</code> →
-<code>find_function</code> → empty); surface the degraded mode in the
-run log</td>
-<td>S</td>
+<td>The KG layer is opt-in via config
+(<code>devagent.context.kg: "leankg" | "off"</code>, default
+<code>off</code>); when <code>off</code> or the provider is unreachable,
+the digest is baseline-only and the pipeline continues — never
+blocked</td>
+<td>M</td>
 </tr>
 <tr>
 <td>FR-CTX-04</td>
-<td>Never pass the KG client to a worker adapter; the KG digest is an
-orchestrator-side concern only, preserving the "any worker, same
+<td>Never pass the KG client to a worker adapter; the context digest is
+an orchestrator-side concern only, preserving the "any worker, same
 contract" invariant from section 9</td>
 <td>M</td>
+</tr>
+<tr>
+<td>FR-CTX-05</td>
+<td>Wrap every KG client call in a 1s wall-clock budget; on timeout or
+absence, omit the KG layer and surface the degraded mode in the run log.
+Do not build a query-fallback ladder inside DevAgent: LeanKG's
+single-tool router degrades internally (L3 vectors → L2 fuzzy → L1 exact
+→ L0 cold) and stamps every response with
+<code>retrieval: {rung, reason}</code> +
+<code>freshness: fresh | possibly_stale | cold</code> — consume that
+provenance verbatim in the digest and run log</td>
+<td>S</td>
 </tr>
 </tbody>
 </table>
@@ -1768,16 +1785,18 @@ below.</p>
 <li>Failure-cluster reporting on ledger analytics — recurring gap
 categories in the ledger should surface as actionable periodic reports,
 not just queryable rows.</li>
-<li>Knowledge-grounded context — opt-in structural memory from the local
-<code>leankg</code> MCP (or off by default) injected into
-scout/planner/repair prompts at the existing
-<code>COMPACT_CONTEXT_MARKER</code>, ratchet-capped at the same
-4000-char budget as <code>lessonsMaxChars</code>; routes to the freepeak
-<code>leankg</code> server per <code>skill://leankg-routing</code>,
-never <code>be-knowledge-graph</code> from a freepeak path, with
-<code>rtk</code> (Grep/Glob/Read) fallback when the server is down. See
+<li>Knowledge-grounded context — two-layer digest at the existing
+<code>COMPACT_CONTEXT_MARKER</code>: an always-on local markdown
+baseline (<code>.devagent/context/*.md</code>, zero dependencies) plus
+opt-in structural memory from the local <code>leankg</code> MCP,
+consumed as the degradation boundary (LeanKG's single-tool ladder
+degrades internally and stamps
+<code>retrieval</code>/<code>freshness</code> provenance; no hand-rolled
+fallback in DevAgent), ratchet-capped at the same 4000-char budget as
+<code>lessonsMaxChars</code>; routes to the freepeak <code>leankg</code>
+server, never <code>be-knowledge-graph</code> from a freepeak path. See
 <code>docs/research/2026-08-30-devagent-leankg-value-in-harness-era.md</code>
-and FR-CTX-01..04.</li>
+and FR-CTX-01..05.</li>
 </ul>
 <blockquote>
 <p><strong>Completed post-v0.3 (2026-08-25 → 2026-08-28):</strong>
@@ -2391,12 +2410,15 @@ cross-board retry memory out of scope for the single-tenant model?</td>
 </tr>
 <tr>
 <td>Q28</td>
-<td>With FR-CTX-01 injecting a KG-derived digest at
-<code>COMPACT_CONTEXT_MARKER</code>, should that digest also be appended
-to <code>lessons.md</code> on a successful merge (so future runs learn
-from the same structural evidence the planner used), or stay scoped to
-the single run and rebuild fresh each time? Persisting makes the digest
-cross-run durable; scoping avoids stale evidence bleeding in.</td>
+<td>With FR-CTX-01 injecting a layered digest (markdown baseline +
+opt-in LeanKG) at <code>COMPACT_CONTEXT_MARKER</code>, should the KG
+portion also be appended to <code>lessons.md</code> on a successful
+merge (so future runs learn from the same structural evidence the
+planner used), or stay scoped to the single run and rebuild fresh each
+time? Persisting makes the digest cross-run durable; scoping avoids
+stale evidence bleeding in — and LeanKG's per-response
+<code>freshness</code> stamp (FR-CTX-05) gives the gate a
+machine-readable stale-evidence signal either way.</td>
 <td>eng</td>
 <td>Phase 4</td>
 </tr>
@@ -2942,26 +2964,40 @@ no-floating-promises</a></p>
 Knowledge-graph-grounded context</h3>
 <p>A research note
 (<code>docs/research/2026-08-30-devagent-leankg-value-in-harness-era.md</code>)
-evaluated whether the local <code>leankg</code> MCP (FreePeak build,
+evaluated whether the local <code>leankg</code> MCP (FreePeak build, <a
+href="https://github.com/FreePeak/LeanKG">github.com/FreePeak/LeanKG</a>,
 Postgres-backed) adds value to DevAgent's harness. Verdict: yes, as the
 structural complement to the harness's durable state (lessons digest,
-childTrails digest, worklog, ledger). Live inventory at 2026-08-30 is
-358,359 elements and 1,867,483 relationships across 38,597 files; live
-<code>mcp_status</code> ok, but <code>kg_semantic_context</code> timed
-out at 30s, so v1 must use non-semantic graph queries
-(<code>search_code</code>, <code>find_function</code>,
-<code>get_call_graph</code>, <code>get_tested_by</code>,
-<code>get_dependents</code>). Integration seam is the existing
-<code>COMPACT_CONTEXT_MARKER</code> ratchet
-(<code>src/prompt.ts:303-317</code>); the KG digest joins
-<code>lessons</code> and <code>childTrails</code> as a fourth source
-under the same 4,000-char cap. Scope: orchestrator-side only, opt-in
+childTrails digest, worklog, ledger). Live inventory at 2026-08-30 was
+358,359 elements and 1,867,483 relationships across 38,597 files;
+<code>mcp_status</code> ok but <code>kg_semantic_context</code> timed
+out at 30s — the measurement behind the v1 non-semantic constraint, and
+the exact failure mode LeanKG's v4.3.0 ladder (branch
+<code>docs/prd-v4.3.0-ladder-setup</code>, 8d15c78f) removes: a single
+router tool (<code>leankg_context</code>) probes per-project
+capabilities in &lt;10ms and routes L3 vectors (ANN + rerank + traverse)
+→ L2 FTS/<code>pg_trgm</code> fuzzy + ontology → L1 exact + regex → L0
+cold guidance with a background auto-index kick, never erroring; every
+response carries <code>retrieval: {rung, reason}</code> +
+<code>freshness: fresh \| possibly_stale \| cold</code>. DevAgent
+therefore consumes LeanKG as the degradation boundary (FR-CTX-05: no
+hand-rolled ladder here) and treats <code>freshness</code> as
+prompt-visible provenance so gates judge evidence quality. Zero-config
+v4.3.0 goals (FR-ZCP-01/02: cwd-based resolution, lazy auto-attach +
+background first index; embeddings optional) align with DevAgent's own
+zero-dependency posture: the local markdown baseline (FR-CTX-02) is the
+always-on default and LeanKG the enhancement tier above it. Integration
+seam is the existing <code>COMPACT_CONTEXT_MARKER</code> ratchet
+(<code>src/prompt.ts:303-317</code>); the context digest joins
+<code>lessons</code> and <code>childTrails</code> under the same
+4,000-char cap. Scope: orchestrator-side only, opt-in
 (<code>devagent.context.kg: "leankg" \| "off"</code>, default
 <code>off</code>), never reaches a worker adapter. Cross-workspace
 routing rule (freepeak → <code>leankg</code>; BE →
-<code>be-knowledge-graph</code>; never both) is enforced by
-<code>skill://leankg-routing</code>. See FR-CTX-01..04, Phase 4
-sub-bullet "Knowledge-grounded context", and Q28.</p>
+<code>be-knowledge-graph</code>; never both) stays PRD prose
+(<code>skill://leankg-routing</code> is not materialized — create the
+skill at implementation time). See FR-CTX-01..05, Phase 4 sub-bullet
+"Knowledge-grounded context", and Q28.</p>
 <h3 id="196-pilot-probe-2026-09-04">19.6 Pilot probe (2026-09-04)</h3>
 <p>A competitive probe of qf-studio/pilot (Go ticket-to-PR autopilot,
 665★, BSL 1.1 — <code>docs/research/pilot-probe.md</code>) confirms the
@@ -3039,8 +3075,10 @@ thread per agent run</td>
 </tr>
 <tr>
 <td>Bots "get smarter over time"</td>
-<td>Lessons feedback loop + KG context digest already ship (PRs #39/#57,
-FR-CTX-01..04)</td>
+<td>Lessons feedback loop ships (PR #39, eval-ranked per Q39);
+childTrails digest ships (PR #57); KG context digest specified
+(FR-CTX-01..05) but not yet implemented — local markdown baseline +
+opt-in LeanKG</td>
 </tr>
 </tbody>
 </table>
