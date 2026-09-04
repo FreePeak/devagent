@@ -7,12 +7,16 @@ import {
   appendLessonGuarded,
   appendPredictedImpact,
   checkLessonsDedupe,
+  checkMustBeat,
   computeLessonScores,
   DEFAULT_LESSONS_DEDUPE_SIMILARITY,
+  heldOutLessonHashes,
   lessonExcerptHash,
   lessonSimilarity,
+  loadBestMeasuredScore,
   loadLessonScores,
   normalizeLessonText,
+  predictedImpactGrade,
   readEvents,
   readLessonEntries,
   recordLoopResult,
@@ -580,5 +584,197 @@ describe('readEvents (parsing)', () => {
     const repo = mkdtempSync(join(tmpdir(), 'da-read-events-'));
     dirs.push(repo);
     expect(readEvents(repo)).toEqual([]);
+  });
+});
+describe('held-out tier: digest slice, best score, and must-beat gate', () => {
+  const dirs: string[] = [];
+  const tempRepo = (lessonsContent?: string): string => {
+    const d = mkdtempSync(join(tmpdir(), 'da-heldout-'));
+    dirs.push(d);
+    mkdirSync(join(d, '.selfbuild'), { recursive: true });
+    mkdirSync(join(d, '.devagent', 'runs', 'orchestration'), { recursive: true });
+    if (lessonsContent !== undefined) writeFileSync(join(d, SELFBUILD_LESSONS_PATH), lessonsContent);
+    return d;
+  };
+  const writeEvents = (repo: string, events: Array<Record<string, unknown>>): void => {
+    writeFileSync(join(repo, '.devagent', 'runs', 'orchestration', 'events.jsonl'), events.map((e) => JSON.stringify(e)).join('\n') + '\n');
+  };
+  const mline = (i: number, impact: string) => `machine lesson ${i} text [predictedImpact: ${impact}]`;
+  const uline = (i: number) => `human dated prose line ${i}`;
+  /** Accept L1 (ok) + reject L2 (failed): main score = acceptRate 0.5 − delta 0 = 0.5. */
+  const mixedEval = (hash: string) => [
+    { ts: '2026-01-01T01:00:00Z', kind: 'event', event: 'lessons-eval', excerptHash: hash, accepted: true, loop: 1 },
+    { ts: '2026-01-01T02:00:00Z', kind: 'event', event: 'lessons-eval', excerptHash: hash, accepted: false, loop: 2 },
+    { ts: '2026-01-01T03:00:00Z', kind: 'event', event: 'loop-result', loop: 1, status: 'ok' },
+    { ts: '2026-01-01T04:00:00Z', kind: 'event', event: 'loop-result', loop: 2, status: 'failed' },
+  ];
+  afterEach(() => {
+    for (const d of dirs) rmSync(d, { recursive: true, force: true });
+    dirs.length = 0;
+  });
+
+  it('heldOutLessonHashes: newest 20% (min 1, max 3) of machine-appended lessons by append order', () => {
+    const lines = Array.from({ length: 10 }, (_, i) => mline(i, 'cuts re-picks by half'));
+    lines.splice(3, 0, uline(0)); // human prose is not eligible
+    const repo = tempRepo(`${lines.join('\n')}\n`);
+    const r = heldOutLessonHashes(repo);
+    // 10 machine lines → 20% = 2 held out (the two newest by append order).
+    expect(r.lines).toEqual([mline(8, 'cuts re-picks by half'), mline(9, 'cuts re-picks by half')]);
+    expect(r.hashes).toEqual(
+      new Set([lessonExcerptHash(mline(8, 'cuts re-picks by half')), lessonExcerptHash(mline(9, 'cuts re-picks by half'))]),
+    );
+    expect(r.hashes.has(lessonExcerptHash(mline(7, 'cuts re-picks by half')))).toBe(false);
+  });
+
+  it('heldOutLessonHashes: min 1, and machine-only with zero machine lines', () => {
+    const one = tempRepo(`${mline(0, 'one')}\n`);
+    expect(heldOutLessonHashes(one).lines).toEqual([mline(0, 'one')]);
+    const none = tempRepo(`${uline(0)}\n${uline(1)}\n`);
+    expect(heldOutLessonHashes(none).lines).toEqual([]);
+    expect(heldOutLessonHashes(one, 'missing.md').lines).toEqual([]);
+  });
+
+  it('loadBestMeasuredScore excludes held-out lessons so the newest slice cannot chase a self-set bar', () => {
+    // 7 machine lines: slice = 20% of 7 = 1 → the NEWEST line only. The only
+    // scored lesson sits at index 0 (in scope); the held-out newest line has
+    // no ledger rows, so it could not lift the bar anyway — assert the
+    // exclusion by giving the held-out line a perfect (score > 0.5) history
+    // and checking it still does not set the bar.
+    const mixed = mline(0, 'mixed lesson');
+    const seed = Array.from({ length: 6 }, (_, i) => mline(10 + i, 'baseline'));
+    const repo = tempRepo(`${mixed}\n${seed.join('\n')}\n`);
+    // newest line = seed[5]; give it a solo accept (score 1) — held out.
+    writeEvents(
+      repo,
+      mixedEval(lessonExcerptHash(mixed)).concat([
+        { ts: '2026-01-01T05:00:00Z', kind: 'event', event: 'lessons-eval', excerptHash: lessonExcerptHash(seed[5]!), accepted: true, loop: 9 },
+        { ts: '2026-01-01T06:00:00Z', kind: 'event', event: 'loop-result', loop: 9, status: 'ok' },
+      ]),
+    );
+    expect([...heldOutLessonHashes(repo).lines]).toEqual([seed[5]]);
+    // Without exclusion the held-out seed's high score would win; with
+    // exclusion the in-scope mixed lesson's measured score (acceptRate 0.5 −
+    // repeatFailureDelta 1/6 ≈ 0.333) is the best.
+    expect(loadBestMeasuredScore(repo)).toBeCloseTo(1 / 3, 3);
+  });
+
+  it('loadBestMeasuredScore: null with no measured scores at all (cold start)', () => {
+    const repo = tempRepo(`${mline(0, 'only lesson')}\n`);
+    expect(loadBestMeasuredScore(repo)).toBeNull();
+  });
+
+  it('predictedImpactGrade: quantified reductions grade above 0, prose-only stays 0', () => {
+    expect(predictedImpactGrade('reduces repeat re-picks of shipped items by 50%')).toBeCloseTo(0.5, 3);
+    expect(predictedImpactGrade('avoid re-picking already-shipped backlog items')).toBe(0);
+    expect(predictedImpactGrade('cuts failures by 25%')).toBeCloseTo(0.25, 3);
+  });
+
+  it('checkMustBeat: grade below the best → below; no baseline or saturated best → none', () => {
+    const mixed = mline(0, 'mixed lesson');
+    const seed = Array.from({ length: 6 }, (_, i) => mline(10 + i, 'baseline'));
+    const repo = tempRepo(`${mixed}\n${seed.join('\n')}\n`);
+    writeEvents(repo, mixedEval(lessonExcerptHash(mixed)));
+    // Newest line is a held-out seed; the in-scope best is 0.5. A 0.25-grade
+    // candidate is below; a 0.6-grade candidate beats it.
+    expect(checkMustBeat(repo, 'cuts failures by 25%')).toBe('below');
+    expect(checkMustBeat(repo, 'cuts re-picks by 60%')).toBe('beat');
+    // No ledger evidence at all → no baseline → none (accept).
+    const cold = tempRepo(`${mixed}\n${seed.join('\n')}\n`);
+    expect(checkMustBeat(cold, 'cuts re-picks by 50%')).toBe('none');
+    // Empty file → the candidate's own impact is the only score → none.
+    const empty = tempRepo('');
+    expect(checkMustBeat(empty, 'cuts re-picks by 50%')).toBe('none');
+    // Saturated best (≥ 1, the unavoidable score of an accepted lesson on an
+    // all-green history): the grade scale caps at 1, so the bar can no longer
+    // discriminate — none, not a permanent 'below' lockout of the ratchet.
+    const solo = mline(0, 'solo accepted lesson');
+    const soloRepo = tempRepo(`${solo}\n${mline(1, 'rider')}\n${mline(2, 'rider two')}\n`);
+    writeEvents(soloRepo, [
+      { ts: '2026-01-01T01:00:00Z', kind: 'event', event: 'lessons-eval', excerptHash: lessonExcerptHash(solo), accepted: true, loop: 1 },
+      { ts: '2026-01-01T02:00:00Z', kind: 'event', event: 'loop-result', loop: 1, status: 'ok' },
+    ]);
+    expect(checkMustBeat(soloRepo, 'cuts re-picks by 100%')).toBe('none');
+  });
+
+  it('accept path: candidate beats the best → appended + ledger row carries heldOut/mustBeat', () => {
+    // In-scope scored lesson at 0.5 (accept L1 ok + reject L2 failed); the
+    // candidate's 60% grade beats it → accepted, and the row records the gate.
+    const mixed = mline(0, 'mixed lesson');
+    const seed = Array.from({ length: 6 }, (_, i) => mline(10 + i, 'baseline'));
+    const repo = tempRepo(`${mixed}\n${seed.join('\n')}\n`);
+    writeFileSync(join(repo, 'package.json'), JSON.stringify({ name: 'fixture', scripts: { test: 'node -e ""' } }));
+    writeEvents(repo, mixedEval(lessonExcerptHash(mixed)));
+    const r = appendLessonGuarded(repo, 'A brand new distinct lesson.', {
+      predictedImpact: 'cuts re-picks by 60%',
+      suiteTimeoutMs: 30_000,
+    });
+    expect(r.reason).toBe('accepted');
+    expect(r.suite).toBe('green');
+    expect(r.mustBeat).toBe('beat');
+    expect(r.heldOut).toBe(1);
+    const rows = readEvents(repo);
+    const row = rows[rows.length - 1]!;
+    expect(row).toMatchObject({
+      event: 'lessons-eval',
+      accepted: true,
+      reason: 'accepted',
+      suite: 'green',
+      heldOut: 1,
+      mustBeat: 'beat',
+    });
+    expect(row.mustBeatScore).toBeCloseTo(0.5, 3);
+  });
+
+  it('reject path: candidate below the best → held-out rejection, file reverted, ledger row carries mustBeat', () => {
+    const mixed = mline(0, 'mixed lesson');
+    const seed = Array.from({ length: 6 }, (_, i) => mline(10 + i, 'baseline'));
+    const repo = tempRepo(mixed + '\n' + seed.join('\n') + '\n');
+    writeFileSync(join(repo, 'package.json'), JSON.stringify({ name: 'fixture', scripts: { test: 'node -e ""' } }));
+    writeEvents(repo, mixedEval(lessonExcerptHash(mixed)));
+    const before = readFileSync(join(repo, SELFBUILD_LESSONS_PATH), 'utf8');
+    const r = appendLessonGuarded(repo, 'A different brand new lesson.', {
+      predictedImpact: 'cuts failures by 25%', // 0.25 < in-scope best 0.5
+      suiteTimeoutMs: 30_000,
+    });
+    expect(r.reason).toBe('held-out');
+    expect(r.suite).toBe('green');
+    expect(r.mustBeat).toBe('below');
+    expect(r.heldOut).toBe(1);
+    expect(readFileSync(join(repo, SELFBUILD_LESSONS_PATH), 'utf8')).toBe(before);
+    const rows = readEvents(repo);
+    const row = rows[rows.length - 1];
+    expect(row).toMatchObject({
+      event: 'lessons-eval',
+      accepted: false,
+      reason: 'held-out',
+      suite: 'green',
+      heldOut: 1,
+      mustBeat: 'below',
+    });
+    expect(row.mustBeatScore).toBeCloseTo(0.5, 3);
+  });
+
+  it('no-held-out accept path: no eligible baseline to beat → accepted with mustBeat none (constraint off)', () => {
+    // Cold start on an empty file: nothing measured exists, so the must-beat
+    // check has no baseline and the append is accepted (constraint off, not
+    // a lockout) with the no-baseline outcome on the ledger row.
+    const repo = tempRepo('');
+    writeFileSync(join(repo, 'package.json'), JSON.stringify({ name: 'fixture', scripts: { test: 'node -e ""' } }));
+    const r = appendLessonGuarded(repo, 'First lesson in an empty file.', {
+      predictedImpact: 'avoids re-picking already-shipped goals',
+      suiteTimeoutMs: 30_000,
+    });
+    expect(r.reason).toBe('accepted');
+    expect(r.mustBeat).toBe('none');
+    expect(r.heldOut).toBe(0);
+    const rows = readEvents(repo);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      event: 'lessons-eval',
+      accepted: true,
+      reason: 'accepted',
+      heldOut: 0, // no machine-appended lines yet — the candidate is the first
+      mustBeat: 'none',
+    });
   });
 });
