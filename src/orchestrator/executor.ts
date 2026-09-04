@@ -264,6 +264,9 @@ export async function executeTask(args: {
       ...(useHerdr ? { herdr: true } : {}),
       ...(model ? { model } : {}),
       ...(variant ? { variant } : {}),
+      // Q34: ledger identity from the dispatcher, never derived from the
+      // (ephemeral) worktree cwd the worker runs in.
+      watchdogLedger: { repoPath, taskId: task.id, attempt, worker: executor },
     };
     const result = await worker.spawn(spawnOpts as never);
     try {

@@ -285,6 +285,7 @@ export class OmpAdapter implements WorkerAdapter {
         timeoutMs: opts.timeoutMs,
         ...(opts.env ? { env: opts.env } : {}),
         noProgressTimeoutMs,
+        ...(opts.watchdogLedger ? { watchdogLedger: opts.watchdogLedger } : {}),
       });
       last = await runWorkerCli(prepared.cmd, prepared.args, {
         ...prepared.opts,

@@ -222,6 +222,42 @@ export function appendReleaseRecord(repoPath: string, record: ReleaseLedgerRecor
   }
 }
 
+/** Watchdog-health event (Q34): one row per worker-CLI launch with a no-progress clock armed. */
+export interface WatchdogHealthLedgerRecord extends LedgerRecordBase {
+  kind: 'event';
+  event: 'watchdog-health';
+  /** Progress-clock site that owned the launch: direct child vs herdr pane. */
+  site: 'spawn-cli' | 'herdr-pane';
+  /** Worker CLI as dispatched (claude-code | opencode | omp | pi). */
+  worker: string;
+  /** Armed no-progress window in ms (clock-less launches are never recorded). */
+  noProgressTimeoutMs: number;
+  /** True only when the no-progress watchdog fired — never for wall-clock expiry. */
+  watchdogFired: boolean;
+  /** Wall-clock launch duration. */
+  wallClockMs: number;
+  /** Meaningful-progress clock resets observed (herdr: the seed counts as one). */
+  clockResets: number;
+  /** Meaningful (non-thinking) bytes observed. */
+  meaningfulBytes: number;
+  /** Idle at launch end: now - lastProgressAt. */
+  idleMs: number;
+}
+
+/**
+ * Append a watchdog-health record. Never throws into the caller's path —
+ * best-effort observability by design.
+ */
+export function appendWatchdogHealthRecord(repoPath: string, record: WatchdogHealthLedgerRecord): void {
+  try {
+    const file = ledgerPath(repoPath);
+    mkdirSync(join(repoPath, LEDGER_DIR), { recursive: true });
+    appendFileSync(file, `${JSON.stringify(record)}\n`);
+  } catch {
+    // best-effort observability only
+  }
+}
+
 /** Read audit records, oldest first; optional task filter. Returns [] when absent. */
 export function readLedger(repoPath: string, opts: { taskId?: string } = {}): AuditLedgerRecord[] {
   const file = ledgerPath(repoPath);

@@ -52,6 +52,22 @@ export type ExecutorFailureClass =
 
 export type WorkerName = 'claude-code' | 'opencode' | 'omp' | 'pi';
 
+/**
+ * Q34 observability context for watchdog-health ledger rows. Dispatchers
+ * (executor, deps) populate it for implement attempts; when present and a
+ * no-progress clock is armed (noProgressTimeoutMs > 0), each worker-CLI
+ * launch appends one event row to the orchestration ledger so never-firing
+ * watchdogs are visible in analytics instead of inferred from long
+ * wall-clock timeouts.
+ */
+export interface WatchdogLedgerContext {
+  /** Repo root the ledger lives under — never the (ephemeral) worktree cwd. */
+  repoPath: string;
+  taskId: string;
+  attempt: number;
+  worker: string;
+}
+
 export interface WorkerSpawnOptions {
   prompt: string;
   cwd: string;
@@ -80,6 +96,8 @@ export interface WorkerSpawnOptions {
    * `herdr.enabled`; see src/integrations/herdr.ts.
    */
   herdr?: boolean;
+  /** Q34: structured watchdog-health ledger context; see WatchdogLedgerContext. */
+  watchdogLedger?: WatchdogLedgerContext;
 }
 
 export interface WorkerEvent {
