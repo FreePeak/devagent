@@ -82,9 +82,9 @@ function boundDetail(text: string): string {
 export async function runPreflightProbe(
   cmd: string,
   args: string[],
-  opts: { cwd: string; env?: Record<string, string> },
+  opts: { cwd: string; env?: Record<string, string>; /** Wall-clock cap; default PREFLIGHT_PROBE_TIMEOUT_MS. */ timeoutMs?: number },
 ): Promise<PreflightProbe> {
-  const run = await spawnCli(cmd, args, { cwd: opts.cwd, timeoutMs: PREFLIGHT_PROBE_TIMEOUT_MS, env: opts.env });
+  const run = await spawnCli(cmd, args, { cwd: opts.cwd, timeoutMs: opts.timeoutMs ?? PREFLIGHT_PROBE_TIMEOUT_MS, env: opts.env });
   const ok = run.exitCode === 0 && run.stdout.includes('"text":"OK"');
   return ok
     ? { ok: true }
