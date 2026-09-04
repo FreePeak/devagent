@@ -100,6 +100,15 @@ export interface DevAgentConfig {
    * only reports.
    */
   prHygiene?: { graceHours?: number; dryRun?: boolean };
+  /**
+   * Orchestration gates (PRD §17 Phase 4). regressionOracle: before an
+   * auto-merge, check out the PR branch in a throwaway worktree and run the
+   * repo's full test suite; a red suite blocks the merge (PR survives,
+   * board task stays open). Default on for JS repos (a test command is
+   * detected); without an explicit test command non-JS repos skip the gate
+   * unless this is set to true.
+   */
+  orchestrate?: { regressionOracle?: boolean };
 }
 
 export interface Credentials {
@@ -195,6 +204,12 @@ export function loadConfig(repoPath: string = process.cwd()): DevAgentConfig {
       throw new Error(`Invalid prHygiene.graceHours "${h.graceHours}"; expected >= 0`);
     }
   }
+  if (config.orchestrate !== undefined) {
+    const o = config.orchestrate;
+    if (o.regressionOracle !== undefined && typeof o.regressionOracle !== 'boolean') {
+      throw new Error(`Invalid orchestrate.regressionOracle "${String(o.regressionOracle)}"; expected true or false`);
+    }
+  }
   if (config.lessonsDedupeSimilarity !== undefined) {
     const t = config.lessonsDedupeSimilarity;
     if (!Number.isFinite(t) || t < 0 || t > 1) {
@@ -202,6 +217,15 @@ export function loadConfig(repoPath: string = process.cwd()): DevAgentConfig {
     }
   }
   return config;
+}
+
+/**
+ * Resolve the orchestration-gates section (PRD §17 Phase 4). The knob is
+ * unset by default: JS repos (a detectable test command) run the regression
+ * oracle, non-JS repos skip it; explicit true/false overrides.
+ */
+export function loadOrchestrateConfig(repoPath: string = process.cwd()): { regressionOracle?: boolean } {
+  return loadConfig(repoPath).orchestrate ?? {};
 }
 
 /**
