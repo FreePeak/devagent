@@ -54,6 +54,12 @@ import { getWorker, workers } from '../src/workers/index.js';
 const baseOpts = { cwd: '/tmp/repo', timeoutMs: 5_000 };
 
 beforeEach(() => {
+  // Hermetic vs the dispatching loop: selfbuild-loop.sh exports
+  // DEVAGENT_NO_PROGRESS_TIMEOUT_MS=600000, which arms the watchdog default
+  // and routes spawnCli through spawnCliStreaming — a code path these mocks
+  // (execFile only) do not cover. Watchdog-arm behavior is covered in
+  // watchdog-health.test.ts with real timers.
+  delete process.env.DEVAGENT_NO_PROGRESS_TIMEOUT_MS;
   nextResult = { error: null, stdout: '', stderr: '' };
   resultQueue = [];
 });
