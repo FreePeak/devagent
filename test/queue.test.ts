@@ -1,8 +1,8 @@
 import { describe, expect, it, beforeEach } from 'vitest';
-import { mkdtempSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { enqueueTask, listTasks, claimTask, claimNextPending, updateTask, setTaskStatus, readTask, writePrd, readPrd, pruneDone, taskCount, ensureQueueDirs } from '../src/queue.js';
+import { enqueueTask, listTasks, claimTask, claimNextPending, updateTask, setTaskStatus, readTask, writePrd, readPrd, pruneDone, taskCount, ensureQueueDirs, queueDir } from '../src/queue.js';
 
 function tmpRepo(): string {
   const d = mkdtempSync(join(tmpdir(), 'da-queue-'));
@@ -79,6 +79,56 @@ describe('queue: claim', () => {
       const c = claimNextPending(repo, 'w1');
       expect(c!.id).toBe('A');
       expect(listTasks(repo, { status: 'pending' })).toHaveLength(1);
+    } finally { rmSync(repo, { recursive: true, force: true }); }
+  });
+
+  it('claimNextPending prefers clean tasks over failure-carrying ones (Q27)', () => {
+    const repo = tmpRepo();
+    try {
+      enqueueTask(repo, { id: 'CARRY-OLD', title: 'carried old', goal: 'Goal: carried old', failureClass: 'test-gate' });
+      enqueueTask(repo, { id: 'CARRY-NEW', title: 'carried new', goal: 'Goal: carried new', failureClass: 'worker-error' });
+      enqueueTask(repo, { id: 'CLEAN', title: 'clean', goal: 'Goal: clean' });
+      // Pin createdAt via direct queue-JSON writes: rapid enqueues can tie on
+      // the wall clock, and tier order must be deterministic (updateTask
+      // locks id|createdAt so the file is the only way to set it).
+      for (const [id, at] of [['CARRY-OLD', '2026-09-01T00:00:00.000Z'], ['CARRY-NEW', '2026-09-02T00:00:00.000Z'], ['CLEAN', '2026-09-03T00:00:00.000Z']] as const) {
+        const t = readTask(repo, id)!;
+        writeFileSync(join(queueDir(repo), `${id}.json`), JSON.stringify({ ...t, createdAt: at }, null, 2) + '\n');
+      }
+      // carried tasks created first but a clean task exists: CLEAN must win
+      expect(claimNextPending(repo, 'w1')!.id).toBe('CLEAN');
+      // among carried tasks, oldest createdAt first
+      expect(claimNextPending(repo, 'w1')!.id).toBe('CARRY-OLD');
+      expect(claimNextPending(repo, 'w1')!.id).toBe('CARRY-NEW');
+    } finally { rmSync(repo, { recursive: true, force: true }); }
+  });
+
+  it('updateTask preserves id/createdAt and can clear failureClass via direct JSON write (Q27)', () => {
+    const repo = tmpRepo();
+    try {
+      enqueueTask(repo, { id: 'JW-1', title: 'j', goal: 'Goal: j', failureClass: 'test-gate' });
+      // Direct queue-JSON write with a stable createdAt (updateTask locks id|createdAt)
+      const t = readTask(repo, 'JW-1')!;
+      writeFileSync(join(queueDir(repo), 'JW-1.json'), JSON.stringify({ ...t, failureClass: undefined, status: 'pending', createdAt: '2026-09-01T00:00:00.000Z' }, null, 2) + '\n');
+      const patched = updateTask(repo, 'JW-1', { title: 'jj' });
+      expect(patched!.id).toBe('JW-1');
+      expect(patched!.createdAt).toBe('2026-09-01T00:00:00.000Z');
+      expect(patched!.failureClass).toBeUndefined();
+      // clean-first order now claims it before a still-carried older task
+      const carried = readTask(repo, 'STILL-CARRIED')!;
+      writeFileSync(join(queueDir(repo), 'STILL-CARRIED.json'), JSON.stringify({ ...carried, createdAt: '2026-08-31T00:00:00.000Z' }, null, 2) + '\n');
+      expect(claimNextPending(repo, 'w1')!.id).toBe('JW-1');
+    } finally { rmSync(repo, { recursive: true, force: true }); }
+  });
+
+  it('enqueueTask stamps carried failureClass onto the queued task (Q27)', () => {
+    const repo = tmpRepo();
+    try {
+      const t = enqueueTask(repo, { id: 'STAMP-1', title: 's', goal: 'Goal: s', failureClass: 'test-gate' });
+      expect(t.failureClass).toBe('test-gate');
+      expect(readTask(repo, 'STAMP-1')!.failureClass).toBe('test-gate');
+      const clean = enqueueTask(repo, { id: 'STAMP-2', title: 's2', goal: 'Goal: s2' });
+      expect(clean.failureClass).toBeUndefined();
     } finally { rmSync(repo, { recursive: true, force: true }); }
   });
 });
