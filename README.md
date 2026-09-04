@@ -18,6 +18,9 @@
 DevAgent integrates with your issue tracker (Linear in v1; Jira, GitHub Issues planned), parses backend specs, drafts database migrations, writes production-grade API code using headless coding-agent CLIs (Claude Code, OpenCode) as execution workers, validates every change inside sandboxed Docker containers, and delivers tested Pull Requests with auto-generated documentation for frontend teams.
 
 ```bash
+# From zero: guided setup (checks prerequisites, writes devagent.json)
+devagent init
+
 # Process a ticket headlessly
 devagent run --ticket LINEAR-204 --repo ./backend-service --auto-pr
 
@@ -152,7 +155,7 @@ v0.4.0 — factory (scout + Orca workers) landed (2026-08-25):
 v0.3.0 — v1 complete, fleet + observability landed (2026-08); evidence-gated
 orchestration landed 2026-08-24 (loops 40-46):
 
-- **CLI**: `devagent run|serve|validate|log|status|dashboard|fleet|config|orchestrate|project|mcp`
+- **CLI**: `devagent init|run|serve|validate|log|status|dashboard|fleet|config|orchestrate|project|mcp`
 - **Workers**: headless omp (`omp -p --mode json`, default), Claude Code (`claude -p`), OpenCode (`opencode run`), and pi (`pi --mode json -p`); fan-out mode (`--worker both`) runs parallel legs and picks the test-passing winner; retries carry gate evidence back as repair prompts
 - **Gates**: G0 issue-readiness scoring before dispatch (type-specific ready-for-dev rubric, 60/100 threshold), G1 repo-native tests, G2 up/down migration apply (compose; honest skips without Docker), G3 static migration analysis (8 rules), G4 concurrency review scoped to the run's own diff
 - **Auto-cleanup**: after every `run`/`task`/`fleet` run the worktree is finalized per `--cleanup auto|keep|always` (default `auto`: on success uncommitted output is snapshotted to the run branch, then the tree is removed; failed runs are preserved for debugging). `--drop-orca-workspace` additionally removes an enclosing Orca-managed workspace via orca-cli. Applies identically to Claude Code and OpenCode workers

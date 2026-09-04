@@ -116,7 +116,7 @@ function statusColor(status: string): string {
   }
 }
 
-function truncate(s: string, n: number): string {
+export function truncate(s: string, n: number): string {
   return s.length <= n ? s : `${s.slice(0, Math.max(0, n - 1))}…`;
 }
 
@@ -129,8 +129,12 @@ function padTo(s: string, n: number): string {
   return s + ' '.repeat(Math.max(1, n - visibleLen(s)));
 }
 
-function dim(s: string): string {
+export function dim(s: string): string {
   return `${C.dim}${s}${C.reset}`;
+}
+/** Cyan accent: attach hints and other §20.8 emphasis. */
+export function cyan(s: string): string {
+  return `${C.cyan}${s}${C.reset}`;
 }
 
 /** Bearer token for daemon calls: opts > env > the 0600 daemon-token file. */
@@ -310,7 +314,7 @@ function fmtClock(ts: unknown): string {
 type CardLines = string[];
 
 /** Status chip: colored dot + label, e.g. "● running" (Pilot-style). */
-function chipFor(state: string, label?: string): string {
+export function chipFor(state: string, label?: string): string {
   const dot = state === 'running' || state === 'ok' ? C.green : state === 'failed' ? C.red : state === 'stale' ? C.magenta : C.yellow;
   return `${dot}●${C.reset} ${statusColor(state)}${truncate(label || state, 18)}${C.reset}`;
 }
@@ -339,7 +343,7 @@ function queuedCardLines(t: TuiQueuedTask, inner: number): CardLines {
  * Rounded-box panel lines for visible width `w`: ╭─ title ─╮ / body /
  * ╰──╯. visibleLen measures title+body so ANSI colors never skew borders.
  */
-function boxLines(title: string, body: string[], w: number): string[] {
+export function boxLines(title: string, body: string[], w: number): string[] {
   const tl = visibleLen(title);
   const head = `${C.dim}╭─${C.reset} ${title} ${C.dim}${'─'.repeat(Math.max(1, w - tl - 5))}╮${C.reset}`;
   const rows = body.map((b) => `${padTo(b + ' ', w - 1)}${C.dim}│${C.reset}`);

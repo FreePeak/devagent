@@ -5,6 +5,9 @@ import { join } from 'node:path';
 import { loadConfig, loadCredentials, credentialStatus, type CleanupMode } from './config.js';
 import { RunLogger } from './logger.js';
 import { ensureStateBranch } from './git/state-branch.js';
+import { runInit, renderInitReport } from './commands/init.js';
+import { buildStatusView, renderStatusCard, statusJson } from './commands/status.js';
+import { buildProbeArgvFor } from './commands/probe-argv.js';
 import { runPreflightGate, PREFLIGHT_ROLES, isPreflightRole } from './resilience/preflight.js';
 import { runPipeline } from './pipeline.js';
 import { buildDeps, buildDryRunDeps } from './deps.js';
@@ -18,36 +21,24 @@ function parseConcurrency(v: string): number | 'auto' {
   return Math.floor(n);
 }
 
-/**
- * Probe argv for the operator preflight (Q40). Mirrors the orchestrate-loop
- * probe (scripts/orchestrate-loop.sh): omp gets the headless hardening flags
- * and requires a provider-qualified model id — an unqualified alias is
- * dropped so the CLI default applies (same normalization buildOmpArgs does);
- * the other workers take a plain prompt.
- */
-function buildProbeArgv(worker: string, model: string | undefined): string[] {
-  if (worker === 'omp') {
-    const ompModel = model && model.includes('/') ? model : undefined;
-    return [
-      'omp',
-      '-p',
-      '--mode',
-      'json',
-      '--no-prewalk',
-      '--no-lsp',
-      '--no-extensions',
-      ...(ompModel ? ['--model', ompModel] : []),
-    ];
-  }
-  return [worker, '-p'];
-}
-
 const program = new Command();
 
 program
   .name('devagent')
   .description('Autonomous backend delivery agent: ticket to tested PR')
   .version('0.1.0');
+
+program
+  .command('init')
+  .description('Guided setup (§21 FR-SIMPLE-01): check prerequisites, write devagent.json with sane defaults, print a plain-language checklist')
+  .option('--repo <path>', 'repository to set up', process.cwd())
+  .option('--worker <name>', 'worker CLI to check and record (default omp; claude-code | opencode | omp | pi)')
+  .option('--model <id>', 'model id to record (provider/model)')
+  .action(async (opts) => {
+    const result = await runInit({ repoPath: opts.repo as string, worker: opts.worker as string | undefined, model: opts.model as string | undefined });
+    renderInitReport(result);
+    if (!result.ok) process.exitCode = 1;
+  });
 
 program
   .command('run')
@@ -433,11 +424,16 @@ program
 
 program
   .command('status')
-  .description('List recent runs (id, last stage, last message)')
+  .description('Show status: plain-language phase card + recent runs (§20.8 FR-SIMPLE-03/04); --json emits the phase view as JSON')
   .option('--limit <n>', 'number of runs', Number, 10)
-  .option('--repo <path>', 'target repository for --providers data', process.cwd())
+  .option('--repo <path>', 'target repository', process.cwd())
   .option('--providers', 'report proxy-probe result, last transient class, circuit state, and the dispatch model-id preflight verdict for the repo config (Q32)', false)
+  .option('--json', 'emit the phase view as JSON (machine format)', false)
   .action(async (opts) => {
+    if (opts.json) {
+      console.log(statusJson(await buildStatusView((opts.repo as string) ?? process.cwd())));
+      return;
+    }
     if (opts.providers) {
       const { readProxyState } = await import('./resilience/proxy-state.js');
       const repoPath = (opts.repo as string) ?? process.cwd();
@@ -471,6 +467,12 @@ program
       if (problem) process.exitCode = 1;
       return;
     }
+    // Human headline (FR-SIMPLE-03/04): current phase + one next action
+    // above the machine-history run table.
+    for (const line of renderStatusCard(await buildStatusView((opts.repo as string) ?? process.cwd()))) {
+      console.log(line);
+    }
+    console.log('');
     const home = process.env.DEVAGENT_HOME || join(process.env.HOME || '.', '.devagent');
     const runsDir = join(home, 'runs');
     let files: string[] = [];
@@ -1118,7 +1120,7 @@ program
       role: opts.role,
       worker,
       model: rawModel ?? '',
-      argv: buildProbeArgv(worker, rawModel),
+      argv: buildProbeArgvFor(worker, rawModel),
       cwd: opts.repo,
     });
     if (decision.ok) {
