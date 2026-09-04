@@ -1,4 +1,3 @@
-{"loop":1,"ts":"2026-08-23T17:30:30Z","status":"ok","goal":"Harden self-build driver: starvation gate, lessons ratchet, dry-run mode"}
 {"loop":2,"ts":"2026-08-23T17:35:37Z","status":"ok","goal":"GitLab publisher closed-loop parity: error bodies, evidence notes, pipeline polling"}
 {"loop":3,"ts":"2026-08-23T17:58:22Z","status":"ok","goal":"devagent_board MCP tool: expose orchestration board (goal, roles, task statuses) to MCP hosts"}
 {"loop":4,"ts":"2026-08-24T02:03:51Z","status":"ok","goal":"Gate skipped-evidence semantics + G2 rollback round-trip (PR #5)"}
@@ -7,34 +6,6 @@
 {"loop":7,"ts":"2026-08-25T04:23:14Z","status":"failed","goal":"Goal: Fix `devagent task --auto-pr` publishing so it opens a PR end-to-end without manual steps. Today publishStage (src/cli.ts:453) pushes `devagent/task-<runI"}
 {"loop":8,"ts":"2026-08-25T04:29:16Z","status":"failed","goal":"Goal: Fix `devagent task --auto-pr` publishing so it opens a PR end-to-end without manual steps. Today publishStage (src/cli.ts:453) pushes `devagent/task-<runI"}
 {"loop":9,"ts":"2026-08-25T04:51:36Z","status":"failed","goal":"Goal: Make task-mode reruns robust to a stale `.devagent-worktrees/TASK` worktree. Ticket id is hardcoded to TASK (src/task.ts:27), so a crashed prior run holdi"}
-{"loop":11,"ts":"2026-08-27T04:25:21Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
-{"loop":12,"ts":"2026-08-27T04:25:34Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
-{"loop":13,"ts":"2026-08-27T04:25:47Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
-{"loop":14,"ts":"2026-08-27T04:26:00Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
-{"loop":15,"ts":"2026-08-27T04:26:14Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
-{"loop":16,"ts":"2026-08-27T04:26:26Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
-{"loop":17,"ts":"2026-08-27T04:26:37Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
-{"loop":18,"ts":"2026-08-27T04:26:49Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
-{"loop":19,"ts":"2026-08-27T04:27:00Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
-{"loop":20,"ts":"2026-08-27T04:27:11Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
-{"loop":21,"ts":"2026-08-27T04:28:28Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
-{"loop":22,"ts":"2026-08-27T04:29:48Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
-{"loop":23,"ts":"2026-08-27T04:32:09Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
-{"loop":24,"ts":"2026-08-27T04:32:21Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
-{"loop":25,"ts":"2026-08-27T04:32:32Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
-{"loop":26,"ts":"2026-08-27T04:32:44Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
-{"loop":27,"ts":"2026-08-27T04:32:55Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
-{"loop":28,"ts":"2026-08-27T04:33:07Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
-{"loop":29,"ts":"2026-08-27T04:33:19Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
-{"loop":30,"ts":"2026-08-27T04:33:30Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
-{"loop":31,"ts":"2026-08-27T04:33:42Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
-{"loop":32,"ts":"2026-08-27T04:33:53Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
-{"loop":33,"ts":"2026-08-27T04:34:05Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
-{"loop":34,"ts":"2026-08-27T04:34:17Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
-{"loop":35,"ts":"2026-08-27T04:36:29Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
-{"loop":36,"ts":"2026-08-27T04:37:45Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
-{"loop":37,"ts":"2026-08-27T04:38:33Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
-{"loop":38,"ts":"2026-08-27T04:40:44Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
 {"loop":48,"ts":"2026-09-04T04:43:39.355Z","status":"failed","goal":"reconstructed record (original 2026-08-27 row was newline-corrupted)"}
 {"loop":49,"ts":"2026-08-27T09:40:18Z","status":"failed","goal":"Goal: Add a post-publish CI remediation stage to devagent task: after publishStage, evaluateChecks polls the PR's GitHub Actions status; on any failing required"}
 {"loop":50,"ts":"2026-08-27T10:32:43Z","status":"failed","goal":"Goal: Add a self-hosted CI-remediation stage to devagent's publish flow — after `publishStage` opens/updates a PR, the task runner re-dispatches the worker on t"}
@@ -58,8 +29,3 @@
 {"loop":68,"ts":"2026-09-01T08:06:05Z","status":"merged","pr":100,"goal":"Ship Q35 from docs/PRD.md (Phase 4): CI-Fixer dispatch/outcome ledger rows (recovered record; PR #100 merged 08:06Z)"}
 {"loop":69,"ts":"2026-09-04T06:33:38Z","status":"ok","goal":"Goal: Add a G0 issue-readiness validation gate that scores incoming tickets against type-specific ready-for-dev criteria and rejects unready tickets before work"}
 {"loop":70,"ts":"2026-09-04T08:31:15Z","status":"ok","goal":"Goal: Record structured watchdog-health ledger rows per worker attempt from both progress-clock sites so never-firing watchdogs are visible in analytics instead"}
-{"loop":71,"ts":"2026-09-04T16:34:04Z","status":"skipped","goal":"Goal: (dry-run) verify driver phases execute without side effects"}
-{"loop":72,"ts":"2026-09-04T16:34:14Z","status":"skipped","goal":"Goal: (dry-run) verify driver phases execute without side effects"}
-{"loop":73,"ts":"2026-09-04T16:34:23Z","status":"skipped","goal":"Goal: (dry-run) verify driver phases execute without side effects"}
-{"loop":74,"ts":"2026-09-04T16:34:31Z","status":"skipped","goal":"Goal: (dry-run) verify driver phases execute without side effects"}
-{"loop":75,"ts":"2026-09-04T16:34:40Z","status":"skipped","goal":"Goal: (dry-run) verify driver phases execute without side effects"}
