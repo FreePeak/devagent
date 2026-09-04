@@ -415,6 +415,9 @@ href="#20-product-direction-addendum-grok-bot-xai-integration-cross-platform-con
 id="toc-20-product-direction-addendum-grok-bot-xai-integration-cross-platform-control-app">20.
 Product Direction Addendum: Grok Bot, xAI Integration, Cross-Platform
 Control App</a></li>
+<li><a href="#21-product-direction-addendum-simplicity-first-fr-simple"
+id="toc-21-product-direction-addendum-simplicity-first-fr-simple">21.
+Product Direction Addendum: Simplicity First (FR-SIMPLE)</a></li>
 </ul></li>
 </ul>
 </nav>
@@ -457,6 +460,9 @@ Criteria</a></li>
 href="#20-product-direction-addendum-grok-bot-xai-integration-cross-platform-control-app">Product
 Direction Addendum: Grok Bot, xAI Integration, Cross-Platform Control
 App</a></li>
+<li><a
+href="#21-product-direction-addendum-simplicity-first-fr-simple">Product
+Direction Addendum: Simplicity First (FR-SIMPLE)</a></li>
 </ol>
 <hr />
 <h2 id="1-executive-summary">1. Executive Summary</h2>
@@ -3688,5 +3694,105 @@ renderers over the same FR-CTRL API — the TUI is the SSH/headless-server
 surface, the app is the desktop surface; neither parses PTYs
 (anti-pattern in §20.3). The PTY lives in the herdr server (FR-VIS),
 which is a terminal multiplexer's job, not a UI's.</p>
+<h2 id="21-product-direction-addendum-simplicity-first-fr-simple">21.
+Product Direction Addendum: Simplicity First (FR-SIMPLE)</h2>
+<blockquote>
+<p>Added 2026-09-05 (operator direction): the deciding product quality
+is <strong>simplicity for the user</strong> — simple enough and easy to
+use, everything visualized for human reading, easy to set up and
+install, and showing only the needed tools — so that in a few steps the
+user states a goal and the agents build the goal product. That is the
+whole product promise. This section constrains how every existing and
+future surface (§12 CLI, §20 daemon + control app, §20.8 TUI/visible
+sessions) is designed and reviewed; it adds no new runtime subsystem and
+does not change the pipeline contract (§8, §10–11).</p>
+</blockquote>
+<h3 id="211-principles-every-surface-every-release">21.1 Principles
+(every surface, every release)</h3>
+<ol type="1">
+<li><strong>Few steps to value</strong> — the common paths (state a
+goal, approve a gate, read the result) are reachable in at most three
+commands or three clicks; anything longer is a power-user affordance,
+never the default path.</li>
+<li><strong>Show only what is needed</strong> — prompts, CLI output, and
+dashboards present the current step and the single next action; advanced
+knobs (budgets, worker selection, remote dispatch, model choice) stay
+discoverable but out of the happy path.</li>
+<li><strong>Visualized for human reading</strong> — every user-facing
+status, gate outcome, and ledger view renders in plain language with
+visual structure (cards, status chips, progress, attach hints — the
+§20.8 card/chip language is the reference); raw JSON/NDJSON is opt-in
+behind <code>--json</code> for scripts, never the default
+presentation.</li>
+<li><strong>Easy to set up and install</strong> — from a clean machine
+to a running factory in one guided command that checks prerequisites,
+captures credentials, and proves itself with a verified smoke run; no
+doc archaeology, no manual env wiring.</li>
+</ol>
+<h3 id="212-requirements">21.2 Requirements</h3>
+<table>
+<thead>
+<tr>
+<th>ID</th>
+<th>Requirement</th>
+<th>Pri</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>FR-SIMPLE-01</td>
+<td><code>devagent init</code>: guided setup that checks prerequisites
+(worker CLI present, provider reachable, git + Docker), captures
+credentials, writes <code>devagent.json</code>, and finishes with a
+verified smoke dispatch (fixture goal → done) printed as a
+plain-language checklist; success never dumps raw logs</td>
+<td>M</td>
+</tr>
+<tr>
+<td>FR-SIMPLE-02</td>
+<td>Three-step goal path: from zero to a dispatched goal in ≤3 steps
+(init → state the goal in one sentence → agents run); the default
+<code>run</code>/loop flow asks no question it can answer itself and
+takes sane defaults for everything optional</td>
+<td>M</td>
+</tr>
+<tr>
+<td>FR-SIMPLE-03</td>
+<td>Human-readable by default: run status, gate outcomes, queue, and
+ledger render in the §20.8 card/chip visual language on every surface
+(CLI, TUI, desktop app); machine formats stay available via
+<code>--json</code></td>
+<td>M</td>
+</tr>
+<tr>
+<td>FR-SIMPLE-04</td>
+<td>Progressive disclosure: at any moment each surface shows the current
+phase and the one next action (including the
+<code>devagent attach &lt;task&gt;</code> hint from FR-VIS-02);
+everything else is one keystroke/click away but never required to reach
+the first PR</td>
+<td>S</td>
+</tr>
+<tr>
+<td>FR-SIMPLE-05</td>
+<td>First-run "where do I look" screen: after init, one view answers
+what the factory is doing right now, what happens next, and where to
+look — composed from the existing FR-CTRL status/events API (no second
+event system, no new tooling to learn)</td>
+<td>S</td>
+</tr>
+<tr>
+<td>FR-SIMPLE-06</td>
+<td>Simplicity regression review: each release walks the four principles
+over the onboarding path and default surfaces; a change that adds a
+required step or a required concept is fixed or flagged before
+release</td>
+<td>C</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Boundary:</strong> simplicity is the default presentation,
+not a restriction — everything stays scriptable over FR-CTRL and flags;
+automation is unaffected.</p>
 </body>
 </html>

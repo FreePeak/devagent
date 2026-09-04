@@ -28,6 +28,7 @@
 18. [Open Questions](#18-open-questions)
 19. [Research Appendix](#19-research-appendix)
 20. [Product Direction Addendum: Grok Bot, xAI Integration, Cross-Platform Control App](#20-product-direction-addendum-grok-bot-xai-integration-cross-platform-control-app)
+21. [Product Direction Addendum: Simplicity First (FR-SIMPLE)](#21-product-direction-addendum-simplicity-first-fr-simple)
 
 ---
 
@@ -1218,3 +1219,42 @@ FR-CTRL API — the TUI is the SSH/headless-server surface, the app is the deskt
 neither parses PTYs (anti-pattern in §20.3). The PTY lives in the herdr server (FR-VIS),
 which is a terminal multiplexer's job, not a UI's.
 
+## 21. Product Direction Addendum: Simplicity First (FR-SIMPLE)
+
+> Added 2026-09-05 (operator direction): the deciding product quality is **simplicity
+for the user** — simple enough and easy to use, everything visualized for human reading,
+easy to set up and install, and showing only the needed tools — so that in a few steps
+the user states a goal and the agents build the goal product. That is the whole product
+promise. This section constrains how every existing and future surface (§12 CLI, §20
+daemon + control app, §20.8 TUI/visible sessions) is designed and reviewed; it adds no
+new runtime subsystem and does not change the pipeline contract (§8, §10–11).
+
+### 21.1 Principles (every surface, every release)
+
+1. **Few steps to value** — the common paths (state a goal, approve a gate, read the
+   result) are reachable in at most three commands or three clicks; anything longer is
+   a power-user affordance, never the default path.
+2. **Show only what is needed** — prompts, CLI output, and dashboards present the
+   current step and the single next action; advanced knobs (budgets, worker selection,
+   remote dispatch, model choice) stay discoverable but out of the happy path.
+3. **Visualized for human reading** — every user-facing status, gate outcome, and ledger
+   view renders in plain language with visual structure (cards, status chips, progress,
+   attach hints — the §20.8 card/chip language is the reference); raw JSON/NDJSON is
+   opt-in behind `--json` for scripts, never the default presentation.
+4. **Easy to set up and install** — from a clean machine to a running factory in one
+   guided command that checks prerequisites, captures credentials, and proves itself
+   with a verified smoke run; no doc archaeology, no manual env wiring.
+
+### 21.2 Requirements
+
+| ID | Requirement | Pri |
+|---|---|---|
+| FR-SIMPLE-01 | `devagent init`: guided setup that checks prerequisites (worker CLI present, provider reachable, git + Docker), captures credentials, writes `devagent.json`, and finishes with a verified smoke dispatch (fixture goal → done) printed as a plain-language checklist; success never dumps raw logs | M |
+| FR-SIMPLE-02 | Three-step goal path: from zero to a dispatched goal in ≤3 steps (init → state the goal in one sentence → agents run); the default `run`/loop flow asks no question it can answer itself and takes sane defaults for everything optional | M |
+| FR-SIMPLE-03 | Human-readable by default: run status, gate outcomes, queue, and ledger render in the §20.8 card/chip visual language on every surface (CLI, TUI, desktop app); machine formats stay available via `--json` | M |
+| FR-SIMPLE-04 | Progressive disclosure: at any moment each surface shows the current phase and the one next action (including the `devagent attach <task>` hint from FR-VIS-02); everything else is one keystroke/click away but never required to reach the first PR | S |
+| FR-SIMPLE-05 | First-run "where do I look" screen: after init, one view answers what the factory is doing right now, what happens next, and where to look — composed from the existing FR-CTRL status/events API (no second event system, no new tooling to learn) | S |
+| FR-SIMPLE-06 | Simplicity regression review: each release walks the four principles over the onboarding path and default surfaces; a change that adds a required step or a required concept is fixed or flagged before release | C |
+
+**Boundary:** simplicity is the default presentation, not a restriction — everything
+stays scriptable over FR-CTRL and flags; automation is unaffected.
