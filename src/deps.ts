@@ -353,6 +353,9 @@ export async function implementStage(
         ...(effectiveApiMaxAttempts !== undefined ? { apiMaxAttempts: effectiveApiMaxAttempts } : {}),
         ...(effectiveNoProgress !== undefined ? { noProgressTimeoutMs: effectiveNoProgress } : {}),
         ...(useHerdr ? { herdr: true } : {}),
+        // Q34: ledger identity from the dispatcher; rows land under the main
+        // repo, never the ephemeral worktree cwd.
+        watchdogLedger: { repoPath: cfg.repoPath, taskId: plan.ticket.id, attempt: displayAttempt, worker: workerName },
       };
       const result = await worker.spawn(spawnOpts as never);
       // Reap any stale provider workers that may be idling after a hung call

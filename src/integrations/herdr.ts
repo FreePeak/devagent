@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync 
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { buildEnv, type SpawnCliOptions, type SpawnCliResult } from '../workers/spawn-utils.js';
+import { appendWatchdogHealthRecord } from '../orchestrator/ledger.js';
 
 /**
  * Herdr runtime integration (https://github.com/herdrdev/herdr).
@@ -240,6 +241,8 @@ export async function runCommandInHerdrPane(
     let lastBytes = -1;
     let lastProgressAt = Date.now();
     let timedOut = false;
+    let watchdogFired = false;
+    let clockResets = 0;
 
     // Progress = NEW TOOLCALL OR TEXT output, not raw byte growth. glm-style
     // models stream thinking_delta continuously (2026-08-31 live evidence:
@@ -264,26 +267,57 @@ export async function runCommandInHerdrPane(
     };
     const seededBytes = meaningfulBytes(outFile) + meaningfulBytes(errFile);
     lastBytes = seededBytes;
+    // Q34: the pre-loop seed counts as one clock reset when the pane already
+    // carried meaningful output.
+    if (seededBytes > 0) clockResets++;
     const graceMs = Math.min(noProgressMs, 60_000);
 
     while (true) {
-      if (existsSync(doneFile)) break;
+      // Sample output BEFORE the done-check: a fast pane (echo → exit) can
+      // finish between polls, and checking the marker first would skip the
+      // final progress snapshot — the row would claim zero clock resets and
+      // zero meaningful bytes for a perfectly healthy run.
       const now = Date.now();
       const bytes = meaningfulBytes(outFile) + meaningfulBytes(errFile);
       if (bytes !== lastBytes) {
         lastBytes = bytes;
         lastProgressAt = now;
+        clockResets++;
       }
-      if (
-        now >= start + opts.timeoutMs ||
-        (noProgressMs > 0 && now - lastProgressAt >= noProgressMs && now - start >= graceMs)
-      ) {
+      if (existsSync(doneFile)) break;
+      if (now >= start + opts.timeoutMs) {
+        timedOut = true;
+        break;
+      }
+      if (noProgressMs > 0 && now - lastProgressAt >= noProgressMs && now - start >= graceMs) {
+        // Q34: watchdogFired is recorded only for the no-progress branch —
+        // wall-clock expiry is a different outcome and the row must not conflate them.
+        watchdogFired = true;
         timedOut = true;
         break;
       }
       await sleep(POLL_MS);
     }
 
+    // Q34: exactly one watchdog-health row per pane launch with a clock armed.
+    if (opts.watchdogLedger && noProgressMs > 0) {
+      const ctx = opts.watchdogLedger;
+      appendWatchdogHealthRecord(ctx.repoPath, {
+        ts: new Date().toISOString(),
+        kind: 'event',
+        event: 'watchdog-health',
+        taskId: ctx.taskId,
+        attempt: ctx.attempt,
+        worker: ctx.worker,
+        site: 'herdr-pane',
+        noProgressTimeoutMs: noProgressMs,
+        watchdogFired,
+        wallClockMs: Date.now() - start,
+        clockResets,
+        meaningfulBytes: lastBytes,
+        idleMs: Date.now() - lastProgressAt,
+      });
+    }
     if (timedOut) {
       // Match spawnCli's SIGKILL semantics: interrupt the foreground process
       // hard, then tear the workspace down.

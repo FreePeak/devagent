@@ -88,6 +88,7 @@ export class PiAdapter implements WorkerAdapter {
         timeoutMs: opts.timeoutMs,
         ...(opts.env ? { env: opts.env } : {}),
         ...(noProgressTimeoutMs ? { noProgressTimeoutMs } : {}),
+        ...(opts.watchdogLedger ? { watchdogLedger: opts.watchdogLedger } : {}),
       });
 
       last = await runWorkerCli(prepared.cmd, prepared.args, {

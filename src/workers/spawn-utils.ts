@@ -1,5 +1,7 @@
 import { execFile, execFileSync, type ExecFileOptionsWithStringEncoding, spawn } from 'node:child_process';
 import { isNdjsonProgressLine } from './progress.js';
+import { appendWatchdogHealthRecord } from '../orchestrator/ledger.js';
+import type { WatchdogLedgerContext } from '../types.js';
 
 export interface SpawnCliOptions {
   cwd: string;
@@ -19,6 +21,8 @@ export interface SpawnCliOptions {
    * Default 0 for git/gh callers; workers pass 10m when infinite retry is on.
    */
   noProgressTimeoutMs?: number;
+  /** Q34: structured watchdog-health ledger context (rows require an armed clock). */
+  watchdogLedger?: WatchdogLedgerContext;
 }
 
 export interface SpawnCliResult {
@@ -152,6 +156,7 @@ export function spawnCliStreaming(
   opts: SpawnCliOptions,
 ): Promise<SpawnCliResult> {
   const noProgressMs = opts.noProgressTimeoutMs ?? 0;
+  const start = Date.now();
   return new Promise((resolve) => {
     const env = buildEnv(opts);
     const child = spawn(cmd, args, {
@@ -164,6 +169,7 @@ export function spawnCliStreaming(
     const stdoutChunks: string[] = [];
     const stderrChunks: string[] = [];
     let timedOut = false;
+    let watchdogFired = false;
     let exitCode: number | null = null;
     let done = false;
     let lastProgressAt = Date.now();
@@ -174,6 +180,8 @@ export function spawnCliStreaming(
     // deliberating. Mirrors the herdr pane watcher (src/integrations/herdr.ts
     // meaningfulBytes): only non-thinking lines reset the watchdog clock.
     let meaningfulBytes = 0;
+    // Q34: meaningful-progress clock resets, reported in the ledger row.
+    let clockResets = 0;
     // PRD Q33: per-chunk progress classification via the shared NDJSON core.
     // A chunk counts when ANY line evidences new work (tool call or text);
     // thinking-only chunks never reset the watchdog clock.
@@ -189,6 +197,24 @@ export function spawnCliStreaming(
       done = true;
       if (wallTimer) clearTimeout(wallTimer);
       if (watchdog) clearInterval(watchdog);
+      if (opts.watchdogLedger && noProgressMs > 0) {
+        const ctx = opts.watchdogLedger;
+        appendWatchdogHealthRecord(ctx.repoPath, {
+          ts: new Date().toISOString(),
+          kind: 'event',
+          event: 'watchdog-health',
+          taskId: ctx.taskId,
+          attempt: ctx.attempt,
+          worker: ctx.worker,
+          site: 'spawn-cli',
+          noProgressTimeoutMs: noProgressMs,
+          watchdogFired,
+          wallClockMs: Date.now() - start,
+          clockResets,
+          meaningfulBytes,
+          idleMs: Date.now() - lastProgressAt,
+        });
+      }
       resolve({
         exitCode: timedOut ? -1 : (exitCode ?? -1),
         stdout: stdoutChunks.join(''),
@@ -202,6 +228,7 @@ export function spawnCliStreaming(
       stdoutChunks.push(s);
       if (isMeaningful(s)) {
         meaningfulBytes += s.length;
+        clockResets++;
         touch();
       }
     });
@@ -210,6 +237,7 @@ export function spawnCliStreaming(
       stderrChunks.push(s);
       if (isMeaningful(s)) {
         meaningfulBytes += s.length;
+        clockResets++;
         touch();
       }
     });
@@ -252,6 +280,7 @@ export function spawnCliStreaming(
       watchdog = setInterval(() => {
         if (done || timedOut) return;
         if (Date.now() - lastProgressAt >= noProgressMs) {
+          watchdogFired = true;
           timedOut = true;
           try {
             child.kill('SIGKILL');

@@ -77,6 +77,7 @@ export class OpenCodeAdapter implements WorkerAdapter {
         timeoutMs: opts.timeoutMs,
         ...(opts.env ? { env: opts.env } : {}),
         ...(noProgressTimeoutMs ? { noProgressTimeoutMs } : {}),
+        ...(opts.watchdogLedger ? { watchdogLedger: opts.watchdogLedger } : {}),
       });
       let raw = await runWorkerCli(prepared.cmd, prepared.args, {
         ...prepared.opts,
@@ -92,6 +93,7 @@ export class OpenCodeAdapter implements WorkerAdapter {
           timeoutMs: opts.timeoutMs,
           ...(opts.env ? { env: opts.env } : {}),
           ...(noProgressTimeoutMs ? { noProgressTimeoutMs } : {}),
+          ...(opts.watchdogLedger ? { watchdogLedger: opts.watchdogLedger } : {}),
         });
         raw = await runWorkerCli(fallbackPrepared.cmd, fallbackPrepared.args, {
           ...fallbackPrepared.opts,

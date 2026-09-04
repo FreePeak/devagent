@@ -363,6 +363,10 @@ describe('worker adapters route through the sandbox', () => {
   beforeEach(() => {
     captured.length = 0;
     vi.unstubAllEnvs();
+    // Hermetic vs selfbuild-loop.sh's exported DEVAGENT_NO_PROGRESS_TIMEOUT_MS:
+    // an armed default routes spawnCli through spawnCliStreaming (unmocked
+    // spawn here). Watchdog arming is covered in watchdog-health.test.ts.
+    delete process.env.DEVAGENT_NO_PROGRESS_TIMEOUT_MS;
   });
   afterEach(() => {
     vi.unstubAllEnvs();

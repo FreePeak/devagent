@@ -148,6 +148,94 @@ describe('herdr integration', () => {
     expect(calls().some((l) => l.startsWith('workspace close w1'))).toBe(true);
   }, 20_000);
 
+  it('writes a herdr-pane watchdog-health row with watchdogFired:false for a clean run (Q34)', async () => {
+    process.env.DEVAGENT_HERDR_BIN = stubBin;
+    process.env.STUB_LOG = stubLog;
+    const repo = mkdtempSync(join(tmpdir(), 'wh-herdr-ok-'));
+    try {
+      const r = await runCommandInHerdrPane('sh', ['-c', 'echo \'{"type":"tool_execution_start"}\''], {
+        cwd: stubDir,
+        timeoutMs: 10_000,
+        noProgressTimeoutMs: 5_000,
+        watchdogLedger: { repoPath: repo, taskId: 'Q34-2', attempt: 1, worker: 'omp' },
+      });
+      expect(r).not.toBeNull();
+      expect(r!.timedOut).toBe(false);
+      const file = join(repo, '.devagent/runs/orchestration/events.jsonl');
+      const all = readFileSync(file, 'utf8').trim().split('\n').map((l) => JSON.parse(l) as Record<string, unknown>);
+      expect(all).toHaveLength(1);
+      expect(all[0]).toMatchObject({
+        kind: 'event',
+        event: 'watchdog-health',
+        site: 'herdr-pane',
+        taskId: 'Q34-2',
+        worker: 'omp',
+        noProgressTimeoutMs: 5_000,
+        watchdogFired: false,
+      });
+      expect(all[0]!.clockResets).toBeGreaterThanOrEqual(1);
+      expect(all[0]!.meaningfulBytes as number).toBeGreaterThan(0);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it('wall-clock expiry records watchdogFired:false while a no-progress fire records true (Q34)', async () => {
+    process.env.DEVAGENT_HERDR_BIN = stubBin;
+    process.env.STUB_LOG = stubLog;
+    // Wall expiry: silent pane, short wall, long clock.
+    const wallRepo = mkdtempSync(join(tmpdir(), 'wh-herdr-wall-'));
+    try {
+      const r = await runCommandInHerdrPane('sleep', ['30'], {
+        cwd: stubDir,
+        timeoutMs: 700,
+        noProgressTimeoutMs: 30_000,
+        watchdogLedger: { repoPath: wallRepo, taskId: 'Q34-3', attempt: 1, worker: 'pi' },
+      });
+      expect(r!.timedOut).toBe(true);
+      const row = JSON.parse(readFileSync(join(wallRepo, '.devagent/runs/orchestration/events.jsonl'), 'utf8').trim()) as Record<string, unknown>;
+      expect(row).toMatchObject({ event: 'watchdog-health', site: 'herdr-pane', watchdogFired: false, noProgressTimeoutMs: 30_000 });
+    } finally {
+      rmSync(wallRepo, { recursive: true, force: true });
+    }
+    // Watchdog fire: silent pane, long wall, short clock.
+    const fireRepo = mkdtempSync(join(tmpdir(), 'wh-herdr-fire-'));
+    try {
+      const r = await runCommandInHerdrPane('sleep', ['30'], {
+        cwd: stubDir,
+        timeoutMs: 30_000,
+        noProgressTimeoutMs: 600,
+        watchdogLedger: { repoPath: fireRepo, taskId: 'Q34-3', attempt: 2, worker: 'pi' },
+      });
+      expect(r!.timedOut).toBe(true);
+      const row = JSON.parse(readFileSync(join(fireRepo, '.devagent/runs/orchestration/events.jsonl'), 'utf8').trim()) as Record<string, unknown>;
+      expect(row).toMatchObject({ event: 'watchdog-health', site: 'herdr-pane', watchdogFired: true, noProgressTimeoutMs: 600 });
+      expect(row.idleMs as number).toBeGreaterThanOrEqual(600);
+    } finally {
+      rmSync(fireRepo, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it('never writes a herdr-pane row without ledger context or with the clock disabled', async () => {
+    process.env.DEVAGENT_HERDR_BIN = stubBin;
+    process.env.STUB_LOG = stubLog;
+    const repo = mkdtempSync(join(tmpdir(), 'wh-herdr-silent-'));
+    try {
+      // No watchdogLedger: no row.
+      await runCommandInHerdrPane('echo', ['no-context'], { cwd: stubDir, timeoutMs: 10_000, noProgressTimeoutMs: 5_000 });
+      // Clock disabled: no row even with context.
+      await runCommandInHerdrPane('echo', ['no-clock'], {
+        cwd: stubDir,
+        timeoutMs: 10_000,
+        noProgressTimeoutMs: 0,
+        watchdogLedger: { repoPath: repo, taskId: 'Q34-4', attempt: 1, worker: 'claude-code' },
+      });
+      expect(existsSync(join(repo, '.devagent/runs/orchestration/events.jsonl'))).toBe(false);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
   it('keeps completed panes open when DEVAGENT_HERDR_KEEP_PANES=1', async () => {
     process.env.DEVAGENT_HERDR_BIN = stubBin;
     process.env.DEVAGENT_HERDR_KEEP_PANES = '1';
