@@ -22,10 +22,11 @@ REQUEUE_AFTER="${ORCHESTRATOR_REQUEUE_AFTER:-6}"
 PLAN_ONLY="${ORCHESTRATOR_PLAN_ONLY:-0}"
 DRY_RUN="${ORCHESTRATOR_DRY_RUN:-0}"
 DEVAGENT=(node "$REPO/dist/src/cli.js")
-# Spawn visibility (FR-VIS-04): DEVAGENT_VISIBILITY > SELFBUILD_VISIBILITY >
-# visible, exported for the `devagent orchestrate` cycle below (its worker
-# dispatch inherits the env; omp-direct panes route through the devagent CLI
-# config the same way). Headless LaunchAgents keep their env unchanged.
+# Spawn visibility (FR-VIS-04): visible is the default (workers in attachable
+# herdr panes); DEVAGENT_VISIBILITY=headless keeps 24/7 LaunchAgents invisible.
+# Precedence: DEVAGENT_VISIBILITY > SELFBUILD_VISIBILITY > visible, exported
+# for the `devagent orchestrate` cycle below (its worker dispatch inherits the
+# env; omp-direct panes route through the devagent CLI config the same way).
 VISIBILITY="${DEVAGENT_VISIBILITY:-${SELFBUILD_VISIBILITY:-visible}}"
 export DEVAGENT_VISIBILITY="$VISIBILITY"
 BOARD="$REPO/.devagent-project.json"
@@ -112,6 +113,24 @@ while :; do
   SWEEP_OUT="$("${DEVAGENT[@]}" herdr-sweep 2>&1)" || true
   [ -n "$SWEEP_OUT" ] && echo "$SWEEP_OUT" | tail -3
 
+  # Doc freshness gate (parity with selfbuild-loop.sh): the orchestrator
+  # plans/bridges from docs/PRD.md, so a manual PRD update must be pulled
+  # before planning or every board keeps the older doc version. Dirty PRD
+  # (operator mid-edit) parks this cycle without breaker damage; offline/
+  # diverged counts a failure like any other.
+  if [ "$NO_SYNC_DOCS" != 1 ]; then
+    SYNC_OUT="$(git fetch origin main 2>&1 && git merge --ff-only origin/main 2>&1)" || {
+      echo "[sync-docs] PRD refresh failed: $SYNC_OUT"
+      if printf '%s' "$SYNC_OUT" | grep -q "locally modified\|Your local changes"; then
+        sleep "${ORCHESTRATOR_SYNC_RETRY_SECS:-60}"
+        continue
+      fi
+      fails=$(( fails + 1 ))
+      [ "$fails" -ge "$MAX_FAILS" ] && { echo "circuit breaker: $fails consecutive failures" ; exit 1 ; }
+      sleep "${ORCHESTRATOR_SYNC_RETRY_SECS:-60}"
+      continue
+    }
+  fi
   OPEN="$(board_open_tasks)"
   DONE_COUNT="$(board_done_tasks)"
   TOTAL="$(board_total_tasks)"

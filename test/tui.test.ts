@@ -60,7 +60,7 @@ describe('tui one-shot (non-TTY smoke path)', () => {
   it('prints a snapshot with queue depth, herdr session, attach hints; exit 0', async () => {
     const out = await captureStdout({ url: `http://127.0.0.1:${port}`, token });
     expect(out).toContain('DevAgent');
-    expect(out).toContain('queue 0p/0c/0d'); // queue depth from /status
+    expect(out).toContain('0p/0c/0d'); // queue depth from /status (compact bar format)
     expect(out).toContain('herdr:devagent'); // session name from /status
     expect(out).toContain('no workers, queue empty');
     expect(out).toContain('[r] refresh [s] sessions [k] kill [?] help [q] quit');
@@ -108,13 +108,18 @@ describe('renderDashboard', () => {
   };
 
   it('draws header, pane cards with attach hints, queued cards, history', () => {
-    const out = renderDashboard(snap);
+    const raw = renderDashboard(snap);
+    // Chip text is split by reset codes (dot + label colored separately);
+    // assert against the visible text with ANSI stripped.
+    const out = raw.replace(/\x1b\[[0-9;]*m/g, '');
     expect(out).toContain('RUNNING');
-    expect(out).toContain('queue 2p/1c/3d');
+    expect(out).toContain('2p/1c/3d');
     expect(out).toContain('herdr:devagent');
     expect(out).toContain('TASK-abc');
-    expect(out).toContain('devagent attach TASK-abc');
-    expect(out).toContain('[queued]'); // queued card
+    expect(out).toContain('TASK-xyz'); // queued card title
+    expect(out).toContain('● working'); // status chip in the pane card
+    expect(out).toContain('╭─'); // boxed panel borders (Pilot-style)
+    expect(out).toContain('● queued'); // queued card chip
     expect(out).toContain('audit'); // history row event/kind
     expect(out).not.toContain('DAEMON UNREACHABLE');
   });

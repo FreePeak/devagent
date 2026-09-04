@@ -98,6 +98,7 @@ const C = {
   red: '\x1b[31m',
   cyan: '\x1b[36m',
   magenta: '\x1b[35m',
+  inverse: '\x1b[7m',
 } as const;
 
 function statusColor(status: string): string {
@@ -299,24 +300,43 @@ function fmtClock(ts: unknown): string {
   return d.toTimeString().slice(0, 8);
 }
 
-type CardLines = [title: string, meta: string, hint: string];
+type CardLines = string[];
 
-function paneCardLines(p: TuiPane): CardLines {
-  const id = p.taskId || p.label || '?';
-  const el = fmtElapsed(p.startedAt);
-  return [
-    `${C.bold}${truncate(id, 22)}${C.reset} ${C.dim}${truncate(p.worker || '-', 14)}${C.reset}`,
-    `${statusColor(p.state)}${p.agentStatus || p.state}${C.reset}${el ? ` ${C.dim}· ${el}${C.reset}` : ''}`,
-    `${C.dim}devagent attach ${truncate(id, 30)}${C.reset}`,
-  ];
+/** Status chip: colored dot + label, e.g. "● running" (Pilot-style). */
+function chipFor(state: string, label?: string): string {
+  const dot = state === 'running' || state === 'ok' ? C.green : state === 'failed' ? C.red : state === 'stale' ? C.magenta : C.yellow;
+  return `${dot}●${C.reset} ${statusColor(state)}${truncate(label || state, 18)}${C.reset}`;
 }
 
-function queuedCardLines(t: TuiQueuedTask): CardLines {
-  return [
-    `${C.bold}${truncate(t.id || '?', 22)}${C.reset}`,
-    `${C.yellow}[queued]${C.reset} ${C.dim}${truncate(t.title ?? '', 26)}${C.reset}`,
-    '',
+/** Boxed worker card (Pilot-style panel): title bar + status/cwd body. */
+function paneCardLines(p: TuiPane, inner: number): CardLines {
+  const id = p.taskId || p.label || '?';
+  const el = fmtElapsed(p.startedAt);
+  const body = [
+    ` ${chipFor(p.state, p.agentStatus || p.state)} ${el ? `${C.dim}· ${el}${C.reset}` : ''} ${C.dim}${truncate(p.worker || '-', 12)}${C.reset}`,
+    ` ${C.dim}cwd ${truncate(p.cwd, Math.max(10, inner - 8))}${C.reset}`,
   ];
+  return boxLines(truncate(id, inner - 6), body, inner);
+}
+
+function queuedCardLines(t: TuiQueuedTask, inner: number): CardLines {
+  const body = [
+    ` ${chipFor('queued', 'queued')}  ${C.dim}${truncate(t.title ?? '', Math.max(10, inner - 14))}${C.reset}`,
+    ` ${C.dim}waiting for a worker claim${C.reset}`,
+  ];
+  return boxLines(truncate(t.id || '?', inner - 6), body, inner);
+}
+
+/**
+ * Rounded-box panel lines for visible width `w`: ╭─ title ─╮ / body /
+ * ╰──╯. visibleLen measures title+body so ANSI colors never skew borders.
+ */
+function boxLines(title: string, body: string[], w: number): string[] {
+  const tl = visibleLen(title);
+  const head = `${C.dim}╭─${C.reset} ${title} ${C.dim}${'─'.repeat(Math.max(1, w - tl - 5))}╮${C.reset}`;
+  const rows = body.map((b) => `${padTo(b + ' ', w - 1)}${C.dim}│${C.reset}`);
+  const foot = `${C.dim}╰${'─'.repeat(Math.max(1, w - 2))}╯${C.reset}`;
+  return [head, ...rows, foot];
 }
 
 export interface RenderOptions {
@@ -333,24 +353,26 @@ export interface RenderOptions {
 /** Full frame (multi-line, no screen-control codes) for the current snapshot. */
 export function renderDashboard(snap: Snapshot, ropts: RenderOptions = {}): string {
   const width = process.stdout?.columns ?? 100;
-  const half = Math.max(30, Math.floor(width / 2));
+  const half = Math.max(34, Math.floor(width / 2));
   const status = snap.status;
   const panes = snap.agents?.panes ?? snap.sessions ?? [];
   const queued = snap.agents?.queued ?? [];
   const lines: string[] = [];
 
+  // Header: inverse-video full-width title strip with the aggregate status
+  // embedded — the Pilot "toolbar" cue. Auth/offline variants stay red-on-normal.
   if (snap.authFailed) {
-    lines.push(`${C.bold}${C.red}DevAgent  DAEMON AUTH REJECTED${C.reset}${C.dim} — token invalid (DEVAGENT_DAEMON_TOKEN / daemon-token file)${C.reset}`);
+    lines.push(`${C.bold}${C.red} DevAgent — DAEMON AUTH REJECTED ${C.reset}${C.dim} token invalid (DEVAGENT_DAEMON_TOKEN / daemon-token file)${C.reset}`);
   } else if (!snap.reachable || !status) {
-    lines.push(`${C.bold}${C.red}DevAgent  DAEMON UNREACHABLE${C.reset}${C.dim} — retrying every ${POLL_MS / 1000}s (start the daemon; check DEVAGENT_DAEMON_TOKEN)${C.reset}`);
+    lines.push(`${C.bold}${C.red} DevAgent — DAEMON UNREACHABLE ${C.reset}${C.dim} retrying every ${POLL_MS / 1000}s · start the daemon${C.reset}`);
   } else {
     const agg = aggregateStatus(status, panes);
     const q = status.queue ?? {};
     const circ = status.circuit ? ` · circuit:${status.circuit}` : '';
-    lines.push(
-      `${C.bold}DevAgent${C.reset}  ${statusColor(agg)}${C.bold}${agg}${C.reset}` +
-        `${C.dim} · queue ${q.pending ?? 0}p/${q.claimed ?? 0}c/${q.done ?? 0}d · herdr:${status.herdr?.session ?? '-'} · vis:${status.spawn?.visibility ?? 'visible'}${circ}${C.reset}`,
-    );
+    const meta = `${q.pending ?? 0}p/${q.claimed ?? 0}c/${q.done ?? 0}d · herdr:${status.herdr?.session ?? '-'} · vis:${status.spawn?.visibility ?? 'visible'}${circ}`;
+    const chip = `${statusColor(agg)}● ${agg}${C.reset}`;
+    const barBody = ` DevAgent  ${chip}  ${C.dim}${meta}${C.reset} `;
+    lines.push(`${C.bold}${C.inverse}${padTo(barBody, Math.max(width, visibleLen(barBody) + 1))}${C.reset}`);
   }
   lines.push('');
 
@@ -369,8 +391,8 @@ export function renderDashboard(snap: Snapshot, ropts: RenderOptions = {}): stri
 
   lines.push(
     ropts.showSessions
-      ? `${C.bold}Sessions${C.reset} ${C.dim}(herdr panes)${C.reset}`
-      : `${C.bold}Workers${C.reset} ${C.dim}(${panes.length} pane(s) · ${queued.length} queued)${C.reset}`,
+      ? `${C.bold}▌Sessions${C.reset} ${C.dim}herdr panes${C.reset}`
+      : `${C.bold}▌Workers${C.reset} ${C.dim}${panes.length} pane(s) · ${queued.length} queued${C.reset}`,
     '',
   );
 
@@ -379,24 +401,28 @@ export function renderDashboard(snap: Snapshot, ropts: RenderOptions = {}): stri
     for (const p of panes) {
       const el = fmtElapsed(p.startedAt);
       lines.push(
-        `  ${C.cyan}${truncate(p.paneId || '-', 18)}${C.reset}  ${C.bold}${truncate(p.taskId || '?', 24)}${C.reset}  ${truncate(p.worker || '-', 12)}  ${statusColor(p.state)}${p.state}${C.reset}${el ? ` ${C.dim}· ${el}${C.reset}` : ''}  ${C.dim}${truncate(p.cwd, Math.max(20, width - 72))}${C.reset}`,
+        `  ${C.cyan}${truncate(p.paneId || '-', 18)}${C.reset}  ${C.bold}${truncate(p.taskId || '?', 24)}${C.reset}  ${chipFor(p.state, p.agentStatus || p.state)}${el ? ` ${C.dim}· ${el}${C.reset}` : ''}  ${C.dim}${truncate(p.cwd, Math.max(20, width - 72))}${C.reset}`,
       );
     }
   } else {
-    const cards: CardLines[] = [...panes.map(paneCardLines), ...queued.map(queuedCardLines)];
+    const cards: CardLines[] = [
+      ...panes.map((p) => paneCardLines(p, half - 2)),
+      ...queued.map((t) => queuedCardLines(t, half - 2)),
+    ];
     if (!cards.length) lines.push(dim('  no workers, queue empty'));
     for (let i = 0; i < cards.length; i += 2) {
       const a = cards[i]!;
       const b = cards[i + 1];
-      lines.push(padTo(a[0], half) + (b ? b[0] : ''));
-      lines.push(padTo(a[1], half) + (b ? b[1] : ''));
-      lines.push(padTo(a[2], half) + (b ? b[2] : ''));
+      const rows = Math.max(a.length, b?.length ?? 0);
+      for (let r = 0; r < rows; r++) {
+        lines.push(padTo(a[r] ?? '', half) + (b ? (b[r] ?? '') : ''));
+      }
       lines.push('');
     }
     if (cards.length) lines.pop(); // single blank between cards and history
   }
 
-  lines.push(`${C.bold}History${C.reset} ${C.dim}(ledger tail)${C.reset}`, '');
+  lines.push(`${C.bold}▌History${C.reset} ${C.dim}ledger tail${C.reset}`, '');
   const history = snap.history.slice(-HISTORY_ROWS);
   if (!history.length) {
     lines.push(dim('  no ledger rows'));
@@ -413,8 +439,8 @@ export function renderDashboard(snap: Snapshot, ropts: RenderOptions = {}): stri
   if (ropts.note) notes.push(ropts.note);
   lines.push(
     '',
-    `${C.dim}[r] refresh [s] sessions [k] kill [?] help [q] quit${C.reset}` +
-      (notes.length ? `  ${C.yellow}— ${truncate(notes.join(' · '), Math.max(20, width - 48))}${C.reset}` : ''),
+    `${C.inverse} [r] refresh [s] sessions [k] kill [?] help [q] quit ${C.reset}` +
+      (notes.length ? `  ${C.yellow}${truncate(notes.join(' · '), Math.max(20, width - 48))}${C.reset}` : ''),
   );
   return lines.join('\n');
 }

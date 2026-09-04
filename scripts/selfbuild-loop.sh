@@ -29,10 +29,11 @@ CLAUDE_TIMEOUT="${SELFBUILD_CLAUDE_TIMEOUT:-600}"
 # loop via the unguarded dispatch below.
 RESEARCH_TIMEOUT="${SELFBUILD_RESEARCH_TIMEOUT:-900}"
 
-# Spawn visibility (FR-VIS-04): argv --headless/--visible wins over the env
-# default (DEVAGENT_VISIBILITY > SELFBUILD_VISIBILITY > visible). Exported so
-# every `devagent task` dispatch below inherits it; the 24/7 LaunchAgent keeps
-# workers headless via its own DEVAGENT_VISIBILITY env.
+# Spawn visibility (FR-VIS-04): visible is the default (2026-09-04 operator
+# direction — workers run in attachable herdr panes like a human session);
+# --headless / DEVAGENT_VISIBILITY=headless restores CI/LaunchAgent behavior.
+# Precedence: argv flag > DEVAGENT_VISIBILITY env > SELFBUILD_VISIBILITY env
+# > visible. Exported so every `devagent task` dispatch below inherits it.
 VISIBILITY="${DEVAGENT_VISIBILITY:-${SELFBUILD_VISIBILITY:-visible}}"
 NO_SYNC_DOCS="${SELFBUILD_NO_SYNC_DOCS:-0}"
 while [ $# -gt 0 ]; do
@@ -111,6 +112,10 @@ starved() {
       c = 0
       for (i = NR; i >= 1; i--) {
         if (lines[i] ~ /"status":"(ok|pr-open|merged|pushed)"/) break
+        # operator-degraded rows are expected operator-presence pauses (dirty
+        # PRD mid-edit, degraded provider probed OK otherwise) — not evidence
+        # of a thrashing loop; never count them toward starvation.
+        if (lines[i] ~ /"status":"operator-degraded"/) continue
         if (++c >= lim) break
       }
       print c
@@ -212,12 +217,22 @@ while :; do
     # or the loop keeps building the older doc version. fetch + ff-only; on a
     # dirty PRD (operator mid-edit) or diverged branch, skip the LLM phases
     # and record the degraded row instead of silently building stale work.
+    # A dirty-PRD refusal is the EXPECTED operator-mid-edit state, not a
+    # factory fault: it neither increments the breaker nor counts toward
+    # starvation (recorded as operator-degraded, not skipped) — 3 rapid empty
+    # iterations would otherwise circuit-break the factory (continue paths
+    # skip the tail fails=0 reset). Offline/diverged still counts as failure.
     if [ "$NO_SYNC_DOCS" != 1 ]; then
       SYNC_OUT="$(git fetch origin main 2>&1 && git merge --ff-only origin/main 2>&1)" || {
         echo "[sync-docs] PRD refresh failed: $SYNC_OUT"
-        record "$N" provider-degraded "doc-sync failed: $(printf '%s' "$SYNC_OUT" | tail -1 | cut -c1-120)"
-        fails=$(( fails + 1 ))
-        [ "$fails" -ge "$MAX_FAILS" ] && { echo "circuit breaker: $fails consecutive failures" ; exit 1 ; }
+        if printf '%s' "$SYNC_OUT" | grep -q "locally modified\|Your local changes"; then
+          record "$N" operator-degraded "doc-sync deferred: PRD locally modified"
+        else
+          record "$N" provider-degraded "doc-sync failed: $(printf '%s' "$SYNC_OUT" | tail -1 | cut -c1-120)"
+          fails=$(( fails + 1 ))
+          [ "$fails" -ge "$MAX_FAILS" ] && { echo "circuit breaker: $fails consecutive failures" ; exit 1 ; }
+        fi
+        sleep "${SELFBUILD_SYNC_RETRY_SECS:-60}"
         continue
       }
       printf '%s\n' "$SYNC_OUT" | grep -q "Already up to date" || echo "[sync-docs] $SYNC_OUT"
