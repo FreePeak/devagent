@@ -1,4 +1,5 @@
-import type { ExecutorFailureClass, RunConfig, TicketSpec, WorkerName } from './types.js';
+import type { ExecutorFailureClass, RunConfig, TicketClass, TicketSpec, WorkerName } from './types.js';
+import type { ReadinessGateResult } from './validation/readiness-gate.js';
 import type { RunLogger } from './logger.js';
 import type { ImplementationPlan } from './planner.js';
 import { checkSpec, planFromTicket } from './planner.js';
@@ -37,6 +38,8 @@ export interface ImplementResult {
 export interface PipelineDeps {
   fetchTicket(ticketId: string): Promise<TicketSpec>;
   postTicketComment?(trackerInternalId: string, comment: string): Promise<void>;
+  /** G0 issue-readiness gate: type-specific ready-for-dev scoring before worker dispatch. Optional so hand-built test deps stay valid; buildDeps wires the deterministic default. */
+  runGateG0?(ticket: TicketSpec, classification: TicketClass): ReadinessGateResult;
   runGateG3(repoPath: string, classification: import('./types.js').TicketClass): {
     passed: boolean;
     findings: unknown[];
@@ -65,6 +68,30 @@ export async function runPipeline(cfg: RunConfig, deps: PipelineDeps, log: RunLo
   // Stage: plan
   const plan = planFromTicket(ticket);
   log.info('plan', `Classified as ${plan.classification}`, { tasks: plan.tasks });
+
+  // Gate G0 (issue readiness): type-specific ready-for-dev scoring BEFORE
+  // worker dispatch. Rejected tickets get actionable findings (posted to the
+  // tracker when possible) so credits are not burned on under-specified work.
+  if (deps.runGateG0) {
+    const g0 = deps.runGateG0(ticket, plan.classification);
+    log.info('validate', `G0 ${g0.skipped ? 'skipped' : g0.passed ? 'passed' : 'rejected'}: ${(g0.detail ?? '').split('\n')[0]}`, {
+      score: g0.score,
+      threshold: g0.threshold,
+    });
+    outcomes.push({ stage: 'validate', passed: g0.passed });
+    if (!g0.passed) {
+      log.warn('clarify', 'G0 readiness gate rejected ticket', { findings: g0.findings.length });
+      if (ticket.trackerInternalId && deps.postTicketComment) {
+        try {
+          await deps.postTicketComment(ticket.trackerInternalId, g0.detail ?? 'G0 readiness gate rejected this ticket');
+        } catch (err) {
+          log.warn('clarify', `Failed to post G0 rejection comment: ${(err as Error).message}`);
+        }
+      }
+      outcomes.push({ stage: 'failed', reason: `G0 readiness gate rejected: ${g0.detail ?? 'score below threshold'}` });
+      return outcomes;
+    }
+  }
 
   // Spec check (FR-TICKET-05)
   const spec = checkSpec(ticket);

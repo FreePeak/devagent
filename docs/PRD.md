@@ -382,6 +382,29 @@ A dedicated audit pass (separate worker prompt, not the implementer) over the di
 2. **LLM hypothesis pass**: unawaited promises/fire-and-forget calls, shared mutable state across requests, queue-handler idempotency, transaction boundaries spanning I/O.
 3. Findings posted as PR review comments (advisory in v1); LLM-only findings are labeled as such so reviewers can weight them.
 
+### Gate G0 — Issue readiness (pre-dispatch)
+
+Type-specific ready-for-dev scoring of the incoming ticket BEFORE any worker
+dispatch, so credits are not burned on under-specified work. Implemented in
+`src/validation/readiness-gate.ts` (pure length/regex rubric — no LLM, no
+network, never throws on missing fields) and wired into the pipeline as the
+optional `runGateG0` dep (default provided by `buildDeps`).
+
+- The ticket is classified first (FR-PLAN-03), then scored against common
+  criteria (substantive title, description, machine-checkable acceptance
+  criteria — 65 points) plus two class-specific signals (35 points):
+  endpoint surface + verification for `endpoint-only`; schema entities +
+  down-migration/rollback expectation for `migration-required`; transport +
+  delivery semantics for `consumer-only`.
+- Score >= 60 (threshold `G0_READINESS_THRESHOLD`) dispatches; anything less
+  rejects with a `Finding` per unmet criterion. Rejection surfaces as a
+  `failed` pipeline outcome (`G0 readiness gate rejected: ...`) with the
+  findings detail posted to the tracker when credentials allow (FR-TICKET-03
+  path); a failed comment post never masks the gate verdict.
+- Unknown classifications skip honestly (consistent with G2/G3 skip
+  semantics); dry-run plan-only runs surface G0 like `checkSpec`, and
+  hand-built deps without the gate keep the pre-G0 behavior.
+
 ### G5: STRIDE merge gate
 
 Static STRIDE-category review over the worker's branch diff, run in the

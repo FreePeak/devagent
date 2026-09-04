@@ -10,6 +10,7 @@ import type { FanoutLeg } from './workers/fanout.js';
 import { fetchTicket, postTicketComment } from './integrations/linear.js';
 import { GITHUB_ISSUE_REF } from './integrations/github-issues.js';
 import { runMigrationStaticGate } from './validation/runner.js';
+import { evaluateReadiness } from './validation/readiness-gate.js';
 import { createWorktree, isGitRepository, finalizeRunWorktree } from './git/worktree.js';
 import { getWorker } from './workers/index.js';
 import { buildImplementationPrompt, buildRepairPrompt, loadLessons } from './prompt.js';
@@ -93,14 +94,24 @@ export function buildDeps(creds: Credentials, cfg: StageConfig, log: RunLogger):
         detail: `${files.length} changed file(s), ${findings.length} finding(s)${blocking ? ' (blocking high-severity)' : ''}`,
       };
     },
+    runGateG0: (ticket, classification: TicketClass) => {
+      const r = evaluateReadiness({ ticket, classification });
+      return {
+        gate: r.gate,
+        passed: r.passed,
+        skipped: r.skipped,
+        score: r.score,
+        threshold: r.threshold,
+        findings: r.findings,
+        detail: r.detail,
+      };
+    },
     runGateG3: (repoPath, classification: TicketClass) => {
       const r = runMigrationStaticGate({ repoPath, classification });
       return { passed: r.passed, findings: r.findings, detail: r.detail };
     },
     // Forward worker/model/variant from the pipeline's RunConfig — buildDeps'
     // own StageConfig param doesn't carry model/variant, and direct callers
-    // (task path, tests) pass their own cfg — but the dispatch preflight and
-    // the worker adapters both need the effective worker + model id.
     implementStage: (c, plan, lg) =>
       implementStage(
         { ...cfg, ...(c.worker !== undefined ? { worker: c.worker } : {}), model: c.model, variant: c.variant },
