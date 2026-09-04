@@ -18,7 +18,7 @@ import {
   listSessionPanes,
   type SessionPaneInfo,
 } from "../integrations/herdr.js";
-import { appendAuditRecord, appendOperatorAttachRecord, auditLedgerRecord, readLedger } from "../orchestrator/ledger.js";
+import { appendAuditRecord, appendOperatorAttachRecord, auditLedgerRecord, readLedgerTail } from "../orchestrator/ledger.js";
 import { applyAnswerToRepo, type AnswerEndpointResult } from "../orchestrator/store.js";
 import { enqueueTask, listTasks, readTask, taskCount, type QueuedTask } from "../queue.js";
 import { readProxyState } from "../resilience/proxy-state.js";
@@ -547,7 +547,7 @@ async function historyEndpoint(res: ServerResponse, ctx: RouteContext, url: URL)
       ? Math.min(Math.floor(limitRaw), HISTORY_MAX_LIMIT)
       : HISTORY_DEFAULT_LIMIT;
   const taskId = url.searchParams.get("taskId") ?? undefined;
-  const records = readLedger(ctx.repoPath, { taskId });
+  const records = readLedgerTail(ctx.repoPath, { taskId, limit: HISTORY_MAX_LIMIT });
   sendJson(res, 200, { records: records.slice(-limit) });
 }
 

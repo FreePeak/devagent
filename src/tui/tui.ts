@@ -250,13 +250,20 @@ export async function fetchSnapshot(opts: TuiOptions): Promise<Snapshot> {
     const [st, ag, hi, se] = await Promise.all([
       getJson<StatusPayload>(opts, '/status'),
       getJson<AgentPayload>(opts, '/agents'),
-      getJson<HistoryRow[]>(opts, `/history?limit=${HISTORY_ROWS}`),
+      getJson<HistoryRow[] | { records?: HistoryRow[] }>(opts, `/history?limit=${HISTORY_ROWS}`),
       getJson<TuiPane[]>(opts, '/sessions'),
     ]);
     return {
       status: st.value,
       agents: ag.value,
-      history: Array.isArray(hi.value) ? hi.value : [],
+      // /history answers {records:[...]}; accept either shape but unwrap the
+      // envelope so the history panel renders (the bare-array expectation
+      // silently yielded [] forever).
+      history: Array.isArray(hi.value)
+        ? hi.value
+        : hi.value !== null && typeof hi.value === "object" && Array.isArray(hi.value.records)
+          ? hi.value.records
+          : [],
       sessions: se.value,
       reachable: st.status !== 0,
       authFailed: st.status === 401,
@@ -315,6 +322,7 @@ function paneCardLines(p: TuiPane, inner: number): CardLines {
   const body = [
     ` ${chipFor(p.state, p.agentStatus || p.state)} ${el ? `${C.dim}· ${el}${C.reset}` : ''} ${C.dim}${truncate(p.worker || '-', 12)}${C.reset}`,
     ` ${C.dim}cwd ${truncate(p.cwd, Math.max(10, inner - 8))}${C.reset}`,
+    ` ${C.cyan}devagent attach ${truncate(id, Math.max(8, inner - 18))}${C.reset}`,
   ];
   return boxLines(truncate(id, inner - 6), body, inner);
 }
@@ -428,8 +436,20 @@ export function renderDashboard(snap: Snapshot, ropts: RenderOptions = {}): stri
     lines.push(dim('  no ledger rows'));
   } else {
     for (const row of history) {
+      // Row shapes vary by producer: loop-result rows carry {status, loop,
+      // goal}; audit/attach rows carry {event, taskId}. Surface whichever
+      // verdict + subject the row has (narrowed reads, no blind casts).
+      const rec = row as Record<string, unknown>;
+      const ev = typeof rec.event === 'string' && rec.event
+        ? rec.event
+        : typeof rec.status === 'string' && rec.status
+          ? rec.status
+          : typeof rec.kind === 'string' ? rec.kind : '';
+      const subject = typeof rec.goal === 'string' && rec.goal
+        ? rec.goal
+        : typeof rec.taskId === 'string' ? rec.taskId : '';
       lines.push(
-        `  ${C.dim}${fmtClock(row.ts)}${C.reset}  ${truncate(String(row.event ?? row.kind ?? ''), 22)}  ${C.cyan}${truncate(String(row.taskId ?? ''), 24)}${C.reset}`,
+        `  ${C.dim}${fmtClock(row.ts)}${C.reset}  ${C.cyan}${truncate(ev, 14)}${C.reset}  ${truncate(subject, Math.max(20, width - 26))}`,
       );
     }
   }

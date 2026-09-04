@@ -5,6 +5,12 @@
 #   make agents-on         # re-enable + load them again
 #   make agents-install    # render launchagents/*.plist into ~/Library/LaunchAgents + load
 #   make agents-uninstall  # bootout + disable + delete installed plists (repo copies kept)
+#   make loop-start        # start the selfbuild loop in the background (visible panes)
+#   make loop-stop         # stop the background selfbuild loop
+#   make loop-status       # is the loop running? tail of its latest iteration log
+#   make loop-log          # tail -f the running loop's driver output
+#   make daemon-start      # start the FR-CTRL daemon in the background (TUI data source)
+#   make daemon-stop       # stop the background daemon
 #   make kill              # kill running devagent loops/workers (no launchctl changes)
 #   make orca-quit         # quit Orca app + background daemon
 #
@@ -29,7 +35,50 @@ WATCHDOG_LABELS := \
 
 ALL_LABELS := $(DEVAGENT_LABELS) $(WATCHDOG_LABELS)
 
-.PHONY: agents-off agents-on agents-install agents-uninstall agents-status kill orca-quit
+.PHONY: loop-start loop-stop loop-status loop-log daemon-start daemon-stop
+
+# --- Selfbuild loop (background) --------------------------------------------
+# The loop runs via hub-managed nohup; workers default to visible herdr panes
+# (attach with `devagent attach <task>`), headless via DEVAGENT_VISIBILITY=headless.
+LOOP_LOG_DIR := .selfbuild/logs
+
+loop-start:
+	@if pgrep -f "bash scripts/selfbuild-loop.sh" >/dev/null 2>&1; then \
+		echo "selfbuild loop already running (pid $$(pgrep -f 'scripts/selfbuild-loop.sh' | head -1))"; exit 0; \
+	fi
+	@mkdir -p "$(LOOP_LOG_DIR)"
+	@nohup bash scripts/selfbuild-loop.sh >> "$(LOOP_LOG_DIR)/driver.log" 2>&1 & \
+	echo "selfbuild loop started (pid $$!) — log: $(LOOP_LOG_DIR)/driver.log; TUI: devagent tui"
+
+loop-stop:
+	@if pgrep -f "bash scripts/selfbuild-loop.sh" >/dev/null 2>&1; then \
+		pkill -f "scripts/selfbuild-loop.sh" && echo "selfbuild loop stopped"; \
+	else echo "selfbuild loop not running"; fi
+
+loop-status:
+	@if pgrep -f "bash scripts/selfbuild-loop.sh" >/dev/null 2>&1; then \
+		echo "RUNNING (pid $$(pgrep -f 'scripts/selfbuild-loop.sh' | head -1))"; \
+	else echo "STOPPED — start with: make loop-start"; fi
+	@test -f "$(LOOP_LOG_DIR)/driver.log" && tail -3 "$(LOOP_LOG_DIR)/driver.log" || true
+
+loop-log:
+	@tail -f "$(LOOP_LOG_DIR)/driver.log"
+
+# --- FR-CTRL daemon (background; the TUI's data source) ---------------------
+DAEMON_LOG_DIR := .selfbuild/logs
+
+daemon-start:
+	@if pgrep -f "devagent daemon" >/dev/null 2>&1; then \
+		echo "daemon already running (pid $$(pgrep -f 'devagent daemon' | head -1))"; exit 0; \
+	fi
+	@mkdir -p "$(DAEMON_LOG_DIR)"
+	@nohup devagent daemon >> "$(DAEMON_LOG_DIR)/daemon.log" 2>&1 & \
+	echo "daemon started (pid $$!) — log: $(DAEMON_LOG_DIR)/daemon.log; TUI: devagent tui"
+
+daemon-stop:
+	@if pgrep -f "devagent daemon" >/dev/null 2>&1; then \
+		pkill -f "devagent daemon" && echo "daemon stopped"; \
+	else echo "daemon not running"; fi
 
 PLIST_DIR := launchagents
 

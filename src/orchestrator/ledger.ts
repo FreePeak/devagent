@@ -314,6 +314,29 @@ export function readLedger(repoPath: string, opts: { taskId?: string } = {}): Au
   return out;
 }
 
+/** Any ledger row (audit + event kinds), oldest first; optional task filter.
+ * Backs dashboards/history views: most loops write loop-result/attach rows
+ * (kind "event") long before any audit verdict exists, so audit-only reads
+ * render an empty history for healthy factories. */
+export function readLedgerTail(
+  repoPath: string,
+  opts: { taskId?: string; limit?: number } = {},
+): LedgerRecordBase[] {
+  const file = ledgerPath(repoPath);
+  if (!existsSync(file)) return [];
+  const out: LedgerRecordBase[] = [];
+  for (const line of readFileSync(file, 'utf8').split('\n')) {
+    if (!line.trim()) continue;
+    try {
+      const r = JSON.parse(line) as LedgerRecordBase;
+      if (!opts.taskId || r.taskId === opts.taskId) out.push(r);
+    } catch {
+      // skip corrupt lines; a ledger is data, not truth
+    }
+  }
+  return opts.limit ? out.slice(-opts.limit) : out;
+}
+
 /**
  * Compact evidence history for one task, newest first (SWE-agent lesson:
  * informative-but-concise feedback — operators see verdict trends without

@@ -476,6 +476,8 @@ function mapPaneState(agentStatus: string, cwd: string): 'running' | 'idle' | 's
 interface HerdrAgentRow {
   name?: string;
   label?: string;
+  /** Agent kind herdr detected in the pane (omp | claude | codex | …). */
+  agent?: string;
   pane_id?: string;
   workspace_id?: string;
   agent_status?: string;
@@ -536,9 +538,11 @@ export async function listSessionPanes(session?: string): Promise<SessionPaneInf
     const label = a.label ?? a.name ?? '';
     const agentStatus = a.agent_status ?? 'unknown';
     out.push({
+      // Worker identity: herdr's detected agent kind (omp/claude/…) is the
+      // truthful answer; the label-derived prefix is the fallback.
+      worker: a.agent || workerFromLabel(label),
       taskId: paneTaskIdFromCwd(cwd),
       role: 'worker',
-      worker: workerFromLabel(label),
       paneId: a.pane_id ?? '',
       workspaceId: a.workspace_id ?? '',
       label,

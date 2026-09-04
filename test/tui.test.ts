@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startDaemon } from '../src/server/daemon.js';
@@ -14,6 +14,7 @@ import { appendAuditRecord } from '../src/orchestrator/ledger.js';
 
 let home: string;
 let repo: string;
+let herdrStub = '';
 let stop: (() => Promise<void>) | null = null;
 let port = 0;
 let token = '';
@@ -23,18 +24,28 @@ beforeAll(async () => {
   repo = mkdtempSync(join(tmpdir(), 'devagent-tui-repo-'));
   process.env.DEVAGENT_HOME = home;
   delete process.env.DEVAGENT_DAEMON_TOKEN;
+  // Deterministic roster: point DEVAGENT_HERDR_BIN at an empty-session stub
+  // so the operator's live devagent herdr session (real worker panes from a
+  // running factory) never leaks into the rendered snapshot.
+  herdrStub = mkdtempSync(join(tmpdir(), 'devagent-tui-herdr-'));
+  const stub = join(herdrStub, 'herdr-stub.sh');
+  writeFileSync(stub, '#!/bin/sh\necho \'{"id":"x","result":{"agents":[],"type":"agent_list"}}\'\n');
+  chmodSync(stub, 0o755);
+  process.env.DEVAGENT_HERDR_BIN = stub;
   const d = await startDaemon({ port: 0, repoPath: repo });
   stop = d.stop;
   port = d.port;
   token = d.token;
-}, 15_000);
+});
 
 afterAll(async () => {
   await stop?.();
   delete process.env.DEVAGENT_HOME;
+  delete process.env.DEVAGENT_HERDR_BIN;
   try {
     rmSync(home, { recursive: true, force: true });
     rmSync(repo, { recursive: true, force: true });
+    if (herdrStub) rmSync(herdrStub, { recursive: true, force: true });
   } catch {
     /* tmp cleanup best-effort */
   }
