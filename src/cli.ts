@@ -1545,6 +1545,7 @@ program
   .option('--threshold <n>', 'similarity reject threshold in [0,1] (default 0.8)', Number)
   .option('--suite-timeout-ms <n>', 'evaluate-step wall-clock budget in ms (default 600000)', Number)
   .option('--loop <n>', 'self-build loop number; written to the lessons-eval ledger row so impact scoring can join it to the loop-result row (Q39)', Number)
+  .option('--dry-run', 'validate the append (dedupe + held-out must-beat check) without staging the lessons file, running the suite, or writing ledger rows; prints what a real append would do', false)
   .action(async (opts) => {
     // Runtime required-option check: --entry and --predicted-impact are
     // .option() (not .requiredOption()) so the `scores` subcommand can
@@ -1564,8 +1565,24 @@ program
       predictedImpact: opts.predictedImpact as string | undefined,
       suiteTimeoutMs: opts.suiteTimeoutMs === undefined ? DEFAULT_LESSONS_SUITE_TIMEOUT_MS : Number(opts.suiteTimeoutMs),
       loop: opts.loop === undefined ? undefined : Number(opts.loop),
+      ...(opts.dryRun ? { dryRun: true } : {}),
     });
-    console.log(JSON.stringify({ appended: r.ok, reason: r.reason, suite: r.suite, similarity: r.similarity, threshold: r.threshold, matchedEntry: r.matchedEntry }));
+    const output: Record<string, unknown> = { appended: r.ok, reason: r.reason, suite: r.suite, similarity: r.similarity, threshold: r.threshold, matchedEntry: r.matchedEntry };
+    if (opts.dryRun) {
+      output.dryRun = true;
+      output.heldOut = r.heldOut ?? 0;
+      output.mustBeat = r.mustBeat ?? 'none';
+      output.mustBeatScore = r.mustBeatScore ?? null;
+      console.log(JSON.stringify(output));
+      // Dry-run never writes, so there is nothing to accept/reject; exit 0
+      // only when every checkable gate passed: dedupe cleared, predictedImpact
+      // present, and the held-out must-beat check not already predicting a
+      // rejection. The suite is not evaluated here (suite: 'skipped' means
+      // not-run, not green) — a red suite can only surface on a real append.
+      if (r.reason !== 'accepted') process.exitCode = 1;
+      return;
+    }
+    console.log(JSON.stringify(output));
     // `ok` tracks the dedupe verdict; acceptance is the reason — a suite-red
     // revert or missing predictedImpact must also fail the invocation.
     if (r.reason !== 'accepted') process.exitCode = 1;

@@ -53,11 +53,24 @@ export const DEFAULT_LESSONS_DEDUPE_SIMILARITY = 0.8;
 /** Wall-clock budget for one evaluate-step suite run (default 10 minutes). */
 export const DEFAULT_LESSONS_SUITE_TIMEOUT_MS = 600_000;
 
-/** Why a gated append landed the way it did. */
-export type LessonsEvalReason = 'missing-predictedImpact' | 'duplicate' | 'suite-red' | 'accepted';
+export type LessonsEvalReason = 'missing-predictedImpact' | 'duplicate' | 'suite-red' | 'held-out' | 'accepted';
 
 /** Outcome of the evaluate step for one gated append. */
 export type LessonsSuiteOutcome = 'green' | 'red' | 'skipped';
+
+/**
+ * Result of the must-beat-best-so-far check at append time.
+ * `'none'` = no applicable baseline: no measured scores among non-held-out
+ * lessons (cold start — the candidate's own impact is the only score), or the
+ * best measured score is saturated (>= 1) and can no longer discriminate
+ * (predictedImpactGrade is capped at 1 while measured scores reach 1 on any
+ * all-green history). Both accept: a bar that cannot be beaten is not a bar.
+ * `'beat'` = candidate predictedImpact strictly beats the digest best score
+ * (with the held-out slice excluded from that best).
+ * `'below'` = candidate predictedImpact does not strictly beat the digest
+ * best score — the append is rejected.
+ */
+export type LessonsMustBeatOutcome = 'none' | 'beat' | 'below';
 
 /** Why a loop terminated (self-build loop outcomes; matches ledger statuses). */
 export type LoopResultStatus = 'ok' | 'failed' | 'failed-tests' | 'invalid' | 'skipped' | 'provider-degraded' | 'push-failed';
@@ -277,6 +290,108 @@ export function loadLessonScores(repoPath: string): Map<string, number> {
   }
   return out;
 }
+
+/** Fraction of the newest machine-appended lessons held out of digest scoring. */
+export const HELD_OUT_FRACTION = 0.2;
+/** Minimum number of held-out lessons (always holds out at least one). */
+export const HELD_OUT_MIN = 1;
+/** Maximum number of held-out lessons (the digest window is 40 lines). */
+export const HELD_OUT_MAX = 3;
+/** Suffix that marks a machine-appended lesson line (see `appendPredictedImpact`). */
+export const PREDICTED_IMPACT_SUFFIX = 'predictedImpact:';
+
+/**
+ * Held-out slice of a lessons file: the newest 20% (min 1, max 3) of
+ * machine-appended lesson lines, by append order. Append order is file order
+ * (the ratchet is append-only — `selfbuild-state.sh merge_lessons` dedupes
+ * on exact content and appends new lines at the end, so the tail of the file
+ * is the newest content). Only machine-appended lines (those carrying the
+ * `predictedImpact:` suffix) are eligible: lines that never went through the
+ * propose→evaluate→accept gate have no measured effect to hold out, and the
+ * leading front-matter / date headings / prose are not lessons. Returns the
+ * slice's content lines plus the excerpt hashes that digest scoring must
+ * exclude.
+ */
+export function heldOutLessonHashes(repoPath: string, lessonsFile?: string): { lines: string[]; hashes: Set<string> } {
+  const file = join(repoPath, lessonsFile || SELFBUILD_LESSONS_PATH);
+  if (!existsSync(file)) return { lines: [], hashes: new Set() };
+  try {
+    const machine: string[] = [];
+    for (const line of readFileSync(file, 'utf8').split('\n').filter(Boolean)) {
+      if (!line.trim() || /^[-*]\s*$/.test(line.trim()) || /^#{1,6}\s/.test(line.trim()) || /^---/.test(line.trim())) continue;
+      if (line.includes(PREDICTED_IMPACT_SUFFIX)) machine.push(line);
+    }
+    const keep = Math.max(HELD_OUT_MIN, Math.min(HELD_OUT_MAX, Math.floor(machine.length * HELD_OUT_FRACTION)));
+    const slice = machine.slice(-keep);
+    return { lines: slice, hashes: new Set(slice.map((l) => lessonExcerptHash(l))) };
+  } catch {
+    return { lines: [], hashes: new Set() };
+  }
+}
+
+/**
+ * Numeric grade for a `predictedImpact` text, used by the must-beat gate.
+ * A higher grade means the lesson predicts a bigger measured improvement
+ * (fewer future re-picks / less repeat failure). Mirrors the Q39 digest
+ * formula's acceptRate − repeatFailureDelta shape. When the text names no
+ * number, the grade is 0 so unquantified predictions lose to quantified ones
+ * that name real reductions.
+ */
+export function predictedImpactGrade(impact: string): number {
+  const text = impact.toLowerCase();
+  let reductions = 0;
+  // Direction 1 (word before the number, ≤ 20 words between): "cuts failures
+  // by 25%", "reduces re-picks of shipped items by 50%", "drops 30 percent".
+  const percent = '((?:\\d+(?:\\.\\d+)?%|\\d+(?:\\.\\d+)?\\s*(?:percent|percentage|per\\s+cent)))';
+  const cut = '(?:fewer|less|lower|reduc\\w*|reduction|drop|down|cut\\w*)';
+  const wordFirst = new RegExp(`${cut}\\D{0,80}?${percent}`, 'g');
+  for (const m of text.matchAll(wordFirst)) {
+    const n = parseFloat(m[1]!);
+    if (Number.isFinite(n)) reductions += n;
+  }
+  if (reductions > 0) return Math.min(reductions / 100, 1);
+  return 0;
+}
+
+/**
+ * Load the current digest best measured score, excluding the held-out slice:
+ * the best score among non-held-out lessons that have ledger evidence. Used
+ * by the append-time must-beat gate — a candidate must beat the best score on
+ * loops the held-out slice did not inform, so the newest 20% cannot be used
+ * to chase a self-set bar. Returns `null` when no eligible lesson has a
+ * measured score (nothing to beat yet).
+ */
+export function loadBestMeasuredScore(repoPath: string, lessonsFile?: string): number | null {
+  const heldOut = heldOutLessonHashes(repoPath, lessonsFile);
+  let best: number | null = null;
+  for (const [hash, score] of loadLessonScores(repoPath)) {
+    if (heldOut.hashes.has(hash)) continue; // held-out lessons never set the bar
+    if (best === null || score > best) best = score;
+  }
+  return best;
+}
+
+/**
+ * Must-beat-best-so-far check at append time (held-out tier): the candidate's
+ * `predictedImpact` grade must strictly beat the digest's current best
+ * measured score on loops the held-out slice did not inform. `'none'` when no
+ * applicable baseline exists — no measured scores among non-held-out lessons
+ * (cold start: the candidate's own impact is the only score), or the best is
+ * saturated (>= 1, the unavoidable score of any accepted lesson on an ok
+ * loop; predictedImpactGrade caps at 1, so a saturated bar would reject every
+ * future append and lock the ratchet). `'beat'` when the grade strictly
+ * exceeds the best; `'below'` otherwise (rejected). Callers run this only
+ * after the evaluate step is green so a proposal that regresses the suite
+ * never reaches the gate.
+ */
+export function checkMustBeat(repoPath: string, predictedImpact: string, lessonsFile?: string): LessonsMustBeatOutcome {
+  const grade = predictedImpactGrade(predictedImpact);
+  const best = loadBestMeasuredScore(repoPath, lessonsFile);
+  // No baseline, or a saturated one the grade scale cannot beat: accept.
+  if (best === null || best >= 1) return 'none';
+  if (grade > best) return 'beat';
+  return 'below';
+}
 /**
  * Normalize lesson text for comparison: strip the optional `[predictedImpact: ...]`
  * metadata suffix (it is captured separately in the lessons-eval ledger row and
@@ -344,6 +459,14 @@ export interface LessonsDedupeResult {
   reason?: LessonsEvalReason;
   /** Evaluate-step outcome for the gated append (set by `appendLessonGuarded`). */
   suite?: LessonsSuiteOutcome;
+  /** Held-out slice size the must-beat check judged against (when it ran). */
+  heldOut?: number;
+  /** Must-beat-best-so-far outcome (when the check ran). */
+  mustBeat?: LessonsMustBeatOutcome;
+  /** Best measured non-held-out score the must-beat check compared against. */
+  mustBeatScore?: number;
+  /** True when the append ran in dry-run mode (validated, nothing written). */
+  dryRun?: boolean;
   /** Bounded tail of the failing suite output when the suite ran and failed. */
   suiteDetail?: string;
 }
@@ -452,20 +575,48 @@ export function checkLessonsDedupe(
  *     passes against the PROPOSED lessons-file state. The entry is staged by
  *     writing it to the file first, the suite runs, and on failure the file is
  *     restored byte-for-byte to its pre-append state — a lesson that regresses
- *     anything (including the suite itself) never lands.
+ *     anything (including the suite itself) never lands;
+ *  4. when `opts.mustBeat` is set (default), the must-beat-best-so-far check
+ *     passes (held-out tier): the candidate's predictedImpact must beat the
+ *     digest's current best measured score on loops the held-out slice did
+ *     not inform. The check runs strictly AFTER a green suite so a proposal
+ *     that regresses the repo is rejected before the comparison matters, and
+ *     a failed comparison reverts the staged file exactly like a red suite.
  *
  * Exactly one `lessons-eval` ledger row is written per gated append, accept or
  * reject, carrying the lesson excerpt hash, similarity score, predictedImpact,
- * and suite result so the loop's replayable evidence shows why content landed.
+ * suite result, and (when the must-beat check ran) the held-out slice size and
+ * the must-beat outcome + best score it was judged against.
  */
 export function appendLessonGuarded(
   repoPath: string,
   entry: string,
-  opts: { lessonsFile?: string; threshold?: number; predictedImpact?: string; suiteTimeoutMs?: number; loop?: number } = {},
+  opts: {
+    lessonsFile?: string;
+    threshold?: number;
+    predictedImpact?: string;
+    suiteTimeoutMs?: number;
+    loop?: number;
+    /** Run the held-out must-beat-best-so-far check after a green suite (default true). */
+    mustBeat?: boolean;
+    /** Validate without writing: dedupe + held-out checks run, no file/ledger write, no suite spawn. */
+    dryRun?: boolean;
+  } = {},
 ): LessonsDedupeResult {
   const lessonsFile = opts.lessonsFile || SELFBUILD_LESSONS_PATH;
   const excerptHash = lessonExcerptHash(entry);
-  const suiteLedger = (suite: LessonsSuiteOutcome, reason: LessonsEvalReason, base: LessonsDedupeResult, suiteDetail?: string): LessonsDedupeResult => {
+  const runMustBeat = opts.mustBeat !== false;
+  const dryRun = opts.dryRun === true;
+  // Captured before the entry is staged so the ledger records the slice the
+  // check judged against (the candidate is not part of it yet).
+  const heldOutLines = runMustBeat ? heldOutLessonHashes(repoPath, lessonsFile).lines.length : 0;
+  const suiteLedger = (
+    suite: LessonsSuiteOutcome,
+    reason: LessonsEvalReason,
+    base: LessonsDedupeResult,
+    suiteDetail?: string,
+    extra: { heldOut?: number; mustBeat?: LessonsMustBeatOutcome; mustBeatScore?: number } = {},
+  ): LessonsDedupeResult => {
     recordLessonsEval(repoPath, {
       excerptHash,
       similarity: base.similarity,
@@ -477,8 +628,19 @@ export function appendLessonGuarded(
       entry,
       suiteDetail,
       loop: opts.loop,
+      heldOut: extra.heldOut,
+      mustBeat: extra.mustBeat,
+      mustBeatScore: extra.mustBeatScore,
     });
-    return { ...base, reason, suite, ...(suiteDetail !== undefined ? { suiteDetail } : {}) };
+    return {
+      ...base,
+      reason,
+      suite,
+      ...(suiteDetail !== undefined ? { suiteDetail } : {}),
+      ...(extra.heldOut !== undefined ? { heldOut: extra.heldOut } : {}),
+      ...(extra.mustBeat !== undefined ? { mustBeat: extra.mustBeat } : {}),
+      ...(extra.mustBeatScore !== undefined ? { mustBeatScore: extra.mustBeatScore } : {}),
+    };
   };
 
   // Gate 1: predictedImpact is required for machine appends.
@@ -488,10 +650,30 @@ export function appendLessonGuarded(
   }
 
   const check = checkLessonsDedupe(repoPath, entry, { lessonsFile, threshold: opts.threshold });
-
   // Gate 2: dedupe (similarity below threshold).
   if (!check.ok) {
     return suiteLedger('skipped', 'duplicate', check);
+  }
+
+  // Gate 2b (dry-run): dedupe is a pure read and always runs; everything
+  // from the evaluate step onward is skipped so the validation never stages
+  // the lessons file, spawns the suite, or appends a ledger row.
+  if (dryRun) {
+    const heldOut = heldOutLessonHashes(repoPath, lessonsFile).lines.length;
+    const mustBeat = runMustBeat ? checkMustBeat(repoPath, opts.predictedImpact!, lessonsFile) : undefined;
+    const best = runMustBeat ? loadBestMeasuredScore(repoPath, lessonsFile) : null;
+    return {
+      ok: check.ok,
+      similarity: check.similarity,
+      matchedEntry: check.matchedEntry,
+      threshold: check.threshold,
+      reason: mustBeat === 'below' ? 'held-out' : 'accepted',
+      suite: 'skipped',
+      heldOut,
+      mustBeat,
+      mustBeatScore: best ?? undefined,
+      dryRun: true,
+    };
   }
 
   // Gate 3: evaluate step — stage the proposed state, run the suite, revert on red.
@@ -501,16 +683,43 @@ export function appendLessonGuarded(
   mkdirSync(dirname(p), { recursive: true });
   appendFileSync(p, existing !== null && existing.length > 0 && !existing.endsWith('\n') ? `\n${entryText}\n` : `${entryText}\n`);
 
-  const suite = runLessonsSuite(repoPath, { timeoutMs: opts.suiteTimeoutMs });
-  if (!suite.ok) {
-    // Revert: restore the pre-append bytes exactly (including file absence).
+  const revert = (): void => {
+    // Restore the pre-append bytes exactly (including file absence).
     try {
       if (existing === null) rmSync(p);
       else writeFileSync(p, existing);
     } catch {
       // best-effort: a failed revert still records as rejected below
     }
+  };
+
+  const suite = runLessonsSuite(repoPath, { timeoutMs: opts.suiteTimeoutMs });
+  if (!suite.ok) {
+    revert();
     return suiteLedger('red', 'suite-red', check, suite.detail);
+  }
+
+  // Gate 4 (held-out tier): must-beat-best-so-far — only after the suite is
+  // green, so the staged state is the proposal being compared. A failed
+  // comparison rejects and reverts exactly like a red suite.
+  if (runMustBeat) {
+    const mustBeat = checkMustBeat(repoPath, opts.predictedImpact, lessonsFile);
+    if (mustBeat !== 'none' && mustBeat !== 'beat') {
+      revert();
+      const best = loadBestMeasuredScore(repoPath, lessonsFile);
+      return suiteLedger('green', 'held-out', check, undefined, {
+        heldOut: heldOutLines,
+        mustBeat,
+        mustBeatScore: best ?? undefined,
+      });
+    }
+    // Accepted (or no baseline to beat): record what the check saw.
+    const best = loadBestMeasuredScore(repoPath, lessonsFile);
+    return suiteLedger('green', 'accepted', check, undefined, {
+      heldOut: heldOutLines,
+      mustBeat,
+      mustBeatScore: best ?? undefined,
+    });
   }
 
   return suiteLedger('green', 'accepted', check);
@@ -518,8 +727,10 @@ export function appendLessonGuarded(
 
 /**
  * One accept/reject ledger row per gated append (best-effort, never throws):
- * carries the lesson excerpt hash, similarity score, predictedImpact, and
- * suite result so replay can answer "why did this lesson land or not".
+ * carries the lesson excerpt hash, similarity score, predictedImpact, suite
+ * result, and the held-out-tier fields (`heldOut` slice size + `mustBeat`
+ * outcome / best score) so replay can answer "why did this lesson land or
+ * not".
  */
 function recordLessonsEval(
   repoPath: string,
@@ -534,6 +745,9 @@ function recordLessonsEval(
     entry: string;
     suiteDetail?: string;
     loop?: number;
+    heldOut?: number;
+    mustBeat?: LessonsMustBeatOutcome;
+    mustBeatScore?: number;
   },
 ): void {
   try {
@@ -552,6 +766,9 @@ function recordLessonsEval(
       reason: args.reason,
       entry: args.entry.slice(0, 300),
       ...(args.loop !== undefined ? { loop: args.loop } : {}),
+      ...(args.heldOut !== undefined ? { heldOut: args.heldOut } : {}),
+      ...(args.mustBeat !== undefined ? { mustBeat: args.mustBeat } : {}),
+      ...(args.mustBeatScore !== undefined ? { mustBeatScore: Math.round(args.mustBeatScore * 1000) / 1000 } : {}),
       ...(args.suiteDetail ? { suiteDetail: args.suiteDetail } : {}),
     };
     appendFileSync(file, `${JSON.stringify(record)}\n`);
