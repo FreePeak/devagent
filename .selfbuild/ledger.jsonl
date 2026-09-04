@@ -30,3 +30,4 @@
 {"loop":69,"ts":"2026-09-04T06:33:38Z","status":"ok","goal":"Goal: Add a G0 issue-readiness validation gate that scores incoming tickets against type-specific ready-for-dev criteria and rejects unready tickets before work"}
 {"loop":70,"ts":"2026-09-04T08:31:15Z","status":"ok","goal":"Goal: Record structured watchdog-health ledger rows per worker attempt from both progress-clock sites so never-firing watchdogs are visible in analytics instead"}
 {"loop":71,"ts":"2026-09-04T18:25:38Z","status":"ok","goal":"Goal: Ship the Q27 cross-board retry-memory consumer so re-bridged failures stop jumping the queue. In src/queue.ts add optional `failureClass` to QueuedTask/En"}
+{"loop":72,"ts":"2026-09-04T19:56:27Z","status":"ok","goal":"Validation complete. The evidence chain:  - **Phase-1 pick (#1, PRD-backlog reconciliation) is void** — already shipped as PR #127 (8631155, 2026-09-03): `check"}
