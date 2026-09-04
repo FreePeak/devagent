@@ -29,3 +29,4 @@
 {"loop":68,"ts":"2026-09-01T08:06:05Z","status":"merged","pr":100,"goal":"Ship Q35 from docs/PRD.md (Phase 4): CI-Fixer dispatch/outcome ledger rows (recovered record; PR #100 merged 08:06Z)"}
 {"loop":69,"ts":"2026-09-04T06:33:38Z","status":"ok","goal":"Goal: Add a G0 issue-readiness validation gate that scores incoming tickets against type-specific ready-for-dev criteria and rejects unready tickets before work"}
 {"loop":70,"ts":"2026-09-04T08:31:15Z","status":"ok","goal":"Goal: Record structured watchdog-health ledger rows per worker attempt from both progress-clock sites so never-firing watchdogs are visible in analytics instead"}
+{"loop":71,"ts":"2026-09-04T18:25:38Z","status":"ok","goal":"Goal: Ship the Q27 cross-board retry-memory consumer so re-bridged failures stop jumping the queue. In src/queue.ts add optional `failureClass` to QueuedTask/En"}
