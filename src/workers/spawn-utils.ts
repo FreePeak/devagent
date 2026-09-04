@@ -1,6 +1,7 @@
 import { execFile, execFileSync, type ExecFileOptionsWithStringEncoding, spawn } from 'node:child_process';
 import { isNdjsonProgressLine } from './progress.js';
 import { appendWatchdogHealthRecord } from '../orchestrator/ledger.js';
+import { spawnVisibility } from '../config.js';
 import type { WatchdogLedgerContext } from '../types.js';
 
 export interface SpawnCliOptions {
@@ -207,6 +208,12 @@ export function spawnCliStreaming(
           attempt: ctx.attempt,
           worker: ctx.worker,
           site: 'spawn-cli',
+          // FR-VIS: direct execFile child — never operator-visible. When the
+          // operator asked for headless the row says so; otherwise this is a
+          // fallback from an attempted pane spawn (runWorkerCli downgrades).
+          runtime: 'direct',
+          visible: false,
+          visibility: spawnVisibility() === 'headless' ? 'headless' : 'fallback',
           noProgressTimeoutMs: noProgressMs,
           watchdogFired,
           wallClockMs: Date.now() - start,

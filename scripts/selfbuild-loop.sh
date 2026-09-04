@@ -28,6 +28,21 @@ CLAUDE_TIMEOUT="${SELFBUILD_CLAUDE_TIMEOUT:-600}"
 # 300s on a completed agent) — keep 600s so a slow provider cannot kill the
 # loop via the unguarded dispatch below.
 RESEARCH_TIMEOUT="${SELFBUILD_RESEARCH_TIMEOUT:-900}"
+
+# Spawn visibility (FR-VIS-04): argv --headless/--visible wins over the env
+# default (DEVAGENT_VISIBILITY > SELFBUILD_VISIBILITY > visible). Exported so
+# every `devagent task` dispatch below inherits it; the 24/7 LaunchAgent keeps
+# workers headless via its own DEVAGENT_VISIBILITY env.
+VISIBILITY="${DEVAGENT_VISIBILITY:-${SELFBUILD_VISIBILITY:-visible}}"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --headless) VISIBILITY=headless ;;
+    --visible) VISIBILITY=visible ;;
+    *) echo "unknown argument: $1 (supported: --headless, --visible)" >&2; exit 2 ;;
+  esac
+  shift
+done
+export DEVAGENT_VISIBILITY="$VISIBILITY"
 DEVAGENT=(npx tsx "$REPO/src/cli.ts")
 
 mkdir -p "$STATE/research" "$STATE/goals" "$STATE/logs"
@@ -317,6 +332,7 @@ Output ONLY the goal statement (max 120 words), starting with 'Goal:' — this t
       [ "$PUSH_MODE" = pr ] && TASK_ARGS+=(--auto-pr)
       DEVAGENT_API_MAX_ATTEMPTS="${SELFBUILD_API_MAX_ATTEMPTS:-40}" \
       DEVAGENT_NO_PROGRESS_TIMEOUT_MS="${SELFBUILD_NO_PROGRESS_TIMEOUT_MS:-600000}" \
+      DEVAGENT_VISIBILITY="$VISIBILITY" \
         timeout "${SELFBUILD_TASK_TIMEOUT:-7200}" "${DEVAGENT[@]}" "${TASK_ARGS[@]}" || { echo "[implement] task failed" ; record "$N" failed "$GOAL" ; [ -n "${QUEUED_TASK_ID:-}" ] && node "$REPO/scripts/selfbuild-queue-done.mjs" "$REPO" "$QUEUED_TASK_ID" failed "implement failed at loop $N" >/dev/null 2>&1 || true ; fails=$(( fails + 1 )) ;
         [ "$fails" -ge "$MAX_FAILS" ] && { echo "circuit breaker: $fails consecutive failures" ; exit 1 ; } ; continue ; }
 

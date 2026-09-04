@@ -34,8 +34,13 @@ vi.mock('node:child_process', () => ({
 // See test/workers.test.ts: ambient DEVAGENT_NO_PROGRESS_TIMEOUT_MS from the
 // operator's shell routes spawns through spawnCliStreaming -> spawn, which
 // this execFile-only mock does not define. Pin the env for determinism.
+// DEVAGENT_VISIBILITY: the FR-VIS-04 default flip ("visible") routes worker
+// spawns through the herdr pane runtime; these tests pin headless semantics.
 beforeEach(() => {
   delete process.env.DEVAGENT_NO_PROGRESS_TIMEOUT_MS;
+  delete process.env.DEVAGENT_VISIBILITY;
+  delete process.env.DEVAGENT_HERDR;
+  vi.stubEnv('DEVAGENT_VISIBILITY', 'headless');
 });
 
 // Controllable DNS for allowlist-resolution cases.
@@ -367,6 +372,10 @@ describe('worker adapters route through the sandbox', () => {
     // an armed default routes spawnCli through spawnCliStreaming (unmocked
     // spawn here). Watchdog arming is covered in watchdog-health.test.ts.
     delete process.env.DEVAGENT_NO_PROGRESS_TIMEOUT_MS;
+    // Re-pin AFTER unstubAllEnvs (which clears the global beforeEach stub):
+    // FR-VIS-04's default-visible flip routes worker spawns through the herdr
+    // pane runtime; these tests pin headless semantics.
+    vi.stubEnv('DEVAGENT_VISIBILITY', 'headless');
   });
   afterEach(() => {
     vi.unstubAllEnvs();

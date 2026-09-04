@@ -281,6 +281,28 @@ export async function executeTask(args: {
       // skip kill for herdr-detected panes (herdr.ts watchdog handles those).
       for (const s of stale) if (!useHerdr) killStaleProcessTree(s.pid);
     } catch {}
+    // FR-VIS-03 (partial): after a herdr-path spawn, check whether an operator
+    // is attached to the task's pane and record it. Best-effort only —
+    // visibility bookkeeping must never break the spawn pipeline.
+    if (useHerdr) {
+      try {
+        const { operatorAttachTrace, resolveSession } = await import('../integrations/herdr.js');
+        const { appendOperatorAttachRecord } = await import('./ledger.js');
+        if (await operatorAttachTrace(task.id)) {
+          appendOperatorAttachRecord(repoPath, {
+            ts: new Date().toISOString(),
+            kind: 'event',
+            event: 'operator-attached',
+            taskId: task.id,
+            attempt,
+            paneId: '',
+            session: resolveSession(),
+          });
+        }
+      } catch {
+        // visibility observability only
+      }
+    }
     if (result.timedOut || result.exitCode !== 0 || result.errorText || result.noProgress) {
       // Inspect both resultText and errorText: the proxy surfaces transient
       // provider outages (rate-limited empty streams) as stderr-only with no

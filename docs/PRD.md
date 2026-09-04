@@ -129,7 +129,7 @@ Installs and operates DevAgent: manages credentials (Linear/GitHub tokens), Dock
 | Issue tracker | Linear only (Jira, GitHub Issues in v2) |
 | Target repositories | Backend services in one language ecosystem chosen at first deployment (Go or TypeScript/Node) |
 | Git host | GitHub via `gh` CLI (GitLab in v2) |
-| Worker agents | Claude Code and OpenCode headless CLIs |
+| Worker agents | Claude Code, OpenCode, omp CLIs — headless spawn is opt-in via config (FR-IMPL-07); by default each tool opens like a normal interactive session |
 | Ticket types | New/modified REST endpoints, schema migrations, queue/event consumers |
 | Execution | Per-run git worktree + branch; validation inside Docker Compose |
 | Human control | `--interactive` approval gates; full headless `--auto-pr` mode |
@@ -168,12 +168,13 @@ Requirements use IDs `FR-<area>-NN`. Priority: **M** = must-have for v1, **S** =
 
 | ID | Requirement | Pri |
 |---|---|---|
-| FR-IMPL-01 | Execute implementation by spawning a headless worker agent inside an isolated git worktree and dedicated branch (`devagent/<ticket-id>`) | M |
+| FR-IMPL-01 | Execute implementation by spawning a worker agent inside an isolated git worktree and dedicated branch (`devagent/<ticket-id>`); headless spawn is config-controlled per FR-IMPL-07 | M |
 | FR-IMPL-02 | Support two interchangeable workers: Claude Code (`claude -p`) and OpenCode (`opencode run`); selection via flag or config | M |
 | FR-IMPL-03 | Fan-out mode: run the same plan through both workers in parallel worktrees and select one diff (or merged diff) after validation scoring | S |
 | FR-IMPL-04 | Feed failing test output back to the worker and retry, up to a configurable maximum loop count (default 3) | M |
 | FR-IMPL-05 | Enforce per-run budget: maximum wall-clock time and maximum worker steps/tokens; abort cleanly on breach | M |
 | FR-IMPL-06 | Fall back from one worker to the other when the primary errors or times out mid-run | S |
+| FR-IMPL-07 | Make headless worker execution opt-in: workers (omp, Claude Code, OpenCode, and future adapters) run headlessly only when config turns it on (`spawn.visibility: "headless"`, §20.8 FR-VIS-04); the default opens each coding tool like a normal interactive session the operator can watch and steer | M |
 
 ### 7.4 Validation gates (area: VALID)
 
@@ -310,6 +311,9 @@ interface WorkerResult {
 | Structured output | `--output-format json` / `stream-json` | configured output format |
 | Permission handling | `--permission-mode` (non-interactive acceptance of edits) | permission/approval config |
 | Session continuity | `--resume` / `--continue` for follow-up turns | session resume support |
+
+
+Spawn mode follows config, not the adapter: headless invocation is opt-in (`spawn.visibility: "headless"` per FR-IMPL-07 / FR-VIS-04); by default a worker opens like a normal interactive session. The table above describes the headless surface each adapter exposes when that mode is enabled.
 
 Exact flag surfaces are version-dependent and must be pinned via configuration (FR-OPS-03); adapters translate the stable `WorkerAdapter` contract to whatever the installed CLI supports.
 
@@ -466,12 +470,13 @@ devagent run --ticket LINEAR-204 --worker claude-code   # or opencode | both
 ### Flags (`run`)
 
 | Flag | Default | Meaning |
-|---|---|---|
+| `--auto-pr` | off | Skip approval gates (headless pipeline mode); does not change how worker tools themselves are spawned (that is `spawn.visibility`, FR-IMPL-07) |
 | `--ticket <id>` | required | Tracker ticket identifier |
 | `--repo <path>` | `.` | Target repository |
 | `--worker <name>` | config | `claude-code`, `opencode`, or `both` (fan-out) |
 | `--auto-pr` | off | Skip approval gates (headless mode) |
 | `--interactive` | on when TTY | Pause at human gates |
+| `--headless` | config (`spawn.visibility`) | Force headless worker spawn for this run; `--visible` forces interactive spawn — default follows config and opens workers like normal interactive sessions (FR-IMPL-07) |
 | `--max-loops <n>` | 3 | Test-failure retry budget |
 | `--timeout <dur>` | 30m | Wall-clock cap per run |
 | `--dry-run` | off | Plan only; no workers, no remotes |

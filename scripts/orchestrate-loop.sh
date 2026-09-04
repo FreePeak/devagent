@@ -22,6 +22,12 @@ REQUEUE_AFTER="${ORCHESTRATOR_REQUEUE_AFTER:-6}"
 PLAN_ONLY="${ORCHESTRATOR_PLAN_ONLY:-0}"
 DRY_RUN="${ORCHESTRATOR_DRY_RUN:-0}"
 DEVAGENT=(node "$REPO/dist/src/cli.js")
+# Spawn visibility (FR-VIS-04): DEVAGENT_VISIBILITY > SELFBUILD_VISIBILITY >
+# visible, exported for the `devagent orchestrate` cycle below (its worker
+# dispatch inherits the env; omp-direct panes route through the devagent CLI
+# config the same way). Headless LaunchAgents keep their env unchanged.
+VISIBILITY="${DEVAGENT_VISIBILITY:-${SELFBUILD_VISIBILITY:-visible}}"
+export DEVAGENT_VISIBILITY="$VISIBILITY"
 BOARD="$REPO/.devagent-project.json"
 GOAL_FILE="$REPO/.devagent/orchestrator-goal.txt"
 

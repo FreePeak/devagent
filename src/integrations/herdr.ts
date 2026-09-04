@@ -310,6 +310,10 @@ export async function runCommandInHerdrPane(
         attempt: ctx.attempt,
         worker: ctx.worker,
         site: 'herdr-pane',
+        // FR-VIS: pane launches are operator-visible by definition.
+        runtime: 'herdr-pane',
+        visible: true,
+        visibility: 'herdr-pane',
         noProgressTimeoutMs: noProgressMs,
         watchdogFired,
         wallClockMs: Date.now() - start,
@@ -434,4 +438,138 @@ export async function sweepStalePanes(
     await closeWorkspace(s.workspaceId, session);
   }
   return stale;
+}
+
+// ---------- Operator visibility (FR-VIS): pane roster + attach ----------
+
+/**
+ * Env var a pane may set to flag that an operator is attached (herdr-side
+ * attach detection); exported so the daemon/TUI can reference it without a
+ * magic string. Detection stays herdr-side; devagent only records/traces it.
+ */
+export const PANE_ENV_OP_ATTACH = 'DEVAGENT_OPERATOR_ATTACHED';
+
+/** One operator-observable worker pane (FR-VIS-02). */
+export interface SessionPaneInfo {
+  taskId: string;
+  role: string;
+  worker: string;
+  paneId: string;
+  workspaceId: string;
+  label: string;
+  cwd: string;
+  agentStatus: string;
+  state: 'running' | 'idle' | 'stale';
+  /** Pane creation timestamp as reported by herdr; "" when unavailable. */
+  startedAt: string;
+}
+
+
+function mapPaneState(agentStatus: string, cwd: string): 'running' | 'idle' | 'stale' {
+  // Stale (sweepable) = idle/unknown agent sitting in a .devagent-worktrees
+  // checkout — the exact shape sweepStalePanes closes.
+  if (IDLE_STATUSES.has(agentStatus) && cwd.includes('.devagent-worktrees')) return 'stale';
+  if (agentStatus === 'working') return 'running';
+  return 'idle';
+}
+
+interface HerdrAgentRow {
+  name?: string;
+  label?: string;
+  pane_id?: string;
+  workspace_id?: string;
+  agent_status?: string;
+  cwd?: string;
+  created_at?: string;
+}
+
+/**
+ * Strip the worktree attempt suffix (`-a1`, `-a1r2` — src/orchestrator/types.ts
+ * attemptSuffix shape) from a worktree basename to recover the task id.
+ */
+function taskIdFromWorktreeBase(base: string): string {
+  return base.replace(/-a\d+(?:r\d+)?$/, '');
+}
+
+/**
+ * Task id from a pane cwd: only worktree checkouts
+ * (.devagent-worktrees/<taskId>-a<attempt>) carry one; scratch panes have no
+ * task semantics.
+ */
+function paneTaskIdFromCwd(cwd: string): string {
+  if (!cwd.includes('.devagent-worktrees')) return '';
+  const base = basename(cwd).trim();
+  return base ? taskIdFromWorktreeBase(base) : '';
+}
+
+/**
+ * Worker identity: the pane label is the worktree basename
+ * (<taskId>-a<attempt>); the prefix before the first attempt suffix is the
+ * best available worker name. 'unknown' when the label carries no suffix.
+ */
+function workerFromLabel(label: string): string {
+  const idx = label.indexOf('-a');
+  return idx > 0 ? label.slice(0, idx) : 'unknown';
+}
+
+function parseAgentRows(stdout: string): HerdrAgentRow[] {
+  try {
+    const parsed = JSON.parse(stdout) as { result?: { agents?: HerdrAgentRow[] } };
+    return Array.isArray(parsed?.result?.agents) ? parsed.result.agents : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Roster of worker panes in a herdr session (FR-VIS-02): one SessionPaneInfo
+ * per agent row, tolerating missing fields. Empty/failed list -> [].
+ */
+export async function listSessionPanes(session?: string): Promise<SessionPaneInfo[]> {
+  const s = resolveSession(session);
+  const res = await herdrCli(['--session', s, 'agent', 'list'], { timeoutMs: 10_000 });
+  if (res.code !== 0) return [];
+  const rows = parseAgentRows(res.stdout);
+  const out: SessionPaneInfo[] = [];
+  for (const a of rows) {
+    const cwd = a.cwd ?? '';
+    const label = a.label ?? a.name ?? '';
+    const agentStatus = a.agent_status ?? 'unknown';
+    out.push({
+      taskId: paneTaskIdFromCwd(cwd),
+      role: 'worker',
+      worker: workerFromLabel(label),
+      paneId: a.pane_id ?? '',
+      workspaceId: a.workspace_id ?? '',
+      label,
+      cwd,
+      agentStatus,
+      state: mapPaneState(agentStatus, cwd),
+      // Never fabricated: only what herdr reports.
+      startedAt: a.created_at ?? '',
+    });
+  }
+  return out;
+}
+
+/**
+ * Shell command an operator runs to jump into the task's pane (FR-VIS-03);
+ * null when no pane is rostered for the task.
+ */
+export async function attachCommandFor(taskId: string, session?: string): Promise<string | null> {
+  const s = resolveSession(session);
+  const panes = await listSessionPanes(s);
+  const pane = panes.find((p) => p.taskId === taskId && p.paneId !== '');
+  if (!pane) return null;
+  return `herdr --session ${s} agent attach ${pane.paneId}`;
+}
+
+/**
+ * True when a live (running) pane for the task is rostered — the cheap
+ * one-call probe later used to suppress watchdog auto-kill while an operator
+ * is attached (FR-VIS-03).
+ */
+export async function operatorAttachTrace(taskId: string, session?: string): Promise<boolean> {
+  const panes = await listSessionPanes(session);
+  return panes.some((p) => p.taskId === taskId && p.state === 'running');
 }

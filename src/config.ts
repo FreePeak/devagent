@@ -64,6 +64,14 @@ export interface DevAgentConfig {
    * DEVAGENT_HERDR=1|0, DEVAGENT_HERDR_SESSION=<name>.
    */
   herdr?: { enabled?: boolean; session?: string };
+  /**
+   * Spawn visibility (FR-VIS-01/04): whether worker CLIs launch in herdr panes
+   * the operator can jump into ("visible") or as plain child processes
+   * ("headless"). Resolved by spawnVisibility(): DEVAGENT_VISIBILITY env >
+   * config > "visible". Independent of herdr.enabled, which stays the
+   * opt-in gate for runtime availability.
+   */
+  spawn?: { visibility?: 'visible' | 'headless' };
   /** Character budget for injected lessons; oldest entries are dropped whole (default 4000). */
   lessonsMaxChars?: number;
   /**
@@ -217,6 +225,18 @@ export function herdrEnabled(cfg: DevAgentConfig = loadConfig()): boolean {
     return env !== '0' && env.toLowerCase() !== 'false';
   }
   return cfg.herdr?.enabled === true;
+}
+
+/**
+ * Spawn visibility resolution (FR-VIS-01/04): DEVAGENT_VISIBILITY env wins,
+ * then config `spawn.visibility`, defaulting to "visible" — worker CLIs land
+ * in observable herdr panes unless the operator opts out. Unrecognized env
+ * values fall through to the config/default rather than failing dispatch.
+ */
+export function spawnVisibility(cfg: DevAgentConfig = loadConfig()): 'visible' | 'headless' {
+  const env = process.env.DEVAGENT_VISIBILITY;
+  if (env === 'visible' || env === 'headless') return env;
+  return cfg.spawn?.visibility === 'headless' ? 'headless' : 'visible';
 }
 
 /** Target herdr session name (config `herdr.session`, env DEVAGENT_HERDR_SESSION, else "devagent"). */

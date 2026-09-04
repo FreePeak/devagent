@@ -1401,6 +1401,59 @@ program
   });
 
 program
+  .command('sessions')
+  .description('List live worker panes in the herdr session (FR-VIS-02)')
+  .option('--json', 'raw JSON output', false)
+  .option('--repo <path>', 'repo for ledger writes', process.cwd())
+  .action(async (opts) => {
+    const { runSessions } = await import('./commands/sessions.js');
+    await runSessions({ json: opts.json, repoPath: opts.repo });
+  });
+
+program
+  .command('attach <task>')
+  .description('Print (or with --exec, run) the jump-in command for a worker pane (FR-VIS-02)')
+  .option('--exec', 'attach immediately', false)
+  .option('--repo <path>', 'repo for ledger writes', process.cwd())
+  .action(async (task: string, opts) => {
+    const { runAttach } = await import('./commands/sessions.js');
+    await runAttach(task, { exec: opts.exec, repoPath: opts.repo });
+  });
+
+program
+  .command('daemon')
+  .description('Run the FR-CTRL control-plane daemon (HTTP+SSE on 127.0.0.1; UDS with --uds-path)')
+  .option('--port <n>', 'TCP port (0 = ephemeral)', Number, 7788)
+  .option('--repo <path>', 'repo the API reads from and dispatches into', process.cwd())
+  .option('--uds-path <path>', 'listen on a Unix-domain socket instead of TCP')
+  .option('--token <token>', 'bearer token (default DEVAGENT_DAEMON_TOKEN or a fresh one persisted to daemon-token)')
+  .action(async (opts) => {
+    const { startDaemon } = await import('./server/daemon.js');
+    const handle = await startDaemon({
+      port: opts.port,
+      repoPath: opts.repo,
+      udsPath: opts.udsPath,
+      token: opts.token,
+    });
+    const where = handle.udsPath ?? `http://127.0.0.1:${handle.port}`;
+    console.log(`devagent daemon listening on ${where} (token: ${handle.token})`);
+    // Foreground service: resolve only when the process is signalled.
+    await new Promise<void>(() => {});
+  });
+
+program
+  .command('tui')
+  .description('Full-screen terminal dashboard over the daemon API (FR-TUI; non-TTY prints one snapshot)')
+  .option('--url <url>', 'daemon base URL', 'http://127.0.0.1:7788')
+  .option('--token <token>', 'bearer token (default DEVAGENT_DAEMON_TOKEN or the daemon-token file)')
+  .option('--uds-path <path>', 'talk to the daemon over a Unix-domain socket')
+  .option('--repo <path>', 'repo echoed into kill (approve) calls', process.cwd())
+  .action(async (opts) => {
+    const { runTui } = await import('./tui/tui.js');
+    await runTui({ url: opts.url, token: opts.token, udsPath: opts.udsPath, repoPath: opts.repo });
+  });
+
+program
   .command('scout')
   .description('24/7 opencode scout: research backlog -> PRD -> queue (FR-SCOUT-01)')
   .option('--repo <path>', 'target repository', process.cwd())

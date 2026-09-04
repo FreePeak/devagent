@@ -66,6 +66,14 @@ export interface WatchdogLedgerContext {
   taskId: string;
   attempt: number;
   worker: string;
+  /**
+   * FR-VIS: spawn runtime that owned the launch — "herdr-pane" when routed
+   * through herdr, "direct" for a plain child process. Populated by the
+   * spawn sites; undefined on legacy callers.
+   */
+  runtime?: 'herdr-pane' | 'direct';
+  /** FR-VIS: true when the worker ran in an operator-visible herdr pane. */
+  visible?: boolean;
 }
 
 export interface WorkerSpawnOptions {

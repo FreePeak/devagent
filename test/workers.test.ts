@@ -68,9 +68,18 @@ beforeEach(() => {
   // and routes spawnCli through spawnCliStreaming — a code path these mocks
   // (execFile only) do not cover. Watchdog-arm behavior is covered in
   // watchdog-health.test.ts with real timers.
+  // DEVAGENT_VISIBILITY: the FR-VIS-04 default flip ("visible") routes worker
+  // spawns through the herdr pane runtime; these tests pin headless semantics.
+  // Direct assignment (not stubEnv) so local vi.unstubAllEnvs() calls in
+  // nested describes cannot silently clear the pin.
   delete process.env.DEVAGENT_NO_PROGRESS_TIMEOUT_MS;
+  process.env.DEVAGENT_VISIBILITY = 'headless';
   nextResult = { error: null, stdout: '', stderr: '' };
   resultQueue = [];
+});
+
+afterEach(() => {
+  delete process.env.DEVAGENT_VISIBILITY;
 });
 
 afterEach(() => {

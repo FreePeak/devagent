@@ -222,6 +222,29 @@ export function appendReleaseRecord(repoPath: string, record: ReleaseLedgerRecor
   }
 }
 
+/** Operator attach event (FR-VIS-03): an operator jumped into a task's pane. */
+export interface OperatorAttachLedgerRecord extends LedgerRecordBase {
+  kind: 'event';
+  event: 'operator-attached';
+  taskId: string;
+  paneId: string;
+  session: string;
+}
+
+/**
+ * Append an operator-attach record. Never throws into the caller's path —
+ * best-effort observability by design.
+ */
+export function appendOperatorAttachRecord(repoPath: string, record: OperatorAttachLedgerRecord): void {
+  try {
+    const file = ledgerPath(repoPath);
+    mkdirSync(join(repoPath, LEDGER_DIR), { recursive: true });
+    appendFileSync(file, `${JSON.stringify(record)}\n`);
+  } catch {
+    // best-effort observability only
+  }
+}
+
 /** Watchdog-health event (Q34): one row per worker-CLI launch with a no-progress clock armed. */
 export interface WatchdogHealthLedgerRecord extends LedgerRecordBase {
   kind: 'event';
@@ -242,6 +265,21 @@ export interface WatchdogHealthLedgerRecord extends LedgerRecordBase {
   meaningfulBytes: number;
   /** Idle at launch end: now - lastProgressAt. */
   idleMs: number;
+  /**
+   * FR-VIS: spawn runtime behind the row — "herdr-pane" or "direct". The
+   * `site` field predates the visible-by-default rollout and stays for
+   * continuity; `runtime` is the same fact named uniformly with the
+   * WatchdogLedgerContext.
+   */
+  runtime?: 'herdr-pane' | 'direct';
+  /** FR-VIS: whether the operator could observe the worker (pane) or not. */
+  visible?: boolean;
+  /**
+   * FR-VIS: why the row has its visibility — pane spawn, fallback from a
+   * pane attempt, or a headless direct spawn (spawnVisibility() ===
+   * "headless").
+   */
+  visibility?: 'herdr-pane' | 'fallback' | 'headless';
 }
 
 /**
