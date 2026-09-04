@@ -1,0 +1,65 @@
+{"loop":1,"ts":"2026-08-23T17:30:30Z","status":"ok","goal":"Harden self-build driver: starvation gate, lessons ratchet, dry-run mode"}
+{"loop":2,"ts":"2026-08-23T17:35:37Z","status":"ok","goal":"GitLab publisher closed-loop parity: error bodies, evidence notes, pipeline polling"}
+{"loop":3,"ts":"2026-08-23T17:58:22Z","status":"ok","goal":"devagent_board MCP tool: expose orchestration board (goal, roles, task statuses) to MCP hosts"}
+{"loop":4,"ts":"2026-08-24T02:03:51Z","status":"ok","goal":"Gate skipped-evidence semantics + G2 rollback round-trip (PR #5)"}
+{"loop":5,"ts":"2026-08-24T03:52:00Z","status":"ok","goal":"Declarative testCommand override + Python detection for gate G1 (PR #15)"}
+{"loop":6,"ts":"2026-08-24T09:39:00Z","status":"ok","goal":"GitHub Issues ingestion end-to-end (PR #18, merged)","duration_s":900}
+{"loop":7,"ts":"2026-08-25T04:23:14Z","status":"failed","goal":"Goal: Fix `devagent task --auto-pr` publishing so it opens a PR end-to-end without manual steps. Today publishStage (src/cli.ts:453) pushes `devagent/task-<runI"}
+{"loop":8,"ts":"2026-08-25T04:29:16Z","status":"failed","goal":"Goal: Fix `devagent task --auto-pr` publishing so it opens a PR end-to-end without manual steps. Today publishStage (src/cli.ts:453) pushes `devagent/task-<runI"}
+{"loop":9,"ts":"2026-08-25T04:51:36Z","status":"failed","goal":"Goal: Make task-mode reruns robust to a stale `.devagent-worktrees/TASK` worktree. Ticket id is hardcoded to TASK (src/task.ts:27), so a crashed prior run holdi"}
+{"loop":11,"ts":"2026-08-27T04:25:21Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
+{"loop":12,"ts":"2026-08-27T04:25:34Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
+{"loop":13,"ts":"2026-08-27T04:25:47Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
+{"loop":14,"ts":"2026-08-27T04:26:00Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
+{"loop":15,"ts":"2026-08-27T04:26:14Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
+{"loop":16,"ts":"2026-08-27T04:26:26Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
+{"loop":17,"ts":"2026-08-27T04:26:37Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
+{"loop":18,"ts":"2026-08-27T04:26:49Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
+{"loop":19,"ts":"2026-08-27T04:27:00Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
+{"loop":20,"ts":"2026-08-27T04:27:11Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
+{"loop":21,"ts":"2026-08-27T04:28:28Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
+{"loop":22,"ts":"2026-08-27T04:29:48Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
+{"loop":23,"ts":"2026-08-27T04:32:09Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
+{"loop":24,"ts":"2026-08-27T04:32:21Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
+{"loop":25,"ts":"2026-08-27T04:32:32Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
+{"loop":26,"ts":"2026-08-27T04:32:44Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
+{"loop":27,"ts":"2026-08-27T04:32:55Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
+{"loop":28,"ts":"2026-08-27T04:33:07Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
+{"loop":29,"ts":"2026-08-27T04:33:19Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
+{"loop":30,"ts":"2026-08-27T04:33:30Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
+{"loop":31,"ts":"2026-08-27T04:33:42Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
+{"loop":32,"ts":"2026-08-27T04:33:53Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
+{"loop":33,"ts":"2026-08-27T04:34:05Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
+{"loop":34,"ts":"2026-08-27T04:34:17Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
+{"loop":35,"ts":"2026-08-27T04:36:29Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
+{"loop":36,"ts":"2026-08-27T04:37:45Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
+{"loop":37,"ts":"2026-08-27T04:38:33Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
+{"loop":38,"ts":"2026-08-27T04:40:44Z","status":"ok","goal":"(dry-run) Goal: (dry-run) verify driver phases execute without side effects"}
+{"loop":48,"ts":"2026-09-04T04:43:39.355Z","status":"failed","goal":"reconstructed record (original 2026-08-27 row was newline-corrupted)"}
+{"loop":49,"ts":"2026-08-27T09:40:18Z","status":"failed","goal":"Goal: Add a post-publish CI remediation stage to devagent task: after publishStage, evaluateChecks polls the PR's GitHub Actions status; on any failing required"}
+{"loop":50,"ts":"2026-08-27T10:32:43Z","status":"failed","goal":"Goal: Add a self-hosted CI-remediation stage to devagent's publish flow — after `publishStage` opens/updates a PR, the task runner re-dispatches the worker on t"}
+{"loop":51,"ts":"2026-08-27T17:30:59Z","status":"failed","goal":"Implement the lessons feedback loop — at run start, load the latest selfbuild-state `lessons.md`, distill to a size-bounded digest, and inject it into both the "}
+{"loop":52,"ts":"2026-08-27T20:43:00Z","status":"failed","goal":"implement `fanout/ingestChildTrails` — a single phase that, after each worker finishes, copies its `worklog.jsonl` (and minimal metadata: worker id, task id, st"}
+{"loop":53,"ts":"2026-08-27T21:42:07Z","status":"push-failed","goal":"Ship `fanout/ingestChildTrails` so the planner ingests each child worker `worklog.jsonl` excerpt before drafting the next goal (per iter 50/52/53 lessons — indu"}
+{"loop":54,"ts":"2026-08-27T22:34:42Z","status":"failed","goal":"Ship `fanout/ingestChildTrails` so the planner ingests each child worker `worklog.jsonl` excerpt before drafting the next goal (industry-baseline plumbing per i"}
+{"loop":55,"ts":"2026-08-28T04:07:43Z","status":"failed","goal":"Ship a one-way, evidence-gated `fanout/ingestChildTrails` plumbing slice — when the selfbuild orchestrator compacts its lessons context (a forced cache miss any"}
+{"loop":56,"ts":"2026-08-28T04:08:06Z","status":"failed","goal":"research phase failed"}
+{"loop":57,"ts":"2026-08-30T05:34:22Z","status":"failed","goal":"Goal: Fix the Release workflow so a red main branch can never ship a semver tag (PRD Q21, Phase 4 backlog Gate the Release workflow on CI). Today `.github/workf"}
+{"loop":58,"ts":"2026-09-01T10:47:52Z","status":"failed","goal":"Goal: Land PRD Q35: CI-Fixer (PRs #96/#97) emits ledger rows for every fixer dispatch and outcome so failure-cluster analytics can count fixer round-trips per g"}
+{"loop":59,"ts":"2026-09-04T04:30:16Z","status":"merged","pr":134,"goal":"lessons eval-guard held-out tier (Q39): hold out newest 20pct of machine-appended lessons, mustBeat gate on append; shipped as PR 134"}
+{"loop":60,"ts":"2026-08-24T14:05:00Z","goal":"lessons feedback loop: inject durable lessons (.devagent/lessons.md) into implementation and repair prompts across all dispatch paths","status":"pr-open","pr":27,"duration_s":1500,"tests":"306 passed"}
+{"loop":61,"ts":"2026-08-24T15:37:53Z","goal":"merge-queue rebase automation: devagent rebase-stack walks stacked branches, rebases drifted children in throwaway worktrees, stops on conflict, pushes with lease","status":"pr-open","pr":29,"tests":"319 passed"}
+{"loop":62,"ts":"2026-08-25T02:45:00Z","goal":"deeper sandbox isolation: credential env scrubbing for worker spawns (default-on) + opt-in macOS seatbelt write confinement","status":"pr-open","pr":30,"duration_s":1320,"tests":"324 passed"}
+{"loop":63,"ts":"2026-08-25T04:35:00Z","goal":"remote execution: devagent task --remote delegates the pipeline to a shared host over SSH (preflight probe, bounded timeout, PR URL extraction)","status":"merged","pr":31,"duration_s":900,"tests":"323 passed"}
+{"loop":64,"ts":"2026-08-25T01:52:57Z","goal":"worker network confinement: DEVAGENT_SANDBOX_NETWORK=deny emits (deny network*) in seatbelt profile, completing the network half of the Phase 4 sandbox item (stacked on PR #30)","status":"pr-open","pr":32,"duration_s":1500,"tests":"327 passed"}
+{"loop":65,"ts":"2026-08-25T03:47:54Z","goal":"worker network allowlist: DEVAGENT_SANDBOX_NETWORK=allowlist denies egress except DNS-resolved host endpoints in the seatbelt profile, completing the network half of the Phase 4 sandbox item (stacked on PR #32)","status":"pr-open","pr":33,"duration_s":780,"tests":"337 passed"}
+{"loop":66,"ts":"2026-08-25T06:46:48Z","goal":"concurrent-safe task identity for devagent task: --id flag + DEVAGENT_TASK_ID env + collision-free TASK-<suffix> default, threaded through worktree/branch naming and remote SSH dispatch (Phase 4 remote-execution pooling residue; closes run-18 TASK-collision lesson)","status":"pr-open","pr":38,"duration_s":1500,"tests":"375 passed"}
+{"loop":67,"ts":"2026-08-25T09:58:29Z","goal":"size-bounded lessons digest for worker prompts: char budget (lessonsMaxChars, default 4000) drops oldest entries whole after the 40-line cap; resolves PRD Q9 as distilled","status":"pr-open","pr":39,"duration_s":5400,"tests":"373 passed"}
+{"loop":68,"ts":"2026-09-01T08:06:05Z","status":"merged","pr":100,"goal":"Ship Q35 from docs/PRD.md (Phase 4): CI-Fixer dispatch/outcome ledger rows (recovered record; PR #100 merged 08:06Z)"}
+{"loop":69,"ts":"2026-09-04T06:33:38Z","status":"ok","goal":"Goal: Add a G0 issue-readiness validation gate that scores incoming tickets against type-specific ready-for-dev criteria and rejects unready tickets before work"}
+{"loop":70,"ts":"2026-09-04T08:31:15Z","status":"ok","goal":"Goal: Record structured watchdog-health ledger rows per worker attempt from both progress-clock sites so never-firing watchdogs are visible in analytics instead"}
+{"loop":71,"ts":"2026-09-04T16:34:04Z","status":"skipped","goal":"Goal: (dry-run) verify driver phases execute without side effects"}
+{"loop":72,"ts":"2026-09-04T16:34:14Z","status":"skipped","goal":"Goal: (dry-run) verify driver phases execute without side effects"}
+{"loop":73,"ts":"2026-09-04T16:34:23Z","status":"skipped","goal":"Goal: (dry-run) verify driver phases execute without side effects"}
+{"loop":74,"ts":"2026-09-04T16:34:31Z","status":"skipped","goal":"Goal: (dry-run) verify driver phases execute without side effects"}
+{"loop":75,"ts":"2026-09-04T16:34:40Z","status":"skipped","goal":"Goal: (dry-run) verify driver phases execute without side effects"}
