@@ -1,8 +1,12 @@
+import { existsSync, mkdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { claimNextPending, readTask, setTaskStatus, updateTask, type QueuedTask } from './queue.js';
 import { RunLogger } from './logger.js';
 import { syntheticTicketFromPrompt } from './task.js';
 import type { PipelineDeps } from './pipeline.js';
-import { loadConfig } from './config.js';
+import { loadConfig, loadOrchestrateConfig } from './config.js';
+import { detectTestCommand, type TestCommand } from './validation/test-gate.js';
+import { runCli } from './workers/spawn-utils.js';
 import { runPipeline } from './pipeline.js';
 import { isTransientProviderError } from './resilience/classify.js';
 
@@ -28,6 +32,108 @@ function isConsumeTransient(detail: string): boolean {
   // Also treat watchdog / timeout wording as transient
   if (/timed.?out|watchdog|no-progress/i.test(detail)) return true;
   return isTransientProviderError(detail);
+}
+
+export interface RegressionOracleResult {
+  /** true when the suite is green, skipped, or disabled; false on a red suite. */
+  passed: boolean;
+  /** true when no runnable command was found or the gate is disabled. */
+  skipped: boolean;
+  /** Why the gate skipped (or null when it ran). */
+  reason?: 'no-test-command' | 'disabled' | 'worktree-failed' | 'install-failed';
+  /** Tail of the failing suite output, for the regression-failed detail. */
+  excerpt?: string;
+}
+
+/**
+ * Run `npm ci --ignore-scripts` in a lockfile'd npm worktree so the suite
+ * sees node_modules (a fresh worktree ships without it). Returns a skip
+ * result when the install fails: the suite is not run, because a red run
+ * caused by missing modules would false-block every merge. Non-npm suites
+ * and repos without a lockfile need no install and return null.
+ */
+async function installSuiteDeps(
+  staging: string,
+  testCommand: TestCommand,
+  timeoutMs: number,
+  lg: (level: 'info' | 'warn', message: string, extra: Record<string, unknown>) => void,
+): Promise<RegressionOracleResult | null> {
+  if (testCommand.cmd !== 'npm') return null;
+  const lockfiles = ['package-lock.json', 'npm-shrinkwrap.json'];
+  if (!lockfiles.some((f) => existsSync(join(staging, f)))) return null;
+  const install = await runCli('npm', ['ci', '--ignore-scripts'], { cwd: staging, timeoutMs });
+  if (install.exitCode === 0) return null;
+  lg('warn', 'regression oracle skipped: dependency install failed', {
+    gate: 'regression',
+    stderr: install.stderr.slice(0, 200),
+  });
+  return { passed: true, skipped: true, reason: 'install-failed' };
+}
+
+/**
+ * Regression oracle (PRD §17 Phase 4, gate G6): before an auto-merge, check
+ * out the PR branch in a throwaway worktree and run the repo's full test
+ * suite there. A red suite blocks the merge; a skipped gate (no runnable
+ * test command / knob off / failed dependency install) lets auto-merge
+ * proceed. The worktree is always removed, even when the suite fails.
+ */
+export async function runRegressionOracle(
+  repoPath: string,
+  branch: string,
+  opts: { timeoutMs: number; enabled?: boolean; log?: RunLogger },
+): Promise<RegressionOracleResult> {
+  const lg = (level: 'info' | 'warn', message: string, extra: Record<string, unknown>) => {
+    if (opts.log) opts.log[level]('validate', message, extra);
+  };
+  const enabled = opts.enabled ?? loadOrchestrateConfig(repoPath).regressionOracle;
+  if (enabled === false) return { passed: true, skipped: true, reason: 'disabled' };
+  const worktreesRoot = join(repoPath, '.devagent-worktrees');
+  mkdirSync(worktreesRoot, { recursive: true });
+  const staging = join(worktreesRoot, `regression-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+  const add = await runCli('git', ['worktree', 'add', '--detach', staging, branch], {
+    cwd: repoPath,
+    timeoutMs: 60_000,
+  });
+  if (add.exitCode !== 0) {
+    lg('warn', 'regression oracle worktree add failed; skipping gate', {
+      gate: 'regression',
+      branch,
+      stderr: add.stderr.slice(0, 200),
+    });
+    return { passed: true, skipped: true, reason: 'worktree-failed' };
+  }
+  try {
+    const testCommand = detectTestCommand(staging);
+    if (!testCommand) return { passed: true, skipped: true, reason: 'no-test-command' };
+    // Fresh worktrees lack node_modules; npm suites with a lockfile get an
+    // install first, and a failed install skips the gate (fail-open).
+    const install = await installSuiteDeps(staging, testCommand, opts.timeoutMs, lg);
+    if (install) return install;
+    const run = await runCli(testCommand.cmd, testCommand.args, { cwd: staging, timeoutMs: opts.timeoutMs });
+    if (run.exitCode === 0) {
+      lg('info', 'regression oracle passed', { gate: 'regression', branch });
+      return { passed: true, skipped: false };
+    }
+    lg('warn', 'regression oracle blocked merge: suite failed', {
+      gate: 'regression',
+      branch,
+      exitCode: run.exitCode,
+    });
+    const lines = `${run.stdout}${run.stderr}`.trimEnd().split('\n');
+    return { passed: false, skipped: false, excerpt: lines.slice(-15).join('\n') };
+  } finally {
+    const remove = await runCli('git', ['worktree', 'remove', '--force', staging], {
+      cwd: repoPath,
+      timeoutMs: 60_000,
+    });
+    if (remove.exitCode !== 0) {
+      lg('warn', 'regression oracle worktree remove failed', {
+        gate: 'regression',
+        path: staging,
+        stderr: remove.stderr.slice(0, 200),
+      });
+    }
+  }
 }
 
 /** Claim one pending task and run it through the pipeline -> PR -> optional auto-merge. */
@@ -222,6 +328,25 @@ async function runQueuedTask(
         prUrl,
         merged: false,
       };
+    }
+
+    if (branch) {
+      // Regression oracle (PRD §17 Phase 4): full test suite on the PR branch
+      // in a throwaway worktree. A red suite blocks the merge; skipped gates
+      // (no test command / knob off) proceed to auto-merge.
+      const regression = await runRegressionOracle(opts.repoPath, branch, {
+        timeoutMs: opts.timeoutMs,
+        log,
+      });
+      if (!regression.passed) {
+        const excerpt = regression.excerpt ? `: ${regression.excerpt}` : '';
+        return {
+          ok: true,
+          detail: `done: ${task.id} -> ${prUrl} (regression-failed${excerpt})`,
+          prUrl,
+          merged: false,
+        };
+      }
     }
 
     try {
