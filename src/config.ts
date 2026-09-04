@@ -23,6 +23,11 @@ export interface ScoutConfig {
   maxQueued?: number;
   /** Model override forwarded to the scout worker CLI (provider/model). */
   model?: string;
+  /**
+   * Fetch + fast-forward origin before each live cycle so docs/PRD.md reads
+   * see the operator's latest edits (default true; false skips the sync).
+   */
+  syncDocs?: boolean;
 }
 
 export interface DevAgentConfig {

@@ -34,11 +34,13 @@ RESEARCH_TIMEOUT="${SELFBUILD_RESEARCH_TIMEOUT:-900}"
 # every `devagent task` dispatch below inherits it; the 24/7 LaunchAgent keeps
 # workers headless via its own DEVAGENT_VISIBILITY env.
 VISIBILITY="${DEVAGENT_VISIBILITY:-${SELFBUILD_VISIBILITY:-visible}}"
+NO_SYNC_DOCS="${SELFBUILD_NO_SYNC_DOCS:-0}"
 while [ $# -gt 0 ]; do
   case "$1" in
     --headless) VISIBILITY=headless ;;
     --visible) VISIBILITY=visible ;;
-    *) echo "unknown argument: $1 (supported: --headless, --visible)" >&2; exit 2 ;;
+    --no-sync-docs) NO_SYNC_DOCS=1 ;;
+    *) echo "unknown argument: $1 (supported: --headless, --visible, --no-sync-docs)" >&2; exit 2 ;;
   esac
   shift
 done
@@ -205,9 +207,21 @@ while :; do
       fi
     fi
 
-
-    # Sync with remote; tolerate offline / diverged states.
-    git pull --ff-only || echo "[sync] skipped (pull failed)"
+    # Doc freshness gate (operator PRD-freshness fix): research + PO select
+    # from docs/PRD.md, so a manual PRD update must be pulled before selection
+    # or the loop keeps building the older doc version. fetch + ff-only; on a
+    # dirty PRD (operator mid-edit) or diverged branch, skip the LLM phases
+    # and record the degraded row instead of silently building stale work.
+    if [ "$NO_SYNC_DOCS" != 1 ]; then
+      SYNC_OUT="$(git fetch origin main 2>&1 && git merge --ff-only origin/main 2>&1)" || {
+        echo "[sync-docs] PRD refresh failed: $SYNC_OUT"
+        record "$N" provider-degraded "doc-sync failed: $(printf '%s' "$SYNC_OUT" | tail -1 | cut -c1-120)"
+        fails=$(( fails + 1 ))
+        [ "$fails" -ge "$MAX_FAILS" ] && { echo "circuit breaker: $fails consecutive failures" ; exit 1 ; }
+        continue
+      }
+      printf '%s\n' "$SYNC_OUT" | grep -q "Already up to date" || echo "[sync-docs] $SYNC_OUT"
+    fi
 
     # Phase 1: Research. Feed prior failures back in so defects compound into fixes.
     PREV_TAIL=""

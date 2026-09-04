@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { enqueueTask, ensureQueueDirs, listTasks, prdsDir, queueDir } from './queue.js';
+import { syncWorkSelectionDocs } from './git/doc-sync.js';
 import type { DevAgentConfig } from './config.js';
 import { spawnCli } from './workers/spawn-utils.js';
 
@@ -213,6 +214,20 @@ export async function runScoutOnce(opts: ScoutCycleOptions, config: DevAgentConf
     }
     writeHeartbeat(repoPath, { lastStatus: 'ok', lastDetail: `dry-run produced ${parsed.id}`, worker, intervalMinutes, lastTaskId: parsed.id });
     return { ok: true, taskId: parsed.id, prdPath, queuePath: join(queueDir(repoPath), `${parsed.id}.json`), heartbeatPath: hbPath, detail: `dry-run: ${parsed.id}`, rawPrompt: prompt, rawOutput: parsed.prdMarkdown };
+  }
+
+  // Doc freshness gate (operator PRD-freshness fix): the prompt below reads
+  // docs/PRD.md, so fetch+ff origin first or a manual PRD update pushed from
+  // another machine stays invisible and the scout keeps enqueuing stale
+  // backlog items. Best-effort: a failed sync degrades to a skipped cycle so
+  // the heartbeat records it instead of silently reading the old doc.
+  if (config.scout?.syncDocs !== false) {
+    const sync = await syncWorkSelectionDocs(repoPath);
+    if (!sync.ok) {
+      const detail = `skipped: doc sync failed — ${sync.detail}`;
+      writeHeartbeat(repoPath, { lastStatus: 'skipped', lastDetail: detail, worker, intervalMinutes });
+      return { ok: false, heartbeatPath: hbPath, detail, rawPrompt: prompt };
+    }
   }
 
   // Live: dispatch to the configured worker. Worker-specific argv below must
