@@ -47,6 +47,15 @@ vi.mock('node:child_process', () => ({
   execFile: (...args: unknown[]) => (execFileMock as unknown)(...(args as [])),
 }));
 
+// Watchdog routing depends on DEVAGENT_NO_PROGRESS_TIMEOUT_MS. When the
+// ambient environment (selfbuild driver) exports it, adapters resolve a
+// positive default and route through spawnCliStreaming -> spawn, which this
+// execFile-only mock does not define. Pin the env so routing is deterministic
+// (watchdog off -> execFile path) regardless of the operator's shell.
+beforeEach(() => {
+  delete process.env.DEVAGENT_NO_PROGRESS_TIMEOUT_MS;
+});
+
 import { ClaudeCodeAdapter } from '../src/workers/claude-code.js';
 import { OpenCodeAdapter } from '../src/workers/opencode.js';
 import { getWorker, workers } from '../src/workers/index.js';

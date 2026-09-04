@@ -31,6 +31,13 @@ vi.mock('node:child_process', () => ({
   execFile: (...args: unknown[]) => (execFileMock as unknown)(...(args as [])),
 }));
 
+// See test/workers.test.ts: ambient DEVAGENT_NO_PROGRESS_TIMEOUT_MS from the
+// operator's shell routes spawns through spawnCliStreaming -> spawn, which
+// this execFile-only mock does not define. Pin the env for determinism.
+beforeEach(() => {
+  delete process.env.DEVAGENT_NO_PROGRESS_TIMEOUT_MS;
+});
+
 // Controllable DNS for allowlist-resolution cases.
 const dnsLookupMock = vi.fn();
 vi.mock('node:dns', async (importOriginal) => {
