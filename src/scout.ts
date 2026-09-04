@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { enqueueTask, ensureQueueDirs, listTasks, prdsDir, queueDir } from './queue.js';
+import { archivedBoardFailureClass } from './orchestrator/queue-bridge.js';
 import { syncWorkSelectionDocs } from './git/doc-sync.js';
 import type { DevAgentConfig } from './config.js';
 import { spawnCli } from './workers/spawn-utils.js';
@@ -208,6 +209,7 @@ export async function runScoutOnce(opts: ScoutCycleOptions, config: DevAgentConf
         acceptanceCriteria: parsed.criteria,
         prdMarkdown: parsed.prdMarkdown,
         source: `scout:${worker}:dry-run`,
+        failureClass: archivedBoardFailureClass(repoPath, parsed.goal),
       });
     } catch {
       // already exists (rerun) -> treat as success
@@ -281,7 +283,7 @@ export async function runScoutOnce(opts: ScoutCycleOptions, config: DevAgentConf
       mkdirSync(prdsDir(repoPath), { recursive: true });
       writeFileSync(prdPath, parsed.prdMarkdown);
       try {
-        enqueueTask(repoPath, { id: parsed.id, title: parsed.title, goal: parsed.goal, acceptanceCriteria: parsed.criteria, prdMarkdown: parsed.prdMarkdown, source: `scout:${worker}:fallback` });
+        enqueueTask(repoPath, { id: parsed.id, title: parsed.title, goal: parsed.goal, acceptanceCriteria: parsed.criteria, prdMarkdown: parsed.prdMarkdown, source: `scout:${worker}:fallback`, failureClass: archivedBoardFailureClass(repoPath, parsed.goal) });
       } catch { /* exists */ }
       const detail = `scout ${worker} failed (exit ${r.exitCode}), fallback task ${parsed.id} enqueued`;
       writeHeartbeat(repoPath, { lastStatus: 'ok', lastDetail: detail, worker, intervalMinutes, lastTaskId: parsed.id });
@@ -303,7 +305,7 @@ export async function runScoutOnce(opts: ScoutCycleOptions, config: DevAgentConf
     mkdirSync(prdsDir(repoPath), { recursive: true });
     writeFileSync(prdPath, fb.prdMarkdown);
     try {
-      enqueueTask(repoPath, { id: fb.id, title: fb.title, goal: fb.goal, acceptanceCriteria: fb.criteria, prdMarkdown: fb.prdMarkdown, source: `scout:${worker}:unparseable-fallback` });
+      enqueueTask(repoPath, { id: fb.id, title: fb.title, goal: fb.goal, acceptanceCriteria: fb.criteria, prdMarkdown: fb.prdMarkdown, source: `scout:${worker}:unparseable-fallback`, failureClass: archivedBoardFailureClass(repoPath, fb.goal) });
     } catch { /* exists */ }
     const detail = `scout output unparseable, fallback ${fb.id} enqueued`;
     writeHeartbeat(repoPath, { lastStatus: 'ok', lastDetail: detail, worker, intervalMinutes, lastTaskId: fb.id });
@@ -321,6 +323,7 @@ export async function runScoutOnce(opts: ScoutCycleOptions, config: DevAgentConf
       acceptanceCriteria: parsed.criteria,
       prdMarkdown: parsed.prdMarkdown,
       source: `scout:${worker}`,
+      failureClass: archivedBoardFailureClass(repoPath, parsed.goal),
     });
   } catch {
     const detail = `task ${parsed.id} already queued`;

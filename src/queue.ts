@@ -21,6 +21,12 @@ export interface QueuedTask {
   /** Last failure detail for retry visibility */
   lastError?: string;
   attempts?: number;
+  /**
+   * Cross-board retry memory (Q27): executor failure class carried from an
+   * archived board for a re-bridged goal. Tasks carrying one claim after all
+   * clean tasks (claimNextPending two-tier order).
+   */
+  failureClass?: string;
 }
 
 export interface EnqueueInput {
@@ -31,6 +37,8 @@ export interface EnqueueInput {
   acceptanceCriteria?: string[];
   prdMarkdown?: string;
   source?: string;
+  /** Carried executor failure class from a prior archived board for this goal (Q27). */
+  failureClass?: string;
 }
 
 function sanitizeId(id: string): string {
@@ -103,6 +111,7 @@ export function enqueueTask(repoPath: string, input: EnqueueInput): QueuedTask {
     updatedAt: ts,
     source: input.source ?? 'scout',
     attempts: 0,
+    failureClass: input.failureClass,
   };
   if (input.prdMarkdown) {
     const p = prdPath(repoPath, id);
@@ -180,10 +189,17 @@ export function claimTask(repoPath: string, id: string, workerId: string): Queue
   return next;
 }
 
-/** Claim the oldest pending task; returns null when none pending. */
+/**
+ * Claim the oldest pending task; returns null when none pending.
+ * Two-tier order (Q27 cross-board retry memory): tasks without a carried
+ * failureClass first, then tasks carrying one — oldest createdAt first within
+ * each tier — so re-bridged failures wait until fresh work drains.
+ */
 export function claimNextPending(repoPath: string, workerId: string): QueuedTask | null {
   const pendings = listTasks(repoPath, { status: 'pending' });
-  for (const t of pendings) {
+  const clean = pendings.filter((t) => !t.failureClass);
+  const carried = pendings.filter((t) => t.failureClass);
+  for (const t of [...clean, ...carried]) {
     const claimed = claimTask(repoPath, t.id, workerId);
     if (claimed) return claimed;
   }

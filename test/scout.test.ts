@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, mkdirSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildScoutPrompt, parseScoutOutput, runScoutOnce, readHeartbeat } from '../src/scout.js';
+import { readTask } from '../src/queue.js';
 import type { DevAgentConfig } from '../src/config.js';
 
 const baseConfig: DevAgentConfig = { worker: 'opencode', maxLoops: 3, timeoutMinutes: 30 };
@@ -91,6 +92,35 @@ describe('runScoutOnce dryRun', () => {
       writeFileSync(join(repo, 'docs', 'PRD.md'), '# PRD');
       const result = await runScoutOnce({ repoPath: repo, dryRun: true }, baseConfig);
       expect(result.ok).toBe(true);
+    } finally { rmSync(repo, { recursive: true, force: true }); }
+  });
+
+  it('stamps carried failureClass onto dry-run enqueue when an archived board matches the goal (Q27)', async () => {
+    const repo = tmpRepo();
+    try {
+      const archiveDir = join(repo, '.devagent', 'archive');
+      mkdirSync(archiveDir, { recursive: true });
+      writeFileSync(
+        join(archiveDir, 'board-stuck-20260903-120000.json'),
+        JSON.stringify({
+          goal: 'Goal: Add a scout heartbeat status command so operators can verify the 24/7 scout is alive without reading files.',
+          tasks: [
+            {
+              id: 'T1',
+              title: 'x',
+              prompt: 'x',
+              dependsOn: [],
+              status: 'failed',
+              attempts: 3,
+              interrupt: { failureClass: 'test-gate', lastGateExcerpt: '1 failed', attempts: 3, trailHash: 'abc123' },
+            },
+          ],
+        }),
+      );
+      const result = await runScoutOnce({ repoPath: repo, dryRun: true }, baseConfig);
+      expect(result.ok).toBe(true);
+      // fallback goal matches the archived board: queue task carries its failure class
+      expect(readTask(repo, result.taskId!)!.failureClass).toBe('test-gate');
     } finally { rmSync(repo, { recursive: true, force: true }); }
   });
 });
