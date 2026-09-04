@@ -36,14 +36,12 @@ cd "$REPO"
 # Restore durable loop state (ledger + lessons) from origin before numbering.
 bash "$REPO/scripts/selfbuild-state.sh" pull || echo "[state] pull failed, starting from local state"
 
-ledger_lines() {
-  if [ -f "$STATE/ledger.jsonl" ]; then wc -l < "$STATE/ledger.jsonl"; else echo 0; fi
-}
 
 record() { # record <loop> <status> <goal>
+  local goal_txt
+  goal_txt="$(printf '%s' "$3" | tr '\n\t' '  ' | tr -d '"' | cut -c1-160)"
   printf '{"loop":%s,"ts":"%s","status":"%s","goal":"%s"}\n' \
-    "$1" "$(date -u +%FT%TZ)" "$2" \
-    "$(printf '%s' "$3" | tr -d '"' | cut -c1-160)" >> "$STATE/ledger.jsonl"
+    "$1" "$(date -u +%FT%TZ)" "$2" "$goal_txt" >> "$STATE/ledger.jsonl"
   # Publish immediately (even for failures) so the next run continues here.
   bash "$REPO/scripts/selfbuild-state.sh" push || echo "[state] push deferred"
   # Q39 impact telemetry: mirror one loop-result event row per iteration so
@@ -52,8 +50,7 @@ record() { # record <loop> <status> <goal>
   EVENTS="$REPO/.devagent/runs/orchestration/events.jsonl"
   mkdir -p "$(dirname "$EVENTS")"
   printf '{"ts":"%s","kind":"event","event":"loop-result","loop":%s,"status":"%s","goal":"%s"}\n' \
-    "$(date -u +%FT%TZ)" "$1" "$2" \
-    "$(printf '%s' "$3" | tr -d '"' | cut -c1-160)" >> "$EVENTS"
+    "$(date -u +%FT%TZ)" "$1" "$2" "$goal_txt" >> "$EVENTS"
 }
 
 # Starvation gate: consecutive non-productive iterations across ALL runs.
@@ -150,7 +147,7 @@ sweep_cleanup() {
 
 fails=0
 while :; do
-  N=$(( $(ledger_lines | tr -d ' ') + 1 ))
+  N=$(( $(awk 'match($0,/"loop":[0-9]+/){n=substr($0,RSTART+7,RLENGTH-7)+0; if(n>m)m=n} END{if(NR==0)print 0; else print m+1}' "$STATE/ledger.jsonl" 2>/dev/null) || echo 0 ) + 1 )
   LOG="$STATE/logs/loop-$N.log"
   {
     echo "=== self-build loop $N start $(date -u +%FT%TZ) ==="
@@ -287,6 +284,10 @@ Output ONLY the goal statement (max 120 words), starting with 'Goal:' — this t
       if already_shipped "$GOAL"; then
         echo "[guard] goal already shipped — skipping (Q27 no re-burn)"
         record "$N" skipped "$GOAL"
+        # Mark a queue-claimed item done too, or the queue-first selector
+        # re-claims the same already-shipped goal every iteration (2026-09-04:
+        # SCOUT-20260903-fallback skipped twice, then burned a worker dispatch).
+        [ -n "${QUEUED_TASK_ID:-}" ] && node "$REPO/scripts/selfbuild-queue-done.mjs" "$REPO" "$QUEUED_TASK_ID" done "already shipped (Q27 guard)" >/dev/null 2>&1 || true
         echo "[ok] loop $N skipped (already shipped)"
         fails=0
         continue
@@ -299,10 +300,17 @@ Output ONLY the goal statement (max 120 words), starting with 'Goal:' — this t
       else
 
       # Phases 4-5-6: Plan + Implement + internal validation gates via DevAgent itself.
+      # Hard wall-clock cap + bounded retry budget: worker retries default to
+      # Infinity (src/config.ts resilience) with 200 infra retries in executor.ts,
+      # so one provider storm serializes into a 12h silent iteration (2026-09-03:
+      # 11h45m). Outer timeout bounds the whole dispatch; env caps bound the
+      # retry budget and no-progress hang detection inside it.
       TASK_ARGS=(task --prompt "$GOAL" --repo "$REPO" --worker "$WORKER")
       [ -n "${SELFBUILD_MODEL:-}" ] && TASK_ARGS+=(--model "$SELFBUILD_MODEL")
       [ "$PUSH_MODE" = pr ] && TASK_ARGS+=(--auto-pr)
-      "${DEVAGENT[@]}" "${TASK_ARGS[@]}" || { echo "[implement] task failed" ; record "$N" failed "$GOAL" ; [ -n "${QUEUED_TASK_ID:-}" ] && node "$REPO/scripts/selfbuild-queue-done.mjs" "$REPO" "$QUEUED_TASK_ID" failed "implement failed at loop $N" >/dev/null 2>&1 || true ; fails=$(( fails + 1 )) ;
+      DEVAGENT_API_MAX_ATTEMPTS="${SELFBUILD_API_MAX_ATTEMPTS:-40}" \
+      DEVAGENT_NO_PROGRESS_TIMEOUT_MS="${SELFBUILD_NO_PROGRESS_TIMEOUT_MS:-600000}" \
+        timeout "${SELFBUILD_TASK_TIMEOUT:-7200}" "${DEVAGENT[@]}" "${TASK_ARGS[@]}" || { echo "[implement] task failed" ; record "$N" failed "$GOAL" ; [ -n "${QUEUED_TASK_ID:-}" ] && node "$REPO/scripts/selfbuild-queue-done.mjs" "$REPO" "$QUEUED_TASK_ID" failed "implement failed at loop $N" >/dev/null 2>&1 || true ; fails=$(( fails + 1 )) ;
         [ "$fails" -ge "$MAX_FAILS" ] && { echo "circuit breaker: $fails consecutive failures" ; exit 1 ; } ; continue ; }
 
       # Post-merge-back repo-level test gate.
