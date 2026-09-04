@@ -123,7 +123,7 @@ See [docs/HERDR.md](docs/HERDR.md) for the full behavior contract.
 | Document | Format | Description |
 |---|---|---|
 | [Product Requirements Document](docs/PRD.md) | Markdown | Full PRD: problem, personas, requirements (FR/NFR), architecture, pipeline, validation gates, CLI spec, integrations, metrics, risks, roadmap |
-| [Product Requirements Document](docs/PRD.html) | HTML | Same document, styled single-file HTML for sharing |
+| [Product Requirements Document](docs/PRD.html) | HTML | Same document, styled single-file HTML for sharing — regenerate after editing PRD.md: `pandoc docs/PRD.md -f gfm -t html5 -s --toc --toc-depth=2 --metadata title="DevAgent - Product Requirements Document" -H docs/prd-style.html -o docs/PRD.html` (pandoc 3.10.x) |
 | [War Room mode](docs/WAR-ROOM.md) | Markdown | Goal-driven infinity loop: abstract idea → research → spec-until-clear → implement-until-evidenced. Built for new products and hackathons (`npm run warroom`) |
 | [cc-guard: auto-resume for headless sessions](docs/cc-guard.md) | Markdown | Supervisor that restarts Claude Code sessions killed by API failures ("Connection lost mid-response") via `devagent guard` |
 | [LongHorizon-Harness analysis](docs/research/longhorizon-harness.md) | Markdown | Research backing evidence-gated orchestration: MEA loop, audit economics, recovery strategy (arXiv:2608.01964) |

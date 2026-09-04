@@ -27,6 +27,7 @@
 17. [Roadmap](#17-roadmap)
 18. [Open Questions](#18-open-questions)
 19. [Research Appendix](#19-research-appendix)
+20. [Product Direction Addendum: Grok Bot, xAI Integration, Cross-Platform Control App](#20-product-direction-addendum-grok-bot-xai-integration-cross-platform-control-app)
 
 ---
 
@@ -523,7 +524,7 @@ Project access tokens (bot user, 365-day cap, rotation endpoint) with scopes `ap
 | NFR-02 | Worker credentials are never logged; run logs redact environment values |
 | NFR-03 | Concurrent runs are isolated: separate worktrees, branches, Docker projects, no shared mutable state |
 | NFR-04 | All run state is reproducible from the structured log alone (postmortems need no live access) |
-| NFR-05 | DevAgent runs on macOS and Linux with Docker as the only heavyweight dependency |
+| NFR-05 | DevAgent runs on macOS and Linux with Docker as the only heavyweight dependency. Phase 5 (§20.4) widens to Windows: the Node CLI/daemon and the Tauri control app run natively, Docker Desktop substitutes for Docker, and 24/7 loop automation moves from LaunchAgents to Task Scheduler |
 | NFR-06 | Adding a third worker CLI requires only a new `WorkerAdapter` implementation — no core changes |
 
 ## 15. Metrics and Success Criteria
@@ -864,10 +865,21 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 - **Cross-board retry memory beyond the SHA guard** — commit 60638d3 stops re-issuing shipped goals, but re-queued failures still get a fresh attempt budget; carry the prior board's failure class onto the re-bridged goal so the scout deprioritizes until the root-cause fix lands (Q27).
 - **Regression oracle before board merge** — gates judge single PRs and PR #108's committed STRIDE allowlist widens suppression paths; add a board-level "is the system at least as good?" check (full suite on the merged result) ahead of `autoMerge`, per the Kitchen Loop zero-regression rule.
 - **GRADIENT — structural gradient sensor** — exit-code scalar architecture gate (sentrux: `.sentrux/rules.toml`, lowest-scoring root cause per change) plus an adjacent-category scan (sensors, MCP servers, harness tooling) in scout/selfbuild research prompts; the agent-products-only funnel is why sentrux was missed entirely (2026-09-01 human deep-dive; Q38).
-- **Release/tag events as ledger outcomes** — the release workflow needed same-day hotfixes (9c7132a remote-tag resolution + idempotent tag) yet the ledger stays PR-URL-only; record tag/release outcomes so per-loop spend-to-shipped-artifact math can count releases (Q24).
+- **Release/tag events as ledger outcomes** — ~~the release workflow needed same-day hotfixes (9c7132a remote-tag resolution + idempotent tag) yet the ledger stays PR-URL-only; record tag/release outcomes so per-loop spend-to-shipped-artifact math can count releases (Q24).~~ **Shipped 2026-09-04:** `ReleaseLedgerRecord` (`release-created` event: tag, sha, version, source) in `src/orchestrator/ledger.ts:195` with `appendReleaseRecord`, a `devagent record release` CLI path, and a `release.yml` "Record release event in ledger" step — per-loop spend-to-shipped-artifact math can now count releases.
 - **Consolidate the loop scripts** — recovery keeps landing in shell (aac28b6 queue-first selection, b302210 sweep-each-iteration, baa4eda discovery sweep) while untracked `scripts/orchestrator-loop.sh` runs divergent logic; fold recovery into `src/orchestrator/` and reduce the shell to a thin caller (Q19).
 - **PRD-backlog reconciliation at pick time** — Q40 was re-selected three runs running (PRs #119/#120/#122) because the Phase 4 backlog lags merges; cross-check a pick against merged PR titles and these completion notes before dispatch, and strike shipped items in the same run (Q27 family; extends the curator title-match rule from the 2026-08-31 queue sweep).
 - **Lessons must-beat-best-so-far + held-out tier** — Q39's measured score now ranks the digest, but nothing requires a candidate to beat the current best on loops it did not inform; add the AHE/Meta-Harness held-out slice so ranking cannot game the training distribution (flagged "future work" in the run-24 note above).
+
+### Phase 5 — Personal agent surface (proposed, post-v1)
+
+Direction addendum 2026-09-03 (section 20): DevAgent becomes the local-first, BYO-provider counterpart to xAI/Cursor's Grok Bot — named role agents with approval gates and durable memory, dispatched from a lightweight cross-platform desktop control app (Tauri 2: macOS menubar/tray, Windows + Linux tray), with first-class Grok/xAI worker support.
+
+- **Grok/xAI worker support** — `grok` (Grok Build CLI) WorkerAdapter + native xAI API fallback, per-provider model-id predicate, exact per-run cost in the ledger, sticky prompt-cache keys, batch/off-peak routing (FR-GROK-01..06).
+- **Daemon control API** — localhost REST + SSE control surface on the existing `serve` pattern with per-boot token auth and Origin/Host validation (FR-CTRL-01..05).
+- **Cross-platform desktop control app** — Tauri 2 tray + dashboard on macOS, Linux, and Windows: dispatch agents/roles/tools, live agent log tails, approval inbox, notifications, pipeline visualization (FR-UI-01..09).
+- **Bot-style UX floor** — named persistent agent identities, teach-once routines, visible bot-to-bot handoff (§20.1 benchmark; scope = Q45).
+- **Visible worker sessions + jump-in** — worker runs surface in a persistent terminal workspace (herdr panes) the operator can attach to and steer at any time, like a human running the coding agent in an open terminal; headless becomes the explicit CI/server mode, not the only mode (§20.8 FR-VIS).
+- **Terminal TUI dashboard** — pilot-style full-screen TUI (`devagent tui`): current task + phase, queue depth, token/cost vs budget cards, approval hotkeys — over SSH, on macOS/Linux/Windows (§20.8 FR-TUI).
 
 ## 18. Open Questions
 
@@ -890,7 +902,7 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 | Q36 | The CI-Fixer fix run (`TASK-fix-<pr>`) gets its own dispatch budget outside the originating task's `maxTaskRetries` — should fixer attempts count against the parent task's retry budget (linking to Q17's cumulative-attempt concern), or is one bounded fix attempt per PR run the right isolation? | eng | Phase 4 |
 | Q22 | ~~PR #73 re-bridges a queued goal in the same cycle as board archive, but the archive itself burns the board's salvage history — should archived boards write a compact post-mortem (goal, failure class, gate excerpts) to the ledger so the next bridge can plan around the same failure mode, or is the existing ledger analytics query surface enough?~~ Resolved 2026-08-31: PRs #96/#97's `ci-fix-failed` outcome gives the ledger a structured failure record with summary evidence (matching the Q24 taxonomy); remaining failure-evidence work is tracked by the backlog item "Executor failure surface". | eng | Phase 4 |
 | Q23 | PR #77's herdr-sweep trusts the session name alone; if the sweep ever gains an `--all` mode, what stops it from killing a user-attached interactive claude pane that happens to sit in an automation-spawned session (2026-08-26 mass-kill class)? Require per-pane agent-state verification plus a managed-settings-style deny toggle, or keep `--all` out of scope permanently? | product | Phase 4 |
-| Q24 | Per-task PRs (PR #71) plus the auto-tag release workflow (PR #75) mean a fully-merged board can produce several PRs and a release in one cycle — should the ledger record release/tag events as first-class outcomes (so per-loop spend-to-shipped-artifact math counts a release), or stay PR-URL-only? | eng | Phase 4 |
+| Q24 | ~~Per-task PRs (PR #71) plus the auto-tag release workflow (PR #75) mean a fully-merged board can produce several PRs and a release in one cycle — should the ledger record release/tag events as first-class outcomes (so per-loop spend-to-shipped-artifact math counts a release), or stay PR-URL-only?~~ Resolved 2026-09-04: first-class — `ReleaseLedgerRecord` (`release-created`: tag, sha, version, source) at `src/orchestrator/ledger.ts:195` with `appendReleaseRecord`, `devagent record release` CLI, and the `release.yml` "Record release event in ledger" step write it; the §17 run-24 backlog bullet was stale and is struck. Removed. | eng | Phase 4 |
 | Q25 | ~~G5:STRIDE blocks on HIGH/CRITICAL with no suppression path; fixture credentials in test files (the exact pattern the golden suites ship) will trip it and stall autoMerge — add a per-path/per-finding allowlist committed with the PR, or keep it hard and force workers to rename literals?~~ Resolved: a PR may commit `.devagent/stride-allowlist.json` (`{"paths": [...glob patterns...]}`) read from the PR branch at gate time; findings whose file matches an allowed path are suppressed. Absent or malformed allowlists fail closed. | eng | Phase 4 |
 | Q26 | PR #84 auto-stashes a dirty main before merge-back, but the stash is keyed by SHA and never re-offered — if a curation PR (like #83) is open in the same worktree when the factory merges back, should the popped stash be surfaced as a ledger warning (operator reapplies by hand) or re-applied automatically on the next dispatch? | eng | Phase 4 |
 | Q27 | Loops 53-55 and 57/58 each re-burned multiple attempts on the same already-planned goal after a requeue with a fresh attempt budget — should the bridge attach the prior board's failure class to the re-bridged goal so the scout skips it until the root cause ships, or is cross-board retry memory out of scope for the single-tenant model? | product | Phase 4 |
@@ -903,6 +915,12 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 | Q39 | ~~PR #117's eval guard requires `predictedImpact` on machine-appended lessons but never scores it — should accept/reject outcomes be aggregated against loop results (accept rate, repeat-failure delta) to rank the 4000-char `lessonsMaxChars` digest by measured effect, or is gate-level counting enough?~~ Resolved 2026-09-03 (PR #120): aggregated — `recordLoopResult` loop rows join `lessons-eval` rows and `loadLessonScores` ranks the digest by measured effect at `COMPACT_CONTEXT_MARKER` assembly (`src/lessons/guard.ts`, `src/prompt.ts`). Removed. | eng | Phase 4 |
 | Q40 | ~~The curator noop'd 3x on 2026-09-02 under dead provider auth (`unrecognized_model`, disabled-key 403, missing omniroute key) while writing "[noop] PRD already accurate" — should operator loops (curator/warroom/PO) fail loud with a ledger row on provider-probe failure, or write a structured `operator-degraded` outcome and keep cycling?~~ Resolved 2026-09-03 (PRs #119/#120/#122): degraded — `devagent preflight` writes a structured `operator-degraded` ledger row and the loop skips its agent cycle, cycling until the per-loop circuit breaker trips; default-on with `OPERATOR_PROBE_DISABLED=1` opt-out. Removed. | eng | Phase 4 |
 | Q41 | `devagent preflight` (PRs #119/#120) writes an `operator-degraded` row per failed cycle and each loop trips its own breaker after `MAX_FAILS`, but the 2026-09-03 overnight logged 25 DEGRADED cycles + 2 breaker trips with no notification surface — should consecutive cross-role degradation page a human, or is per-loop breaker exit + `status --providers` enough? | eng | Phase 4 |
+| Q42 | Grok integration path: ship the Grok Build CLI (`grok -p`) as a WorkerAdapter, a native xAI OpenAI-compat API worker, or both with CLI-first? The CLI matches the adapter pattern and the omniroute proxy; the native API unlocks Responses-API loop caps, `parallel_tool_calls`, and server-side tools. | eng | Phase 5 |
+| Q43 | xAI auth: console `XAI_API_KEY` only, or also the SuperGrok device-code OAuth flow (OpenCode-style) so consumer Grok/X Premium plans can drive workers without a separate API key? | product | Phase 5 |
+| Q44 | Control API transport: token-authed `127.0.0.1` HTTP (curl-testable, script-friendly) as primary with UDS as the app's secure path, or UDS-first with the Tauri Rust core as the sole client? | eng | Phase 5 |
+| Q45 | How far does the Grok Bot UX floor go in v1: named persistent identities + approval inbox only, or also teach-once routines and bot-to-bot handoff threads? | product | Phase 5 |
+| Q46 | Benchmark coverage: the operator named z.ai's coding-agent UI ("zcode") as a possible second benchmark for the control app's run view alongside Grok Bot (§20.1) — its capabilities are UNRESEARCHED as of 2026-09-04 (no primary sources fetched yet; offline session). Research it first (web fetch of z.ai docs + hands-on), then decide: add a §20.1-style benchmark matrix, or rely on Grok Bot + Orca + the §20.7 prior-art set as sufficient coverage. | product | Phase 5 |
+| Q47 | The operator wants a pilot-style TUI dashboard (§20.8 FR-TUI) — what is the right v1 fidelity: read-only status board (metrics + task cards, zero input risk), or interactive (approve/deny hotkeys, attach-to-session jump-in) from day one? Interactive inverts the §20.3 anti-pattern's blast radius: every hotkey is a mutation path into the gate machinery. | eng | Phase 5 |
 > Resolved 2026-08-24: Q1 (ecosystem conventions + `testCommand` override now
 > cover npm/Go/Python), Q2 (plain webhooks shipped in Phase 3), Q3 (policy is
 > one attempt, then fan-out on failure), Q6 (single-tenant CLI + webhook
@@ -975,6 +993,17 @@ Sources: [devin.ai/pricing](https://devin.ai/pricing/) · [TechCrunch on Devin p
 
 ### 19.3 Headless CLI orchestration
 
+**G4 evidence base.** Dynamic ground truth: Go race detector (TSan-based happens-before, zero false positives, coverage-bound, 5–10x memory overhead). Static: Meta Infer RacerD (compositional inter-procedural detection, incremental CI re-analysis, caught 2500+ issues pre-production at Facebook; annotation-free operation drove adoption). LLM state of the art: ConSynergy hybrid pipeline (LLM chain-of-thought cross-thread reasoning → SMT verification) reaching precision 80% / recall 87.1% on DataRaceBench and related benchmarks; consistent finding across the literature that pure-LLM interleaving reasoning underperforms specialized tools and hybrids win.
+
+**Claude Code headless (`claude -p`).** Verified flags: `--output-format text|json|stream-json` (JSON result includes `session_id`, `total_cost_usd`, per-model usage; `stream-json` emits NDJSON events ending in `type:"result"`, with retryable-failure categories via `system/api_retry` events); `--json-schema '<schema>'` for validated structured output; `--permission-mode default|acceptEdits|plan|auto|dontAsk|bypassPermissions`; `--allowedTools` / `--disallowedTools` allow/deny lists; sessions via `--continue` / `--resume <id>` (cross-directory since v2.1.223); budget via `--max-turns <n>` (errors with subtype `error_max_turns` when reached); plus `--model`, `--fallback-model`, `--append-system-prompt`, `--mcp-config`, and `--bare` for fast deterministic CI starts (skips hooks/skills/plugins discovery). Hooks system (`PreToolUse`, `PostToolUse`, `Stop`, `PermissionRequest`, etc.) enables programmatic permission decisions via JSON output. Version-dependent behaviors to pin: `--json-schema` validation (v2.1.205), `plugin_errors[]`/`mcp_server_errors[]` CI-gate fields (v2.1.219+).
+
+**OpenCode headless (`opencode run`).** One-shot execution with `--format json` (raw JSON events), `-m provider/model`, `-c/--continue`, `-s/--session <id>`, `--agent <name>`, and `--auto` to auto-approve permissions not explicitly denied — the orchestrator escape hatch. Strongest programmatic surface of the two CLIs is `opencode serve`: headless HTTP server (OpenAPI 3.1 at `/doc`) with full REST session CRUD/fork/abort/diff, a permission-answer endpoint, SSE event streams, and `--attach <url>` on `run` to reuse a warm server (avoids cold boot per run). Also ships an ACP stdio server and GitHub Actions mode. Permissions resolve per action (`read`, `edit`, `bash`, `task`, ...) to allow/ask/deny with wildcard patterns, last-match-wins; `.env` reads denied by default.
+
+**Orchestration patterns (community practice).** Git worktrees per worker are the standard isolation primitive (sub-second creation, shared object store) — they prevent filesystem collisions, not logical conflicts, so pair with ownership boundaries over shared files (lockfiles, migrations, contracts). Task claiming via lease + heartbeat so crashed workers' tasks reassign. Verification gates must be run by the supervisor independently of agent claims; failed verification reassigns rather than trusts completion reports. Parse worker stdout as NDJSON line-by-line; enforce budgets via `--max-turns` plus wall-clock kill; retry only on retryable error categories (`rate_limit`, `overloaded`, 5xx) with backoff. Cost heuristics: no agents for <5-min work, read-only exploration before implementation, stop after two failed repair attempts.
+
+Sources: [Claude Code headless](https://code.claude.com/docs/en/headless) · [CLI reference](https://code.claude.com/docs/en/cli-reference) · [Hooks](https://code.claude.com/docs/en/hooks) · [Settings](https://code.claude.com/docs/en/settings) · [GitHub Actions](https://code.claude.com/docs/en/github-actions) · [OpenCode CLI](https://opencode.ai/docs/cli) · [OpenCode server](https://opencode.ai/docs/server) · [OpenCode config](https://opencode.ai/docs/config) · [OpenCode permissions](https://opencode.ai/docs/permissions) · [Parallel agents in isolated worktrees (amux)](https://amux.io/blog/parallel-agents-isolated-worktrees/) · [claude-code-action](https://github.com/anthropics/claude-code-action)
+
+These findings refine section 9's adapter table: Claude Code budget control = `--max-turns` + wall clock; OpenCode permission bypass = `--auto`; both emit parseable JSON event streams; OpenCode additionally offers the serve-based REST surface as a future alternative transport.
 
 ### 19.4 Migration-safety tooling and techniques
 
@@ -1007,18 +1036,168 @@ Sources: [devin.ai/pricing](https://devin.ai/pricing/) · [TechCrunch on Devin p
 
 Sources: [Squawk rules](https://squawkhq.com/docs/rules) · [Atlas analyzers](https://atlasgo.io/lint/analyzers) · [migra](https://github.com/djrobstep/migra) · [strong_migrations](https://github.com/ankane/strong_migrations) · [django-migration-linter](https://github.com/3YOURMIND/django-migration-linter) · [Flyway validate](https://documentation.red-gate.com/flyway/reference/commands/validate) · [Liquibase validate](https://docs.liquibase.com/commands/utility/validate.html) · [Prisma CLI](https://www.prisma.io/docs/orm/reference/prisma-cli-reference) · [Prisma shadow DB](https://www.prisma.io/docs/orm/prisma-migrate/understanding-prisma-migrate/shadow-database) · [PlanetScale deploy requests](https://planetscale.com/docs/concepts/deploy-requests) · [pgroll](https://github.com/xataio/pgroll) · [Expand-and-contract methodology](https://www.zero-downtime-schema.com/zero-downtime-schema-evolution-patterns/expand-and-contract-methodology/) · [ConSynergy (MDPI 2025)](https://www.mdpi.com/1999-5903/17/12/578) · [RaceBench artifact (2026)](https://doi.org/10.5281/zenodo.20242300) · [Infer RacerD](https://fbinfer.com/docs/checker-racerd/) · [Go race detector](https://go.dev/doc/articles/race_detector) · [typescript-eslint no-floating-promises](https://typescript-eslint.io/rules/no-floating-promises)
 
-**G4 evidence base.** Dynamic ground truth: Go race detector (TSan-based happens-before, zero false positives, coverage-bound, 5–10x memory overhead). Static: Meta Infer RacerD (compositional inter-procedural detection, incremental CI re-analysis, caught 2500+ issues pre-production at Facebook; annotation-free operation drove adoption). LLM state of the art: ConSynergy hybrid pipeline (LLM chain-of-thought cross-thread reasoning → SMT verification) reaching precision 80% / recall 87.1% on DataRaceBench and related benchmarks; consistent finding across the literature that pure-LLM interleaving reasoning underperforms specialized tools and hybrids win.
-
-**Claude Code headless (`claude -p`).** Verified flags: `--output-format text|json|stream-json` (JSON result includes `session_id`, `total_cost_usd`, per-model usage; `stream-json` emits NDJSON events ending in `type:"result"`, with retryable-failure categories via `system/api_retry` events); `--json-schema '<schema>'` for validated structured output; `--permission-mode default|acceptEdits|plan|auto|dontAsk|bypassPermissions`; `--allowedTools` / `--disallowedTools` allow/deny lists; sessions via `--continue` / `--resume <id>` (cross-directory since v2.1.223); budget via `--max-turns <n>` (errors with subtype `error_max_turns` when reached); plus `--model`, `--fallback-model`, `--append-system-prompt`, `--mcp-config`, and `--bare` for fast deterministic CI starts (skips hooks/skills/plugins discovery). Hooks system (`PreToolUse`, `PostToolUse`, `Stop`, `PermissionRequest`, etc.) enables programmatic permission decisions via JSON output. Version-dependent behaviors to pin: `--json-schema` validation (v2.1.205), `plugin_errors[]`/`mcp_server_errors[]` CI-gate fields (v2.1.219+).
-
-**OpenCode headless (`opencode run`).** One-shot execution with `--format json` (raw JSON events), `-m provider/model`, `-c/--continue`, `-s/--session <id>`, `--agent <name>`, and `--auto` to auto-approve permissions not explicitly denied — the orchestrator escape hatch. Strongest programmatic surface of the two CLIs is `opencode serve`: headless HTTP server (OpenAPI 3.1 at `/doc`) with full REST session CRUD/fork/abort/diff, a permission-answer endpoint, SSE event streams, and `--attach <url>` on `run` to reuse a warm server (avoids cold boot per run). Also ships an ACP stdio server and GitHub Actions mode. Permissions resolve per action (`read`, `edit`, `bash`, `task`, ...) to allow/ask/deny with wildcard patterns, last-match-wins; `.env` reads denied by default.
-
-**Orchestration patterns (community practice).** Git worktrees per worker are the standard isolation primitive (sub-second creation, shared object store) — they prevent filesystem collisions, not logical conflicts, so pair with ownership boundaries over shared files (lockfiles, migrations, contracts). Task claiming via lease + heartbeat so crashed workers' tasks reassign. Verification gates must be run by the supervisor independently of agent claims; failed verification reassigns rather than trusts completion reports. Parse worker stdout as NDJSON line-by-line; enforce budgets via `--max-turns` plus wall-clock kill; retry only on retryable error categories (`rate_limit`, `overloaded`, 5xx) with backoff. Cost heuristics: no agents for <5-min work, read-only exploration before implementation, stop after two failed repair attempts.
-
-Sources: [Claude Code headless](https://code.claude.com/docs/en/headless) · [CLI reference](https://code.claude.com/docs/en/cli-reference) · [Hooks](https://code.claude.com/docs/en/hooks) · [Settings](https://code.claude.com/docs/en/settings) · [GitHub Actions](https://code.claude.com/docs/en/github-actions) · [OpenCode CLI](https://opencode.ai/docs/cli) · [OpenCode server](https://opencode.ai/docs/server) · [OpenCode config](https://opencode.ai/docs/config) · [OpenCode permissions](https://opencode.ai/docs/permissions) · [Parallel agents in isolated worktrees (amux)](https://amux.io/blog/parallel-agents-isolated-worktrees/) · [claude-code-action](https://github.com/anthropics/claude-code-action)
-
-These findings refine section 9's adapter table: Claude Code budget control = `--max-turns` + wall clock; OpenCode permission bypass = `--auto`; both emit parseable JSON event streams; OpenCode additionally offers the serve-based REST surface as a future alternative transport.
-
 ### 19.5 Knowledge-graph-grounded context
 
 A research note (`docs/research/2026-08-30-devagent-leankg-value-in-harness-era.md`) evaluated whether the local `leankg` MCP (FreePeak build, Postgres-backed) adds value to DevAgent's harness. Verdict: yes, as the structural complement to the harness's durable state (lessons digest, childTrails digest, worklog, ledger). Live inventory at 2026-08-30 is 358,359 elements and 1,867,483 relationships across 38,597 files; live `mcp_status` ok, but `kg_semantic_context` timed out at 30s, so v1 must use non-semantic graph queries (`search_code`, `find_function`, `get_call_graph`, `get_tested_by`, `get_dependents`). Integration seam is the existing `COMPACT_CONTEXT_MARKER` ratchet (`src/prompt.ts:303-317`); the KG digest joins `lessons` and `childTrails` as a fourth source under the same 4,000-char cap. Scope: orchestrator-side only, opt-in (`devagent.context.kg: "leankg" \| "off"`, default `off`), never reaches a worker adapter. Cross-workspace routing rule (freepeak → `leankg`; BE → `be-knowledge-graph`; never both) is enforced by `skill://leankg-routing`. See FR-CTX-01..04, Phase 4 sub-bullet "Knowledge-grounded context", and Q28.
+
+### 19.6 Pilot probe (2026-09-04)
+
+A competitive probe of qf-studio/pilot (Go ticket-to-PR autopilot, 665★, BSL 1.1 —
+`docs/research/pilot-probe.md`) confirms the §20 direction: Pilot ships the exact surface
+DevAgent specifies but hasn't built (cross-platform desktop app from releases, live
+token/cost dashboard, failure/cost/stuck alerting via Telegram/Slack/Email briefs).
+Actionable imports: the alerting model resolves Q41's no-notification-surface gap;
+the dashboard card layout (current-task phase %, queue depth, budget-vs-spend) is a
+template for FR-UI-08. Verdict recorded there: continue DevAgent — Pilot is
+Claude-Code-locked with generic gates and no independent auditor, while DevAgent's
+domain gates, evidence-gated orchestration, BYO-provider adapters, and eval-scored
+lessons are the differentiators. BSL 1.1 forbids copying code into this MIT repo.
+
+---
+
+## 20. Product Direction Addendum: Grok Bot, xAI Integration, Cross-Platform Control App
+
+> Added 2026-09-03 (operator direction + deep research); cross-platform scope widened 2026-09-04; §20.8 visible sessions + TUI added 2026-09-04. DevAgent should become the local-first, private, BYO-provider counterpart to [Grok Bot](https://x.ai/bot) — a team of named AI teammates dispatched from a lightweight desktop control app (macOS menubar/tray; Windows and Linux system tray) — and should integrate Grok/xAI as a first-class worker provider. This section records the benchmark, the integration requirements, the app design, and the terminal visibility layer; it feeds Phase 5 in §17 and Q42–Q47 in §18.
+
+### 20.1 The benchmark: Grok Bot (x.ai/bot)
+
+`x.ai/bot` is **Grok Bot** — xAI's "AI teammates that finish the work" product (early beta, built with Cursor; download served from `api2.cursor.sh`, sales via `cursor.com`). It is not an X-bot platform. What it promises, and what DevAgent should match locally:
+
+| Grok Bot capability | Local-first analog in DevAgent |
+|---|---|
+| Named, persistent Bots ("Chief of Staff", "Bug Reproduction") with their own VM | Named role agents — the existing roles (scout/worker/reviewer/curator/PO) promoted to persistent, titled identities with durable memory (lessons digest, ledger history) |
+| Bots work in parallel, pass work between themselves in shared threads | Parallel fan-out workers (FR-IMPL-03) + visible bot-to-bot handoff in a shared run thread instead of user-as-router |
+| Teach-once routines: watch a workflow once, replay on schedule | Recorded routines: capture a dispatch's prompt/role/tool set as a named, schedulable routine |
+| Approval gates — "only come back when something needs your approval" | Existing approval gates surfaced as a cross-surface approval inbox (menu bar, notifications) |
+| Message-the-teammate interaction (desktop + iOS) | Dispatch-by-prompt from the desktop control app (v1); chat-like thread per agent run |
+| Bots "get smarter over time" | Lessons feedback loop + KG context digest already ship (PRs #39/#57, FR-CTX-01..04) |
+
+Grok Bot is cloud-hosted and Cursor/XAI-plan-gated ($20+/mo, shared per-account "computer"). DevAgent's wedge: the same teammate UX, **local, private, BYO-model**.
+
+### 20.2 Grok/xAI integration (FR-GROK)
+
+xAI's agent-relevant surface (docs.x.ai, verified 2026-09-03):
+
+- **OpenAI-compatible REST** at `https://api.x.ai/v1` with `XAI_API_KEY`; stateful `/v1/responses` (`previous_response_id`, `max_turns`, WebSocket mode) plus `/v1/chat/completions`.
+- **Models**: `grok-4.6` (500k ctx, $2/$6 per 1M in/out, reasoning effort low–xhigh), `grok-build-0.1` (256k ctx, $1/$2, coding), `grok-4.3` (1M ctx, $1.25/$2.50, batch-eligible). Cached input ≈ 25% of input price — **`prompt_cache_key` / `x-grok-conv-id` sticky routing is "highly recommended"**; cache-cold retries pay full input price.
+- **Every response's `usage.cost_in_usd_ticks`** gives exact per-request USD cost — free ledger cost accounting, no price tables to maintain.
+- **Tool calling**: ≤128 schema-strict functions, `parallel_tool_calls` supported; SSE streaming delivers **tool calls whole, not token-streamed**; `reasoning_content` deltas appear on reasoning models.
+- **Server-side tools** (`web_search`, `x_search`, `code_execution`, remote MCP) bill ~$5/1k calls — opt-in per worker role only.
+- **Batch API** 20% off (grok-4.3/4.20 family) for scheduled/nightly runs; rate limits tier by spend; 429s distinguish RPS vs TPM (a 500k-ctx prompt can eat TPM in one shot; cached tokens still count).
+- **Grok Build CLI** (`grok`, install `curl -fsSL https://x.ai/cli/install.sh | bash`): headless `grok -p --output-format streaming-json` (NDJSON events — same adapter pattern as omp), `~/.grok/config.toml` `[model.*]` with `base_url`/`env_key` so devagent's omniroute proxy plugs in directly, and ACP support.
+- **No first-party Anthropic-compatible endpoint** — Claude-Code-style harnesses reach Grok via the OpenAI-compat surface, LiteLLM, or a gateway. Model ids: only provider-qualified/exact slugs forward (omp lesson, PR #92).
+
+| ID | Requirement | Pri |
+|---|---|---|
+| FR-GROK-01 | Ship a `grok` WorkerAdapter following the omp pattern: NDJSON streaming-json parser, `--no-prewalk`-class hardening as discovered, per-adapter no-progress watchdog, resume support | S |
+| FR-GROK-02 | Extend the model-id predicate registry (`src/workers/model-id.ts`) for the xai provider: exact slugs (`grok-4.6`, `grok-build-0.1`, `grok-4.3`, dated pins) and `xai/`-prefixed ids; reject unqualified aliases | M |
+| FR-GROK-03 | Record xAI `usage.cost_in_usd_ticks` verbatim in the run ledger for every grok worker run, enabling exact per-loop cost analytics | S |
+| FR-GROK-04 | Set a per-task prompt-cache key (`prompt_cache_key` / `x-grok-conv-id`) on xAI-backed worker sessions so cache hits stick within a task's retry loop | S |
+| FR-GROK-05 | Route scheduled/off-peak grok dispatches through the Batch API when the model family supports it; keep interactive dispatches on streaming | C |
+| FR-GROK-06 | Transient-error classification covers xAI 429 (RPS vs TPM separately), 5xx, and stream-tool-call-whole shapes; fallback chain within xAI (`grok-4.6 → grok-4.3 → grok-build-0.1`) before cross-provider fallback | S |
+
+Positioning note: Grok Bot is added to §4 competitive landscape as the consumer-agent archetype (cloud "own computer", plan-gated, shared per-account isolation). DevAgent does not compete on a cloud computer; it competes on local control, validation depth (§11 gates), and BYO-provider freedom — Grok being one first-class provider among several.
+
+
+### 20.3 Daemon control API (FR-CTRL)
+
+Prerequisite for the desktop control app: a machine-local control surface the app (and any script) can drive. Builds on the existing `serve` webhook server (`src/cli.ts:216`) — same process pattern, new endpoints, no new daemon process:
+
+| ID | Requirement | Pri |
+|---|---|---|
+| FR-CTRL-01 | Local control server serving: `GET /status` (aggregate loop state), `GET /agents` (roster + per-agent state), `POST /dispatch` (prompt, role, tools, repo, worker, budget), `POST /approve` (gate decisions), `GET /events` (SSE: agent state changes + log tails), `GET /history` (ledger queries) | M |
+| FR-CTRL-02 | Auth: per-boot bearer token written `0600` to `DEVAGENT_HOME/daemon-token`; bind `127.0.0.1` only; validate `Host` (DNS-rebinding) and `Origin` headers (drive-by CSRF — the Vibe Kanban `ALLOWED_ORIGINS` 403 pattern) | M |
+| FR-CTRL-03 | Every dispatch through the control API goes through the same pipeline/budget/gate machinery as CLI dispatch — the API is a transport, not a bypass | M |
+| FR-CTRL-04 | Structured events on the SSE stream derive from the existing run-log/ledger JSONL (no second event system); reconnect with `Last-Event-ID` replay | S |
+| FR-CTRL-05 | Optional Unix-domain-socket listener (same HTTP code over UDS; Windows equivalent: named pipe) for the Tauri Rust core; filesystem permissions replace tokens on that path | S |
+
+Anti-pattern (explicit non-requirement): the **app** does **not** PTY-wrap worker CLIs. The orchestrator already owns worker processes and emits structured NDJSON/ledger events; UI-level TUI parsing recreates the omp `thinking_delta`/watchdog problems fixed in PRs #93/#94. The terminal visibility layer (§20.8) is the sanctioned exception's home: there the PTY is owned by the terminal multiplexer/herdr server, not parsed by a UI, and the structured event stream stays the dashboard's data source.
+
+### 20.4 Cross-platform desktop control app (FR-UI)
+
+Stack decision (researched against SwiftUI, Electron, Raycast — see §20.7): **Tauri 2 desktop app, cross-platform from day one** (macOS menubar/tray; Windows and Linux system tray). Reasons: TS webview UI matches the repo's single language skillset; Tauri 2 ships the same tray + webview + notification + autostart surface on all three OSes, so FR-UI-01..09 are written platform-neutral with per-OS packaging notes; system WKWebView/WebView2/WebKitGTK keeps bundle ~3–10 MB and idle RAM ~60–120 MB (Electron: ~85–100 MB bundle, 200–400 MB multi-process); built-in signed updater against GitHub Releases `latest.json` on every OS; single-instance plugin; env-var-driven notarization on macOS (App Store Connect API key; ad-hoc signing for local dev). Raycast is rejected as control plane (menu-bar commands are unload-on-finish, no persistent connection, macOS-only); Electron is rejected on footprint + unsigned-macOS-API breakage (Keychain `safeStorage`, login items, Squirrel updater); SwiftUI is rejected as macOS-only.
+
+Prior art mined (§20.7): Omnara (role=profile YAML, approval gates away from terminal), Conductor (workspace-per-task, diff-first review), Sculptor (pairing mode, session replay), Vibe Kanban (task-queue UX, local-server origin security), claude-squad (profiles ≈ roles), Happy (approval pushes + per-session cost). Crystal's deprecation and Vibe Kanban's sunset are scope-discipline warnings: ship small. Orca (§19.1) remains the closest prior art for worktree-centric multi-agent visualization; the operator-named "zcode" (z.ai) benchmark is pending research (Q46).
+
+| ID | Requirement | Pri |
+|---|---|---|
+| FR-UI-01 | Tray app with aggregate state icon: running / idle / failed (circuit-breaker), driven by `GET /status` polling or SSE; macOS menu bar, Windows + Linux system tray | M |
+| FR-UI-02 | Dispatch sheet: prompt text + role picker (existing role configs) + tool/provider toggles + target repo → `POST /dispatch` | M |
+| FR-UI-03 | Dashboard window: agent roster with live status; per-agent live log tail (SSE → virtualized list); task history from `GET /history` | M |
+| FR-UI-04 | Approval inbox: pending gates with Approve/Deny → `POST /approve`; surfaced as native notifications on each OS (approval-needed, failure, completion) with deep-link into the dashboard | M |
+| FR-UI-05 | Launch-at-login per OS: `SMAppService` (macOS 13+), `tauri-plugin-autostart` (Windows registry Run key / Linux `~/.config/autostart`); single-instance enforcement via `tauri-plugin-single-instance` on all OSes | S |
+| FR-UI-06 | Signed builds via CI — macOS notarization (`APPLE_API_ISSUER`/`APPLE_API_KEY`), Windows Authenticode, Linux AppImage/`.deb` — auto-update via `tauri-plugin-updater` on GitHub Releases `latest-{platform}.json` | S |
+| FR-UI-07 | The app holds no credentials and no business logic: it is a thin client of FR-CTRL; losing it degrades to CLI-only operation. UI parity: macOS is the reference surface; Windows/Linux ship the same v1 feature set through the tray/window shell (no menubar-specific affordances required) | M |
+| FR-UI-08 | Pipeline visualization: per-run live DAG view of the flow scout → plan → implement → gates G0–G5 → PR, rendered from the run-log/ledger JSONL via the FR-CTRL-04 SSE event stream; per-stage status (pending/running/pass/fail/skip), per-task stage badge in the agent roster, elapsed + retry counts per stage; static fallback reuses the `dashboard` board model (`src/observe.ts`) | M |
+| FR-UI-09 | Cross-platform parity gate: the app builds and smoke-launches on macOS, Windows, and Linux in CI (Tauri's bundler matrix); a platform-specific regression (tray icon missing, updater path, notification permission) blocks release, not a follow-up | S |
+
+### 20.5 Scope boundaries
+
+- **Not a cloud computer.** No hosted VMs, no browser-in-the-cloud sessions; workers execute in local worktrees/containers (§8.2). The "own computer" story stays the user's machine — macOS, Linux, or Windows.
+- **Not a chat-first product.** v1 interaction is dispatch + approval, not free-form conversation; chat-like threads per run are a later layer on the control API, never the transport to workers.
+- **Not an X-bot platform.** Posting/replying/DM automation on X (X API v2, pay-per-usage, strict ToS: automated labels, approval-gated AI replies, no scraping) is out of scope; if ever added it is a separate integration behind approval gates.
+- **No Electron, no Raycast control plane** (§20.4); no multi-device sync, no mobile client in v1 — Happy's relay pattern is the known path if wanted later.
+- **No model lock-in.** Grok is one provider behind the WorkerAdapter contract (§9, FR-IMPL-02); nothing in the UI or control API may hard-code xAI.
+
+### 20.6 Open questions resolved into this addendum
+
+- Q42 (CLI vs native API): CLI-first (`grok -p` adapter), native xAI API worker as the follow-up — but both behind FR-GROK-02's model-id predicate so either path is dispatchable per role.
+- Q43 (auth): console `XAI_API_KEY` in v1; SuperGrok device-code OAuth tracked as C-priority (matches OpenCode's proven pattern).
+- Q44 (transport): token-authed `127.0.0.1` HTTP primary (curl-testable, matches `serve`), UDS as FR-CTRL-05 hardening for the app path.
+- Q45 (UX floor): v1 = named identities + approval inbox + dispatch sheet; teach-once routines and bot-to-bot handoff threads are Phase 5 stretch, gated on the control API's event stream proving out.
+
+### 20.7 Research sources (2026-09-03)
+
+Research grounding for §20. Primary sources fetched 2026-09-03.
+
+**Grok Bot (x.ai/bot).** xAI's "AI teammates" product: early beta, built with Cursor (macOS download from `api2.cursor.sh/.../grok-bot-*`, sales via `cursor.com/contact-sales?product=grok-bot`). Persistent named Bots on a shared per-account cloud VM (browser, filesystem, terminal); connectors/MCP plus computer use for non-API apps; teach-once routines; cross-Bot collaboration threads; approval-gated completion ("only come back when something needs your approval"); macOS + iOS surfaces. Distribution: Cursor Pro $20/mo+ or SuperGrok plans. Sources: [x.ai/bot](https://x.ai/bot) · [docs.x.ai/grok-bot/overview](https://docs.x.ai/grok-bot/overview)
+
+**xAI API (docs.x.ai, Sept 2026).** OpenAI-compatible (`api.x.ai/v1`, `XAI_API_KEY`). Models: `grok-4.6` (500k ctx, $2.00/$6.00 per 1M in/out, ≥200k-prompt tier $4/$12, reasoning effort low/med/high/xhigh), `grok-4.5` (500k, $2/$6), `grok-4.3` (1M, $1.25/$2.50, Batch-eligible), `grok-build-0.1` (256k, $1/$2, coding). Cached input ≈ 25% of input price; `prompt_cache_key`/`x-grok-conv-id` sticky routing recommended. `usage.cost_in_usd_ticks` = exact per-request USD. Tools: ≤128 strict-schema functions, `parallel_tool_calls`, Responses-API `max_turns`/`max_tool_calls`; server-side `web_search`/`x_search`/`code_execution` at $5/1k calls; remote MCP token-billed. Streaming: SSE; **function calls arrive whole**. Structured outputs: `additionalProperties` defaults false; constraint caps (minLength/maxLength 2048, items 256); restricted regex subset. Rate limits tier by cumulative spend (T0 $0 → T4 $5k); 429 = RPS or TPM (cached tokens count). Batch API −20% (grok-4.3/4.20 family, ≤24h); Priority tier 2x. `deferred:true` + poll for long tasks. No Anthropic-compat endpoint (page 404s) — gateway/LiteLLM needed for Claude-style harnesses. Sources: [docs.x.ai/developers/models](https://docs.x.ai/developers/models) · [pricing](https://docs.x.ai/developers/pricing) · [function calling](https://docs.x.ai/developers/tools/function-calling) · [structured outputs](https://docs.x.ai/developers/model-capabilities/text/structured-outputs) · [rate limits](https://docs.x.ai/developers/rate-limits) · [prompt caching](https://docs.x.ai/developers/advanced-api-usage/prompt-caching/maximizing-cache-hits) · [release notes](https://docs.x.ai/developers/release-notes)
+
+**Grok in agent tools today.** Aider: LiteLLM `xai/` prefix. OpenCode: 75+ providers via models.dev registry; xAI has two auth paths — console API key or SuperGrok device-code OAuth (auto-refresh; consumer Grok/X Premium plans work without a separate key). Cline: first-class "xAI (Grok)" provider. `grok-cli` (superagent-ai, ~3.4k★): headless `-p --format json` NDJSON stream, `--batch-api` for cheap unattended runs, schedules, sub-agents, MCP, Telegram control. Cross-tool gotchas baked into FR-GROK: per-tool id naming (bare slug vs `xai/` vs dated slugs), `logprobs` silently ignored on grok-4.20+, penalties unsupported on reasoning models, stale-slug risk in registries. Sources: [aider.chat/docs/llms/xai](https://aider.chat/docs/llms/xai.html) · [opencode.ai/docs/providers](https://opencode.ai/docs/providers) · [docs.cline.bot](https://docs.cline.bot/provider-config/other-30-plus-providers#xai-grok) · [github.com/superagent-ai/grok-cli](https://github.com/superagent-ai/grok-cli) · [models.dev/api.json](https://models.dev/api.json)
+
+**X API (if bots on X are ever wanted).** Pay-per-usage credits: post create $0.015 (with URL $0.200), DM read $0.010 / DM interaction $0.015, webhooks $0.005–0.010/event; 3M post reads/mo cap; up to 20% back in xAI credits when linking an xAI team. ToS: "Automated" label mandatory, AI replies need prior X approval, replies only to engagers, DMs only after user DMs first, no scraping (permanent suspension). Sources: [docs.x.com/x-api/getting-started/pricing](https://docs.x.com/x-api/getting-started/pricing) · [developer-guidelines](https://docs.x.com/developer-guidelines.md)
+
+**Desktop app frameworks (cross-platform).** Tauri 2: `tray-icon` feature on all three OSes (macOS menu bar, Windows + Linux system tray); updater plugin (minisign keypair, static `latest.json` on GitHub Releases); signing env-var driven — macOS notarization (`APPLE_CERTIFICATE`, `APPLE_API_ISSUER`/`APPLE_API_KEY`, ad-hoc `-` for dev), Windows Authenticode, Linux AppImage/`.deb` typically unsigned; autostart via `tauri-plugin-autostart` (registry Run key / `~/.config/autostart`). SwiftUI `MenuBarExtra`: native but macOS-only + second toolchain. Electron: Chromium in every install; unsigned macOS builds break `safeStorage`, login items, Squirrel autoUpdater. Raycast: menu-bar commands load on demand and unload after finishing — no persistent daemon connection; macOS-only. Sources: [v2.tauri.app/learn/system-tray](https://v2.tauri.app/learn/system-tray/) · [updater](https://v2.tauri.app/plugin/updater/) · [macOS signing](https://v2.tauri.app/distribute/sign/macos/) · [MenuBarExtra](https://developer.apple.com/documentation/swiftui/menubarextra) · [Electron code signing](https://www.electronjs.org/docs/latest/tutorial/code-signing) · [Raycast menu-bar](https://developers.raycast.com/api-reference/menu-bar-commands.md)
+
+**Prior art (agent-control UIs).** Omnara (omnara-ai, Apache-2.0): agent profiles as YAML, durable state in Postgres, Slack/web approvals, signed+notarized macOS daemon in CI. Conductor (conductor.build): per-task workspace/branch/terminal/diff, review-diff→PR→archive. Crystal (stravu, deprecated Feb 2026 → Nimbalyst): multi-session Claude Code over worktrees, explicit permission dialogs. Sculptor (Imbue, MIT): container agents, Pairing Mode two-way container↔repo sync, session replay. Vibe Kanban (BloopAI, Apache-2.0, ~28k★, sunsetting): local Rust server + React UI, `VK_ALLOWED_ORIGINS` origin-403 security pattern, inline-comment feedback to agents. claude-squad (Go TUI, AGPL-3.0): tmux+worktrees, named profiles. Happy (slopus, MIT): approval push notifications anywhere, per-session cost, Electron desktop. Sources: [omnara](https://github.com/omnara-ai/omnara) · [conductor.build](https://conductor.build/) · [crystal](https://github.com/stravu/crystal) · [sculptor](https://github.com/imbue-ai/sculptor) · [vibe-kanban](https://github.com/BloopAI/vibe-kanban) · [claude-squad](https://github.com/smtg-ai/claude-squad) · [happy](https://github.com/slopus/happy)
+
+**IPC/security.** Recommended: HTTP + SSE over `127.0.0.1` with per-boot `0600` bearer token, `Host` (DNS-rebinding) + `Origin` (drive-by CSRF) validation — Vibe Kanban's proven pattern; UDS via `server.listen(path)` as hardening (browser JS can't reach UDS; Tauri Rust core bridges), named pipe on Windows. gRPC rejected (codegen ×3 languages, grpc-web proxy); PTY-in-UI rejected (§20.3 anti-pattern). Launch-at-login: `SMAppService` (macOS 13+) — `mainAppService` for the app, `agent(plistName:)` for user-scoped LaunchAgents; `tauri-plugin-autostart` covers Windows (registry Run key) and Linux (`~/.config/autostart`); single instance via `tauri-plugin-single-instance` + lockfile/flock daemon-side. Sources: [SMAppService](https://developer.apple.com/documentation/servicemanagement/smappservice) · [single-instance plugin](https://github.com/tauri-apps/plugins-workspace/tree/v2/plugins/single-instance) · [vibe-kanban](https://github.com/BloopAI/vibe-kanban)
+
+### 20.8 Visible worker sessions and terminal TUI (FR-VIS, FR-TUI)
+
+Added 2026-09-04 (operator direction): coding agents should run **open, like when a human
+runs them** — the operator can jump into any worker session at any time and see/steer what
+the agent is doing — plus a pilot-style full-screen TUI dashboard. Today the factory runs
+workers as invisible child processes; the herdr integration (`docs/HERDR.md`,
+`src/integrations/herdr.ts`) already provides the right primitive — panes in a persistent
+named session, attachable via `herdr session attach devagent`, surviving disconnects and
+reboots — but it is opt-in with **silent** fallback to invisible processes. §20.8 inverts
+that posture.
+
+**Visible sessions (FR-VIS)** — the "jump in anytime" guarantee:
+
+| ID | Requirement | Pri |
+|---|---|---|
+| FR-VIS-01 | Worker launches default to visible panes: the herdr runtime becomes the default spawn path when the `herdr` binary is present (config `herdr.enabled` default flips to `true`); fallback to invisible child processes stays automatic but is **loud** — one stderr warning per spawn site plus a `visibility=fallback` field on the run's ledger row, never silent | M |
+| FR-VIS-02 | `devagent sessions` lists live worker sessions (task id, role, worker CLI, pane id, workspace, elapsed, agent_status from the herdr pane list) so the operator can find the pane to jump into; `devagent attach <task>` prints/opens the attach command for that pane | M |
+| FR-VIS-03 | Jump-in steering: attaching to a pane puts the operator in the worker's live terminal exactly like a human-run coding agent session — type into it, watch it think, interrupt it. The orchestrator's no-progress watchdog must not fight a human at the wheel: pane-level operator presence (attach time) suppresses auto-kill timers for that run and the ledger records `operator-attached` | S |
+| FR-VIS-04 | `pilot start`-style flags on the devagent loop drivers: `--headless` (explicit opt-out for CI/servers/LaunchAgents — the old invisible behavior becomes the named mode) and `--visible` (default); `devagent.json` `spawn.visibility: "visible" \| "headless"` per project with the env override `DEVAGENT_VISIBILITY` | M |
+| FR-VIS-05 | CI/factory parity: LaunchAgent-installed roles (scout/builder/tracker/orchestrator) keep running headless by default (no terminal to attach to), but every run they dispatch still lands in an attachable pane — visibility is a property of the **worker run**, not of the loop process | S |
+
+**TUI dashboard (FR-TUI)** — pilot's dashboard as the reference layout
+(`docs/research/pilot-probe.md` §2; BSL 1.1 — patterns only, no code):
+
+| ID | Requirement | Pri |
+|---|---|---|
+| FR-TUI-01 | `devagent tui` full-screen terminal dashboard over the FR-CTRL API (HTTP+SSE on 127.0.0.1; works over SSH, on macOS/Linux/Windows terminals; zero browser, zero desktop app dependency) | M |
+| FR-TUI-02 | Pilot's card layout as v1: current task + phase + elapsed, queue depth, token/cost today/week vs budget, recent tasks with per-task duration + cost, aggregate run/idle/failed status — all fed by the same structured ledger/JSONL + SSE stream as the desktop app (FR-CTRL-04; no second event system, no PTY parsing) | M |
+| FR-TUI-03 | Live log tail view per agent (scrollable, follows the active pane's structured events) and jump hint showing the `devagent attach <task>` command for the selected run — the TUI is the discovery surface for FR-VIS-02 jump-in | M |
+| FR-TUI-04 | Interactive v1 scope (Q47): approval hotkeys (approve/deny pending gates via `POST /approve`) + dispatch sheet mirroring FR-UI-02; ship read-only cards first if Q47 resolves conservative | S |
+| FR-TUI-05 | Single-key ops: `u` upgrade/rollback hint (pilot's pattern), `k` kill run (goes through the same gate machinery as CLI — the TUI is a transport, not a bypass, per FR-CTRL-03), `?` help overlay | C |
+
+Boundary with §20.4: the Tauri desktop app and the TUI are two renderers over the same
+FR-CTRL API — the TUI is the SSH/headless-server surface, the app is the desktop surface;
+neither parses PTYs (anti-pattern in §20.3). The PTY lives in the herdr server (FR-VIS),
+which is a terminal multiplexer's job, not a UI's.
+
