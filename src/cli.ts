@@ -7,6 +7,8 @@ import { registerCliPart1 } from './cli-parts/part1.js';
 import { registerCliPart2 } from './cli-parts/part2.js';
 import { registerCliPart3 } from './cli-parts/part3.js';
 import { registerCliPart4 } from './cli-parts/part4.js';
+import { registerCliPart5 } from './cli-parts/part5.js';
+import { registerCliPart6 } from './cli-parts/part6.js';
 
 const program = new Command();
 
@@ -20,6 +22,8 @@ registerCliPart1(program);
 registerCliPart2(program);
 registerCliPart3(program);
 registerCliPart4(program);
+registerCliPart5(program);
+registerCliPart6(program);
 
 wireFrSimple(program);
 program.parseAsync();
