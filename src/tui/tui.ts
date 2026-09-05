@@ -200,18 +200,62 @@ export interface RenderOptions {
 
 const EMPTY_SNAPSHOT: Snapshot = { status: null, agents: null, history: [], sessions: null, reachable: false, fetchedAt: 0 };
 
+/**
+ * Runtime shape guards for daemon payloads. The endpoints' envelopes are part
+ * of no shared schema — the TUI must trust only what it re-validates here.
+ * The `/sessions` crash (2026-09-05): the endpoint answers {panes:[...]} but
+ * the raw value was assigned into a TuiPane[]-typed field, and the first
+ * spread of it threw "not iterable" inside the raw-mode key handler, killing
+ * the alternate-screen app.
+ */
+
+/** `/sessions` payload: bare array or {panes:[...]}; anything else → null. */
+function normalizeSessions(value: unknown): TuiPane[] | null {
+  if (Array.isArray(value)) return value;
+  if (value !== null && typeof value === 'object' && Array.isArray((value as { panes?: unknown }).panes)) {
+    return (value as { panes: TuiPane[] }).panes;
+  }
+  return null;
+}
+
+/** `/agents` payload: keep panes/queued only when they are actually arrays. */
+function normalizeAgents(value: unknown): AgentPayload | null {
+  if (value === null || typeof value !== 'object') return null;
+  const raw = value as { panes?: unknown; queued?: unknown };
+  return {
+    panes: Array.isArray(raw.panes) ? (raw.panes as TuiPane[]) : [],
+    queued: Array.isArray(raw.queued) ? (raw.queued as TuiQueuedTask[]) : [],
+  };
+}
+
+/**
+ * Pane roster for rendering, status aggregation and selection: the agents
+ * payload first, the sessions roster as fallback. Runtime-array-checked —
+ * hand-built or future-shaped snapshots must degrade to empty, never throw.
+ */
+function rosterPanes(snap: Snapshot): TuiPane[] {
+  if (Array.isArray(snap.agents?.panes)) return snap.agents.panes;
+  if (Array.isArray(snap.sessions)) return snap.sessions;
+  return [];
+}
+
+/** Queued rows for rendering/selection; empty when the payload is not an array. */
+function queueRows(snap: Snapshot): TuiQueuedTask[] {
+  return Array.isArray(snap.agents?.queued) ? snap.agents.queued : [];
+}
+
 /** Poll /status + /agents + /history + /sessions concurrently. Never throws. */
 export async function fetchSnapshot(opts: TuiOptions): Promise<Snapshot> {
   try {
     const [st, ag, hi, se] = await Promise.all([
       getJson<StatusPayload>(opts, '/status'),
-      getJson<AgentPayload>(opts, '/agents'),
+      getJson<unknown>(opts, '/agents'),
       getJson<HistoryRow[] | { records?: HistoryRow[] }>(opts, `/history?limit=${HISTORY_ROWS}`),
-      getJson<TuiPane[]>(opts, '/sessions'),
+      getJson<unknown>(opts, '/sessions'),
     ]);
     return {
       status: st.value,
-      agents: ag.value,
+      agents: normalizeAgents(ag.value),
       // /history answers {records:[...]}; accept either shape but unwrap the
       // envelope so the history panel renders (the bare-array expectation
       // silently yielded [] forever).
@@ -220,7 +264,8 @@ export async function fetchSnapshot(opts: TuiOptions): Promise<Snapshot> {
         : hi.value !== null && typeof hi.value === "object" && Array.isArray(hi.value.records)
           ? hi.value.records
           : [],
-      sessions: se.value,
+      // /sessions answers {panes:[...]}; same envelope treatment as /history.
+      sessions: normalizeSessions(se.value),
       reachable: st.status !== 0,
       authFailed: st.status === 401,
       fetchedAt: Date.now(),
@@ -345,7 +390,7 @@ function headerLines(snap: Snapshot, ropts: RenderOptions): string[] {
       '',
     ];
   }
-  const panes = snap.agents?.panes ?? [];
+  const panes = rosterPanes(snap);
   const agg = aggregateStatus(status, panes);
   const q = status.queue ?? {};
   // Spinner (Claude Code cue) animates only while work is live.
@@ -505,8 +550,8 @@ export function renderLines(snap: Snapshot, ropts: RenderOptions = {}): string[]
   const width = termColumns();
   const rows = ropts.rows ?? 100;
   const view: TuiView = ropts.view ?? (ropts.showSessions ? 'sessions' : 'workers');
-  const panes = snap.agents?.panes ?? snap.sessions ?? [];
-  const queued = snap.agents?.queued ?? [];
+  const panes = rosterPanes(snap);
+  const queued = queueRows(snap);
 
   const header = headerLines(snap, ropts);
   if (ropts.showHelp) header.push(...helpLines());
@@ -613,8 +658,8 @@ export function renderDashboard(snap: Snapshot, ropts: RenderOptions = {}): stri
 /** Flat item list of the current view — what the selection cursor walks. */
 function viewItems(snap: Snapshot, view: TuiView): (TuiPane | TuiQueuedTask)[] {
   if (view === 'log') return [];
-  if (view === 'sessions') return [...(snap.sessions ?? [])];
-  return [...(snap.agents?.panes ?? []), ...(snap.agents?.queued ?? [])];
+  if (view === 'sessions') return rosterPanes(snap);
+  return [...rosterPanes(snap), ...queueRows(snap)];
 }
 
 /** Kill target: the selection, else a running pane, else any pane, else first queued row. */
@@ -622,11 +667,11 @@ function pickKillTarget(snap: Snapshot, view: TuiView, selection: number): strin
   const sel = viewItems(snap, view)[selection];
   const id = sel && ('paneId' in sel ? sel.taskId : sel.id);
   if (id) return id;
-  const panes = snap.agents?.panes ?? [];
+  const panes = rosterPanes(snap);
   const running = panes.find((p) => p.state === 'running');
   if (running?.taskId) return running.taskId;
   if (panes[0]?.taskId) return panes[0].taskId;
-  return snap.agents?.queued?.find((q) => q.status === 'pending')?.id ?? null;
+  return queueRows(snap).find((q) => q.status === 'pending')?.id ?? null;
 }
 
 /**
@@ -685,7 +730,7 @@ async function runInteractive(opts: TuiOptions): Promise<void> {
     if (redrawTimer || stopped) return;
     redrawTimer = setTimeout(() => {
       redrawTimer = null;
-      if (!stopped) draw();
+      if (!stopped) safeDraw();
     }, 250);
     redrawTimer.unref?.();
   };
@@ -727,6 +772,22 @@ async function runInteractive(opts: TuiOptions): Promise<void> {
     prevFrame = next;
   };
 
+  // A draw must never take the app down (a crash on the alternate screen
+  // leaves the operator's terminal broken): surface the failure in the
+  // footer's note and keep running.
+  const safeDraw = () => {
+    try {
+      draw();
+    } catch (err) {
+      note = `internal: ${err instanceof Error ? err.message : String(err)}`.slice(0, 80);
+      try {
+        draw();
+      } catch {
+        /* the next poll/tick retries with fresh state */
+      }
+    }
+  };
+
   const events = subscribeEvents(
     opts,
     (id, data) => {
@@ -749,10 +810,10 @@ async function runInteractive(opts: TuiOptions): Promise<void> {
   // renderer makes a 1-line header rewrite per tick effectively free.
   const ticker: ReturnType<typeof setInterval> = setInterval(() => {
     if (stopped) return;
-    const agg = aggregateStatus(snap.status, snap.agents?.panes ?? []);
+    const agg = aggregateStatus(snap.status, rosterPanes(snap));
     if (agg !== 'RUNNING' && !pendingKill) return;
     spinnerFrame = (spinnerFrame + 1) % SPINNER.length;
-    draw();
+    safeDraw();
   }, TICKER_MS);
   ticker.unref?.();
 
@@ -785,10 +846,15 @@ async function runInteractive(opts: TuiOptions): Promise<void> {
         const target = pendingKill;
         pendingKill = null;
         note = `killing ${target}…`;
-        void executeKill(opts, snap, target).then((msg) => {
-          note = msg;
-          if (!stopped) draw();
-        });
+        void executeKill(opts, snap, target)
+          .then((msg) => {
+            note = msg;
+            if (!stopped) safeDraw();
+          })
+          .catch((err: unknown) => {
+            note = `kill failed: ${err instanceof Error ? err.message : String(err)}`.slice(0, 80);
+            if (!stopped) safeDraw();
+          });
       } else {
         pendingKill = null;
         note = 'kill cancelled';
@@ -916,9 +982,16 @@ async function runInteractive(opts: TuiOptions): Promise<void> {
   const onData = (buf: Buffer) => {
     // DEVAGENT_TUI_DEBUG=chunks surfaces raw input in the footer (pty bring-up).
     if (process.env.DEVAGENT_TUI_DEBUG) note = `in:${JSON.stringify(buf.toString('utf8')).slice(0, 40)}`;
-    const { keys, pending } = decodeKeys(pendingInput + buf.toString('utf8'));
-    pendingInput = pending;
-    for (const key of keys) handleKey(key);
+    try {
+      const { keys, pending } = decodeKeys(pendingInput + buf.toString('utf8'));
+      pendingInput = pending;
+      for (const key of keys) handleKey(key);
+    } catch (err) {
+      // A throw here is otherwise fatal in raw mode (nothing upstream can
+      // catch it) — degrade to a footer note instead of a broken terminal.
+      note = `internal: ${err instanceof Error ? err.message : String(err)}`.slice(0, 80);
+      safeDraw();
+    }
   };
 
   const beginKill = () => {
@@ -944,11 +1017,15 @@ async function runInteractive(opts: TuiOptions): Promise<void> {
       note = next.reachable ? '' : 'daemon unreachable — retrying';
       clampSelection();
       // Sparkline sample: the truthier of running panes and run-registry locks.
-      const runningPanes = (next.agents?.panes ?? []).filter((p) => p.state === 'running').length;
+      const runningPanes = rosterPanes(next).filter((p) => p.state === 'running').length;
       const active = Math.max(runningPanes, next.status?.runs?.active ?? 0);
       samples.push(active);
       if (samples.length > SPARK_SAMPLES) samples.shift();
-      if (!stopped) draw();
+      if (!stopped) safeDraw();
+    } catch (err) {
+      // Never let a poll failure become an unhandled rejection (it would kill
+      // the process): show it, and keep the poll loop alive below.
+      note = `internal: ${err instanceof Error ? err.message : String(err)}`.slice(0, 80);
     } finally {
       polling = false;
     }
