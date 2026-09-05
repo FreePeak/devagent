@@ -202,34 +202,43 @@ interface EventSink {
  */
 class RunLogFollower {
   private readonly listeners = new Set<EventSink>();
-  private readonly filePath: string | null;
+  /** (path, linesRead) pairs — the run-log plus the repo orchestration stream. */
+  private readonly sources: Array<{ path: string; loaded: number }> = [];
   private buffer: string[] = [];
   private loaded = 0;
   private pollTimer: NodeJS.Timeout | null = null;
 
-  constructor(home: string) {
-    this.filePath = newestRunLog(home);
+  constructor(home: string, extraSources: string[] = []) {
+    const runLog = newestRunLog(home);
+    if (runLog) this.sources.push({ path: runLog, loaded: 0 });
+    for (const p of extraSources) {
+      // Skip duplicates (a repo may live under DEVAGENT_HOME).
+      if (p !== runLog) this.sources.push({ path: p, loaded: 0 });
+    }
   }
 
   hasLog(): boolean {
-    return this.filePath !== null;
+    return this.sources.length > 0;
   }
 
-  /** Read new lines and fan them out; ids are file-line indexes (shift-safe). */
+  /** Read new lines from every source and fan them out (ids shift-safe). */
   private load(): void {
-    if (!this.filePath) return;
     try {
-      const all = readFileSync(this.filePath, "utf8").split("\n").filter((l) => l.trim());
-      while (this.loaded < all.length) {
-        const data = all[this.loaded] ?? "";
-        const id = this.loaded;
-        this.loaded++;
-        this.buffer.push(data);
-        if (this.buffer.length > EVENTS_REPLAY_LINES) this.buffer.shift();
-        for (const l of this.listeners) l.send({ id, data });
+      for (const s of this.sources) {
+        if (!existsSync(s.path)) continue;
+        const all = readFileSync(s.path, "utf8").split("\n").filter((l) => l.trim());
+        while (s.loaded < all.length) {
+          const data = all[s.loaded] ?? "";
+          const id = this.loaded;
+          this.loaded++;
+          s.loaded++;
+          this.buffer.push(data);
+          if (this.buffer.length > EVENTS_REPLAY_LINES) this.buffer.shift();
+          for (const l of this.listeners) l.send({ id, data });
+        }
       }
     } catch {
-      // file may rotate under us; retry on the next tick
+      // a file may rotate under us; retry on the next tick
     }
   }
 
@@ -254,7 +263,7 @@ class RunLogFollower {
 
   /** Start the poll interval (idempotent). */
   start(): void {
-    if (this.pollTimer || !this.filePath) return;
+    if (this.pollTimer || this.sources.length === 0) return;
     this.pollTimer = setInterval(() => this.load(), EVENTS_POLL_MS);
     this.pollTimer.unref();
   }
@@ -654,7 +663,12 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
     repoPath: opts.repoPath ?? process.cwd(),
     token: resolveToken(opts),
     startedAt: Date.now(),
-    follower: new RunLogFollower(devagentHome()),
+    // SSE sources: the per-run run-log AND the repo orchestration stream the
+    // selfbuild loop writes phase/result rows to (without the latter the
+    // stream never sees loop progress — the two trees were disjoint).
+    follower: new RunLogFollower(devagentHome(), [
+      join(opts.repoPath ?? process.cwd(), ".devagent", "runs", "orchestration", "events.jsonl"),
+    ]),
     dispatchRunner: opts.dispatchRunner ?? defaultDispatchRunner,
     answerApplier: opts.answerApplier ?? applyAnswerToRepo,
   };

@@ -167,6 +167,23 @@ describe('renderDashboard', () => {
     )).toBe('FAILED'); // live trouble: circuit open
   });
 
+  it('renders the current iteration phase from loop-phase history rows', () => {
+    const withPhase = {
+      ...snap,
+      history: [
+        ...snap.history,
+        { ts: new Date().toISOString(), kind: 'event', event: 'loop-phase', loop: 82, phase: 'task', detail: 'Ship the Q27 cross-board retry-memory' },
+      ],
+    };
+    const out = renderDashboard(withPhase).replace(/\x1b\[[0-9;]*m/g, '');
+    expect(out).toContain('iteration 82');
+    expect(out).toContain('phase: task');
+    expect(out).toContain('Ship the Q27 cross-board retry-memory');
+    // no loop-phase rows -> no iteration line
+    const plain = renderDashboard(snap).replace(/\x1b\[[0-9;]*m/g, '');
+    expect(plain).not.toContain('phase:');
+  });
+
   it('shows DAEMON UNREACHABLE when the snapshot has no status', () => {
     const out = renderDashboard({ ...snap, status: null, reachable: false });
     expect(out).toContain('DAEMON UNREACHABLE');
