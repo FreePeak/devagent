@@ -54,3 +54,4 @@
 {"loop":93,"ts":"2026-09-05T12:14:10Z","status":"operator-degraded","goal":"doc-sync deferred: PRD locally modified"}
 {"loop":94,"ts":"2026-09-05T12:17:45Z","status":"operator-degraded","goal":"doc-sync deferred: PRD locally modified"}
 {"loop":95,"ts":"2026-09-05T12:19:10Z","status":"operator-degraded","goal":"doc-sync deferred: PRD locally modified"}
+{"loop":96,"ts":"2026-09-05T12:21:03Z","status":"provider-degraded","goal":"doc-sync failed: fatal: Not possible to fast-forward, aborting."}
