@@ -311,7 +311,12 @@ while :; do
     # so the operator sees it live; on pane unavailability (pane-run exits 3)
     # the driver falls back to its own direct dispatch so the loop never
     # stalls on the visibility runtime.
-    RESEARCH_RAW="$STATE/research/loop-$N.md"
+    # The worker's raw NDJSON stdout lands in a scratch file; the phase file
+    # the PO prompt names (loop-$N.md) holds the assistant's final text only.
+    # Loop-90: the PO burned its whole 600s budget chewing a 2.3 MB raw
+    # research stream and timed out with no goal (invalid row).
+    RESEARCH_RAW="$STATE/research/loop-$N.ndjson"
+    RESEARCH_OUT="$STATE/research/loop-$N.md"
     RESEARCH_PROMPT="You are phase 1 (Research) of the DevAgent self-build loop, iteration $N.
 Repo: $REPO. Use ONLY local evidence — no web searches, no network fetches:
 1. docs/PRD.md section 17 (Phase 4 backlog) and section 18 (open questions)
@@ -327,6 +332,8 @@ Do NOT edit any files. Output only."
       -- $RESEARCH_BIN "$RESEARCH_PROMPT" </dev/null >/dev/null 2>&1
     [ -f "$STATE/research/.loop-$N.done" ] || timeout "$RESEARCH_TIMEOUT" $RESEARCH_BIN "$RESEARCH_PROMPT" </dev/null > "$RESEARCH_RAW" || true
     rm -f "$STATE/research/.loop-$N.done" "$STATE/research/loop-$N.err"
+    node "$REPO/scripts/selfbuild-extract-text.mjs" "$RESEARCH_RAW" "$RESEARCH_OUT" --sentinel || cp "$RESEARCH_RAW" "$RESEARCH_OUT"
+    rm -f "$RESEARCH_RAW"
     fi
 
     # Phase 2a: queue-first selection. Pending queue tasks (scout PRDs, backlog
@@ -373,46 +380,19 @@ Output ONLY the goal statement (max 120 words), starting with 'Goal:' — this t
       timeout "$CLAUDE_TIMEOUT" $PO_BIN "$PO_PROMPT" </dev/null > goal.tmp.raw || { echo "[po] direct dispatch failed (rc=$?) — attempting partial extraction" ; }
     fi
     rm -f "$STATE/goals/.loop-$N.done" goal.tmp.err
-      # headless pi/omp emit an NDJSON event stream; extract the assistant's
-      # final text block into the plain-text goal file the driver expects.
-      node -e '
-        const fs = require("fs");
-        const lines = fs.readFileSync("goal.tmp.raw", "utf8").split("\n");
-        let out = "";
-        for (const line of lines) {
-          try {
-            const o = JSON.parse(line);
-            if (o.type === "message_end" && o.message?.role === "assistant") {
-              for (const c of o.message.content ?? []) {
-                if (c.type === "text" && c.text) out = c.text;
-              }
-            }
-          } catch {}
-        }
-        if (out) {
-          fs.writeFileSync("goal.tmp", out);
-        } else {
-          // Distinguish the two worker shapes before deciding what raw is:
-          // NDJSON (omp/pi --mode json) vs plain text (claude -p).
-          const first = lines.find((l) => l.trim());
-          let isNdjson = false;
-          try { const o = JSON.parse(first); isNdjson = typeof o?.type === "string"; } catch {}
-          if (isNdjson) {
-            // NDJSON with no assistant text = dispatch timed out or died
-            // mid-turn. NEVER fall back to raw: that dumped
-            // `{"type":"session",...}` into the goal file, which record()
-            // published as the ledger goal (loop-81/90 poison rows).
-            // Deliberately WITHOUT the "Goal:" prefix so the ^Goal: gate
-            // below rejects it: the iteration is recorded invalid with this
-            // readable diagnostic instead of dispatching a task on garbage.
-            const evs = lines.filter((l) => l.trim()).length;
-            fs.writeFileSync("goal.tmp", `[po-aborted] no assistant text in ${evs} NDJSON events`);
-          } else {
-            // Plain-text worker: raw output IS the goal — pass it through.
-            fs.writeFileSync("goal.tmp", fs.readFileSync("goal.tmp.raw", "utf8"));
-          }
-        }
-      ' && rm -f goal.tmp.raw && mv goal.tmp "$STATE/goals/loop-$N.md"
+    # NDJSON event stream -> plain-text goal file (shared with research).
+    # --sentinel: no assistant text in an NDJSON stream writes a small
+    # "[extract-aborted]" diagnostic that fails the ^Goal: gate below,
+    # instead of the old `out || raw` fallback that published the session
+    # header as the ledger goal (loop-81/90 poison rows).
+    # Extract to goal.tmp, then publish. The `|| mv raw` fallback covers a
+    # helper crash (never a normal no-text run — that writes the sentinel and
+    # exits 0). Guard the whole chain so a hard failure can't trip `set -e`
+    # before the ^Goal: gate sees the file; goal.tmp is always moved out.
+    node "$REPO/scripts/selfbuild-extract-text.mjs" goal.tmp.raw goal.tmp --sentinel \
+      || mv goal.tmp.raw goal.tmp
+    mv goal.tmp "$STATE/goals/loop-$N.md"
+    rm -f goal.tmp.raw
     fi
     fi # end queue-first fallback to LLM selection
 
