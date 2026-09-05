@@ -341,14 +341,21 @@ Do NOT edit any files. Output only."
     "${DEVAGENT[@]}" pane-run --cwd "$REPO" --timeout "$RESEARCH_TIMEOUT" \
       --out "$RESEARCH_RAW" --err "$STATE/research/loop-$N.err" \
       --done "$STATE/research/.loop-$N.done" \
-      -- $RESEARCH_BIN "$RESEARCH_PROMPT" </dev/null >/dev/null 2>&1
+      -- $RESEARCH_BIN "$RESEARCH_PROMPT" </dev/null >/dev/null 2>&1 || echo "[research] pane-run dispatch failed (rc=$?) — falling back to direct dispatch"
     [ -f "$STATE/research/.loop-$N.done" ] || timeout "$RESEARCH_TIMEOUT" $RESEARCH_BIN "$RESEARCH_PROMPT" </dev/null > "$RESEARCH_RAW" || true
     rm -f "$STATE/research/.loop-$N.done" "$STATE/research/loop-$N.err"
     # Shape-based: NDJSON-with-no-text yields a small [extract-aborted]
     # diagnostic, never the raw blob. No `|| cp raw` fallback — that is the
     # only path left that could re-bloat the PO (loop-90); a missing research
-    # file is strictly better than a 3.5 MB one.
+    # file is strictly better than a 3.5 MB one. The `||` branch guards a
+    # helper crash against `set -e` (a bare `node` in an if-body is NOT
+    # exempt). Third arg preserves the raw stream for triage at
+    # $STATE/research/last.aborted.ndjson (gitignored, never pushed). Fixed
+    # `last.` name, NOT per-N: a wedged-but-preflight-passing provider aborts
+    # every iteration, so per-N copies grow unbounded (the 29 GB runs/ class);
+    # the loop number is recoverable from the paired loop-$N.md sentinel.
     node "$REPO/scripts/selfbuild-extract-text.mjs" "$RESEARCH_RAW" "$RESEARCH_OUT" \
+      "$STATE/research/last.aborted.ndjson" \
       || printf '[extract-failed] research produced no parsable output\n' > "$RESEARCH_OUT"
     rm -f "$RESEARCH_RAW"
     fi
@@ -405,8 +412,11 @@ Output ONLY the goal statement (max 120 words), starting with 'Goal:' — this t
     # session header as the ledger goal in loop-81/90. The `||` branch covers
     # a helper crash (missing/unreadable raw): write a diagnostic so the
     # publish mv still succeeds and the gate rejects, rather than tripping
-    # `set -e` and killing the whole loop. goal.tmp is always moved out.
+    # `set -e` and killing the whole loop. goal.tmp is always moved out. The
+    # third arg preserves the raw stream for triage under $STATE/goals (NOT
+    # beside goal.tmp, which lives in the repo cwd and would stray untracked).
     node "$REPO/scripts/selfbuild-extract-text.mjs" goal.tmp.raw goal.tmp \
+      "$STATE/goals/last.aborted.ndjson" \
       || printf '[extract-failed] PO produced no parsable output\n' > goal.tmp
     mv goal.tmp "$STATE/goals/loop-$N.md"
     rm -f goal.tmp.raw
