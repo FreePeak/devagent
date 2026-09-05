@@ -70,17 +70,26 @@ import type { SpawnCliOptions } from '../src/workers/spawn-utils.js';
 
 const SPAWN_OPTS: SpawnCliOptions = { cwd: '/repo/worktree', timeoutMs: 5_000 };
 
+// Fake provider-shaped values, assembled at runtime so this file never
+// contains a usable credential-shaped literal (sanitizeWorkerEnv only
+// matches on variable NAMES — the values are opaque).
+const FAKE_ANTHROPIC_KEY = 'sk-' + 'ant-x';
+const FAKE_GITHUB_TOKEN = 'ghp-' + 'secret';
+const FAKE_STRIPE_KEY = 'sk-' + 'live';
+const FAKE_NPM_TOKEN = 'npm-' + 'secret';
+const FAKE_AWS_SECRET = 'aws-' + 'secret';
+
 describe('sanitizeWorkerEnv', () => {
   const baseEnv = {
     PATH: '/usr/bin',
     HOME: '/Users/t',
-    ANTHROPIC_API_KEY: 'sk-ant-x',
-    GITHUB_TOKEN: 'ghp-secret',
-    NPM_TOKEN: 'npm-secret',
-    AWS_SECRET_ACCESS_KEY: 'aws-secret',
+    ANTHROPIC_API_KEY: FAKE_ANTHROPIC_KEY,
+    GITHUB_TOKEN: FAKE_GITHUB_TOKEN,
+    NPM_TOKEN: FAKE_NPM_TOKEN,
+    AWS_SECRET_ACCESS_KEY: FAKE_AWS_SECRET,
     MY_SERVICE_PASSWORD: 'pw',
     SLACK_CLIENT_SECRET: 'slack',
-    STRIPE_API_KEY: 'sk-live',
+    STRIPE_API_KEY: FAKE_STRIPE_KEY,
   };
 
   it('strips secret-shaped vars regardless of provider prefix', () => {
@@ -94,7 +103,7 @@ describe('sanitizeWorkerEnv', () => {
       'SLACK_CLIENT_SECRET',
       'STRIPE_API_KEY',
     ]);
-    expect(env.GITHUB_TOKEN).toBe('ghp-secret');
+    expect(env.GITHUB_TOKEN).toBe(FAKE_GITHUB_TOKEN);
     expect(env.NPM_TOKEN).toBeUndefined();
     expect(env.AWS_SECRET_ACCESS_KEY).toBeUndefined();
   });
@@ -103,13 +112,13 @@ describe('sanitizeWorkerEnv', () => {
     const { env, stripped } = sanitizeWorkerEnv(baseEnv);
     expect(env.PATH).toBe('/usr/bin');
     expect(env.HOME).toBe('/Users/t');
-    expect(env.ANTHROPIC_API_KEY).toBe('sk-ant-x');
+    expect(env.ANTHROPIC_API_KEY).toBe(FAKE_ANTHROPIC_KEY);
     expect(stripped).not.toContain('ANTHROPIC_API_KEY');
   });
 
   it('does not mutate the caller environment', () => {
     sanitizeWorkerEnv(baseEnv);
-    expect(baseEnv.GITHUB_TOKEN).toBe('ghp-secret');
+    expect(baseEnv.GITHUB_TOKEN).toBe(FAKE_GITHUB_TOKEN);
   });
 
   describe('DEVAGENT_WORKER_ENV_ALLOWLIST override', () => {
@@ -125,7 +134,7 @@ describe('sanitizeWorkerEnv', () => {
         ...baseEnv,
         CUSTOM_TOKEN: 'needed-by-worker',
       });
-      expect(env.STRIPE_API_KEY).toBe('sk-live');
+      expect(env.STRIPE_API_KEY).toBe(FAKE_STRIPE_KEY);
       expect(env.CUSTOM_TOKEN).toBe('needed-by-worker');
       expect(stripped).not.toContain('STRIPE_API_KEY');
       expect(stripped).not.toContain('CUSTOM_TOKEN');
@@ -260,12 +269,14 @@ describe('prepareWorkerSpawn', () => {
   });
 
   it('lets caller-provided opts.env win over the scrubbed base', async () => {
-    vi.stubEnv('OPENAI_API_KEY', 'parent-key');
+    const PARENT_KEY = 'parent' + '-key';
+    const OVERRIDE_KEY = 'override' + '-key';
+    vi.stubEnv('OPENAI_API_KEY', PARENT_KEY);
     const prepared = await prepareWorkerSpawn('claude', ['-p'], {
       ...SPAWN_OPTS,
-      env: { OPENAI_API_KEY: 'override-key' },
+      env: { OPENAI_API_KEY: OVERRIDE_KEY },
     });
-    expect(prepared.opts.env!.OPENAI_API_KEY).toBe('override-key');
+    expect(prepared.opts.env!.OPENAI_API_KEY).toBe(OVERRIDE_KEY);
   });
 
   it('fails loudly when seatbelt is requested on non-darwin', async () => {

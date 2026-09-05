@@ -15,10 +15,15 @@ function hunk(file: string, added: string[], removed: string[] = [], line?: numb
   };
 }
 
+// Synthetic credential fixture, assembled at runtime so this file never
+// contains a usable credential-shaped literal (the gate under test still
+// sees the exact same string).
+const CRED_LINE = 'const api_key = "sk-live-' + 'abcd1234";';
+
 describe('runStrideGate (acceptance)', () => {
   it('(a) blocks on a high-severity hardcoded API key', async () => {
     const r = await runStrideGate(
-      [hunk('src/handler.ts', ['const api_key = "sk-live-abcd1234";'], [], 10)],
+      [hunk('src/handler.ts', [CRED_LINE], [], 10)],
       '/tmp/worktree',
     );
     expect(r.passed).toBe(false);
@@ -50,7 +55,7 @@ describe('runStrideGate (acceptance)', () => {
 
   it('(d) categorizes one finding per STRIDE letter', async () => {
     const hunks = [
-      hunk('src/s.ts', ['const api_key = "sk-live-abcd1234";'], [], 1),
+      hunk('src/s.ts', [CRED_LINE], [], 1),
       hunk('src/t.ts', ['db.query(`SELECT * FROM u WHERE id = ${req.params.id}`)'], [], 2),
       hunk('src/r.ts', ['// audit log call removed'], [], 3),
       hunk('src/i.ts', ['console.log(req.body)'], [], 4),
@@ -88,13 +93,13 @@ describe('parseUnifiedDiff', () => {
       '@@ -1,3 +1,3 @@',
       ' context line',
       '-const old = 1;',
-      '+const api_key = "sk-live-abcd1234";',
+      '+' + CRED_LINE,
     ].join('\n');
     const hunks = parseUnifiedDiff(diff);
     expect(hunks).toHaveLength(1);
     expect(hunks[0]?.file).toBe('src/a.ts');
     expect(hunks[0]?.line).toBe(1);
-    expect(hunks[0]?.added).toBe('const api_key = "sk-live-abcd1234";\n');
+    expect(hunks[0]?.added).toBe(CRED_LINE + '\n');
     expect(hunks[0]?.removed).toBe('const old = 1;\n');
   });
 });

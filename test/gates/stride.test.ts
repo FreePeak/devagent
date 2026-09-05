@@ -21,11 +21,17 @@ function diffFor(file: string, added: string[], removed: string[] = []): string 
   return lines.join('\n');
 }
 
+// Synthetic credential fixtures, assembled at runtime so this file never
+// contains a usable credential-shaped literal (the STRIDE detector under
+// test still sees the exact same string).
+const CRED_LINE = 'const api_key = "sk-live-' + 'abcd1234";';
+const CRED_LINE_ALT = 'const api_key = "sk-live-' + 'src-9999";';
+
 describe('evaluateStride (G5 gate executor)', () => {
   const positives: Array<{ file: string; added?: string[]; removed?: string[]; category: string }> = [
     {
       file: 'src/spoof.ts',
-      added: ['const api_key = "sk-live-abcd1234";'],
+      added: [CRED_LINE],
       category: 'Spoofing',
     },
     {
@@ -74,7 +80,7 @@ describe('evaluateStride (G5 gate executor)', () => {
   }
 
   it('(c) promotes a HIGH credential literal to CRITICAL', async () => {
-    const r = await evaluateStride({ diff: diffFor('src/cred.ts', ['const api_key = "sk-live-abcd1234";']) });
+    const r = await evaluateStride({ diff: diffFor('src/cred.ts', [CRED_LINE]) });
     const f = r.findings[0];
     expect(f).toBeDefined();
     expect(f?.severity).toBe('CRITICAL');
@@ -124,7 +130,7 @@ describe('evaluateStride (G5 gate executor)', () => {
 
   it('(j) suppresses findings whose file matches a committed allowlist path (PRD Q25)', async () => {
     // Fixture credential in a test file: HIGH + CRITICAL promotion without the allowlist…
-    const diff = diffFor('test/fixtures/credentials.json', ['const api_key = "sk-live-abcd1234";']);
+    const diff = diffFor('test/fixtures/credentials.json', [CRED_LINE]);
     const blocked = await evaluateStride({ diff });
     expect(blocked.severityMax).toBe('CRITICAL');
 
@@ -136,8 +142,8 @@ describe('evaluateStride (G5 gate executor)', () => {
 
   it('(k) does not suppress findings outside the allowlist paths', async () => {
     const diff = [
-      diffFor('test/fixtures/credentials.json', ['const api_key = "sk-live-abcd1234";']),
-      diffFor('src/cred.ts', ['const api_key = "sk-live-src-9999";']),
+      diffFor('test/fixtures/credentials.json', [CRED_LINE]),
+      diffFor('src/cred.ts', [CRED_LINE_ALT]),
     ].join('\n');
     const r = await evaluateStride({ diff, allowlistPaths: ['test/fixtures/**'] });
     expect(r.findings.map((f) => f.file)).toEqual(['src/cred.ts']);
@@ -145,7 +151,7 @@ describe('evaluateStride (G5 gate executor)', () => {
   });
 
   it('(l) treats a missing/empty allowlist as no suppression', async () => {
-    const diff = diffFor('src/key.ts', ['const api_key = "sk-live-abcd1234";']);
+    const diff = diffFor('src/key.ts', [CRED_LINE]);
     for (const allowlistPaths of [undefined, []]) {
       const r = await evaluateStride({ diff, allowlistPaths });
       expect(r.severityMax).toBe('CRITICAL');
@@ -156,7 +162,7 @@ describe('evaluateStride (G5 gate executor)', () => {
     for (const text of ['not json', '["src/**"]', '{"paths": "src/**"}', '{"paths": [1]}', 'null']) {
       expect(parseStrideAllowlist(text)).toBeNull();
     }
-    const diff = diffFor('src/key.ts', ['const api_key = "sk-live-abcd1234";']);
+    const diff = diffFor('src/key.ts', [CRED_LINE]);
     const parsed = parseStrideAllowlist('{"paths": [1]}');
     const r = await evaluateStride({ diff, allowlistPaths: parsed ?? undefined });
     expect(r.severityMax).toBe('CRITICAL');

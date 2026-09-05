@@ -100,14 +100,17 @@ Key properties:
 
 ### TUI dashboard
 
-`devagent tui` is a full-screen live dashboard over the control daemon — worker
-cards with attach hints, session roster, a scrollable live log tail (SSE),
-queue/uptime/activity metrics with sparkline and meter, iteration phase,
-detail panels, kill, and an upgrade hint. Flicker-free htop-style redraw; a
-non-TTY stdin prints one snapshot and exits 0. Start `devagent daemon` first —
-the TUI is a pure HTTP/SSE client of its API.
+`devagent tui` is a one-command full-screen live dashboard — worker cards with
+attach hints, session roster, a scrollable live log tail (SSE), queue/uptime/
+activity metrics with sparkline and meter, iteration phase, detail panels,
+kill, and an upgrade hint. It attaches to a running control daemon, and when
+none is reachable it embeds an ephemeral one for the session (marked
+`daemon:embedded` in the title bar); the daemon stops when you quit.
+`--attach-only` never spawns one, and `devagent daemon` remains the way to run
+a long-lived shared daemon. Flicker-free htop-style redraw; a non-TTY stdin
+prints one snapshot and exits 0.
 
-See [docs/TUI.md](docs/TUI.md) for the keyboard reference and architecture.
+See [docs/TUI.md](docs/TUI.md) for the keyboard reference, daemon modes, and architecture.
 
 ### Herdr worker panes
 

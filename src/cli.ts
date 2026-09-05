@@ -1480,14 +1480,23 @@ program
 
 program
   .command('tui')
-  .description('Full-screen terminal dashboard over the daemon API (FR-TUI; non-TTY prints one snapshot): workers/sessions/live-log views, j/k selection, detail panels, kill, upgrade hint')
-  .option('--url <url>', 'daemon base URL', 'http://127.0.0.1:7788')
+  .description(
+    'Full-screen terminal dashboard (FR-TUI): workers/sessions/live-log views, selection + detail panels, kill, upgrade hint. One command — attaches to a running daemon, or embeds an ephemeral one for the session (--attach-only = never spawn; `devagent daemon` runs a long-lived shared one)',
+  )
+  .option('--url <url>', 'daemon base URL (explicit target = never embed; default probes 127.0.0.1:7788)')
   .option('--token <token>', 'bearer token (default DEVAGENT_DAEMON_TOKEN or the daemon-token file)')
   .option('--uds-path <path>', 'talk to the daemon over a Unix-domain socket')
   .option('--repo <path>', 'repo echoed into kill (approve) calls', process.cwd())
+  .option('--attach-only', 'never embed a daemon; attach or show UNREACHABLE', false)
   .action(async (opts) => {
     const { runTui } = await import('./tui/tui.js');
-    await runTui({ url: opts.url, token: opts.token, udsPath: opts.udsPath, repoPath: opts.repo });
+    await runTui({
+      url: opts.url,
+      token: opts.token,
+      udsPath: opts.udsPath,
+      repoPath: opts.repo,
+      attachOnly: opts.attachOnly,
+    });
   });
 
 program

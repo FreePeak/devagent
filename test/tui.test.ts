@@ -1,9 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startDaemon } from '../src/server/daemon.js';
-import { runTui, renderDashboard, renderLines, aggregateStatus } from '../src/tui/tui.js';
+import { runTui, renderDashboard, renderLines, aggregateStatus, fetchSnapshot } from '../src/tui/tui.js';
 import type { Snapshot } from '../src/tui/tui.js';
 import { parseLogLine } from '../src/tui/viz.js';
 import { appendAuditRecord } from '../src/orchestrator/ledger.js';
@@ -84,6 +84,100 @@ describe('tui one-shot (non-TTY smoke path)', () => {
     const out = await captureStdout({ url: 'http://127.0.0.1:1', token });
     expect(out).toContain('DAEMON UNREACHABLE');
   }, 8_000);
+});
+
+describe('tui auto-daemon (one command: probe -> attach, else embed)', () => {
+  /** Pin the probe target to a dead port so the user's real 7788 daemon (if up) never answers the probe. */
+  const withDeadProbe = (fn: () => Promise<void>): Promise<void> => {
+    const prev = process.env.DEVAGENT_DAEMON_URL;
+    process.env.DEVAGENT_DAEMON_URL = 'http://127.0.0.1:1';
+    return fn().finally(() => {
+      if (prev === undefined) delete process.env.DEVAGENT_DAEMON_URL;
+      else process.env.DEVAGENT_DAEMON_URL = prev;
+    });
+  };
+
+  it('embeds an ephemeral daemon when none is reachable and marks the header', async () => {
+    await withDeadProbe(async () => {
+      // The embedded daemon generates + persists a fresh token into
+      // DEVAGENT_HOME; isolate it so the fixture's boot-token file (asserted
+      // by the token-file-fallback test) is not overwritten.
+      const embedHome = mkdtempSync(join(tmpdir(), 'devagent-tui-embed-'));
+      const prevHome = process.env.DEVAGENT_HOME;
+      process.env.DEVAGENT_HOME = embedHome;
+      try {
+        const out = await captureStdout({ repoPath: repo }); // no url/token: auto mode
+        const plain = out.replace(/\x1b\[[0-9;]*m/g, '');
+        expect(plain).toContain('DevAgent');
+        expect(plain).not.toContain('DAEMON UNREACHABLE'); // embedded daemon served the snapshot
+        expect(plain).toContain('daemon:embedded');
+        expect(plain).toContain('herdr:devagent'); // real /status data from the embedded daemon
+      } finally {
+        if (prevHome === undefined) delete process.env.DEVAGENT_HOME;
+        else process.env.DEVAGENT_HOME = prevHome;
+        // The embedded daemon must not persist a token (it would stale out
+        // the shared daemon-token file and break later attaches).
+        expect(existsSync(join(embedHome, 'daemon-token'))).toBe(false);
+        try {
+          rmSync(embedHome, { recursive: true, force: true });
+        } catch {
+          /* tmp cleanup best-effort */
+        }
+      }
+    });
+  }, 15_000);
+
+  it('--attach-only never spawns: with no daemon it degrades to UNREACHABLE', async () => {
+    await withDeadProbe(async () => {
+      const out = await captureStdout({ attachOnly: true, repoPath: repo });
+      expect(out).toContain('DAEMON UNREACHABLE');
+      expect(out).not.toContain('daemon:embedded');
+    });
+  }, 8_000);
+});
+
+describe('fetchSnapshot payload shapes (2026-09-05 sessions crash)', () => {
+  it('normalizes the live daemon envelopes: sessions is an array, agents fields are arrays', async () => {
+    // Regression: /sessions answers {panes:[...]} but the raw envelope was
+    // assigned into a TuiPane[]-typed field; the first keypress that walked
+    // the roster spread it and threw "not iterable", killing the TUI.
+    const snap = await fetchSnapshot({ url: `http://127.0.0.1:${port}`, token });
+    expect(snap.reachable).toBe(true);
+    expect(Array.isArray(snap.sessions)).toBe(true);
+    expect(Array.isArray(snap.agents?.panes)).toBe(true);
+    expect(Array.isArray(snap.agents?.queued)).toBe(true);
+    expect(Array.isArray(snap.history)).toBe(true);
+  }, 8_000);
+
+  it('renders sessions sent as a bare envelope with no agents payload (no throw)', async () => {
+    // Hand-built snapshot with the poisoned shape: must degrade to a rendered
+    // pane list, never crash (interactive selection walks the same roster).
+    const pane = {
+      taskId: 'TASK-abc',
+      role: 'worker',
+      worker: 'omp',
+      paneId: 'w1:p1',
+      workspaceId: 'w1',
+      label: 'TASK-abc-a1',
+      cwd: '/tmp/.devagent-worktrees/TASK-abc-a1',
+      agentStatus: 'working',
+      state: 'running',
+      startedAt: new Date().toISOString(),
+    };
+    const poisoned = {
+      status: null,
+      agents: null,
+      history: [],
+      sessions: [pane],
+      reachable: true,
+      fetchedAt: Date.now(),
+    } as unknown as Snapshot;
+    const out = renderDashboard(poisoned, { view: 'sessions' });
+    const plain = out.replace(/\x1b\[[0-9;]*m/g, '');
+    expect(plain).toContain('Sessions');
+    expect(plain).toContain('w1:p1'); // the pane renders from the fallback roster
+    expect(plain).not.toContain('no live sessions');
+  });
 });
 
 describe('renderDashboard', () => {

@@ -6,9 +6,26 @@ app. Non-TTY stdin (pipes, CI) degrades to a one-shot snapshot on stdout and
 exit 0 — the smoke-testable path.
 
 ```bash
-devagent daemon &   # the TUI is a pure client; start the daemon first
-devagent tui
+devagent tui   # that's it — attaches to a daemon, or embeds one for the session
 ```
+
+## Daemon modes (one command, three behaviors)
+
+The glances standalone/client/server pattern: one command covers all cases.
+
+| Invocation | Behavior |
+| --- | --- |
+| `devagent tui` | Probe `127.0.0.1:7788` (`/healthz`): running daemon → **attach**; none → **embed** an ephemeral in-process daemon on a random port (fresh token, no conflicts) and stop it when the TUI quits. The title bar marks embedded sessions with `· daemon:embedded`. |
+| `devagent tui --attach-only` | Never spawn: attach or show `DAEMON UNREACHABLE` (glances `-c` analog). Also implied by an explicit `--url`/`--token`/`--uds-path`. |
+| `devagent daemon` (separate command) | Long-lived shared daemon for the 24/7 factory, webhooks, and multi-client access (glances `-s` analog) — unchanged. |
+
+Notes:
+- An embedded daemon dispatches tasks exactly like the standalone one
+  (same `devagent task` pipeline); dispatched workers are detached children
+  and keep running after the TUI exits.
+- Multiple concurrent `devagent tui` instances with no shared daemon each
+  embed their own — run `devagent daemon` (or `--attach-only` against it)
+  when several clients must see one state.
 
 ## Keyboard reference
 
@@ -61,11 +78,14 @@ circuit state, herdr session, spawn visibility.
 
 The TUI remains a pure HTTP + SSE client of the daemon (§20.3 anti-pattern: no
 PTY parsing, no second event system). `/status`, `/agents`, `/history`,
-`/sessions` and `/events` are its only data sources.
+`/sessions` and `/events` are its only data sources — embedding changes who
+*starts* the daemon, never how it is talked to (`ensureDaemon` in tui.ts probes
+`/healthz`, then either attaches or calls `startDaemon({ port: 0 })` in-process
+and tears it down in `runTui`'s finally, on every exit path).
 
 | Module | Role |
 | --- | --- |
-| `src/tui/tui.ts` | views, overlays, key handling, interactive loop, one-shot mode |
+| `src/tui/tui.ts` | views, overlays, key handling, interactive loop, one-shot mode, daemon resolution (attach/embed) |
 | `src/tui/transport.ts` | bearer-token HTTP + SSE subscriber (reconnect, Last-Event-ID resume) |
 | `src/tui/input.ts` | raw-stdin key decoding (arrows/PgUp/Home as whole escape sequences) |
 | `src/tui/frame.ts` | incremental frame differ: rewrites only changed rows, never clears the screen |

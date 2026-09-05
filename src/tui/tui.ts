@@ -27,7 +27,7 @@
 
 import { decodeKeys, type Key } from './input.js';
 import { renderFrame } from './frame.js';
-import { getJson, postJson, subscribeEvents, type EventsState } from './transport.js';
+import { daemonRequest, getJson, postJson, subscribeEvents, type EventsState } from './transport.js';
 import { formatLogLine, meterBar, parseLogLine, sparkline, visibleLen, type LogLine } from './viz.js';
 import { DEVAGENT_VERSION } from '../version.js';
 
@@ -40,6 +40,12 @@ export interface TuiOptions {
   udsPath?: string;
   /** Repo path echoed into the kill (approve) call; default process.cwd(). */
   repoPath?: string;
+  /**
+   * Never start an embedded daemon — attach to a running one or degrade to
+   * the UNREACHABLE header (glances `-c` analog). Default: probe, attach if
+   * reachable, else embed a daemon for this session.
+   */
+  attachOnly?: boolean;
 }
 
 /** Subset of the herdr pane roster the daemon exposes on /agents + /sessions. */
@@ -196,6 +202,8 @@ export interface RenderOptions {
   rows?: number;
   /** Spinner animation frame (interactive only; animated while RUNNING). */
   spinnerFrame?: number;
+  /** When the dashboard embedded its own daemon for this session, say so. */
+  daemonMode?: 'attach' | 'embedded';
 }
 
 const EMPTY_SNAPSHOT: Snapshot = { status: null, agents: null, history: [], sessions: null, reachable: false, fetchedAt: 0 };
@@ -396,7 +404,10 @@ function headerLines(snap: Snapshot, ropts: RenderOptions): string[] {
   // Spinner (Claude Code cue) animates only while work is live.
   const spin = agg === 'RUNNING' ? `${C.green}${SPINNER[ropts.spinnerFrame ?? 0] ?? SPINNER[0]}${C.reset} ` : '';
   const chip = `${statusColor(agg)}● ${agg}${C.reset}`;
-  const barBody = ` DevAgent  ${spin}${chip}`;
+  // Embedded-daemon cue in the title bar (cyan = "the TUI started this one
+  // for you") — the bar is short, so the marker survives narrow terminals
+  // (the meta line gets width-clamped first).
+  const barBody = ` DevAgent  ${spin}${chip}` + (ropts.daemonMode === 'embedded' ? `  ${C.cyan}· daemon:embedded${C.reset}` : '');
   // Metrics line (htop meters + pilot sparkline): uptime, runs, queue meter,
   // activity sparkline, environment. One dense dim line under the bar.
   const pending = q.pending ?? 0;
@@ -686,19 +697,75 @@ async function executeKill(opts: TuiOptions, snap: Snapshot, taskId: string): Pr
   return r.ok ? `kill: ${taskId} accepted (${r.note})` : `kill ${taskId} failed: ${r.note}`;
 }
 
+/**
+ * One resolved daemon session: the effective client options (rewritten when
+ * we embedded our own daemon), the display mode, and the teardown no-op'd
+ * unless we own the daemon.
+ */
+interface DaemonSession {
+  opts: TuiOptions;
+  mode: 'attach' | 'embedded';
+  stop(): Promise<void>;
+}
+
+const DEFAULT_DAEMON_URL = 'http://127.0.0.1:7788';
+
+/** Unauthenticated liveness probe (the daemon's /healthz). Never throws. */
+async function probeDaemon(opts: TuiOptions): Promise<boolean> {
+  try {
+    const r = await daemonRequest(opts, '/healthz', {}, 900);
+    return r.status === 200;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Resolve which daemon the TUI talks to (the glances standalone pattern):
+ * an explicit target (url/token/udsPath — tests, remote, socket) or
+ * `--attach-only` are pure clients; otherwise probe the default daemon and
+ * attach when it answers, else embed one in-process on an ephemeral port —
+ * no port conflicts, stopped when the TUI exits. `devagent daemon` remains
+ * the way to run a long-lived shared daemon.
+ *
+ * The embedded daemon gets an explicit in-memory token on purpose: without
+ * one, startDaemon persists a fresh token into the shared daemon-token file
+ * and every later attach to the long-lived daemon 401s until its next boot
+ * (the 2026-09-05 AUTH REJECTED incident). An ephemeral daemon must not
+ * mutate shared on-disk auth state.
+ */
+export async function ensureDaemon(opts: TuiOptions): Promise<DaemonSession> {
+  const explicitTarget = Boolean(opts.url || opts.token || opts.udsPath);
+  if (explicitTarget || (await probeDaemon(opts)) || opts.attachOnly) {
+    return { opts, mode: 'attach', stop: async () => {} };
+  }
+  const { startDaemon } = await import('../server/daemon.js');
+  const { randomBytes } = await import('node:crypto');
+  const handle = await startDaemon({
+    port: 0,
+    repoPath: opts.repoPath ?? process.cwd(),
+    token: randomBytes(24).toString('base64url'),
+  });
+  return {
+    opts: { ...opts, url: `http://127.0.0.1:${handle.port}`, token: handle.token },
+    mode: 'embedded',
+    stop: () => handle.stop(),
+  };
+}
+
 /** One-shot mode: single snapshot render to stdout, exit 0. Never throws. */
-async function runOneShot(opts: TuiOptions): Promise<void> {
-  const snap = await fetchSnapshot(opts);
+async function runOneShot(session: DaemonSession): Promise<void> {
+  const snap = await fetchSnapshot(session.opts);
   const out = process.stdout;
   const flushed = new Promise<void>((resolve) => {
-    if (out.write(renderDashboard(snap) + '\n')) resolve();
+    if (out.write(renderDashboard(snap, { daemonMode: session.mode }) + '\n')) resolve();
     else out.once('drain', resolve);
   });
   await flushed;
 }
 
 /** Interactive mode: alternate screen + raw mode; resolves on quit. */
-async function runInteractive(opts: TuiOptions): Promise<void> {
+async function runInteractive(opts: TuiOptions, daemonMode: 'attach' | 'embedded'): Promise<void> {
   const out = process.stdout;
   const stdin = process.stdin;
   let quitResolve!: () => void;
@@ -753,6 +820,7 @@ async function runInteractive(opts: TuiOptions): Promise<void> {
     const next = renderLines(snap, {
       view,
       showHelp,
+      daemonMode,
       selection,
       overlay,
       note,
@@ -1038,18 +1106,23 @@ async function runInteractive(opts: TuiOptions): Promise<void> {
 }
 
 /**
- * Run the dashboard (FR-TUI-01). Non-TTY stdin degrades to a one-shot
- * snapshot + exit 0; a TTY gets the full-screen app. Never throws into the
- * caller — the alternate screen and cursor are restored on every exit path.
+ * Run the dashboard (FR-TUI-01): resolve the daemon first (attach to a
+ * running one, or embed an ephemeral one for this session — see
+ * ensureDaemon). Non-TTY stdin degrades to a one-shot snapshot + exit 0; a
+ * TTY gets the full-screen app. Never throws into the caller — the alternate
+ * screen and cursor are restored, and an embedded daemon is stopped, on
+ * every exit path.
  */
 export async function runTui(opts: TuiOptions = {}): Promise<void> {
-  if (!process.stdin.isTTY) {
-    await runOneShot(opts);
-    return;
-  }
   const out = process.stdout;
   let entered = false;
+  let session: DaemonSession | null = null;
   try {
+    session = await ensureDaemon(opts);
+    if (!process.stdin.isTTY) {
+      await runOneShot(session);
+      return;
+    }
     out.write('\x1b[?1049h\x1b[?25l');
     entered = true;
     process.stdin.setRawMode(true);
@@ -1062,7 +1135,7 @@ export async function runTui(opts: TuiOptions = {}): Promise<void> {
     };
     process.once('SIGINT', onSigint);
     try {
-      await runInteractive(opts);
+      await runInteractive(session.opts, session.mode);
     } finally {
       process.removeListener('SIGINT', onSigint);
     }
@@ -1082,6 +1155,13 @@ export async function runTui(opts: TuiOptions = {}): Promise<void> {
         /* not raw */
       }
       out.write('\x1b[?1049l\x1b[?25h');
+    }
+    // Single teardown owner: an embedded daemon dies with the TUI; attached
+    // sessions are no-ops. A failed stop must not mask the exit path.
+    try {
+      await session?.stop();
+    } catch {
+      /* daemon already gone */
     }
   }
 }
