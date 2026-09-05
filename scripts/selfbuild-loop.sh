@@ -389,7 +389,29 @@ Output ONLY the goal statement (max 120 words), starting with 'Goal:' — this t
             }
           } catch {}
         }
-        fs.writeFileSync("goal.tmp", out || fs.readFileSync("goal.tmp.raw", "utf8"));
+        if (out) {
+          fs.writeFileSync("goal.tmp", out);
+        } else {
+          // Distinguish the two worker shapes before deciding what raw is:
+          // NDJSON (omp/pi --mode json) vs plain text (claude -p).
+          const first = lines.find((l) => l.trim());
+          let isNdjson = false;
+          try { const o = JSON.parse(first); isNdjson = typeof o?.type === "string"; } catch {}
+          if (isNdjson) {
+            // NDJSON with no assistant text = dispatch timed out or died
+            // mid-turn. NEVER fall back to raw: that dumped
+            // `{"type":"session",...}` into the goal file, which record()
+            // published as the ledger goal (loop-81/90 poison rows).
+            // Deliberately WITHOUT the "Goal:" prefix so the ^Goal: gate
+            // below rejects it: the iteration is recorded invalid with this
+            // readable diagnostic instead of dispatching a task on garbage.
+            const evs = lines.filter((l) => l.trim()).length;
+            fs.writeFileSync("goal.tmp", `[po-aborted] no assistant text in ${evs} NDJSON events`);
+          } else {
+            // Plain-text worker: raw output IS the goal — pass it through.
+            fs.writeFileSync("goal.tmp", fs.readFileSync("goal.tmp.raw", "utf8"));
+          }
+        }
       ' && rm -f goal.tmp.raw && mv goal.tmp "$STATE/goals/loop-$N.md"
     fi
     fi # end queue-first fallback to LLM selection
