@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, mkdirSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildScoutPrompt, parseScoutOutput, runScoutOnce, readHeartbeat } from '../src/scout.js';
+import { buildAdjacentCategoryScanText } from '../src/research/scan-text.js';
 import { readTask } from '../src/queue.js';
 import type { DevAgentConfig } from '../src/config.js';
 
@@ -48,6 +49,15 @@ describe('buildScoutPrompt', () => {
       expect(prompt).toContain('Queue depth');
       expect(prompt).toContain('---TASK---');
       expect(prompt).toContain('---PRD---');
+    } finally { rmSync(repo, { recursive: true, force: true }); }
+  });
+  it('includes the GRADIENT adjacent-category scan text', () => {
+    const repo = tmpRepo();
+    try {
+      const prompt = buildScoutPrompt(repo, baseConfig);
+      expect(prompt).toContain(buildAdjacentCategoryScanText());
+      expect(prompt).toContain('MCP servers');
+      expect(prompt).toContain('harness tooling');
     } finally { rmSync(repo, { recursive: true, force: true }); }
   });
 });

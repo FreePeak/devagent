@@ -79,6 +79,15 @@ DEVAGENT=(npx tsx "$REPO/src/cli.ts")
 
 mkdir -p "$STATE/research" "$STATE/goals" "$STATE/logs"
 cd "$REPO"
+# GRADIENT adjacent-category scan (PRD Phase 4): canonical text printed by the
+# `devagent scan-text` subcommand from src/research/scan-text.ts — embedded
+# verbatim in the research/PO prompts below so they cannot drift from the module.
+# Runs after `cd "$REPO"` like every other DEVAGENT call (a LaunchAgent cwd must
+# not break npx resolution); a failed capture degrades to empty, not a dead driver.
+GRADIENT_SCAN_TEXT="$("${DEVAGENT[@]}" scan-text 2>/dev/null)" || GRADIENT_SCAN_TEXT=""
+# Degrade with a message (repo convention: selfbuild-state pull, queue-claim) —
+# a silent empty string would hollow out both prompts below with no trace.
+[ -n "$GRADIENT_SCAN_TEXT" ] || echo "[gradient] scan-text dispatch failed — prompts run without the adjacent-category scan" >&2
 
 # Restore durable loop state (ledger + lessons) from origin before numbering.
 bash "$REPO/scripts/selfbuild-state.sh" pull || echo "[state] pull failed, starting from local state"
@@ -323,6 +332,9 @@ Repo: $REPO. Use ONLY local evidence — no web searches, no network fetches:
 2. Recent loop ledger: ${PREV_TAIL:-none}
 3. Accumulated lessons: $(tail -40 "$LESSONS" 2>/dev/null | head -c 4000 || echo none)
 4. git log --oneline -15 (what just shipped, what friction it caused)
+
+$GRADIENT_SCAN_TEXT
+
 Rank the top 3 backlog items by (impact x tractability) for a single iteration. Consider: does an earlier failed loop already cover this? Does a merged PR already cover it? Output compact markdown (<300 words): your ranked top-3 with one-line rationale each, then THE single pick.
 Do NOT edit any files. Output only."
     rm -f "$STATE/research/.loop-$N.done"
@@ -373,6 +385,7 @@ Do NOT edit any files. Output only."
 Repo: $REPO. Inputs: docs/PRD.md (Phase 4 backlog), .selfbuild/research/loop-$N.md, recent ledger entries below.
 $PREV_TAIL
 $LESSONS_CTX
+$GRADIENT_SCAN_TEXT
 Select exactly ONE backlog item scoped to a single implementable+testable iteration.
 Validation checks (all must pass): maps to a PRD backlog item; no dependency on an earlier failed loop; verifiable by the repo test suite or CLI smoke run.
 Output ONLY the goal statement (max 120 words), starting with 'Goal:' — this text is passed directly to devagent task as the implementation prompt."
