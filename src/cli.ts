@@ -1403,6 +1403,40 @@ program
   });
 
 program
+  .command('pane-run')
+  .description('Run one command inside a herdr pane of the devagent session (FR-VIS-04): research/PO/headless phases become operator-visible; falls back to a direct child when herdr is down')
+  .requiredOption('--cwd <path>', 'working directory for the command')
+  .requiredOption('--timeout <seconds>', 'wall-clock cap in seconds', Number)
+  .requiredOption('--out <path>', 'stdout capture file')
+  .requiredOption('--err <path>', 'stderr capture file')
+  .requiredOption('--done <path>', 'exit-code marker file')
+  .option('--session <name>', 'herdr session (default DEVAGENT_HERDR_SESSION or "devagent")')
+  .argument('<cmd>', 'command binary to run')
+  .argument('[args...]', 'command arguments')
+  .action(async (cmd: string, args: string[], opts) => {
+    const { runCommandInHerdrPane } = await import('./integrations/herdr.js');
+    const result = await runCommandInHerdrPane(cmd, args, {
+      cwd: opts.cwd,
+      timeoutMs: opts.timeout * 1000,
+      session: opts.session,
+    });
+    if (!result) {
+      // Caller (loop driver) inspects the missing done-marker and falls back
+      // to its own direct dispatch; keep the exit code distinct for triage.
+      console.error('[pane-run] herdr pane unavailable');
+      process.exitCode = 3;
+      return;
+    }
+    // Capture contract matches the driver's own direct dispatch: stdout ->
+    // out, stderr -> err, exit code -> done marker.
+    const { writeFileSync } = await import('node:fs');
+    if (result.stdout) writeFileSync(opts.out, result.stdout);
+    if (result.stderr) writeFileSync(opts.err, result.stderr);
+    writeFileSync(opts.done, String(result.exitCode));
+    if (result.timedOut) process.exitCode = 124;
+  });
+
+program
   .command('sessions')
   .description('List live worker panes in the herdr session (FR-VIS-02)')
   .option('--json', 'raw JSON output', false)

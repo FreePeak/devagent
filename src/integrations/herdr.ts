@@ -395,16 +395,35 @@ const IDLE_STATUSES = new Set(['idle', 'unknown', 'done']);
 export async function findStalePanes(session: string): Promise<StalePane[]> {
   const res = await herdrCli(['--session', session, 'pane', 'list'], { timeoutMs: 10_000 });
   if (res.code !== 0) return [];
-  let panes: Array<{ pane_id?: string; workspace_id?: string; label?: string; agent_status?: string }>;
+  let panes: Array<{
+    pane_id?: string;
+    workspace_id?: string;
+    label?: string;
+    agent_status?: string;
+    cwd?: string;
+  }>;
   try {
     panes = JSON.parse(res.stdout)?.result?.panes ?? [];
   } catch {
     return [];
   }
   const stale: StalePane[] = [];
+  // 2026-09-05: the loop's herdr-sweep closed an IN-FLIGHT worker pane (omp
+  // mid-run inside the task's worktree reported agent_status "idle" because
+  // the pane wrapper polls the done-marker file, not the agent state
+  // machine). Sweep must stay session-scoped but panes it may close must be
+  // BOTH (a) sitting in a .devagent-worktrees checkout — automation-spawned
+  // workers only, never the operator's scratch/interactive panes in the
+  // same session — and (b) not running a worker CLI right now. (b) uses
+  // herdr's own pane process-info: a LIVE pane's foreground process is the
+  // worker binary (omp/pi/claude/opencode); an idle pane sits at its shell.
   for (const p of panes) {
     const status = p.agent_status ?? 'unknown';
-    // No agent at all (bare shell) => leftover; known agent => only idle ones.
+    const cwd = p.cwd ?? '';
+    if (!cwd.includes('.devagent-worktrees')) continue;
+    if (await paneForegroundWorker(p.pane_id ?? '')) continue;
+    // No agent at all (bare shell in a worktree) => leftover; known agent =>
+    // only idle ones.
     if (p.agent_status === undefined) {
       stale.push({
         workspaceId: p.workspace_id ?? '',
@@ -424,6 +443,40 @@ export async function findStalePanes(session: string): Promise<StalePane[]> {
     }
   }
   return stale;
+}
+
+/** Foreground argv0s that prove a pane is mid-run, not idle. */
+const WORKER_BIN_NAMES: Record<string, true> = {
+  omp: true,
+  pi: true,
+  claude: true,
+  opencode: true,
+  opencode2: true,
+};
+
+/**
+ * True when the pane's foreground process is a worker CLI (live dispatch).
+ * Best-effort: a process-info failure returns false so the status-based
+ * sweep still applies — a pane we cannot inspect is treated like before.
+ */
+export async function paneForegroundWorker(paneId: string): Promise<boolean> {
+  if (!paneId) return false;
+  const r = await herdrCli(['pane', 'process-info', '--pane', paneId], { timeoutMs: 5_000 });
+  if (r.code !== 0) return false;
+  let procs: Array<{ name?: string; argv0?: string }> = [];
+  try {
+    procs =
+      (JSON.parse(r.stdout)?.result?.process_info?.foreground_processes as Array<{
+        name?: string;
+        argv0?: string;
+      }>) ?? [];
+  } catch {
+    return false;
+  }
+  return procs.some((proc) => {
+    const key = (proc.name ?? proc.argv0 ?? '').toLowerCase();
+    return WORKER_BIN_NAMES[key] === true;
+  });
 }
 
 /** Close every stale pane workspace in `session`. Returns what was closed. */

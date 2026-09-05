@@ -4,7 +4,7 @@ import { enqueueTask, ensureQueueDirs, listTasks, prdsDir, queueDir } from './qu
 import { archivedBoardFailureClass } from './orchestrator/queue-bridge.js';
 import { syncWorkSelectionDocs } from './git/doc-sync.js';
 import type { DevAgentConfig } from './config.js';
-import { spawnCli } from './workers/spawn-utils.js';
+import { runWorkerCli } from './workers/herdr-runtime.js';
 
 export interface ScoutCycleOptions {
   repoPath: string;
@@ -270,7 +270,7 @@ export async function runScoutOnce(opts: ScoutCycleOptions, config: DevAgentConf
 
   let raw = '';
   try {
-    const r = await spawnCli(cli, args, { cwd: repoPath, timeoutMs });
+    const r = await runWorkerCli(cli, args, { cwd: repoPath, timeoutMs });
     raw = r.stdout || r.stderr || '';
     if (r.timedOut) {
       const detail = `scout timed out after ${timeoutMs}ms`;

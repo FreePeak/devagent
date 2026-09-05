@@ -3644,6 +3644,61 @@ run</strong>, not of the loop process</td>
 </tr>
 </tbody>
 </table>
+<p>Added 2026-09-05 (operator escalation "every agent in vision mode as
+DEFAULT"): the §20.8 rollout left three headless gaps — loop research/PO
+phases ran as bare <code>omp</code> child processes, the scout
+dispatched through <code>spawnCli</code> directly, and the loop drivers'
+herdr-sweep closed <strong>in-flight</strong> worker panes (a mid-run
+pane reports <code>agent_status: idle</code> because pane liveness comes
+from the done-marker poll, not the agent state machine). FR-VIS-06..08
+close them; FR-VIS-09 removes the double-driver failure mode.</p>
+<table>
+<thead>
+<tr>
+<th>ID</th>
+<th>Requirement</th>
+<th>Pri</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>FR-VIS-06</td>
+<td>Every agent role dispatches through the pane runtime, not just
+coding workers: loop research and PO selection run inside herdr panes
+via <code>devagent pane-run</code> (falls back to a direct child only
+when herdr is unreachable, exit code 3 — loud, never silent); the scout
+routes its worker spawn through <code>runWorkerCli</code> so discovery
+lands in an attachable pane too</td>
+<td>M</td>
+</tr>
+<tr>
+<td>FR-VIS-07</td>
+<td>Sweep safety: <code>herdr-sweep</code> closes only panes whose cwd
+sits inside <code>.devagent-worktrees/</code> (automation-owned;
+operator scratch panes in the same session are untouchable) AND whose
+foreground process is not a worker CLI (<code>pane process-info</code>
+distinguishes a live omp/pi/claude/opencode from an idle shell) — an
+in-flight pane is never sweepable</td>
+<td>M</td>
+</tr>
+<tr>
+<td>FR-VIS-08</td>
+<td>Loop-process visibility: loop-phase events (research/po/task) stay
+on the SSE stream and TUI cards (FR-VIS-02 surface), with the phase's
+pane discoverable via <code>devagent sessions</code>/<code>attach</code>
+while it runs</td>
+<td>S</td>
+</tr>
+<tr>
+<td>FR-VIS-09</td>
+<td>Single-instance loop drivers: <code>selfbuild-loop.sh</code> holds a
+portable mkdir lock (<code>.selfbuild/loop.lock.d</code>, stale-holder
+recovery via pid liveness) so an orphaned ppid=1 driver and a fresh
+start can never race loop numbering, ledger writes, or pane sweeps</td>
+<td>M</td>
+</tr>
+</tbody>
+</table>
 <p><strong>TUI dashboard (FR-TUI)</strong> — pilot's dashboard as the
 reference layout (<code>docs/research/pilot-probe.md</code> §2; BSL 1.1
 — patterns only, no code):</p>

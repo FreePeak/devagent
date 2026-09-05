@@ -7,6 +7,34 @@
 set -euo pipefail
 
 REPO="${SELFBUILD_REPO:-$(cd "$(dirname "$0")/.." && pwd)}"
+# Single-instance lock (2026-09-05: two drivers ran concurrently — an orphaned
+# ppid=1 driver survived a hub stop and raced a fresh start on loop numbering,
+# ledger writes, and pane sweeps). Portable mkdir lock (atomic on POSIX,
+# including macOS where flock is unavailable); a second driver exits
+# immediately instead of corrupting state. Stale lock: mkdir fails while the
+# holder lives; a crashed holder leaves the dir but the pid check below
+# clears it.
+LOCK_DIR="${SELFBUILD_LOCK_DIR:-$REPO/.selfbuild/loop.lock.d}"
+if mkdir "$LOCK_DIR" 2>/dev/null; then
+  echo $$ > "$LOCK_DIR/pid"
+  trap 'rm -rf "$LOCK_DIR"' EXIT
+else
+  HOLDER_PID=$(cat "$LOCK_DIR/pid" 2>/dev/null || echo '?')
+  if [ "$HOLDER_PID" != "?" ] && ! kill -0 "$HOLDER_PID" 2>/dev/null; then
+    echo "[lock] stale holder pid $HOLDER_PID is gone — clearing lock and retrying"
+    rm -rf "$LOCK_DIR"
+    if mkdir "$LOCK_DIR" 2>/dev/null; then
+      echo $$ > "$LOCK_DIR/pid"
+      trap 'rm -rf "$LOCK_DIR"' EXIT
+    else
+      echo "[lock] another driver still holds $LOCK_DIR — exiting"; exit 0
+    fi
+  else
+    echo "[lock] another selfbuild-loop driver already holds $LOCK_DIR (pid $HOLDER_PID) — exiting"
+    exit 0
+  fi
+fi
+
 STATE="$REPO/.selfbuild"
 MAX_ITERS="${SELFBUILD_MAX_ITERATIONS:-0}"
 MAX_FAILS="${SELFBUILD_MAX_CONSECUTIVE_FAILURES:-3}"
@@ -16,8 +44,9 @@ DRY_RUN="${SELFBUILD_DRY_RUN:-0}"
 LESSONS="$STATE/lessons.md"
 WORKER="${SELFBUILD_WORKER:-omp}"
 PUSH_MODE="${SELFBUILD_PUSH_MODE:-pr}"
-CLAUDE_BIN="${SELFBUILD_CLAUDE:-omp -p --mode json --no-prewalk --no-lsp --no-extensions --model omniroute/dev}"
-# Role-to-tool mapping (operator spec 2026-09-02): all agents on omp.
+# Research/PO dispatch (FR-VIS-04, 2026-09-05): these phases run INSIDE a
+# herdr pane via `devagent pane-run` (operator-visible), not bare headless
+# child processes. Overridable per role for provider pinning.
 RESEARCH_BIN="${SELFBUILD_RESEARCH_BIN:-omp -p --mode json --no-prewalk --no-lsp --no-extensions --model omniroute/dev}"
 PO_BIN="${SELFBUILD_PO_BIN:-omp -p --mode json --no-prewalk --no-lsp --no-extensions --model omniroute/dev}"
 CLAUDE_TIMEOUT="${SELFBUILD_CLAUDE_TIMEOUT:-600}"
@@ -278,15 +307,26 @@ while :; do
     # timeouts (2026-09-02). Everything the loop acts on is already local:
     # PRD backlog, ledger outcomes, lessons. Competitor scans are a separate
     # manual cadence, not a per-iteration gate.
-    timeout "$RESEARCH_TIMEOUT" $RESEARCH_BIN "You are phase 1 (Research) of the DevAgent self-build loop, iteration $N.
+    # FR-VIS-04: pane-runnable research — the phase runs inside a herdr pane
+    # so the operator sees it live; on pane unavailability (pane-run exits 3)
+    # the driver falls back to its own direct dispatch so the loop never
+    # stalls on the visibility runtime.
+    RESEARCH_RAW="$STATE/research/loop-$N.md"
+    RESEARCH_PROMPT="You are phase 1 (Research) of the DevAgent self-build loop, iteration $N.
 Repo: $REPO. Use ONLY local evidence — no web searches, no network fetches:
 1. docs/PRD.md section 17 (Phase 4 backlog) and section 18 (open questions)
 2. Recent loop ledger: ${PREV_TAIL:-none}
 3. Accumulated lessons: $(tail -40 "$LESSONS" 2>/dev/null | head -c 4000 || echo none)
 4. git log --oneline -15 (what just shipped, what friction it caused)
 Rank the top 3 backlog items by (impact x tractability) for a single iteration. Consider: does an earlier failed loop already cover this? Does a merged PR already cover it? Output compact markdown (<300 words): your ranked top-3 with one-line rationale each, then THE single pick.
-Do NOT edit any files. Output only." \
-      < /dev/null > "$STATE/research/loop-$N.md" || echo "[research] failed, continuing with backlog-only selection"
+Do NOT edit any files. Output only."
+    rm -f "$STATE/research/.loop-$N.done"
+    "${DEVAGENT[@]}" pane-run --cwd "$REPO" --timeout "$RESEARCH_TIMEOUT" \
+      --out "$RESEARCH_RAW" --err "$STATE/research/loop-$N.err" \
+      --done "$STATE/research/.loop-$N.done" \
+      -- $RESEARCH_BIN "$RESEARCH_PROMPT" </dev/null >/dev/null 2>&1
+    [ -f "$STATE/research/.loop-$N.done" ] || timeout "$RESEARCH_TIMEOUT" $RESEARCH_BIN "$RESEARCH_PROMPT" </dev/null > "$RESEARCH_RAW" || true
+    rm -f "$STATE/research/.loop-$N.done" "$STATE/research/loop-$N.err"
     fi
 
     # Phase 2a: queue-first selection. Pending queue tasks (scout PRDs, backlog
@@ -317,14 +357,22 @@ Do NOT edit any files. Output only." \
         continue
       fi
     phase "$N" po "timeout ${CLAUDE_TIMEOUT}s"
-    timeout "$CLAUDE_TIMEOUT" $PO_BIN "You are phases 2-3 (Ideas + Validate) of the DevAgent self-build loop, iteration $N.
+    PO_PROMPT="You are phases 2-3 (Ideas + Validate) of the DevAgent self-build loop, iteration $N.
 Repo: $REPO. Inputs: docs/PRD.md (Phase 4 backlog), .selfbuild/research/loop-$N.md, recent ledger entries below.
 $PREV_TAIL
 $LESSONS_CTX
 Select exactly ONE backlog item scoped to a single implementable+testable iteration.
 Validation checks (all must pass): maps to a PRD backlog item; no dependency on an earlier failed loop; verifiable by the repo test suite or CLI smoke run.
-Output ONLY the goal statement (max 120 words), starting with 'Goal:' — this text is passed directly to devagent task as the implementation prompt." \
-      < /dev/null > goal.tmp.raw || { echo "[po] dispatch failed (rc=$?) — attempting partial extraction" ; }
+Output ONLY the goal statement (max 120 words), starting with 'Goal:' — this text is passed directly to devagent task as the implementation prompt."
+    rm -f goal.tmp.raw "$STATE/goals/.loop-$N.done"
+    "${DEVAGENT[@]}" pane-run --cwd "$REPO" --timeout "$CLAUDE_TIMEOUT" \
+      --out goal.tmp.raw --err goal.tmp.err \
+      --done "$STATE/goals/.loop-$N.done" \
+      -- $PO_BIN "$PO_PROMPT" </dev/null >/dev/null 2>&1 || echo "[po] pane-run dispatch failed (rc=$?) — attempting partial extraction"
+    if [ ! -f "$STATE/goals/.loop-$N.done" ]; then
+      timeout "$CLAUDE_TIMEOUT" $PO_BIN "$PO_PROMPT" </dev/null > goal.tmp.raw || { echo "[po] direct dispatch failed (rc=$?) — attempting partial extraction" ; }
+    fi
+    rm -f "$STATE/goals/.loop-$N.done" goal.tmp.err
       # headless pi/omp emit an NDJSON event stream; extract the assistant's
       # final text block into the plain-text goal file the driver expects.
       node -e '
