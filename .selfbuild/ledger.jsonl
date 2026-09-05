@@ -37,3 +37,4 @@
 {"loop":76,"ts":"2026-09-05T00:01:53Z","status":"skipped","goal":"Goal: PRD-backlog reconciliation at pick time (PRD.md:889). The CLI path exists (`task --pick` → `checkBacklogPick`/`strikeBacklogItems` in src/task.ts:285/343,"}
 {"loop":77,"ts":"2026-09-05T03:26:37Z","status":"failed","goal":"**Research verdict (loop-77.md):** backlog cross-check shows Cross-board retry memory (PR #137), Regression oracle (PR #138), Release ledger events (struck), Si"}
 {"loop":78,"ts":"2026-09-05T03:29:58Z","status":"provider-degraded","goal":"preflight: provider probe failed"}
+{"loop":79,"ts":"2026-09-05T03:34:10Z","status":"provider-degraded","goal":"preflight: provider probe failed"}
