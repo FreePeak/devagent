@@ -42,6 +42,16 @@ export const PREFLIGHT_RETRY_DELAY_MS = 5_000;
 /** The exact prompt every probe sends. */
 export const PREFLIGHT_PROBE_PROMPT = 'OK';
 
+/**
+ * omp's own startup-watchdog signature ("Still starting after <n>s — phase:
+ * …"): the CLI wedged during local plugin/MCP init, not a provider failure.
+ * Evidence 2026-09-05: three probes 18s-wedged in preloadPluginRoots opened
+ * the circuit while a warm omp answered in 6s — provider healthy, circuit
+ * falsely open, factory idle. Gate treats this class as env-hiccup: skip the
+ * probe-failure circuit write (degraded row still records the skip).
+ */
+export const OMP_STARTUP_WEDGE_PATTERN = /Still starting after \d+s/;
+
 /** Stable ledger taskId for operator preflight rows. */
 export const PREFLIGHT_LEDGER_TASK_ID = 'operator-preflight';
 
@@ -154,9 +164,16 @@ export async function runPreflightGate(args: {
     // open since 13:21Z despite green probes from 01:58Z).
     recordProxyProbe(args.repoPath, { ok: true });
   } else {
+    const wedge = OMP_STARTUP_WEDGE_PATTERN.test(last.detail ?? '');
     // Shared circuit state so `devagent status --providers` reports the
-    // operator-loop degradation exactly like the orchestrate-loop gate.
-    recordProxyProbe(args.repoPath, { ok: false, detail: `preflight[${args.role}]: ${last.detail ?? 'failed'}` });
+    // operator-loop degradation exactly like the orchestrate-loop gate —
+    // EXCEPT for an omp startup wedge (local plugin/MCP init stall, provider
+    // untouched): opening the circuit there idles the whole factory on a
+    // healthy provider (2026-09-05). The wedge still records the degraded
+    // row so the skipped cycle stays visible.
+    if (!wedge) {
+      recordProxyProbe(args.repoPath, { ok: false, detail: `preflight[${args.role}]: ${last.detail ?? 'failed'}` });
+    }
     // Structured degradation row: the ledger is the evidence a degraded
     // factory cycle was skipped, not silently noop'd (Q40).
     appendOperatorDegradedRecord(args.repoPath, {

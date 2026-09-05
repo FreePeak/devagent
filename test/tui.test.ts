@@ -112,7 +112,11 @@ describe('renderDashboard', () => {
       ],
       queued: [{ id: 'TASK-xyz', title: 'do the thing', status: 'pending', createdAt: new Date().toISOString() }],
     },
-    history: [{ ts: new Date().toISOString(), kind: 'audit', taskId: 'TASK-abc', attempt: 1, verdict: 'pass', integrity: 'ok', unmetCriteria: [], summary: '' }],
+    history: [
+      { ts: new Date().toISOString(), kind: 'audit', taskId: 'TASK-abc', attempt: 1, verdict: 'pass', integrity: 'ok', unmetCriteria: [], summary: '' },
+      { ts: new Date().toISOString(), kind: 'event', event: 'watchdog-health', taskId: 'TASK-mtnmnp1g-f4j9', attempt: 1, worker: 'omp', site: 'herdr-pane', watchdogFired: true },
+      { ts: new Date().toISOString(), kind: 'event', event: 'loop-result', loop: 76, status: 'skipped', goal: `Goal: ${'a'.repeat(100)}` },
+    ],
     sessions: null,
     reachable: true,
     fetchedAt: Date.now(),
@@ -127,12 +131,40 @@ describe('renderDashboard', () => {
     expect(out).toContain('2p/1c/3d');
     expect(out).toContain('herdr:devagent');
     expect(out).toContain('TASK-abc');
-    expect(out).toContain('TASK-xyz'); // queued card title
+    expect(out).toContain('audit'); // history row event/kind
+    expect(out).toContain('watchdog-health'); // kind column un-truncated (was 14ch)
+    expect(out).toContain('TASK-mtnmnp1g-f4j9'); // watchdog row surfaces its taskId
+    expect(out).toContain('loop:76'); // loop-result rows identify by loop number
+    expect(out).toContain('fired'); // watchdog verdict chip
+    expect(out).toContain('skipped'); // loop-result short status
+    const goalRow = out.split('\n').find((l) => l.includes('loop:76'));
+    expect(goalRow).toBeTruthy();
+    expect(goalRow!.replace(/\x1b\[[0-9;]*m/g, '').length).toBeLessThanOrEqual(140); // goal prose capped, no full-width dump
     expect(out).toContain('● working'); // status chip in the pane card
     expect(out).toContain('╭─'); // boxed panel borders (Pilot-style)
     expect(out).toContain('● queued'); // queued card chip
-    expect(out).toContain('audit'); // history row event/kind
     expect(out).not.toContain('DAEMON UNREACHABLE');
+  });
+
+  it('aggregateStatus: live state outranks a sticky failed_recent count', () => {
+    // failed_recent is taskCount().failed — never decays, so it must never
+    // outrank a live run (2026-09-05 header-stale-FAILED defect).
+    expect(aggregateStatus(
+      { ...snap.status!, runs: { active: 1, failed_recent: 1 } },
+      [],
+    )).toBe('RUNNING');
+    expect(aggregateStatus(
+      { ...snap.status!, runs: { active: 0, failed_recent: 1 }, queue: { pending: 0, claimed: 2, done: 3 } },
+      [],
+    )).toBe('RUNNING');
+    expect(aggregateStatus(
+      { ...snap.status!, runs: { active: 0, failed_recent: 1 }, queue: { pending: 0, claimed: 0, done: 3 }, circuit: 'closed' },
+      [],
+    )).toBe('IDLE'); // lifetime failed count never decays — no longer FAILED
+    expect(aggregateStatus(
+      { ...snap.status!, runs: { active: 0, failed_recent: 0 }, queue: { pending: 0, claimed: 0, done: 3 }, circuit: 'open' },
+      [],
+    )).toBe('FAILED'); // live trouble: circuit open
   });
 
   it('shows DAEMON UNREACHABLE when the snapshot has no status', () => {

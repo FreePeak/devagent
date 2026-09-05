@@ -279,15 +279,21 @@ export async function fetchSnapshot(opts: TuiOptions): Promise<Snapshot> {
   }
 }
 
-/**
- * Aggregate header status: FAILED when recent failures exist, RUNNING when
- * the daemon reports active runs or any pane is live, else IDLE.
- */
 export function aggregateStatus(status: StatusPayload | null, panes: TuiPane[]): 'RUNNING' | 'IDLE' | 'FAILED' {
   if (!status) return 'IDLE';
-  if ((status.runs?.failed_recent ?? 0) > 0) return 'FAILED';
   const runningPanes = panes.filter((p) => p.state === 'running').length;
-  if ((status.runs?.active ?? 0) > 0 || runningPanes > 0) return 'RUNNING';
+  if (
+    (status.runs?.active ?? 0) > 0 ||
+    runningPanes > 0 ||
+    (status.queue?.claimed ?? 0) > 0
+  ) {
+    return 'RUNNING';
+  }
+  // FAILED means live trouble (circuit open — the factory cannot dispatch),
+  // not "some task failed at some point": runs.failed_recent is a lifetime
+  // queue-failed count that never decays, so it pinned the header at FAILED
+  // permanently (2026-09-05: healthy closed-circuit factory showed FAILED).
+  if (status.circuit === 'open') return 'FAILED';
   return 'IDLE';
 }
 
@@ -440,20 +446,32 @@ export function renderDashboard(snap: Snapshot, ropts: RenderOptions = {}): stri
     lines.push(dim('  no ledger rows'));
   } else {
     for (const row of history) {
-      // Row shapes vary by producer: loop-result rows carry {status, loop,
-      // goal}; audit/attach rows carry {event, taskId}. Surface whichever
-      // verdict + subject the row has (narrowed reads, no blind casts).
+      // Row shapes vary by producer: loop-result rows carry {event, loop,
+      // status, goal}; watchdog-health rows carry {taskId, watchdogFired};
+      // audit rows carry {taskId, verdict}. Columns: clock, kind, taskId
+      // (loop-result rows show their loop number instead), short verdict,
+      // goal prose — taskId must win over prose so every row is identifiable.
       const rec = row as Record<string, unknown>;
       const ev = typeof rec.event === 'string' && rec.event
         ? rec.event
         : typeof rec.status === 'string' && rec.status
           ? rec.status
           : typeof rec.kind === 'string' ? rec.kind : '';
-      const subject = typeof rec.goal === 'string' && rec.goal
-        ? rec.goal
-        : typeof rec.taskId === 'string' ? rec.taskId : '';
+      const task = typeof rec.taskId === 'string' && rec.taskId
+        ? rec.taskId
+        : typeof rec.loop === 'number' ? `loop:${rec.loop}` : '';
+      const statusTxt = typeof rec.status === 'string' && rec.status && rec.status !== ev
+        ? rec.status
+        : typeof rec.verdict === 'string' && rec.verdict
+          ? rec.verdict
+          : rec.watchdogFired === true ? 'fired' : rec.watchdogFired === false ? 'pass' : '';
+      const goal = typeof rec.goal === 'string' ? rec.goal : '';
+      const goalW = Math.min(60, Math.max(30, width - 66));
+      const statusCell = statusTxt
+        ? `${statusColor(statusTxt)}${truncate(statusTxt, 8)}${C.reset}`
+        : '        ';
       lines.push(
-        `  ${C.dim}${fmtClock(row.ts)}${C.reset}  ${C.cyan}${truncate(ev, 14)}${C.reset}  ${truncate(subject, Math.max(20, width - 26))}`,
+        `  ${C.dim}${fmtClock(row.ts)}${C.reset}  ${C.cyan}${truncate(ev, 18)}${C.reset}  ${truncate(task, 18)}  ${statusCell}  ${truncate(goal, goalW)}`,
       );
     }
   }
