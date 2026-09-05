@@ -7,3 +7,6 @@ dist/
 .selfbuild/
 .playwright-mcp/
 dashboard-board.png
+
+# agent runtime state
+.mimosa/

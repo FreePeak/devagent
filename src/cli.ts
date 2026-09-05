@@ -12,6 +12,7 @@ import { runPreflightGate, PREFLIGHT_ROLES, isPreflightRole } from './resilience
 import { runPipeline } from './pipeline.js';
 import { buildDeps, buildDryRunDeps } from './deps.js';
 import type { WorkerName } from './types.js';
+import { DEVAGENT_VERSION } from './version.js';
 import { appendReleaseRecord } from './orchestrator/ledger.js';
 
 function parseConcurrency(v: string): number | 'auto' {
@@ -26,7 +27,7 @@ const program = new Command();
 program
   .name('devagent')
   .description('Autonomous backend delivery agent: ticket to tested PR')
-  .version('0.1.0');
+  .version(DEVAGENT_VERSION);
 
 program
   .command('init')
@@ -1479,7 +1480,7 @@ program
 
 program
   .command('tui')
-  .description('Full-screen terminal dashboard over the daemon API (FR-TUI; non-TTY prints one snapshot)')
+  .description('Full-screen terminal dashboard over the daemon API (FR-TUI; non-TTY prints one snapshot): workers/sessions/live-log views, j/k selection, detail panels, kill, upgrade hint')
   .option('--url <url>', 'daemon base URL', 'http://127.0.0.1:7788')
   .option('--token <token>', 'bearer token (default DEVAGENT_DAEMON_TOKEN or the daemon-token file)')
   .option('--uds-path <path>', 'talk to the daemon over a Unix-domain socket')

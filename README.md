@@ -98,6 +98,17 @@ Key properties:
 
 ## Runtime visibility
 
+### TUI dashboard
+
+`devagent tui` is a full-screen live dashboard over the control daemon — worker
+cards with attach hints, session roster, a scrollable live log tail (SSE),
+queue/uptime/activity metrics with sparkline and meter, iteration phase,
+detail panels, kill, and an upgrade hint. Flicker-free htop-style redraw; a
+non-TTY stdin prints one snapshot and exits 0. Start `devagent daemon` first —
+the TUI is a pure HTTP/SSE client of its API.
+
+See [docs/TUI.md](docs/TUI.md) for the keyboard reference and architecture.
+
 ### Herdr worker panes
 
 By default workers run headless and are only observable via run logs. Opt in

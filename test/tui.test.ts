@@ -3,8 +3,9 @@ import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync }
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startDaemon } from '../src/server/daemon.js';
-import { runTui, renderDashboard, aggregateStatus } from '../src/tui/tui.js';
+import { runTui, renderDashboard, renderLines, aggregateStatus } from '../src/tui/tui.js';
 import type { Snapshot } from '../src/tui/tui.js';
+import { parseLogLine } from '../src/tui/viz.js';
 import { appendAuditRecord } from '../src/orchestrator/ledger.js';
 
 /**
@@ -74,7 +75,9 @@ describe('tui one-shot (non-TTY smoke path)', () => {
     expect(out).toContain('0p/0c/0d'); // queue depth from /status (compact bar format)
     expect(out).toContain('herdr:devagent'); // session name from /status
     expect(out).toContain('no workers, queue empty');
-    expect(out).toContain('[r] refresh [s] sessions [k] kill [?] help [q] quit');
+    expect(out).toContain('[1] workers [2] sessions [3] log'); // view switcher
+    expect(out).toContain('k kill'); // kill stays on k (FR-TUI-05)
+    expect(out).toContain('q] quit');
   }, 8_000);
 
   it('degrades to DAEMON UNREACHABLE instead of throwing on a dead port', async () => {
@@ -198,6 +201,77 @@ describe('renderDashboard', () => {
     const help = renderDashboard(snap, { showHelp: true });
     expect(help).toContain('k  kill the running task');
     expect(help).toContain('y  confirm the pending kill');
+    expect(help).toContain('switch view: workers / sessions / live log');
+    expect(help).toContain('upgrade hint');
+  });
+
+  it('metrics line: htop-style queue meter + pilot-style activity sparkline', () => {
+    const out = renderDashboard(snap, { metrics: { samples: [0, 2, 1, 3], sampleMs: 2_000 } });
+    const plain = out.replace(/\x1b\[[0-9;]*m/g, '');
+    expect(plain).toContain('2p/1c/3d');
+    expect(plain).toContain('queue [');
+    expect(plain).toMatch(/activity\(8s\) [▁▂▃▄▅▆▇█]+ 3/); // sparkline + latest sample
+    expect(plain).toContain('up 5s');
+    expect(plain).toContain('herdr:devagent');
+    // without samples the sparkline is simply absent, never fabricated
+    const bare = renderDashboard(snap).replace(/\x1b\[[0-9;]*m/g, '');
+    expect(bare).not.toContain('activity(');
+  });
+
+  it('log view renders structured lines with live state + follow indicator', () => {
+    const lines = [
+      parseLogLine(JSON.stringify({ ts: '2026-09-05T10:00:00.000Z', level: 'warn', stage: 'clarify', runId: 'run-1234', message: 'Insufficient specification' })),
+      parseLogLine('plain corruption'),
+    ];
+    const out = renderDashboard(snap, { view: 'log', log: { lines, scroll: 0, follow: true, state: 'live', source: 'run-1234' } });
+    const plain = out.replace(/\x1b\[[0-9;]*m/g, '');
+    expect(plain).toContain('▌Live log');
+    expect(plain).toContain('● live');
+    expect(plain).toContain('line(s) buffered');
+    expect(plain).toContain('run run-123');
+    expect(plain).toContain('[following tail]');
+    expect(plain).toContain('warn');
+    expect(plain).toContain('clarify');
+    expect(plain).toContain('Insufficient specification');
+    expect(plain).toContain('plain corruption');
+  });
+
+  it('log view scrolled back shows the offset and fits the terminal', () => {
+    const many = Array.from({ length: 40 }, (_, i) =>
+      parseLogLine(JSON.stringify({ ts: new Date(Date.now() - i * 1000).toISOString(), level: 'info', stage: 'impl', message: `event ${i}` })),
+    );
+    const out = renderDashboard(snap, { view: 'log', log: { lines: many, scroll: 10, follow: false, state: 'live' }, rows: 20 });
+    const plain = out.replace(/\x1b\[[0-9;]*m/g, '');
+    expect(plain).toContain('10 older');
+    expect(plain).toContain('event 18'); // viewport starts 10+viewport lines back
+    expect(plain).not.toContain('event 0'); // newest hidden while scrolled back
+    expect(plain).toContain('Live log'); // the title is never cut by fitting
+    expect(out.split('\n').length).toBeLessThanOrEqual(20); // htop always fits
+  });
+
+  it('detail overlay expands the selected pane; upgrade overlay shows the recipe', () => {
+    const detail = renderDashboard(snap, { overlay: { kind: 'detail', item: snap.agents!.panes![0]! } });
+    const d = detail.replace(/\x1b\[[0-9;]*m/g, '');
+    expect(d).toContain('TASK-abc');
+    expect(d).toContain('pane w1:p1');
+    expect(d).toContain('workspace w1');
+    expect(d).toContain('devagent attach TASK-abc');
+    const up = renderDashboard(snap, { overlay: { kind: 'upgrade' } });
+    const u = up.replace(/\x1b\[[0-9;]*m/g, '');
+    expect(u).toContain('Upgrade');
+    expect(u).toContain('git pull --ff-only');
+    expect(u).toContain('npm ci && npm run build');
+    expect(u).toContain('rollback');
+  });
+
+  it('selection cursor marks the selected card; small terminals still fit', () => {
+    const sel = renderDashboard(snap, { selection: 1 }); // 0 = pane, 1 = queued
+    const s = sel.replace(/\x1b\[[0-9;]*m/g, '');
+    expect(s).toContain('▸ TASK-xyz');
+    expect(s).not.toContain('▸ TASK-abc');
+    const small = renderLines(snap, { rows: 12 });
+    expect(small.length).toBeLessThanOrEqual(12);
+    expect(small.join('\n')).toContain('DevAgent'); // header survives the trim
   });
 });
 

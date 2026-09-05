@@ -1,13 +1,17 @@
-import { request as httpRequest, type ClientRequest, type RequestOptions } from 'node:http';
-import { existsSync, readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
-
 /**
  * FR-TUI (PRD §20.8): full-screen alternate-screen terminal dashboard over the
- * FR-CTRL daemon API (src/server/daemon.ts). The TUI is a pure HTTP client of
- * that API — no PTY parsing, no second event system (§20.3 anti-pattern);
- * /status, /agents, /history and /sessions are its only data sources.
+ * FR-CTRL daemon API (src/server/daemon.ts). The TUI is a pure HTTP + SSE
+ * client of that API — no PTY parsing, no second event system (§20.3
+ * anti-pattern); /status, /agents, /history, /sessions and the /events run-log
+ * tail are its only data sources.
+ *
+ * v2 borrows from the reference dashboards the operator named:
+ * - pilot — sparkline metric cards, the `u` upgrade hint (FR-TUI-05), chips.
+ * - htop — proportional meters, j/k navigation with a selection cursor,
+ *   always-fits-the-terminal layout, and flicker-free incremental redraw
+ *   (src/tui/frame.ts diffs frames instead of clearing the screen).
+ * - Claude Code — the live log tail view (FR-TUI-03), Enter-to-expand detail
+ *   panels, a contextual footer hint bar, and a spinner only while running.
  *
  * Transport: bearer token (opts.token > DEVAGENT_DAEMON_TOKEN >
  * $DEVAGENT_HOME/daemon-token — the 0600 file the daemon writes at boot) over
@@ -18,8 +22,14 @@ import { join } from 'node:path';
  * smoke-testable path. A TTY gets the alternate screen, raw mode, hidden
  * cursor and single-key handling; q / Ctrl+C always restore the screen. A
  * daemon outage never throws: the header degrades to DAEMON UNREACHABLE and
- * polling retries every 2s.
+ * polling retries every 2s; the SSE tail reconnects on its own.
  */
+
+import { decodeKeys, type Key } from './input.js';
+import { renderFrame } from './frame.js';
+import { getJson, postJson, subscribeEvents, type EventsState } from './transport.js';
+import { formatLogLine, meterBar, parseLogLine, sparkline, visibleLen, type LogLine } from './viz.js';
+import { DEVAGENT_VERSION } from '../version.js';
 
 export interface TuiOptions {
   /** Daemon base URL; default http://127.0.0.1:7788 (ignored with udsPath). */
@@ -87,6 +97,12 @@ export interface Snapshot {
 
 const POLL_MS = 2_000;
 const HISTORY_ROWS = 8;
+/** Sparkline memory: one sample per completed poll → ~2 minutes of activity. */
+const SPARK_SAMPLES = 60;
+/** Live-log ring buffer bound (lines kept from /events). */
+const LOG_CAP = 1_000;
+const SPINNER = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏';
+const TICKER_MS = 150;
 
 /** Colors: dim lines are the quiet majority (pilot-style dashboard). */
 const C = {
@@ -120,10 +136,6 @@ export function truncate(s: string, n: number): string {
   return s.length <= n ? s : `${s.slice(0, Math.max(0, n - 1))}…`;
 }
 
-function visibleLen(s: string): number {
-  return s.replace(/\x1b\[[0-9;]*m/g, '').length;
-}
-
 /** Pad to `n` visible columns — ANSI color codes must not count toward width. */
 function padTo(s: string, n: number): string {
   return s + ' '.repeat(Math.max(1, n - visibleLen(s)));
@@ -137,113 +149,53 @@ export function cyan(s: string): string {
   return `${C.cyan}${s}${C.reset}`;
 }
 
-/** Bearer token for daemon calls: opts > env > the 0600 daemon-token file. */
-function resolveToken(opts: TuiOptions): string {
-  if (opts.token) return opts.token;
-  if (process.env.DEVAGENT_DAEMON_TOKEN) return process.env.DEVAGENT_DAEMON_TOKEN;
-  const file = join(process.env.DEVAGENT_HOME || join(process.env.HOME || homedir(), '.devagent'), 'daemon-token');
-  if (!existsSync(file)) return '';
-  try {
-    return readFileSync(file, 'utf8').trim();
-  } catch {
-    return '';
-  }
+/** The three dashboard views; 1/2/3 switch, s and l toggle (htop-like tabs). */
+export type TuiView = 'workers' | 'sessions' | 'log';
+
+/** Modal panels: per-item detail (Claude Code's expand) or the upgrade hint. */
+export interface OverlayState {
+  kind: 'detail' | 'upgrade';
+  item?: TuiPane | TuiQueuedTask;
 }
 
-interface HttpResponse {
-  status: number;
-  body: string;
+/** Client-sampled activity series for the header sparkline (pilot cue). */
+export interface MetricsState {
+  /** Active-worker counts, one per completed poll (newest last). */
+  samples: number[];
+  /** Ms between samples (the poll interval) — for the window label. */
+  sampleMs: number;
 }
 
-function awaitResponse(req: ClientRequest): Promise<HttpResponse> {
-  return new Promise<HttpResponse>((resolve) => {
-    let settled = false;
-    const done = (status: number, body: string) => {
-      if (!settled) {
-        settled = true;
-        resolve({ status, body });
-      }
-    };
-    req.on('error', () => done(0, ''));
-    req.on('timeout', () => {
-      req.destroy();
-      done(0, '');
-    });
-    req.on('response', (res) => {
-      let data = '';
-      res.setEncoding('utf8');
-      res.on('data', (chunk: string) => {
-        data += chunk;
-      });
-      res.on('end', () => done(res.statusCode ?? 0, data));
-      res.on('error', () => done(res.statusCode ?? 0, data));
-    });
-  });
+/** Everything the log view needs; the interactive loop owns the buffer. */
+export interface LogViewState {
+  lines: LogLine[];
+  /** Lines scrolled back from the tail; 0 = following the newest output. */
+  scroll: number;
+  follow: boolean;
+  state: EventsState | 'off';
+  /** runId of the newest structured line, when known. */
+  source?: string;
 }
 
-/**
- * One request against the daemon. Never rejects: {status: 0, body: ''} means
- * unreachable. Host header is bare "127.0.0.1" over UDS (no port exists) and
- * host:port over TCP — the daemon's DNS-rebinding guard accepts both forms.
- */
-async function daemonRequest(
-  opts: TuiOptions,
-  path: string,
-  init: { method?: string; body?: string } = {},
-  timeoutMs = 4_000,
-): Promise<HttpResponse> {
-  const headers: Record<string, string> = { Accept: 'application/json' };
-  const token = resolveToken(opts);
-  if (token) headers.Authorization = `Bearer ${token}`;
-  if (init.body !== undefined) headers['Content-Type'] = 'application/json';
-  const reqOptions: RequestOptions = { method: init.method ?? 'GET', headers, timeout: timeoutMs };
-  if (opts.udsPath) {
-    headers.Host = '127.0.0.1';
-    reqOptions.socketPath = opts.udsPath;
-    reqOptions.path = path;
-  } else {
-    const raw = (opts.url ?? process.env.DEVAGENT_DAEMON_URL ?? 'http://127.0.0.1:7788').replace(/\/+$/, '');
-    const u = new URL(raw + path);
-    headers.Host = u.host;
-    reqOptions.hostname = u.hostname;
-    reqOptions.port = u.port || (u.protocol === 'https:' ? 443 : 80);
-    reqOptions.path = `${u.pathname}${u.search}`;
-  }
-  const req = httpRequest(reqOptions);
-  const pending = awaitResponse(req);
-  if (init.body !== undefined) req.write(init.body);
-  req.end();
-  return pending;
-}
-
-async function getJson<T>(opts: TuiOptions, path: string): Promise<{ status: number; value: T | null }> {
-  const r = await daemonRequest(opts, path);
-  let value: T | null = null;
-  if (r.status === 200 && r.body) {
-    try {
-      value = JSON.parse(r.body) as T;
-    } catch {
-      value = null;
-    }
-  }
-  return { status: r.status, value };
-}
-
-async function postJson(
-  opts: TuiOptions,
-  path: string,
-  body: unknown,
-): Promise<{ status: number; ok: boolean; note: string }> {
-  const r = await daemonRequest(opts, path, { method: 'POST', body: JSON.stringify(body ?? {}) });
-  if (r.status === 0) return { status: 0, ok: false, note: 'daemon unreachable' };
-  let parsed: { note?: string; ok?: boolean; error?: string } = {};
-  try {
-    parsed = JSON.parse(r.body) as { note?: string; ok?: boolean; error?: string };
-  } catch {
-    /* non-JSON error body */
-  }
-  const note = parsed.note ?? parsed.error ?? (r.status === 401 ? 'unauthorized (bad token?)' : `HTTP ${r.status}`);
-  return { status: r.status, ok: r.status >= 200 && r.status < 300 && parsed.ok !== false, note };
+export interface RenderOptions {
+  /** Legacy alias: renders the sessions view (superseded by view). */
+  showSessions?: boolean;
+  /** Help overlay above the cards. */
+  showHelp?: boolean;
+  /** One-line transient note (kill confirm, errors) in the footer. */
+  note?: string;
+  /** TaskId awaiting a y/n confirm for the kill flow. */
+  pendingKill?: string | null;
+  view?: TuiView;
+  /** Selection cursor index into the current view's item list. */
+  selection?: number;
+  overlay?: OverlayState | null;
+  metrics?: MetricsState;
+  log?: LogViewState;
+  /** Terminal row budget; interactive passes stdout.rows, tests pass exact. */
+  rows?: number;
+  /** Spinner animation frame (interactive only; animated while RUNNING). */
+  spinnerFrame?: number;
 }
 
 const EMPTY_SNAPSHOT: Snapshot = { status: null, agents: null, history: [], sessions: null, reachable: false, fetchedAt: 0 };
@@ -279,7 +231,7 @@ export async function fetchSnapshot(opts: TuiOptions): Promise<Snapshot> {
   }
 }
 
-export function aggregateStatus(status: StatusPayload | null, panes: TuiPane[]): 'RUNNING' | 'IDLE' | 'FAILED' {
+export function aggregateStatus(status: Snapshot['status'], panes: TuiPane[]): 'RUNNING' | 'IDLE' | 'FAILED' {
   if (!status) return 'IDLE';
   const runningPanes = panes.filter((p) => p.state === 'running').length;
   if (
@@ -317,6 +269,16 @@ function fmtClock(ts: unknown): string {
   return d.toTimeString().slice(0, 8);
 }
 
+/** uptime seconds → compact "3h12m" / "45s". */
+function fmtUptime(s: number | undefined): string {
+  if (typeof s !== 'number' || !Number.isFinite(s) || s < 0) return '-';
+  if (s < 60) return `${Math.floor(s)}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  return `${h}h${m % 60}m`;
+}
+
 type CardLines = string[];
 
 /** Status chip: colored dot + label, e.g. "● running" (Pilot-style). */
@@ -326,7 +288,7 @@ export function chipFor(state: string, label?: string): string {
 }
 
 /** Boxed worker card (Pilot-style panel): title bar + status/cwd body. */
-function paneCardLines(p: TuiPane, inner: number): CardLines {
+function paneCardLines(p: TuiPane, inner: number, selected: boolean): CardLines {
   const id = p.taskId || p.label || '?';
   const el = fmtElapsed(p.startedAt);
   const body = [
@@ -334,15 +296,15 @@ function paneCardLines(p: TuiPane, inner: number): CardLines {
     ` ${C.dim}cwd ${truncate(p.cwd, Math.max(10, inner - 8))}${C.reset}`,
     ` ${C.cyan}devagent attach ${truncate(id, Math.max(8, inner - 18))}${C.reset}`,
   ];
-  return boxLines(truncate(id, inner - 6), body, inner);
+  return boxLines(selected ? `${C.cyan}▸${C.reset} ${truncate(id, inner - 8)}` : truncate(id, inner - 6), body, inner);
 }
 
-function queuedCardLines(t: TuiQueuedTask, inner: number): CardLines {
+function queuedCardLines(t: TuiQueuedTask, inner: number, selected: boolean): CardLines {
   const body = [
     ` ${chipFor('queued', 'queued')}  ${C.dim}${truncate(t.title ?? '', Math.max(10, inner - 14))}${C.reset}`,
     ` ${C.dim}waiting for a worker claim${C.reset}`,
   ];
-  return boxLines(truncate(t.id || '?', inner - 6), body, inner);
+  return boxLines(selected ? `${C.cyan}▸${C.reset} ${truncate(t.id || '?', inner - 8)}` : truncate(t.id || '?', inner - 6), body, inner);
 }
 
 /**
@@ -357,105 +319,258 @@ export function boxLines(title: string, body: string[], w: number): string[] {
   return [head, ...rows, foot];
 }
 
-export interface RenderOptions {
-  /** /sessions view instead of the worker cards. */
-  showSessions?: boolean;
-  /** Help overlay above the cards. */
-  showHelp?: boolean;
-  /** One-line transient note (kill confirm, errors) in the footer. */
-  note?: string;
-  /** TaskId awaiting a y/n confirm for the kill flow. */
-  pendingKill?: string | null;
+/** Terminal width/rows; ptys can report 0 (no size) — treat that as unknown. */
+function termColumns(): number {
+  const c = process.stdout?.columns;
+  return typeof c === 'number' && c >= 20 ? c : 100;
+}
+function termRows(): number {
+  const r = process.stdout?.rows;
+  return typeof r === 'number' && r >= 10 ? r : 40;
 }
 
-/** Full frame (multi-line, no screen-control codes) for the current snapshot. */
-export function renderDashboard(snap: Snapshot, ropts: RenderOptions = {}): string {
-  const width = process.stdout?.columns ?? 100;
-  const half = Math.max(34, Math.floor(width / 2));
+/** Header strip + metrics line + iteration card (from loop-phase ledger rows). */
+function headerLines(snap: Snapshot, ropts: RenderOptions): string[] {
+  const width = termColumns();
   const status = snap.status;
-  const panes = snap.agents?.panes ?? snap.sessions ?? [];
-  const queued = snap.agents?.queued ?? [];
-  const lines: string[] = [];
-
-  // Header: inverse-video full-width title strip with the aggregate status
-  // embedded — the Pilot "toolbar" cue. Auth/offline variants stay red-on-normal.
   if (snap.authFailed) {
-    lines.push(`${C.bold}${C.red} DevAgent — DAEMON AUTH REJECTED ${C.reset}${C.dim} token invalid (DEVAGENT_DAEMON_TOKEN / daemon-token file)${C.reset}`);
-  } else if (!snap.reachable || !status) {
-    lines.push(`${C.bold}${C.red} DevAgent — DAEMON UNREACHABLE ${C.reset}${C.dim} retrying every ${POLL_MS / 1000}s · start the daemon${C.reset}`);
-  } else {
-    const agg = aggregateStatus(status, panes);
-    const q = status.queue ?? {};
-    const circ = status.circuit ? ` · circuit:${status.circuit}` : '';
-    const meta = `${q.pending ?? 0}p/${q.claimed ?? 0}c/${q.done ?? 0}d · herdr:${status.herdr?.session ?? '-'} · vis:${status.spawn?.visibility ?? 'visible'}${circ}`;
-    const chip = `${statusColor(agg)}● ${agg}${C.reset}`;
-    const barBody = ` DevAgent  ${chip}  ${C.dim}${meta}${C.reset} `;
-    lines.push(`${C.bold}${C.inverse}${padTo(barBody, Math.max(width, visibleLen(barBody) + 1))}${C.reset}`);
+    return [
+      `${C.bold}${C.red} DevAgent — DAEMON AUTH REJECTED ${C.reset}${C.dim} token invalid (DEVAGENT_DAEMON_TOKEN / daemon-token file)${C.reset}`,
+      '',
+    ];
   }
-  lines.push('');
+  if (!snap.reachable || !status) {
+    return [
+      `${C.bold}${C.red} DevAgent — DAEMON UNREACHABLE ${C.reset}${C.dim} retrying every ${POLL_MS / 1000}s · start the daemon${C.reset}`,
+      '',
+    ];
+  }
+  const panes = snap.agents?.panes ?? [];
+  const agg = aggregateStatus(status, panes);
+  const q = status.queue ?? {};
+  // Spinner (Claude Code cue) animates only while work is live.
+  const spin = agg === 'RUNNING' ? `${C.green}${SPINNER[ropts.spinnerFrame ?? 0] ?? SPINNER[0]}${C.reset} ` : '';
+  const chip = `${statusColor(agg)}● ${agg}${C.reset}`;
+  const barBody = ` DevAgent  ${spin}${chip}`;
+  // Metrics line (htop meters + pilot sparkline): uptime, runs, queue meter,
+  // activity sparkline, environment. One dense dim line under the bar.
+  const pending = q.pending ?? 0;
+  const claimed = q.claimed ?? 0;
+  const done = q.done ?? 0;
+  const openTasks = pending + claimed;
+  const meter = `${C.dim}[${C.reset}${meterBar(openTasks, openTasks + done, 10, `${C.yellow}█${C.reset}`, `${C.dim}░${C.reset}`)}${C.dim}]${C.reset}`;
+  const samples = ropts.metrics?.samples ?? [];
+  const spark = samples.length
+    ? ` · ${C.dim}activity(${fmtUptime((samples.length * (ropts.metrics?.sampleMs ?? POLL_MS)) / 1000)}) ${C.cyan}${sparkline(samples)}${C.reset}${C.dim} ${samples[samples.length - 1] ?? 0}${C.reset}`
+    : '';
+  const circuit =
+    status.circuit && status.circuit !== 'closed'
+      ? ` · ${status.circuit === 'open' ? C.red : C.yellow}circuit:${status.circuit}${C.reset}`
+      : '';
+  const meta =
+    `${C.dim} up ${fmtUptime(status.uptime_s)} · runs ${status.runs?.active ?? 0}a/${status.runs?.failed_recent ?? 0}f · queue ${meter} ${pending}p/${claimed}c/${done}d${C.reset}` +
+    spark +
+    circuit +
+    `${C.dim} · herdr:${status.herdr?.session ?? '-'} · vis:${status.spawn?.visibility ?? 'visible'}${C.reset}`;
+  return [
+    `${C.bold}${C.inverse}${padTo(barBody, Math.max(width, visibleLen(barBody) + 1))}${C.reset}`,
+    meta,
+    '',
+    ...iterationLines(snap),
+  ];
+}
 
-  // Current loop progress (human jump-in cue): derive iteration + phase from
-  // the newest loop-phase row in the ledger tail; '' when none yet.
+/**
+ * Current loop progress (human jump-in cue, PR #140): iteration + phase from
+ * the newest loop-phase row in the ledger tail; nothing when none yet.
+ */
+function iterationLines(snap: Snapshot): string[] {
   const phaseRows = snap.history.filter((r) => r.event === 'loop-phase');
   const latest = phaseRows[phaseRows.length - 1] as Record<string, unknown> | undefined;
-  if (latest && typeof latest.phase === 'string') {
-    const det = typeof latest.detail === 'string' && latest.detail ? ` — ${latest.detail}` : '';
-    lines.push(
-      `${C.dim}iteration ${String(latest.loop ?? '?')} · phase: ${C.reset}${C.cyan}${latest.phase}${C.reset}${C.dim}${det}${C.reset}`,
-    );
-    lines.push('');
-  }
-
-  if (ropts.showHelp) {
-    lines.push(
-      `${C.bold}Keys${C.reset}`,
-      '  r  refresh now',
-      '  s  toggle sessions view (herdr panes)',
-      '  k  kill the running task via POST /approve (answer __kill__); daemon must advertise kill-via-answer',
-      '  y  confirm the pending kill — any other key cancels',
-      '  ?  toggle this help',
-      '  q or Ctrl+C  quit',
-      '',
-    );
-  }
-
-  lines.push(
-    ropts.showSessions
-      ? `${C.bold}▌Sessions${C.reset} ${C.dim}herdr panes${C.reset}`
-      : `${C.bold}▌Workers${C.reset} ${C.dim}${panes.length} pane(s) · ${queued.length} queued${C.reset}`,
+  if (!latest || typeof latest.phase !== 'string') return [];
+  const det = typeof latest.detail === 'string' && latest.detail ? ` — ${latest.detail}` : '';
+  return [
+    `${C.dim}iteration ${String(latest.loop ?? '?')} · phase: ${C.reset}${C.cyan}${latest.phase}${C.reset}${C.dim}${det}${C.reset}`,
     '',
-  );
+  ];
+}
 
-  if (ropts.showSessions) {
-    if (!panes.length) lines.push(dim('  no live sessions'));
-    for (const p of panes) {
-      const el = fmtElapsed(p.startedAt);
-      lines.push(
-        `  ${C.cyan}${truncate(p.paneId || '-', 18)}${C.reset}  ${C.bold}${truncate(p.taskId || '?', 24)}${C.reset}  ${chipFor(p.state, p.agentStatus || p.state)}${el ? ` ${C.dim}· ${el}${C.reset}` : ''}  ${C.dim}${truncate(p.cwd, Math.max(20, width - 72))}${C.reset}`,
-      );
-    }
-  } else {
-    const cards: CardLines[] = [
-      ...panes.map((p) => paneCardLines(p, half - 2)),
-      ...queued.map((t) => queuedCardLines(t, half - 2)),
-    ];
-    if (!cards.length) lines.push(dim('  no workers, queue empty'));
-    for (let i = 0; i < cards.length; i += 2) {
-      const a = cards[i]!;
-      const b = cards[i + 1];
-      const rows = Math.max(a.length, b?.length ?? 0);
-      for (let r = 0; r < rows; r++) {
-        lines.push(padTo(a[r] ?? '', half) + (b ? (b[r] ?? '') : ''));
-      }
-      lines.push('');
-    }
-    if (cards.length) lines.pop(); // single blank between cards and history
+function helpLines(): string[] {
+  return [
+    `${C.bold}Keys${C.reset}`,
+    '  1 / 2 / 3  switch view: workers / sessions / live log   (s and l toggle back)',
+    '  ↑ ↓ / PgUp PgDn  move the selection (workers, sessions) · scroll (log)',
+    '  g / G      jump to first / last item (log: oldest / newest)',
+    '  f         toggle follow-tail in the log view',
+    '  Enter / o  expand the selected worker into a detail panel',
+    '  u         upgrade hint (pilot-style self-update recipe)',
+    '  r  refresh now',
+    '  k  kill the running task via POST /approve (answer __kill__); daemon must advertise kill-via-answer',
+    '  y  confirm the pending kill — any other key cancels',
+    '  ?  toggle this help',
+    '  q or Ctrl+C  quit',
+    '',
+  ];
+}
+
+/** The log view: dense structured tail (Claude Code transcript feel). */
+function logViewLines(ropts: RenderOptions, width: number, bodyBudget: number): string[] {
+  const log = ropts.log;
+  const titleState =
+    !log || log.state === 'off'
+      ? dim('● tail off')
+      : log.state === 'live'
+        ? `${C.green}● live${C.reset}`
+        : log.state === 'down'
+          ? `${C.yellow}● reconnecting…${C.reset}`
+          : dim('● connecting…');
+  const src = log?.source ? dim(` · run ${truncate(log.source, 8)}`) : '';
+  const pos = log && log.scroll > 0 ? dim(`  [${log.scroll} older ↑ · f to follow]`) : dim('  [following tail]');
+  const lines: string[] = [
+    `${C.bold}▌Live log${C.reset} ${titleState}${dim(` · ${log?.lines.length ?? 0} line(s) buffered`)}${src}${pos}`,
+    '',
+  ];
+  if (!log || !log.lines.length) {
+    lines.push(dim('  no events yet — waiting for worker / daemon run-log output'));
+    return lines;
+  }
+  // Chrome inside the body: the title + blank above the rows. The title must
+  // never be cut by fitting, so the viewport derives from the body budget the
+  // caller computed (rows - page header - footer), not its own guess.
+  const viewport = Math.max(3, bodyBudget - 2);
+  const start = Math.max(0, log.lines.length - viewport - (log.follow ? 0 : log.scroll));
+  const slice = log.lines.slice(start, start + viewport);
+  for (const l of slice) lines.push(formatLogLine(l, width));
+  return lines;
+}
+
+/** Detail panel (Claude Code expand): everything known about one item. */
+function detailOverlayLines(item: TuiPane | TuiQueuedTask, width: number): string[] {
+  const inner = Math.max(30, width - 4);
+  const body: string[] = [];
+  if ('paneId' in item) {
+    const p = item as TuiPane;
+    body.push(
+      ` ${chipFor(p.state, p.agentStatus || p.state)}  ${C.dim}role ${p.role || '-'} · engine ${p.worker || '-'}${C.reset}`,
+      ` ${C.dim}pane ${p.paneId || '-'} · workspace ${p.workspaceId || '-'}${C.reset}`,
+      ` ${C.dim}up ${fmtElapsed(p.startedAt) || '-'} · since ${truncate(p.startedAt || '-', inner - 16)}${C.reset}`,
+      ` ${C.dim}cwd ${truncate(p.cwd, inner - 6)}${C.reset}`,
+      '',
+      ` ${C.cyan}devagent attach ${truncate(p.taskId || p.label || '?', Math.max(8, inner - 18))}${C.reset}`,
+      dim(' jump into this worker pane and steer it live'),
+    );
+    return boxLines(`${C.cyan}▸${C.reset} ${truncate(p.taskId || p.label || '?', inner - 8)}`, body, inner);
+  }
+  const t = item as TuiQueuedTask;
+  body.push(
+    ` ${chipFor('queued', 'queued')}  ${C.dim}${t.status || 'pending'}${C.reset}`,
+    ` ${C.dim}created ${truncate(t.createdAt || '-', inner - 10)}${C.reset}`,
+    '',
+    ` ${truncate(t.title || '', inner - 2)}`,
+    dim(' waiting for a worker claim'),
+  );
+  return boxLines(`${C.cyan}▸${C.reset} ${truncate(t.id || '?', inner - 8)}`, body, inner);
+}
+
+/** Pilot's `u` recipe (FR-TUI-05): the self-hosted upgrade/rollback hint. */
+function upgradeOverlayLines(width: number): string[] {
+  const inner = Math.max(34, width - 4);
+  const body = [
+    ` ${C.bold}devagent v${DEVAGENT_VERSION}${C.reset} ${C.dim}(self-hosted checkout)${C.reset}`,
+    '',
+    ` ${C.dim}upgrade — clean worktree only:${C.reset}`,
+    `   ${C.cyan}git pull --ff-only${C.reset}`,
+    `   ${C.cyan}npm ci && npm run build${C.reset}`,
+    '',
+    ` ${C.dim}rollback:${C.reset}`,
+    `   ${C.cyan}git checkout <previous-commit> && npm run build${C.reset}`,
+    '',
+    ` ${C.dim}the daemon dispatches dist/src/cli.js — rebuild, then restart${C.reset}`,
+    ` ${C.dim}devagent tui so new tasks run the fresh build${C.reset}`,
+  ];
+  return boxLines('Upgrade', body, inner);
+}
+
+/** Trim `body` so header+body+footer fit `rows` (htop always fits). */
+function fitLines(header: string[], body: string[], footer: string[], rows: number, keep: 'top' | 'bottom'): string[] {
+  const budget = rows - header.length - footer.length;
+  if (budget >= body.length) return [...header, ...body, ...footer];
+  const cut = Math.max(1, budget);
+  const trimmed = keep === 'top' ? body.slice(0, cut) : body.slice(body.length - cut);
+  return [...header, ...trimmed, ...footer];
+}
+
+/** Full frame as lines (interactive diffs these; one-shot joins them). */
+export function renderLines(snap: Snapshot, ropts: RenderOptions = {}): string[] {
+  const width = termColumns();
+  const rows = ropts.rows ?? 100;
+  const view: TuiView = ropts.view ?? (ropts.showSessions ? 'sessions' : 'workers');
+  const panes = snap.agents?.panes ?? snap.sessions ?? [];
+  const queued = snap.agents?.queued ?? [];
+
+  const header = headerLines(snap, ropts);
+  if (ropts.showHelp) header.push(...helpLines());
+
+  // Footer (htop function-bar cue): contextual keys + transient notes.
+  const notes: string[] = [];
+  if (ropts.pendingKill) notes.push(`kill ${ropts.pendingKill}: y confirm · other key cancels`);
+  if (ropts.note) notes.push(ropts.note);
+  const keysHint =
+    view === 'log'
+      ? `${C.inverse} [1] workers [2] sessions [3] log · ↑↓ scroll · f follow · r refresh [?] help [q] quit ${C.reset}`
+      : `${C.inverse} [1] workers [2] sessions [3] log · ↑↓ select · ⏎ detail · k kill · r refresh [?] help [q] quit ${C.reset}`;
+  const footer = [
+    keysHint + (notes.length ? `  ${C.yellow}${truncate(notes.join(' · '), Math.max(20, width - 62))}${C.reset}` : ''),
+  ];
+
+  if (ropts.overlay?.kind === 'upgrade') {
+    return fitLines(header, [...upgradeOverlayLines(width), ''], footer, rows, 'top');
+  }
+  if (ropts.overlay?.kind === 'detail' && ropts.overlay.item) {
+    return fitLines(header, [...detailOverlayLines(ropts.overlay.item, width), ''], footer, rows, 'top');
   }
 
-  lines.push(`${C.bold}▌History${C.reset} ${C.dim}ledger tail${C.reset}`, '');
+  if (view === 'log') {
+    const bodyBudget = rows - header.length - footer.length;
+    return fitLines(header, logViewLines(ropts, width, bodyBudget), footer, rows, 'bottom');
+  }
+
+  if (view === 'sessions') {
+    const body: string[] = [`${C.bold}▌Sessions${C.reset} ${C.dim}herdr panes${C.reset}`, ''];
+    if (!panes.length) body.push(dim('  no live sessions'));
+    panes.forEach((p, i) => {
+      const el = fmtElapsed(p.startedAt);
+      const mark = i === ropts.selection ? `${C.cyan}▸${C.reset}` : ' ';
+      body.push(
+        `${mark} ${C.cyan}${truncate(p.paneId || '-', 18)}${C.reset}  ${C.bold}${truncate(p.taskId || '?', 24)}${C.reset}  ${chipFor(p.state, p.agentStatus || p.state)}${el ? ` ${C.dim}· ${el}${C.reset}` : ''}  ${C.dim}${truncate(p.cwd, Math.max(20, width - 74))}${C.reset}`,
+      );
+    });
+    return fitLines(header, body, footer, rows, 'top');
+  }
+
+  // Workers view: cards (2-up) + history tail.
+  const half = Math.max(34, Math.floor(width / 2));
+  const body: string[] = [`${C.bold}▌Workers${C.reset} ${C.dim}${panes.length} pane(s) · ${queued.length} queued${C.reset}`, ''];
+  const cards: CardLines[] = [
+    ...panes.map((p, i) => paneCardLines(p, half - 2, i === ropts.selection)),
+    ...queued.map((t, i) => queuedCardLines(t, half - 2, panes.length + i === ropts.selection)),
+  ];
+  if (!cards.length) body.push(dim('  no workers, queue empty'));
+  for (let i = 0; i < cards.length; i += 2) {
+    const a = cards[i]!;
+    const b = cards[i + 1];
+    const rws = Math.max(a.length, b?.length ?? 0);
+    for (let r = 0; r < rws; r++) {
+      body.push(padTo(a[r] ?? '', half) + (b ? (b[r] ?? '') : ''));
+    }
+    body.push('');
+  }
+  if (cards.length) body.pop(); // single blank between cards and history
+
+  body.push(`${C.bold}▌History${C.reset} ${C.dim}ledger tail${C.reset}`, '');
   const history = snap.history.slice(-HISTORY_ROWS);
   if (!history.length) {
-    lines.push(dim('  no ledger rows'));
+    body.push(dim('  no ledger rows'));
   } else {
     for (const row of history) {
       // Row shapes vary by producer: loop-result rows carry {event, loop,
@@ -482,25 +597,31 @@ export function renderDashboard(snap: Snapshot, ropts: RenderOptions = {}): stri
       const statusCell = statusTxt
         ? `${statusColor(statusTxt)}${truncate(statusTxt, 8)}${C.reset}`
         : '        ';
-      lines.push(
+      body.push(
         `  ${C.dim}${fmtClock(row.ts)}${C.reset}  ${C.cyan}${truncate(ev, 18)}${C.reset}  ${truncate(task, 18)}  ${statusCell}  ${truncate(goal, goalW)}`,
       );
     }
   }
-
-  const notes: string[] = [];
-  if (ropts.pendingKill) notes.push(`kill ${ropts.pendingKill}: press y to confirm, any other key cancels`);
-  if (ropts.note) notes.push(ropts.note);
-  lines.push(
-    '',
-    `${C.inverse} [r] refresh [s] sessions [k] kill [?] help [q] quit ${C.reset}` +
-      (notes.length ? `  ${C.yellow}${truncate(notes.join(' · '), Math.max(20, width - 48))}${C.reset}` : ''),
-  );
-  return lines.join('\n');
+  return fitLines(header, body, footer, rows, 'top');
 }
 
-/** First kill candidate: running pane, else any pane, else first queued row. */
-function pickKillTarget(snap: Snapshot): string | null {
+/** Full frame (multi-line, no screen-control codes) for the current snapshot. */
+export function renderDashboard(snap: Snapshot, ropts: RenderOptions = {}): string {
+  return renderLines(snap, ropts).join('\n');
+}
+
+/** Flat item list of the current view — what the selection cursor walks. */
+function viewItems(snap: Snapshot, view: TuiView): (TuiPane | TuiQueuedTask)[] {
+  if (view === 'log') return [];
+  if (view === 'sessions') return [...(snap.sessions ?? [])];
+  return [...(snap.agents?.panes ?? []), ...(snap.agents?.queued ?? [])];
+}
+
+/** Kill target: the selection, else a running pane, else any pane, else first queued row. */
+function pickKillTarget(snap: Snapshot, view: TuiView, selection: number): string | null {
+  const sel = viewItems(snap, view)[selection];
+  const id = sel && ('paneId' in sel ? sel.taskId : sel.id);
+  if (id) return id;
   const panes = snap.agents?.panes ?? [];
   const running = panes.find((p) => p.state === 'running');
   if (running?.taskId) return running.taskId;
@@ -543,20 +664,105 @@ async function runInteractive(opts: TuiOptions): Promise<void> {
   let stopped = false;
   let polling = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
-  let showSessions = false;
+  let view: TuiView = 'workers';
   let showHelp = false;
+  let selection = 0;
+  let overlay: OverlayState | null = null;
   let pendingKill: string | null = null;
   let note = 'connecting…';
   let snap: Snapshot = { ...EMPTY_SNAPSHOT, fetchedAt: Date.now() };
+  let pendingInput = ''; // partial escape sequence carried across chunks
+
+  // Live tail (FR-TUI-03): the daemon's SSE /events stream, buffered locally.
+  const logLines: LogLine[] = [];
+  let logScroll = 0;
+  let logFollow = true;
+  let sseState: EventsState | 'off' = 'off';
+  let lastLogId = -1;
+  let logSource: string | undefined;
+  let redrawTimer: ReturnType<typeof setTimeout> | null = null;
+  const drawSoon = () => {
+    if (redrawTimer || stopped) return;
+    redrawTimer = setTimeout(() => {
+      redrawTimer = null;
+      if (!stopped) draw();
+    }, 250);
+    redrawTimer.unref?.();
+  };
+
+  // Activity sparkline samples (pilot's metric card), one per completed poll.
+  const samples: number[] = [];
+  let spinnerFrame = 0;
+
+  let prevFrame: string[] | null = null;
+  let prevWidth = termColumns();
 
   const draw = () => {
-    out.write(`\x1b[H\x1b[2J${renderDashboard(snap, { showSessions, showHelp, note, pendingKill })}\n`);
+    const width = termColumns();
+    const rows = Math.max(12, termRows() - 1); // headroom: never scroll
+    if (width !== prevWidth) {
+      prevWidth = width;
+      prevFrame = null;
+      out.write('\x1b[H\x1b[2J'); // a reflow needs one full clear
+    }
+    const next = renderLines(snap, {
+      view,
+      showHelp,
+      selection,
+      overlay,
+      note,
+      pendingKill,
+      metrics: { samples, sampleMs: POLL_MS },
+      log: {
+        lines: logLines,
+        scroll: logFollow ? 0 : logScroll,
+        follow: logFollow,
+        state: sseState,
+        source: logSource,
+      },
+      rows,
+      spinnerFrame,
+    });
+    out.write(`${renderFrame(prevFrame, next, width)}\n`);
+    prevFrame = next;
   };
+
+  const events = subscribeEvents(
+    opts,
+    (id, data) => {
+      if (id <= lastLogId) return; // replayed after reconnect
+      lastLogId = id;
+      const line = parseLogLine(data);
+      if (line.runId) logSource = line.runId;
+      logLines.push(line);
+      if (logLines.length > LOG_CAP) logLines.splice(0, logLines.length - LOG_CAP);
+      if (logFollow) logScroll = 0;
+      drawSoon();
+    },
+    (st) => {
+      sseState = st;
+      drawSoon();
+    },
+  );
+
+  // Spinner ticker: animate only while work is live — the incremental
+  // renderer makes a 1-line header rewrite per tick effectively free.
+  const ticker: ReturnType<typeof setInterval> = setInterval(() => {
+    if (stopped) return;
+    const agg = aggregateStatus(snap.status, snap.agents?.panes ?? []);
+    if (agg !== 'RUNNING' && !pendingKill) return;
+    spinnerFrame = (spinnerFrame + 1) % SPINNER.length;
+    draw();
+  }, TICKER_MS);
+  ticker.unref?.();
 
   const quit = () => {
     if (stopped) return;
     stopped = true;
     if (timer) clearTimeout(timer);
+    if (redrawTimer) clearTimeout(redrawTimer);
+    events.stop();
+    clearInterval(ticker);
     stdin.removeListener('data', onData);
     try {
       stdin.setRawMode(false);
@@ -568,10 +774,14 @@ async function runInteractive(opts: TuiOptions): Promise<void> {
     quitResolve();
   };
 
-  const onData = (buf: Buffer) => {
-    const ch = buf.toString('utf8')[0];
+  const clampSelection = () => {
+    const n = viewItems(snap, view).length;
+    if (selection >= n) selection = Math.max(0, n - 1);
+  };
+
+  const handleKey = (key: Key) => {
     if (pendingKill) {
-      if (ch === 'y' || ch === 'Y') {
+      if (key.kind === 'char' && (key.ch === 'y' || key.ch === 'Y')) {
         const target = pendingKill;
         pendingKill = null;
         note = `killing ${target}…`;
@@ -586,30 +796,129 @@ async function runInteractive(opts: TuiOptions): Promise<void> {
       draw();
       return;
     }
+    if (key.kind === 'ctrl' && key.ch === '\x03') {
+      quit();
+      return;
+    }
+    if (key.kind === 'esc') {
+      if (overlay) overlay = null;
+      else if (showHelp) showHelp = false;
+      else if (view === 'log' && (logScroll > 0 || !logFollow)) {
+        logScroll = 0;
+        logFollow = true;
+      }
+      draw();
+      return;
+    }
+    // Modal overlays swallow every key except Ctrl+C (handled above).
+    if (overlay) {
+      overlay = null;
+      draw();
+      return;
+    }
+    const ch = key.kind === 'char' ? key.ch : '';
     switch (ch) {
+      case '1':
+        view = 'workers';
+        clampSelection();
+        break;
+      case '2':
+      case 's':
+        view = view === 'sessions' ? 'workers' : 'sessions';
+        clampSelection();
+        break;
+      case '3':
+      case 'l':
+        view = view === 'log' ? 'workers' : 'log';
+        break;
       case 'r':
         void poll();
         return;
-      case 's':
-        showSessions = !showSessions;
-        break;
       case 'k':
         beginKill();
+        break;
+      case 'u':
+        overlay = { kind: 'upgrade' };
+        break;
+      case 'f':
+        if (view === 'log') {
+          logFollow = !logFollow;
+          if (logFollow) logScroll = 0;
+        }
         break;
       case '?':
         showHelp = !showHelp;
         break;
-      case '\x1b':
-        showHelp = false;
-        break;
       case 'q':
-      case '\x03':
         quit();
         return;
       default:
-        return; // ignore unhandled keys
+        break;
+    }
+    if (key.kind === 'enter' || ch === 'o' || ch === 'O') {
+      const item = viewItems(snap, view)[selection];
+      if (item) overlay = { kind: 'detail', item };
+      else if (view !== 'log') note = 'nothing selected';
+      draw();
+      return;
+    }
+    // Navigation: arrows move the selection (lists) or scroll (log); g/G
+    // home/end, PgUp/PgDn page. ('k' stays kill per FR-TUI-05, so lists use
+    // arrows — the htop default — instead of vi keys.)
+    const down = key.kind === 'down';
+    const up = key.kind === 'up';
+    if (down || up) {
+      if (view === 'log') {
+        const max = Math.max(0, logLines.length - 1);
+        logScroll = Math.min(max, Math.max(0, logScroll + (up ? 1 : -1)));
+        logFollow = logScroll === 0;
+      } else {
+        const n = viewItems(snap, view).length;
+        selection = Math.min(Math.max(0, n - 1), Math.max(0, selection + (down ? 1 : -1)));
+      }
+      draw();
+      return;
+    }
+    if (key.kind === 'pgup' || key.kind === 'pgdn') {
+      if (view === 'log') {
+        const max = Math.max(0, logLines.length - 1);
+        logScroll = Math.min(max, Math.max(0, logScroll + (key.kind === 'pgup' ? 10 : -10)));
+        logFollow = logScroll === 0;
+      } else {
+        selection = key.kind === 'pgup' ? 0 : Math.max(0, viewItems(snap, view).length - 1);
+      }
+      draw();
+      return;
+    }
+    if (key.kind === 'home' || ch === 'g') {
+      if (view === 'log') {
+        logScroll = Math.max(0, logLines.length - 1);
+        logFollow = logScroll === 0;
+      } else {
+        selection = 0;
+      }
+      draw();
+      return;
+    }
+    if (key.kind === 'end' || ch === 'G') {
+      if (view === 'log') {
+        logScroll = 0;
+        logFollow = true;
+      } else {
+        selection = Math.max(0, viewItems(snap, view).length - 1);
+      }
+      draw();
+      return;
     }
     draw();
+  };
+
+  const onData = (buf: Buffer) => {
+    // DEVAGENT_TUI_DEBUG=chunks surfaces raw input in the footer (pty bring-up).
+    if (process.env.DEVAGENT_TUI_DEBUG) note = `in:${JSON.stringify(buf.toString('utf8')).slice(0, 40)}`;
+    const { keys, pending } = decodeKeys(pendingInput + buf.toString('utf8'));
+    pendingInput = pending;
+    for (const key of keys) handleKey(key);
   };
 
   const beginKill = () => {
@@ -618,7 +927,7 @@ async function runInteractive(opts: TuiOptions): Promise<void> {
       note = 'kill: not supported by this daemon';
       return;
     }
-    const target = pickKillTarget(snap);
+    const target = pickKillTarget(snap, view, selection);
     if (!target) {
       note = 'kill: no running task';
       return;
@@ -633,6 +942,12 @@ async function runInteractive(opts: TuiOptions): Promise<void> {
       const next = await fetchSnapshot(opts);
       snap = next;
       note = next.reachable ? '' : 'daemon unreachable — retrying';
+      clampSelection();
+      // Sparkline sample: the truthier of running panes and run-registry locks.
+      const runningPanes = (next.agents?.panes ?? []).filter((p) => p.state === 'running').length;
+      const active = Math.max(runningPanes, next.status?.runs?.active ?? 0);
+      samples.push(active);
+      if (samples.length > SPARK_SAMPLES) samples.shift();
       if (!stopped) draw();
     } finally {
       polling = false;
