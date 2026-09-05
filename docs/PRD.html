@@ -3751,6 +3751,21 @@ as CLI — the TUI is a transport, not a bypass, per FR-CTRL-03),
 <code>?</code> help overlay</td>
 <td>C</td>
 </tr>
+<tr>
+<td>FR-TUI-06</td>
+<td>Single-key inline attach (validated 2026-09-05:
+<code>devagent attach --exec</code> already gives a full interactive PTY
+into any live worker pane via <code>herdr agent attach</code>, but only
+from a separate terminal — the TUI only <em>prints</em> the hint):
+pressing <code>a</code> on the selected worker/session card suspends the
+alternate screen, execs
+<code>herdr --session &lt;session&gt; agent attach &lt;paneId&gt;</code>
+with inherited stdio (keystrokes go to the worker, not the dashboard),
+and restores the TUI + refreshes on detach — upgrade FR-TUI-03's
+discovery hint into an in-TUI action; <code>a</code> is discovery→input
+with zero terminal juggling</td>
+<td>M</td>
+</tr>
 </tbody>
 </table>
 <p>Boundary with §20.4: the Tauri desktop app and the TUI are two

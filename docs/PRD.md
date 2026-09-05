@@ -1228,6 +1228,7 @@ machine). FR-VIS-06..08 close them; FR-VIS-09 removes the double-driver failure 
 | FR-TUI-03 | Live log tail view per agent (scrollable, follows the active pane's structured events) and jump hint showing the `devagent attach <task>` command for the selected run — the TUI is the discovery surface for FR-VIS-02 jump-in | M |
 | FR-TUI-04 | Interactive v1 scope (Q47): approval hotkeys (approve/deny pending gates via `POST /approve`) + dispatch sheet mirroring FR-UI-02; ship read-only cards first if Q47 resolves conservative | S |
 | FR-TUI-05 | Single-key ops: `u` upgrade/rollback hint (pilot's pattern), `k` kill run (goes through the same gate machinery as CLI — the TUI is a transport, not a bypass, per FR-CTRL-03), `?` help overlay | C |
+| FR-TUI-06 | Single-key inline attach (validated 2026-09-05: `devagent attach --exec` already gives a full interactive PTY into any live worker pane via `herdr agent attach`, but only from a separate terminal — the TUI only *prints* the hint): pressing `a` on the selected worker/session card suspends the alternate screen, execs `herdr --session <session> agent attach <paneId>` with inherited stdio (keystrokes go to the worker, not the dashboard), and restores the TUI + refreshes on detach — upgrade FR-TUI-03's discovery hint into an in-TUI action; `a` is discovery→input with zero terminal juggling | M |
 
 Boundary with §20.4: the Tauri desktop app and the TUI are two renderers over the same
 FR-CTRL API — the TUI is the SSH/headless-server surface, the app is the desktop surface;
