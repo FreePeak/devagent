@@ -1204,6 +1204,20 @@ that posture.
 | FR-VIS-04 | `pilot start`-style flags on the devagent loop drivers: `--headless` (explicit opt-out for CI/servers/LaunchAgents — the old invisible behavior becomes the named mode) and `--visible` (default); `devagent.json` `spawn.visibility: "visible" \| "headless"` per project with the env override `DEVAGENT_VISIBILITY` | M |
 | FR-VIS-05 | CI/factory parity: LaunchAgent-installed roles (scout/builder/tracker/orchestrator) keep running headless by default (no terminal to attach to), but every run they dispatch still lands in an attachable pane — visibility is a property of the **worker run**, not of the loop process | S |
 
+Added 2026-09-05 (operator escalation "every agent in vision mode as DEFAULT"): the §20.8
+rollout left three headless gaps — loop research/PO phases ran as bare `omp` child
+processes, the scout dispatched through `spawnCli` directly, and the loop drivers'
+herdr-sweep closed **in-flight** worker panes (a mid-run pane reports `agent_status:
+idle` because pane liveness comes from the done-marker poll, not the agent state
+machine). FR-VIS-06..08 close them; FR-VIS-09 removes the double-driver failure mode.
+
+| ID | Requirement | Pri |
+|---|---|---|
+| FR-VIS-06 | Every agent role dispatches through the pane runtime, not just coding workers: loop research and PO selection run inside herdr panes via `devagent pane-run` (falls back to a direct child only when herdr is unreachable, exit code 3 — loud, never silent); the scout routes its worker spawn through `runWorkerCli` so discovery lands in an attachable pane too | M |
+| FR-VIS-07 | Sweep safety: `herdr-sweep` closes only panes whose cwd sits inside `.devagent-worktrees/` (automation-owned; operator scratch panes in the same session are untouchable) AND whose foreground process is not a worker CLI (`pane process-info` distinguishes a live omp/pi/claude/opencode from an idle shell) — an in-flight pane is never sweepable | M |
+| FR-VIS-08 | Loop-process visibility: loop-phase events (research/po/task) stay on the SSE stream and TUI cards (FR-VIS-02 surface), with the phase's pane discoverable via `devagent sessions`/`attach` while it runs | S |
+| FR-VIS-09 | Single-instance loop drivers: `selfbuild-loop.sh` holds a portable mkdir lock (`.selfbuild/loop.lock.d`, stale-holder recovery via pid liveness) so an orphaned ppid=1 driver and a fresh start can never race loop numbering, ledger writes, or pane sweeps | M |
+
 **TUI dashboard (FR-TUI)** — pilot's dashboard as the reference layout
 (`docs/research/pilot-probe.md` §2; BSL 1.1 — patterns only, no code):
 

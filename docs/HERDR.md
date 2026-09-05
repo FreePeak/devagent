@@ -58,6 +58,29 @@ identically to a timed-out direct spawn.
   inspect transcripts after the fact.
 - Timeout path always closes the workspace.
 
+### pane-run (FR-VIS-06)
+
+`devagent pane-run --cwd <dir> --timeout <secs> --out <file> --err <file> --done <file> -- <cmd> [args...]`
+runs one command inside a new pane of the devagent session and captures
+stdout/stderr/exit code to files (the same contract the loop driver's direct
+dispatch uses). The loop's research and PO phases dispatch through it, so
+every agent role is operator-visible by default — not just coding workers.
+Exit code 3 means the herdr pane runtime was unavailable; callers fall back
+to their own direct dispatch so visibility never becomes a hard dependency.
+
+### Sweep safety (FR-VIS-07)
+
+`devagent herdr-sweep` closes only panes that satisfy BOTH guards:
+
+1. **Automation ownership**: pane cwd sits inside `.devagent-worktrees/` —
+   operator scratch panes in the same session are never listed, let alone
+   closed.
+2. **No live dispatch**: `pane process-info` shows the foreground process; a
+   pane running `omp`/`pi`/`claude`/`opencode` is mid-run and skipped. This
+   guard exists because a busy pane can still report `agent_status: idle`
+   (the pane wrapper polls the done-marker, not the agent state machine) —
+   the 2026-09-05 in-flight-close regression.
+
 ## Tests
 
 `test/herdr.test.ts` exercises the full protocol against a functional stub CLI
