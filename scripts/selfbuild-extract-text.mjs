@@ -9,20 +9,25 @@
 // the raw stream (poison ledger row), and the PO itself timed out chewing
 // the 2.3 MB raw research file its prompt told it to read.
 //
-// Usage: selfbuild-extract-text.mjs <raw-file> <out-file> [--sentinel]
-//   --sentinel  NDJSON with no assistant text writes a small
-//               "[extract-aborted] ..." diagnostic WITHOUT the "Goal:"
-//               prefix (so the driver's ^Goal: gate rejects it) instead of
-//               passing the raw stream through. Both phases want this: a
-//               PO raw fallback poisons the ledger goal, and a research raw
-//               fallback hands the PO a multi-megabyte stream to chew
-//               through — the preventable cause of loop-90's 600s timeout.
+// Usage: selfbuild-extract-text.mjs <raw-file> <out-file>
+//
+// The no-text branch is shape-based, never flag-based:
+//   - NDJSON (first non-blank line parses with a string "type") that never
+//     emitted assistant text = the dispatch timed out or died mid-turn. Write
+//     a small "[extract-aborted] ..." diagnostic, NOT the raw blob — a raw
+//     research file re-bloats the PO (loop-90), a raw goal file poisons the
+//     ledger (loop-81/90). The diagnostic lacks the "Goal:" prefix so the
+//     driver's ^Goal: gate rejects it and records the iteration invalid.
+//   - Plain text (e.g. a `claude -p` worker): the raw output IS the result,
+//     pass it through unchanged.
+// Callers keep the raw stream under a `.ndjson`/`.raw` scratch name for
+// debugging; this helper only decides what lands in the final phase file.
 
 import { readFileSync, writeFileSync } from "node:fs";
 
-const [rawPath, outPath, ...flags] = process.argv.slice(2);
+const [rawPath, outPath] = process.argv.slice(2);
 if (!rawPath || !outPath) {
-  console.error("usage: selfbuild-extract-text.mjs <raw-file> <out-file> [--sentinel]");
+  console.error("usage: selfbuild-extract-text.mjs <raw-file> <out-file>");
   process.exit(2);
 }
 
@@ -44,17 +49,9 @@ for (const line of lines) {
 
 if (out) {
   writeFileSync(outPath, out);
-} else if (flags.includes("--sentinel")) {
-  // NDJSON with no assistant text = dispatch timed out or died mid-turn.
-  // NEVER fall back to raw: that dumped `{"type":"session",...}` into the
-  // goal file, which record() published as the ledger goal (loop-81/90
-  // poison rows). The sentinel deliberately lacks the "Goal:" prefix so
-  // the ^Goal: gate rejects it and the iteration records invalid with a
-  // readable diagnostic instead of dispatching a 7200s task on garbage.
-  // No error-marker scanning: in loop-90 the only errorMessage literals
-  // were a stale 503 quoted from a file the agent had read, not a live
-  // failure — surfacing it would misattribute the cause.
-  const evs = lines.filter((l) => l.trim()).length;
+} else {
+  // No assistant text: discriminate the two worker shapes before deciding
+  // what raw is. NDJSON (omp/pi --mode json) vs plain text (claude -p).
   const first = lines.find((l) => l.trim());
   let isNdjson = false;
   try {
@@ -64,13 +61,14 @@ if (out) {
     /* plain text */
   }
   if (isNdjson) {
+    // Aborted stream: small diagnostic, never the raw blob. No error-marker
+    // scanning — in loop-90 the only errorMessage literals were a stale 503
+    // quoted from a file the agent had read, not a live failure; surfacing it
+    // would misattribute the cause.
+    const evs = lines.filter((l) => l.trim()).length;
     writeFileSync(outPath, `[extract-aborted] no assistant text in ${evs} NDJSON events`);
   } else {
-    // Plain-text worker (e.g. claude -p): raw output IS the goal.
+    // Plain-text worker: raw output IS the result.
     writeFileSync(outPath, raw);
   }
-} else {
-  // No sentinel requested: pass raw through (plain-text worker, or a
-  // research stream kept for debugging when no final text arrived).
-  writeFileSync(outPath, raw);
 }

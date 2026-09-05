@@ -332,7 +332,12 @@ Do NOT edit any files. Output only."
       -- $RESEARCH_BIN "$RESEARCH_PROMPT" </dev/null >/dev/null 2>&1
     [ -f "$STATE/research/.loop-$N.done" ] || timeout "$RESEARCH_TIMEOUT" $RESEARCH_BIN "$RESEARCH_PROMPT" </dev/null > "$RESEARCH_RAW" || true
     rm -f "$STATE/research/.loop-$N.done" "$STATE/research/loop-$N.err"
-    node "$REPO/scripts/selfbuild-extract-text.mjs" "$RESEARCH_RAW" "$RESEARCH_OUT" --sentinel || cp "$RESEARCH_RAW" "$RESEARCH_OUT"
+    # Shape-based: NDJSON-with-no-text yields a small [extract-aborted]
+    # diagnostic, never the raw blob. No `|| cp raw` fallback — that is the
+    # only path left that could re-bloat the PO (loop-90); a missing research
+    # file is strictly better than a 3.5 MB one.
+    node "$REPO/scripts/selfbuild-extract-text.mjs" "$RESEARCH_RAW" "$RESEARCH_OUT" \
+      || printf '[extract-failed] research produced no parsable output\n' > "$RESEARCH_OUT"
     rm -f "$RESEARCH_RAW"
     fi
 
@@ -381,16 +386,15 @@ Output ONLY the goal statement (max 120 words), starting with 'Goal:' — this t
     fi
     rm -f "$STATE/goals/.loop-$N.done" goal.tmp.err
     # NDJSON event stream -> plain-text goal file (shared with research).
-    # --sentinel: no assistant text in an NDJSON stream writes a small
-    # "[extract-aborted]" diagnostic that fails the ^Goal: gate below,
-    # instead of the old `out || raw` fallback that published the session
-    # header as the ledger goal (loop-81/90 poison rows).
-    # Extract to goal.tmp, then publish. The `|| mv raw` fallback covers a
-    # helper crash (never a normal no-text run — that writes the sentinel and
-    # exits 0). Guard the whole chain so a hard failure can't trip `set -e`
-    # before the ^Goal: gate sees the file; goal.tmp is always moved out.
-    node "$REPO/scripts/selfbuild-extract-text.mjs" goal.tmp.raw goal.tmp --sentinel \
-      || mv goal.tmp.raw goal.tmp
+    # Shape-based extraction: a stream with no assistant text writes a small
+    # "[extract-aborted]" diagnostic (no "Goal:" prefix) so the ^Goal: gate
+    # below rejects it — never the raw blob, which is what published the
+    # session header as the ledger goal in loop-81/90. The `||` branch covers
+    # a helper crash (missing/unreadable raw): write a diagnostic so the
+    # publish mv still succeeds and the gate rejects, rather than tripping
+    # `set -e` and killing the whole loop. goal.tmp is always moved out.
+    node "$REPO/scripts/selfbuild-extract-text.mjs" goal.tmp.raw goal.tmp \
+      || printf '[extract-failed] PO produced no parsable output\n' > goal.tmp
     mv goal.tmp "$STATE/goals/loop-$N.md"
     rm -f goal.tmp.raw
     fi
