@@ -112,10 +112,14 @@ starved() {
       c = 0
       for (i = NR; i >= 1; i--) {
         if (lines[i] ~ /"status":"(ok|pr-open|merged|pushed)"/) break
-        # operator-degraded rows are expected operator-presence pauses (dirty
-        # PRD mid-edit, degraded provider probed OK otherwise) — not evidence
-        # of a thrashing loop; never count them toward starvation.
-        if (lines[i] ~ /"status":"operator-degraded"/) continue
+        # Degraded rows are expected pauses, not evidence of a thrashing
+        # loop — never count them toward starvation:
+        #   operator-degraded  operator absence / dirty PRD / omp wedge skip
+        #   provider-degraded  preflight found the provider down (no spend);
+        #                      2026-09-05: three circuit-outage rows tripped
+        #                      the 5-strike gate and halted the factory after
+        #                      the provider had already recovered.
+        if (lines[i] ~ /"status":"(operator-degraded|provider-degraded)"/) continue
         if (++c >= lim) break
       }
       print c
