@@ -46,3 +46,4 @@
 {"loop":85,"ts":"2026-09-05T09:20:39Z","status":"failed","goal":"Goal: Q41 (PRD §18): cross-role degradation alerting. Extend `devagent preflight` (src/resilience/preflight.ts, wired in cli.ts) so consecutive probe failures t"}
 {"loop":86,"ts":"2026-09-05T09:24:01Z","status":"provider-degraded","goal":"preflight: provider probe failed"}
 {"loop":87,"ts":"2026-09-05T09:27:21Z","status":"provider-degraded","goal":"preflight: provider probe failed"}
+{"loop":88,"ts":"2026-09-05T09:30:45Z","status":"provider-degraded","goal":"preflight: provider probe failed"}
