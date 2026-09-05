@@ -56,3 +56,4 @@
 {"loop":95,"ts":"2026-09-05T12:19:10Z","status":"operator-degraded","goal":"doc-sync deferred: PRD locally modified"}
 {"loop":96,"ts":"2026-09-05T12:21:03Z","status":"provider-degraded","goal":"doc-sync failed: fatal: Not possible to fast-forward, aborting."}
 {"loop":97,"ts":"2026-09-05T12:22:48Z","status":"provider-degraded","goal":"doc-sync failed: fatal: Not possible to fast-forward, aborting."}
+{"loop":98,"ts":"2026-09-05T15:12:30Z","status":"failed","goal":"Goal: Divergence-resilient doc-sync (PRD §17 doc-sync defect + Q41 degradation surface; loops 95-97 burned on misclassified divergence). Add `devagent sync-docs"}
