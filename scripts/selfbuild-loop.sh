@@ -406,14 +406,7 @@ Output ONLY the goal statement (max 120 words), starting with 'Goal:' — this t
             // below rejects it: the iteration is recorded invalid with this
             // readable diagnostic instead of dispatching a task on garbage.
             const evs = lines.filter((l) => l.trim()).length;
-            // omp exits 0 on provider failure and the error only survives as
-            // escaped text nested inside tool-result content (never a
-            // top-level errorMessage field), so scan the raw stream for the
-            // first error marker and name it in the diagnostic.
-            const raw = fs.readFileSync("goal.tmp.raw", "utf8");
-            const err = raw.match(/errorMessage[\\":]+([^\\"]{0,160})/);
-            const why = err ? `: ${err[1].trim()}` : "";
-            fs.writeFileSync("goal.tmp", `[po-aborted] no assistant text in ${evs} NDJSON events${why}`);
+            fs.writeFileSync("goal.tmp", `[po-aborted] no assistant text in ${evs} NDJSON events`);
           } else {
             // Plain-text worker: raw output IS the goal — pass it through.
             fs.writeFileSync("goal.tmp", fs.readFileSync("goal.tmp.raw", "utf8"));
