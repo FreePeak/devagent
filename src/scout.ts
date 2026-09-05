@@ -5,6 +5,7 @@ import { archivedBoardFailureClass } from './orchestrator/queue-bridge.js';
 import { syncWorkSelectionDocs } from './git/doc-sync.js';
 import type { DevAgentConfig } from './config.js';
 import { runWorkerCli } from './workers/herdr-runtime.js';
+import { buildAdjacentCategoryScanText } from './research/scan-text.js';
 
 export interface ScoutCycleOptions {
   repoPath: string;
@@ -117,6 +118,10 @@ export function buildScoutPrompt(repoPath: string, config: DevAgentConfig): stri
     `Queue depth: ${qCount} task(s). Recent PRDs: ${recentPrds}.`,
     lessons ? `Lessons (ratchet, do not re-derive):\n${lessons}` : '',
     `Ledger tail:\n${tail}`,
+    // GRADIENT adjacent-category scan (PRD Phase 4): canonical text from
+    // src/research/scan-text.ts so the scout surveys sensors, MCP servers, and
+    // harness tooling — not agent products alone (the sentrux funnel miss).
+    buildAdjacentCategoryScanText(),
     '',
     `Select exactly ONE backlog item for a single iteration-sized improvement that is implementable + testable in one devagent task pass.`,
     `Output STRICTLY in this format (no extra prose):`,

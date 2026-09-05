@@ -14,6 +14,7 @@ import { buildDeps, buildDryRunDeps } from './deps.js';
 import type { WorkerName } from './types.js';
 import { DEVAGENT_VERSION } from './version.js';
 import { appendReleaseRecord } from './orchestrator/ledger.js';
+import { buildAdjacentCategoryScanText } from './research/scan-text.js';
 
 function parseConcurrency(v: string): number | 'auto' {
   if (v === 'auto' || v.toLowerCase() === 'auto') return 'auto';
@@ -28,6 +29,15 @@ program
   .name('devagent')
   .description('Autonomous backend delivery agent: ticket to tested PR')
   .version(DEVAGENT_VERSION);
+
+program
+  .command('scan-text')
+  .description(
+    'Print the canonical GRADIENT adjacent-category scan text (src/research/scan-text.ts). Machine-readable: scripts/selfbuild-loop.sh embeds it in RESEARCH_PROMPT/PO_PROMPT verbatim so the prompts cannot drift from the module.',
+  )
+  .action(() => {
+    console.log(buildAdjacentCategoryScanText());
+  });
 
 program
   .command('init')
