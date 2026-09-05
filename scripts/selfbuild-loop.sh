@@ -71,6 +71,22 @@ record() { # record <loop> <status> <goal>
     "$(date -u +%FT%TZ)" "$1" "$2" "$goal_txt" >> "$EVENTS"
 }
 
+# Human-visible phase tracking (operator ask: "how can I track/jump in the
+# loop progress?"): every phase boundary appends a loop-phase row to the
+# repo orchestration stream — the same JSONL the daemon's /events SSE
+# follows (after the follower-source fix) and the TUI history renders.
+# Phases: sync → preflight → research → po → task → done. detail carries
+# the one human-readable breadcrumb (task id, gate verdict, …).
+phase() { # phase <loop> <phase> [detail]
+  local detail_txt
+  detail_txt="$(printf '%s' "${3:-}" | tr '\n\t' '  ' | tr -d '"' | cut -c1-120)"
+  EVENTS="$REPO/.devagent/runs/orchestration/events.jsonl"
+  mkdir -p "$(dirname "$EVENTS")"
+  printf '{"ts":"%s","kind":"event","event":"loop-phase","loop":%s,"phase":"%s"%s}\n' \
+    "$(date -u +%FT%TZ)" "$1" "$2" \
+    "$([ -n "$detail_txt" ] && printf ',"detail":"%s"' "$detail_txt")" >> "$EVENTS"
+}
+
 # Starvation gate: consecutive non-productive iterations across ALL runs.
 # Unlike the circuit breaker (in-process failures), this catches a loop that
 # has been thrashing for days without shipping anything (Kitchen Loop 7.2).
@@ -207,6 +223,7 @@ while :; do
     # ledger row is written and this cycle is skipped - a degraded factory
     # stays visible instead of surfacing as a bogus research/validate noop.
     if [ "$DRY_RUN" != 1 ]; then
+      phase "$N" preflight "role=selfbuild"
       if ! "${DEVAGENT[@]}" preflight --role selfbuild --repo "$REPO"; then
         echo "[preflight] provider degraded - skipping iteration $N (ledger row written)"
         record "$N" provider-degraded "preflight: provider probe failed"
@@ -255,6 +272,7 @@ while :; do
       echo "# dry-run stub" > "$STATE/research/loop-$N.md"
       echo "Goal: (dry-run) verify driver phases execute without side effects" > "$STATE/goals/loop-$N.md"
     else
+    phase "$N" research "timeout ${RESEARCH_TIMEOUT}s"
     # Local-evidence research (no web crawl): the web-search version crawled
     # 16-32 URLs per cycle and never fit the wall-clock budget — 34 consecutive
     # timeouts (2026-09-02). Everything the loop acts on is already local:
@@ -298,6 +316,7 @@ Do NOT edit any files. Output only." \
         [ "$fails" -ge "$MAX_FAILS" ] && { echo "circuit breaker: $fails consecutive failures" ; exit 1 ; }
         continue
       fi
+    phase "$N" po "timeout ${CLAUDE_TIMEOUT}s"
     timeout "$CLAUDE_TIMEOUT" $PO_BIN "You are phases 2-3 (Ideas + Validate) of the DevAgent self-build loop, iteration $N.
 Repo: $REPO. Inputs: docs/PRD.md (Phase 4 backlog), .selfbuild/research/loop-$N.md, recent ledger entries below.
 $PREV_TAIL
@@ -361,6 +380,9 @@ Output ONLY the goal statement (max 120 words), starting with 'Goal:' — this t
       # 11h45m). Outer timeout bounds the whole dispatch; env caps bound the
       # retry budget and no-progress hang detection inside it.
       TASK_ARGS=(task --prompt "$GOAL" --repo "$REPO" --worker "$WORKER")
+      # Jump-in breadcrumb: the phase-4 card in the TUI (and `devagent sessions`)
+      # points at the worker pane once this event lands on the SSE stream.
+      phase "$N" task "$(head -1 <<<"$GOAL" | cut -c1-100)"
       [ -n "${SELFBUILD_MODEL:-}" ] && TASK_ARGS+=(--model "$SELFBUILD_MODEL")
       [ "$PUSH_MODE" = pr ] && TASK_ARGS+=(--auto-pr)
       DEVAGENT_API_MAX_ATTEMPTS="${SELFBUILD_API_MAX_ATTEMPTS:-40}" \

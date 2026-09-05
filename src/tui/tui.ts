@@ -394,6 +394,18 @@ export function renderDashboard(snap: Snapshot, ropts: RenderOptions = {}): stri
   }
   lines.push('');
 
+  // Current loop progress (human jump-in cue): derive iteration + phase from
+  // the newest loop-phase row in the ledger tail; '' when none yet.
+  const phaseRows = snap.history.filter((r) => r.event === 'loop-phase');
+  const latest = phaseRows[phaseRows.length - 1] as Record<string, unknown> | undefined;
+  if (latest && typeof latest.phase === 'string') {
+    const det = typeof latest.detail === 'string' && latest.detail ? ` — ${latest.detail}` : '';
+    lines.push(
+      `${C.dim}iteration ${String(latest.loop ?? '?')} · phase: ${C.reset}${C.cyan}${latest.phase}${C.reset}${C.dim}${det}${C.reset}`,
+    );
+    lines.push('');
+  }
+
   if (ropts.showHelp) {
     lines.push(
       `${C.bold}Keys${C.reset}`,

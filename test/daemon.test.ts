@@ -409,6 +409,29 @@ describe("daemon API", () => {
     });
   });
 
+  it("events also streams the repo orchestration stream (loop-phase rows reach SSE)", async () => {
+    const orchDir = join(repo, ".devagent", "runs", "orchestration");
+    mkdirSync(orchDir, { recursive: true });
+    const orch = join(orchDir, "events.jsonl");
+    writeFileSync(orch, `${JSON.stringify({ ts: new Date().toISOString(), kind: "event", event: "loop-phase", loop: 82, phase: "research", detail: "timeout 900s" })}\n`);
+    const h = await start();
+    const got: string[] = [];
+    const req = httpRequest(
+      { host: "127.0.0.1", port: h.handle.port as number, path: "/events", headers: { Authorization: `Bearer ${h.token}` } },
+      (resp) => {
+        resp.setEncoding("utf8");
+        resp.on("data", (c: string) => got.push(c));
+      },
+    );
+    req.end();
+    await until(() => got.join("").includes("loop-phase"), 3000);
+    // live append on the orchestration stream also fans out
+    writeFileSync(orch, readFileSync(orch, "utf8") + `${JSON.stringify({ ts: new Date().toISOString(), kind: "event", event: "loop-phase", loop: 82, phase: "po" })}\n`);
+    await until(() => got.join("").includes('"phase":"po"'), 3000);
+    req.destroy();
+    expect(got.join("")).toContain('"event":"loop-phase"');
+  });
+
   it("stop() releases the port so a second daemon can bind", async () => {
     process.env.DEVAGENT_HOME = tmpHome;
     process.env.DEVAGENT_HERDR_BIN = stubBin;
