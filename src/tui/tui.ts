@@ -26,6 +26,7 @@
  */
 
 import { decodeKeys, type Key } from './input.js';
+import { suspendToShell } from './suspend.js';
 import { renderFrame } from './frame.js';
 import { daemonRequest, getJson, postJson, subscribeEvents, type EventsState } from './transport.js';
 import { formatLogLine, meterBar, parseLogLine, sparkline, visibleLen, type LogLine } from './viz.js';
@@ -459,6 +460,7 @@ function helpLines(): string[] {
     '  g / G      jump to first / last item (log: oldest / newest)',
     '  f         toggle follow-tail in the log view',
     '  Enter / o  expand the selected worker into a detail panel',
+    '  a         attach inline (FR-TUI-06): dashboard suspends, herdr owns the terminal; detach to return',
     '  u         upgrade hint (pilot-style self-update recipe)',
     '  r  refresh now',
     '  k  kill the running task via POST /approve (answer __kill__); daemon must advertise kill-via-answer',
@@ -574,7 +576,7 @@ export function renderLines(snap: Snapshot, ropts: RenderOptions = {}): string[]
   const keysHint =
     view === 'log'
       ? `${C.inverse} [1] workers [2] sessions [3] log · ↑↓ scroll · f follow · r refresh [?] help [q] quit ${C.reset}`
-      : `${C.inverse} [1] workers [2] sessions [3] log · ↑↓ select · ⏎ detail · k kill · r refresh [?] help [q] quit ${C.reset}`;
+      : `${C.inverse} [1] workers [2] sessions [3] log · ↑↓ select · ⏎ detail · a attach · k kill · r refresh [?] help [q] quit ${C.reset}`;
   const footer = [
     keysHint + (notes.length ? `  ${C.yellow}${truncate(notes.join(' · '), Math.max(20, width - 62))}${C.reset}` : ''),
   ];
@@ -784,6 +786,10 @@ async function runInteractive(opts: TuiOptions, daemonMode: 'attach' | 'embedded
   let note = 'connecting…';
   let snap: Snapshot = { ...EMPTY_SNAPSHOT, fetchedAt: Date.now() };
   let pendingInput = ''; // partial escape sequence carried across chunks
+  // Inline attach (FR-TUI-06): while a herdr agent-attach child owns the
+  // terminal, draws and key handling must stay silent — the child's own
+  // output IS the screen; a stray dashboard frame here would corrupt it.
+  let suspended = false;
 
   // Live tail (FR-TUI-03): the daemon's SSE /events stream, buffered locally.
   const logLines: LogLine[] = [];
@@ -810,6 +816,7 @@ async function runInteractive(opts: TuiOptions, daemonMode: 'attach' | 'embedded
   let prevWidth = termColumns();
 
   const draw = () => {
+    if (suspended) return; // attach child owns the terminal (FR-TUI-06)
     const width = termColumns();
     const rows = Math.max(12, termRows() - 1); // headroom: never scroll
     if (width !== prevWidth) {
@@ -908,7 +915,7 @@ async function runInteractive(opts: TuiOptions, daemonMode: 'attach' | 'embedded
     if (selection >= n) selection = Math.max(0, n - 1);
   };
 
-  const handleKey = (key: Key) => {
+  const handleKey = async (key: Key): Promise<void> => {
     if (pendingKill) {
       if (key.kind === 'char' && (key.ch === 'y' || key.ch === 'Y')) {
         const target = pendingKill;
@@ -971,6 +978,44 @@ async function runInteractive(opts: TuiOptions, daemonMode: 'attach' | 'embedded
       case 'k':
         beginKill();
         break;
+      case 'a': {
+        // Inline attach (FR-TUI-06): suspend the dashboard, hand the
+        // terminal to the selected pane's herdr attach child, restore on
+        // detach. Selection must be a pane; queued rows and the log view
+        // have nothing to attach to.
+        if (view === 'log') {
+          note = 'attach: switch to workers or sessions first';
+          break;
+        }
+        const item = viewItems(snap, view)[selection];
+        if (!item || !('paneId' in item)) {
+          note = 'attach: select a worker or session pane';
+          break;
+        }
+        suspended = true;
+        stdin.removeListener('data', onData);
+        try {
+          stdin.setRawMode(false);
+        } catch {
+          /* already non-raw */
+        }
+        stdin.pause();
+        out.write('\x1b[?1049l\x1b[?25h');
+        const code = await suspendToShell(item.paneId, item.taskId, opts.repoPath ?? process.cwd());
+        out.write('\x1b[?1049h\x1b[?25l');
+        stdin.resume();
+        try {
+          stdin.setRawMode(true);
+        } catch {
+          /* stdin gone (terminal closed while attached) */
+        }
+        stdin.on('data', onData);
+        suspended = false;
+        prevFrame = null;
+        note = code === 0 ? `detached from ${item.taskId}` : `attach exited (${code})`;
+        void poll();
+        break;
+      }
       case 'u':
         overlay = { kind: 'upgrade' };
         break;
@@ -1047,13 +1092,13 @@ async function runInteractive(opts: TuiOptions, daemonMode: 'attach' | 'embedded
     draw();
   };
 
-  const onData = (buf: Buffer) => {
+  const onData = async (buf: Buffer): Promise<void> => {
     // DEVAGENT_TUI_DEBUG=chunks surfaces raw input in the footer (pty bring-up).
     if (process.env.DEVAGENT_TUI_DEBUG) note = `in:${JSON.stringify(buf.toString('utf8')).slice(0, 40)}`;
     try {
       const { keys, pending } = decodeKeys(pendingInput + buf.toString('utf8'));
       pendingInput = pending;
-      for (const key of keys) handleKey(key);
+      for (const key of keys) await handleKey(key);
     } catch (err) {
       // A throw here is otherwise fatal in raw mode (nothing upstream can
       // catch it) — degrade to a footer note instead of a broken terminal.
