@@ -34,3 +34,4 @@
 {"loop":73,"ts":"2026-09-04T22:09:59Z","status":"failed","goal":"Validation complete. The evidence chain:  - **Pick**: Simplicity-first surface pass (§21 FR-SIMPLE) — the newest Phase 4 backlog item (PRD.md:891, linked by 469"}
 {"loop":74,"ts":"2026-09-04T22:20:16Z","status":"skipped","goal":"All verification is in. Backlog state cross-checked against code and the two just-merged PRs (#137/#138):  - **Q27 cross-board retry memory** — shipped loop 71 "}
 {"loop":75,"ts":"2026-09-04T23:47:13Z","status":"ok","goal":"Goal: Simplicity-first surface pass (§21 FR-SIMPLE, PRD Phase 4 backlog item Simplicity-first surface pass). Loop 73 picked this but died in a Node heap OOM dur"}
+{"loop":76,"ts":"2026-09-05T00:01:53Z","status":"skipped","goal":"Goal: PRD-backlog reconciliation at pick time (PRD.md:889). The CLI path exists (`task --pick` → `checkBacklogPick`/`strikeBacklogItems` in src/task.ts:285/343,"}
