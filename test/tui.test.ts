@@ -243,6 +243,16 @@ describe('renderDashboard', () => {
     expect(out).not.toContain('DAEMON UNREACHABLE');
   });
 
+  it('FR-TUI-06: footer advertises `a attach` and the help overlay documents inline attach', () => {
+    const out = renderDashboard(snap).replace(/\x1b\[[0-9;]*m/g, '');
+    expect(out).toContain('a attach');
+    const help = renderDashboard(snap, { showHelp: true }).replace(/\x1b\[[0-9;]*m/g, '');
+    expect(help).toContain('a         attach inline (FR-TUI-06)');
+    // Every documented key must survive the default terminal height (the
+    // 2026-09-05 help-clip regression): the overlay ends with the quit row.
+    expect(help).toContain('q or Ctrl+C  quit');
+  });
+
   it('aggregateStatus: live state outranks a sticky failed_recent count', () => {
     // failed_recent is taskCount().failed — never decays, so it must never
     // outrank a live run (2026-09-05 header-stale-FAILED defect).
