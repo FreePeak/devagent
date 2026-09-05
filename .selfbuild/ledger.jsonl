@@ -39,3 +39,4 @@
 {"loop":78,"ts":"2026-09-05T03:29:58Z","status":"provider-degraded","goal":"preflight: provider probe failed"}
 {"loop":79,"ts":"2026-09-05T03:34:10Z","status":"provider-degraded","goal":"preflight: provider probe failed"}
 {"loop":80,"ts":"2026-09-05T04:05:06Z","status":"provider-degraded","goal":"preflight(po): provider probe failed"}
+{"loop":81,"ts":"2026-09-05T05:26:32Z","status":"invalid","goal":"{type:session,version:3,id:01a06fff-3ca6-7499-9b3c-996233a7f499,timestamp:2026-09-05T05:16:33.318Z,cwd:/Users/linh.doan/work/harvey/freepeak/devagent} {type:adv"}
