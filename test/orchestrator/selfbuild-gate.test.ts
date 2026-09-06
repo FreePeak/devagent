@@ -216,3 +216,110 @@ describe('selfbuild-loop.sh wiring (PRD:888 thin caller)', () => {
     expect(script).toContain('if [ "$GUARD_RESOLVED" != 1 ] && already_shipped "$GOAL"; then');
   });
 });
+
+describe('evaluateStarvation extraProductive (PRD:888 sibling dialects)', () => {
+  it('a dialect status does not break the streak by default, but breaks it when passed as an extra', () => {
+    const lines = [...[1, 2, 3, 4].map((n) => row(n, 'failed', 'x')), row(5, 'judge-done', 'all criteria evidenced')];
+    expect(evaluateStarvation(lines, 5).starved).toBe(true);
+    expect(evaluateStarvation(lines, 5, ['judge-done', 'spec-refined']).starved).toBe(false);
+  });
+
+  it('extras extend the productive set without touching the degraded exemption', () => {
+    // provider-degraded rows still neither count nor break, extras or not —
+    // the outage class the sibling awk copies miscounted as starvation.
+    const lines = [
+      row(1, 'ok', 'shipped'),
+      ...[2, 3, 4].map((n) => row(n, 'provider-degraded', 'pause')),
+      ...[5, 6].map((n) => row(n, 'failed', 'x')),
+    ];
+    expect(evaluateStarvation(lines, 5, ['judge-done'])).toMatchObject({ starved: false, count: 2 });
+  });
+
+  it('extras are regex-escaped: "a.b" cannot match a row whose status is "axb"', () => {
+    const tail = [1, 2, 3, 4].map((n) => row(n, 'failed', 'x'));
+    expect(evaluateStarvation([...tail, row(5, 'axb', 'x')], 5, ['a.b']).starved).toBe(true);
+    expect(evaluateStarvation([...tail, row(5, 'a.b', 'x')], 5, ['a.b']).starved).toBe(false);
+  });
+});
+
+describe('selfbuild-gate CLI --extra-productive / --ledger (PRD:888 remainder)', () => {
+  it('--extra-productive breaks the streak on the war-room dialect; the same ledger starves without it', () => {
+    const repo = ledgerRepo([
+      ...[1, 2, 3, 4].map((n) => row(n, 'task-failed', 'x')),
+      row(5, 'judge-done', 'all criteria evidenced; suite green'),
+    ]);
+    // Without the dialect the tail row counts too: 5 strikes -> halt verdict.
+    expect(gate(repo, '--starved', '--repo', repo).status).toBe(1);
+    // With it the judge-done tail breaks the streak immediately: count 0.
+    const r = gate(repo, '--starved', '--extra-productive', 'judge-done,spec-refined', '--repo', repo);
+    expect(r.status).toBe(0);
+    expect(r.out).toContain('productive: 0 consecutive');
+  });
+
+  it('--extra-productive tolerates whitespace and empty entries', () => {
+    const repo = ledgerRepo([...[1, 2, 3, 4].map((n) => row(n, 'failed', 'x')), row(5, 'spec-refined', 'drafted')]);
+    expect(gate(repo, '--starved', '--extra-productive', ' judge-done , ,spec-refined, ', '--repo', repo).status).toBe(0);
+  });
+
+  it('--ledger overrides the default <repo>/.selfbuild/ledger.jsonl path', () => {
+    const repo = ledgerRepo([row(1, 'ok', 'recently shipped')]);
+    mkdirSync(join(repo, '.warroom'));
+    const ledgerPath = join(repo, '.warroom', 'progress.jsonl');
+    writeFileSync(ledgerPath, [1, 2, 3, 4, 5].map((n) => row(n, 'failed', 'x')).join('\n') + '\n');
+    expect(gate(repo, '--starved', '--repo', repo).status).toBe(0);
+    const r = gate(repo, '--starved', '--repo', repo, '--ledger', ledgerPath);
+    expect(r.status).toBe(1);
+    expect(r.out).toContain('starved: 5 consecutive');
+  });
+
+  it('war-room smoke: synthetic .warroom/progress.jsonl reads through --ledger + --extra-productive', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'da-gate-warroom-'));
+    dirs.push(dir);
+    mkdirSync(join(dir, '.warroom'));
+    const ledgerPath = join(dir, '.warroom', 'progress.jsonl');
+    const lines = [
+      '{"phase":"spec","ts":"2026-09-07T00:00:00Z","status":"judge-done","note":"all criteria evidenced; suite green"}',
+      ...[1, 2, 3, 4].map((n) => `{"phase":"loop","ts":"2026-09-07T00:00:0${n}Z","status":"task-failed","note":"AC-${n}"}`),
+    ];
+    writeFileSync(ledgerPath, lines.join('\n') + '\n');
+    // Without the dialect the judge-done row counts as a fifth strike -> halt verdict.
+    expect(gate(dir, '--starved', '--ledger', ledgerPath).status).toBe(1);
+    const r = gate(dir, '--starved', '--ledger', ledgerPath, '--extra-productive', 'judge-done,spec-refined');
+    expect(r.status).toBe(0);
+    expect(r.out).toContain('productive: 4 consecutive');
+  });
+});
+
+describe('sibling driver wiring (PRD:888 remainder thin callers)', () => {
+  it('build-loop.sh dispatches the CLI gate instead of its awk copy (pushed + degraded now honored)', () => {
+    const s = readFileSync(join(repoRoot, 'scripts', 'build-loop.sh'), 'utf8');
+    expect(s).toContain('selfbuild-gate --starved --limit "$STARVATION" --repo "$REPO"');
+    expect(s).toContain('[ "$rc" -eq 1 ] && [[ "$out" == *"starved:"* ]]');
+    expect(s).not.toContain('awk -v lim=');
+  });
+
+  it('orchestrator-loop.sh dispatches the CLI gate instead of its awk copy', () => {
+    const s = readFileSync(join(repoRoot, 'scripts', 'orchestrator-loop.sh'), 'utf8');
+    expect(s).toContain('selfbuild-gate --starved --limit "$STARVATION_LIMIT" --repo "$REPO"');
+    expect(s).toContain('[ "$rc" -eq 1 ] && [[ "$out" == *"starved:"* ]]');
+    expect(s).not.toContain('awk -v lim=');
+  });
+
+  it('warroom-loop.sh carries its ledger dialect through the gate flags', () => {
+    const s = readFileSync(join(repoRoot, 'scripts', 'warroom-loop.sh'), 'utf8');
+    expect(s).toContain('selfbuild-gate --starved --limit "${STARVATION_LIMIT:-5}" --extra-productive judge-done,spec-refined --ledger "$LEDGER"');
+    expect(s).toContain('[ "$rc" -eq 1 ] && [[ "$out" == *"starved:"* ]]');
+    expect(s).not.toContain('awk -v lim=');
+  });
+
+  it('intentional halts (starvation / budget expiry / max-iters) exit 0, not 1', () => {
+    const orch = readFileSync(join(repoRoot, 'scripts', 'orchestrator-loop.sh'), 'utf8');
+    const war = readFileSync(join(repoRoot, 'scripts', 'warroom-loop.sh'), 'utf8');
+    expect(readFileSync(join(repoRoot, 'scripts', 'build-loop.sh'), 'utf8')).toMatch(/halting builder"\s*\n\s*exit 0/);
+    expect(orch).toMatch(/iterations — halting"\s*\n\s*exit 0/);
+    expect(orch).toContain('{ echo "max iters reached"; exit 0; }');
+    expect(war).toMatch(/non-productive entries — halting"\s*\n\s*exit 0/);
+    expect(war).toMatch(/elapsed — halting"\s*\n\s*exit 0/);
+    expect(war).toContain('{ echo "max iterations reached"; exit 0; }');
+  });
+});

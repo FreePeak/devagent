@@ -54,28 +54,27 @@ oldest_pending() { # prints "id	title" of the oldest pending task, or nothing
   [ -n "$oldest" ] && printf '%s\t%s' "$oldest" "${oldest_title:-}"
 }
 
+# Starvation gate (PRD:888 remainder): the decision lives in
+# src/orchestrator/selfbuild-gate.ts, reached through `devagent selfbuild-gate
+# --starved` — the same thin caller as selfbuild-loop.sh. The old awk copy
+# here omitted `pushed` from the productive set (an Orca-driven push read as a
+# strike) and had no degraded exemption (a provider outage counted toward
+# starvation); the seam fixes both. rc 1 only counts with the CLI's verdict
+# word — a crashed gate must not halt the builder.
 starved() {
-  [ -f "$LEDGER" ] || return 1
-  local count
-  count=$(awk -v lim="$STARVATION" '
-    { lines[NR] = $0 }
-    END {
-      c = 0
-      for (i = NR; i >= 1; i--) {
-        if (lines[i] ~ /"status":"ok"/ || lines[i] ~ /"status":"merged"/ || lines[i] ~ /"status":"pr-open"/) break
-        if (++c >= lim) break
-      }
-      print c
-    }' "$LEDGER")
-  [ "${count:-0}" -ge "$STARVATION" ]
+  local rc=0 out
+  out="$("${DEVAGENT[@]}" selfbuild-gate --starved --limit "$STARVATION" --repo "$REPO" 2>&1)" || rc=$?
+  [ "$rc" -eq 1 ] && [[ "$out" == *"starved:"* ]]
 }
 
 echo "[builder] loop start repo=$REPO dry_run=$DRY_RUN poll=${POLL_SECS}s"
 fails=0
 while :; do
+  # Exit 0 — an intentional stop. Exit 1 + hub restart=on-failure resurrects
+  # the halt every backoff interval (2026-09-06: 58 hollow loop-106 starts).
   if starved; then
     echo "[starvation] $STARVATION consecutive non-productive iterations — halting builder"
-    exit 1
+    exit 0
   fi
 
   PENDING_LINE="$(oldest_pending || true)"

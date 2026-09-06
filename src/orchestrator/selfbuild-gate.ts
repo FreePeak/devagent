@@ -7,6 +7,17 @@ import { readFileSync } from 'node:fs';
  * (src/cli.ts), using the same exit-code contract as `backlog-check` (PRD:889):
  * 0 = continue, 1 = gate verdict (halt/skip), 2 = unresolved (caller misuse).
  *
+ * Since the PRD:888 remainder, the three sibling drivers (build-loop.sh,
+ * orchestrator-loop.sh, warroom-loop.sh) share this seam too. Their divergent
+ * awk copies had two defects this module's semantics fix:
+ *   - build-loop's productive set omitted `pushed`, so an Orca-driven push
+ *     read as a strike;
+ *   - none of the three exempted provider-degraded / operator-* rows, so a
+ *     provider outage counted toward starvation and halted the loops.
+ * warroom's ledger dialect additionally records judge-done / spec-refined as
+ * shipping events; `--extra-productive <statuses>` extends the productive set
+ * per caller instead of forking the gate again.
+ *
  * Starvation gate: consecutive non-productive iterations across ALL runs.
  * Unlike the circuit breaker (in-process failures), this catches a loop that
  * has been thrashing for days without shipping anything (Kitchen Loop 7.2).
@@ -88,16 +99,37 @@ export function goalSubjectItem(goal: string): string {
   return subject.match(/Q[0-9]+/)?.[0] ?? '';
 }
 
+/** Escape regex metacharacters in a caller-supplied status literal. */
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 /**
  * Starvation gate: walk the ledger from the tail; a productive row breaks the
  * streak, degraded rows are skipped (neither break nor count), anything else
  * increments. Starved when the count reaches `limit`.
+ *
+ * `extraProductive` carries per-driver ledger dialects onto this shared seam
+ * (warroom-loop's judge-done / spec-refined) instead of forking the gate.
+ * Extras only extend the productive set; the degraded exemption is not
+ * caller-configurable — an outage must never read as starvation for any
+ * driver.
  */
-export function evaluateStarvation(ledgerLines: string[], limit: number): StarvationVerdict {
+export function evaluateStarvation(
+  ledgerLines: string[],
+  limit: number,
+  extraProductive: readonly string[] = [],
+): StarvationVerdict {
+  const productive =
+    extraProductive.length > 0
+      ? new RegExp(
+          `"status":"(?:${PRODUCTIVE_STATUSES.join('|')}|${extraProductive.map(escapeRegExp).join('|')})"`,
+        )
+      : PRODUCTIVE_RE;
   let count = 0;
   for (let i = ledgerLines.length - 1; i >= 0; i--) {
     const line = ledgerLines[i] ?? '';
-    if (PRODUCTIVE_RE.test(line)) break;
+    if (productive.test(line)) break;
     if (DEGRADED_RE.test(line)) continue;
     if (++count >= limit) break;
   }
