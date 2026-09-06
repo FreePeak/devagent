@@ -83,9 +83,10 @@ describe('runInit (FR-SIMPLE-01 guided setup)', () => {
     expect(r.created).toBe(true);
     const cfg = JSON.parse(readFileSync(r.configPath, 'utf8')) as Record<string, unknown>;
     expect(cfg).toMatchObject({ worker: 'omp', maxLoops: 3, timeoutMinutes: 30, githubBaseBranch: 'main' });
-    // The written config must load (valid shape).
+    // The written config must load (valid shape). 'docker' is the advisory
+    // optional row (#144 R2) — present on every run, never gates ok.
     const names = r.checks.map((c) => c.name);
-    expect(names).toEqual(['git', 'worker', 'provider', 'LINEAR_API_KEY', 'GITHUB_TOKEN']);
+    expect(names).toEqual(['git', 'worker', 'provider', 'LINEAR_API_KEY', 'GITHUB_TOKEN', 'docker']);
     expect(r.checks.find((c) => c.name === 'provider')?.ok).toBe(true);
   });
 

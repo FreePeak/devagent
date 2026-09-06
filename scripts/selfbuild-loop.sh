@@ -169,11 +169,13 @@ starved() {
         # Degraded rows are expected pauses, not evidence of a thrashing
         # loop — never count them toward starvation:
         #   operator-degraded  operator absence / dirty PRD / omp wedge skip
+        #   operator-diverged  doc-sync hit a diverged history the operator
+        #                      must reconcile (conflict or diverged+dirty PRD)
         #   provider-degraded  preflight found the provider down (no spend);
         #                      2026-09-05: three circuit-outage rows tripped
         #                      the 5-strike gate and halted the factory after
         #                      the provider had already recovered.
-        if (lines[i] ~ /"status":"(operator-degraded|provider-degraded)"/) continue
+        if (lines[i] ~ /"status":"(operator-degraded|operator-diverged|provider-degraded)"/) continue
         if (++c >= lim) break
       }
       print c
@@ -273,18 +275,39 @@ while :; do
 
     # Doc freshness gate (operator PRD-freshness fix): research + PO select
     # from docs/PRD.md, so a manual PRD update must be pulled before selection
-    # or the loop keeps building the older doc version. fetch + ff-only; on a
-    # dirty PRD (operator mid-edit) or diverged branch, skip the LLM phases
-    # and record the degraded row instead of silently building stale work.
-    # A dirty-PRD refusal is the EXPECTED operator-mid-edit state, not a
-    # factory fault: it neither increments the breaker nor counts toward
-    # starvation (recorded as operator-degraded, not skipped) — 3 rapid empty
-    # iterations would otherwise circuit-break the factory (continue paths
-    # skip the tail fails=0 reset). Offline/diverged still counts as failure.
+    # or the loop keeps building the older doc version. Sync runs via
+    # `devagent sync-docs` (below); on a refusal (dirty PRD, diverged conflict)
+    # or a provider-side failure, skip the LLM phases and record the outcome
+    # row instead of silently building stale work. A dirty-PRD refusal is the
+    # EXPECTED operator-mid-edit state, not a factory fault: it neither
+    # increments the breaker nor counts toward starvation (recorded as
+    # operator-degraded, not skipped) — 3 rapid empty iterations would
+    # otherwise circuit-break the factory (continue paths skip the tail
+    # fails=0 reset). Provider-side failures (fetch/network, rc=1) still count
+    # as provider-degraded failure; a diverged history records
+    # operator-diverged with the same operator-pause semantics.
     if [ "$NO_SYNC_DOCS" != 1 ]; then
-      SYNC_OUT="$(git fetch origin main 2>&1 && git merge --ff-only origin/main 2>&1)" || {
-        echo "[sync-docs] PRD refresh failed: $SYNC_OUT"
-        if printf '%s' "$SYNC_OUT" | grep -q "locally modified\|Your local changes"; then
+      # devagent sync-docs (PRD §17 defect + Q41): fetch + merge-base + ff-or-
+      # rebase--autostash behind one CLI, classified by exit code — 0 ok,
+      # 1 generic failure (fetch/network), 2 dirty refusal (linear), 3
+      # diverged (rebase conflict, or diverged + dirty PRD). A diverged-clean
+      # sync now RECONCILES itself instead of failing the iteration (loops
+      # 95–99 burned on generic divergence misclassification). The remaining
+      # refusals are operator-state pauses, not factory faults: operator-diverged
+      # semantics — no breaker increment, no starvation count (like
+      # operator-degraded); provider-side failures (rc=1) stay provider-degraded
+      # and DO trip the circuit breaker.
+      SYNC_RC=0
+      SYNC_OUT="$("${DEVAGENT[@]}" sync-docs --repo "$REPO" 2>&1)" || SYNC_RC=$?
+      if [ "$SYNC_RC" -eq 0 ]; then
+        # Sync already up to date prints "already at origin"; a pulled/rebased
+        # sync prints its own one-liner — either way show it unless stale-noop.
+        printf '%s\n' "$SYNC_OUT" | grep -q "already at origin" || [ -z "$SYNC_OUT" ] || echo "[sync-docs] $SYNC_OUT"
+      else
+        echo "[sync-docs] PRD refresh failed (rc=$SYNC_RC): $SYNC_OUT"
+        if [ "$SYNC_RC" -eq 3 ]; then
+          record "$N" operator-diverged "doc-sync diverged: operator must reconcile (conflict or diverged+dirty PRD)"
+        elif [ "$SYNC_RC" -eq 2 ]; then
           record "$N" operator-degraded "doc-sync deferred: PRD locally modified"
         else
           record "$N" provider-degraded "doc-sync failed: $(printf '%s' "$SYNC_OUT" | tail -1 | cut -c1-120)"
@@ -293,8 +316,7 @@ while :; do
         fi
         sleep "${SELFBUILD_SYNC_RETRY_SECS:-60}"
         continue
-      }
-      printf '%s\n' "$SYNC_OUT" | grep -q "Already up to date" || echo "[sync-docs] $SYNC_OUT"
+      fi
     fi
 
     # Phase 1: Research. Feed prior failures back in so defects compound into fixes.

@@ -5,9 +5,40 @@
  * testable (test/tui-viz.test.ts).
  */
 
-/** Visible width of a string: ANSI SGR color codes do not count. */
+/**
+ * Terminal cells one code point occupies (UAX #11 East Asian Width, the range
+ * subset that matters here): CJK/kana/Hangul/fullwidth glyphs render 2 cells
+ * wide. Counting them as 1 made every width computation under-measure, so a
+ * line containing Chinese goal text rendered past its column budget, wrapped,
+ * and desynced the incremental frame diff.
+ */
+export function charCellWidth(cp: number): number {
+  if (cp > 0xffff) return 2; // astral (emoji etc.) ≈ 2 cells
+  if (
+    (cp >= 0x1100 && cp <= 0x115f) || // Hangul Jamo
+    (cp >= 0x2e80 && cp <= 0x303e) || // CJK radicals + symbols/punctuation
+    (cp >= 0x3041 && cp <= 0x33ff) || // kana + CJK compatibility
+    (cp >= 0x3400 && cp <= 0x4dbf) || // CJK extension A
+    (cp >= 0x4e00 && cp <= 0x9fff) || // CJK unified ideographs
+    (cp >= 0xa000 && cp <= 0xa4cf) || // Yi syllables
+    (cp >= 0xac00 && cp <= 0xd7a3) || // Hangul syllables
+    (cp >= 0xf900 && cp <= 0xfaff) || // CJK compatibility ideographs
+    (cp >= 0xfe30 && cp <= 0xfe4f) || // CJK compatibility forms
+    (cp >= 0xff00 && cp <= 0xff60) || // fullwidth forms
+    (cp >= 0xffe0 && cp <= 0xffe6) // fullwidth signs
+  ) {
+    return 2;
+  }
+  return 1;
+}
+
+/** Visible width of a string in terminal cells: ANSI SGR codes do not count. */
 export function visibleLen(s: string): number {
-  return s.replace(/\x1b\[[0-9;]*m/g, '').length;
+  let n = 0;
+  for (const ch of s.replace(/\x1b\[[0-9;]*m/g, '')) {
+    n += charCellWidth(ch.codePointAt(0)!);
+  }
+  return n;
 }
 
 /**
