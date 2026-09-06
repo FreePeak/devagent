@@ -448,7 +448,12 @@ export async function implementStage(
         mode: shouldRemove ? 'remove' : 'preserve',
       });
       if (fin.action === 'removed') {
-        log.info('implement', `Auto-cleanup: worktree removed${fin.committed ? ' (changes snapshotted to run branch)' : ''}: ${worktreePath}`, {});
+        const notes = [
+          fin.committed ? 'changes snapshotted to run branch' : '',
+          fin.pushed ? 'run branch pushed to origin' : '',
+        ].filter(Boolean);
+        const detail = notes.length ? ` (${notes.join(', ')})` : '';
+        log.info('implement', `Auto-cleanup: worktree removed${detail}: ${worktreePath}`, {});
       } else if (fin.error) {
         log.warn('implement', `Auto-cleanup failed, tree preserved (${fin.error}): ${worktreePath}`, {});
       } else {
