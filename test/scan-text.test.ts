@@ -48,4 +48,22 @@ describe('GRADIENT adjacent-category scan text (PRD Phase 4)', () => {
     // The hand-copy this guard exists for: the script must not embed the scan prose.
     expect(script).not.toContain('sentrux');
   });
+
+  it('is wired into the orchestrator loop driver too (GRADIENT third surface)', () => {
+    const script = readFileSync(join(repoRoot, 'scripts', 'orchestrator-loop.sh'), 'utf8');
+    // Same dispatch as the legacy driver: the existing DEVAGENT array, stderr
+    // silenced, degrade-to-empty behind a [gradient] trace — a failed capture
+    // must never kill the loop.
+    expect(script).toContain('GRADIENT_SCAN_TEXT="$("${DEVAGENT[@]}" scan-text 2>/dev/null)" || GRADIENT_SCAN_TEXT=""');
+    expect(script).toContain('[ -n "$GRADIENT_SCAN_TEXT" ] || echo "[gradient] scan-text dispatch failed');
+    // Both prompt consumers interpolate the captured variable on their own
+    // line, anchored to the evidence block each prompt ends with: phase 1
+    // (Research) after $LESSONS_CTX before the competitor sweep, phases 2-3
+    // (Ideas + Validate) after $LESSONS_CTX before the selection rule.
+    expect(script).toMatch(/\$LESSONS_CTX\n\n\$GRADIENT_SCAN_TEXT\n\nWeb-search/);
+    expect(script).toMatch(/\$LESSONS_CTX\n\$GRADIENT_SCAN_TEXT\nSelect exactly ONE backlog item/);
+    expect(script.match(/^\$GRADIENT_SCAN_TEXT$/gm)?.length).toBe(2);
+    // The hand-copy this guard exists for: the script must not embed the scan prose.
+    expect(script).not.toContain('sentrux');
+  });
 });
