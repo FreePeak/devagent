@@ -62,8 +62,9 @@ The factory can run as a **self-build team over this repo** (see
 | Builder (consume loop) | `scripts/build-loop.sh` / `consume --auto-pr --auto-merge` | PR `devagent/<id>` + `.selfbuild/ledger.jsonl` entry | `com.devagent.builder` |
 
 Coordinator wiring: `devagent create --repo <repo> --scout --tracker --builder` creates all three plists
-(`plutil -lint` clean) plus the Orca worktrees; `scripts/build-loop.sh` has its own
-circuit-breaker + starvation gate and consumes the oldest `pending` task per iteration.
+(`plutil -lint` clean) plus the Orca worktrees; `scripts/build-loop.sh` has its own circuit-breaker,
+while its starvation gate runs through the shared `devagent selfbuild-gate --starved` seam (PRD:888);
+it consumes the oldest `pending` task per iteration.
 `devagent track` snapshots queue counts + scout heartbeat age + builder ledger tail +
 recent commits + open PRs, so the tracker is shutdown-gap visible (`track` is
 read-only; its failure never blocks the other two loops).

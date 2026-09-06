@@ -54,22 +54,19 @@ deadline_s() { [ "$MAX_HOURS" -gt 0 ] && echo $(( $(date +%s) + MAX_HOURS * 3600
 DEADLINE=$(deadline_s)
 expired() { [ "$DEADLINE" -gt 0 ] && [ "$(date +%s)" -ge "$DEADLINE" ]; }
 
-# Starvation gate: halt when recent iterations ship nothing. Productive =
-# shipped or handed to review (statuses shared with the Orca-driven ledger).
+# Starvation gate (PRD:888 remainder): the decision lives in
+# src/orchestrator/selfbuild-gate.ts, reached through `devagent selfbuild-gate
+# --starved` — the same thin caller as selfbuild-loop.sh. The war-room ledger
+# dialect records judge-done / spec-refined as shipping events, so they ride
+# the gate as --extra-productive instead of a forked awk copy; --ledger points
+# the gate at .warroom/progress.jsonl. The old copy had no degraded exemption,
+# so a provider outage (provider-degraded / operator-* rows) counted toward
+# starvation. rc 1 only counts with the CLI's verdict word — a crashed gate
+# must not halt the room.
 starved() {
-  [ -f "$LEDGER" ] || return 1
-  local count
-  count=$(awk -v lim="${STARVATION_LIMIT:-5}" '
-    { lines[NR] = $0 }
-    END {
-      c = 0
-      for (i = NR; i >= 1; i--) {
-        if (lines[i] ~ /"status":"(ok|pr-open|merged|pushed|judge-done|spec-refined)"/) break
-        if (++c >= lim) break
-      }
-      print c
-    }' "$LEDGER")
-  [ "${count:-0}" -ge "${STARVATION_LIMIT:-5}" ]
+  local rc=0 out
+  out="$("${DEVAGENT[@]}" selfbuild-gate --starved --limit "${STARVATION_LIMIT:-5}" --extra-productive judge-done,spec-refined --ledger "$LEDGER" 2>&1)" || rc=$?
+  [ "$rc" -eq 1 ] && [[ "$out" == *"starved:"* ]]
 }
 
 agent_run() { # agent_run <outfile> <prompt>
@@ -167,15 +164,17 @@ while :; do
   {
     echo "=== war-room iter $N start $(now_iso) ==="
 
+    # Intentional stops exit 0: exit 1 + hub restart=on-failure resurrects
+    # the halt every backoff interval (2026-09-06: 58 hollow loop-106 starts).
     if starved; then
       echo "[starvation] ${STARVATION_LIMIT:-5} consecutive non-productive entries — halting"
-      exit 1
+      exit 0
     fi
     if expired; then
       echo "[budget] WARMROOM_MAX_HOURS=$MAX_HOURS elapsed — halting"
-      exit 1
+      exit 0
     fi
-    [ "$MAX_ITERS" -gt 0 ] && [ "$N" -gt "$MAX_ITERS" ] && { echo "max iterations reached"; exit 1; }
+    [ "$MAX_ITERS" -gt 0 ] && [ "$N" -gt "$MAX_ITERS" ] && { echo "max iterations reached"; exit 0; }
 
     # Operator preflight (Q40): skip the dispatch cycle when the provider is
     # degraded; the operator-degraded ledger row keeps the outage visible.

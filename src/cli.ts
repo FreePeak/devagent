@@ -78,11 +78,13 @@ program
 program
   .command('selfbuild-gate')
   .description(
-    'Machine-readable selfbuild starvation + Q27 re-burn gates (PRD:888): the decisions from scripts/selfbuild-loop.sh (starved(), already_shipped()) folded into src/orchestrator/selfbuild-gate.ts so they are typed and tested; the shell is a thin caller. Same exit-code contract as backlog-check: 0 = continue (not starved / goal not shipped), 1 = gate verdict (starved — halt; already shipped — skip), 2 = unresolved (neither/both gate flags given — caller misuse). A missing/unreadable ledger reads as continue, matching the shell fallback. A crashed CLI also exits 1, so callers must only honor rc 1 when the verdict word ("starved:" / "already shipped") is in the output.',
+    'Machine-readable selfbuild starvation + Q27 re-burn gates (PRD:888): the decisions from scripts/selfbuild-loop.sh (starved(), already_shipped()) folded into src/orchestrator/selfbuild-gate.ts so they are typed and tested; the shell is a thin caller — including the sibling drivers (build-loop.sh, orchestrator-loop.sh, warroom-loop.sh), which reach the same seam via --extra-productive / --ledger instead of their own awk copies. Same exit-code contract as backlog-check: 0 = continue (not starved / goal not shipped), 1 = gate verdict (starved — halt; already shipped — skip), 2 = unresolved (neither/both gate flags given — caller misuse). A missing/unreadable ledger reads as continue, matching the shell fallback. A crashed CLI also exits 1, so callers must only honor rc 1 when the verdict word ("starved:" / "already shipped") is in the output.',
   )
   .option('--repo <path>', 'target repository owning .selfbuild/ledger.jsonl', process.cwd())
+  .option('--ledger <path>', 'ledger JSONL to evaluate (default <repo>/.selfbuild/ledger.jsonl; warroom-loop points this at .warroom/progress.jsonl)')
   .option('--starved', 'starvation gate: consecutive non-productive rows since the last productive row reach --limit', false)
   .option('--limit <n>', 'starvation limit (default 5)', Number, 5)
+  .option('--extra-productive <statuses>', 'comma-separated statuses that additionally break the starvation streak (per-driver ledger dialects, e.g. judge-done,spec-refined; --starved only)', '')
   .option('--already-shipped <goal>', 'Q27 re-burn guard: a productive ledger row already carries this goal')
   .action((opts) => {
     const goal = opts.alreadyShipped as string | undefined;
@@ -91,9 +93,13 @@ program
       process.exitCode = 2;
       return;
     }
-    const lines = readLedgerLines(join(opts.repo, '.selfbuild', 'ledger.jsonl'));
+    const lines = readLedgerLines(opts.ledger ?? join(opts.repo, '.selfbuild', 'ledger.jsonl'));
     if (opts.starved) {
-      const v = evaluateStarvation(lines, opts.limit);
+      const extra = String(opts.extraProductive)
+        .split(',')
+        .map((s: string) => s.trim())
+        .filter((s: string) => s !== '');
+      const v = evaluateStarvation(lines, opts.limit, extra);
       if (v.starved) {
         console.log(`starved: ${v.count} consecutive non-productive iterations >= limit ${v.limit} — halt`);
         process.exitCode = 1;
