@@ -3,6 +3,8 @@ import { dirname, join } from 'node:path';
 import type { TicketSpec } from './types.js';
 import type { ImplementationPlan } from './planner.js';
 import { LESSONS_MAX_CHARS, LESSONS_MAX_LINES, LESSONS_PATH, lessonExcerptHash, loadLessonScores } from './lessons/guard.js';
+import { createLeanKgProvider } from './leankg.js';
+import type { KgLogger } from './leankg.js';
 
 /** Default repo-local lessons file; overridable via config `lessonsFile`. */
 export const DEFAULT_LESSONS_FILE = LESSONS_PATH;
@@ -359,8 +361,8 @@ function listKnowledgeFiles(repoPath: string): string[] {
  * the same character budget as `lessonsMaxChars` (default 4000): oldest
  * entries drop whole, never split. The KG layer is orchestrator-side only
  * (FR-CTX-04) and never blocks: an absent, throwing, or empty provider
- * degrades the digest to baseline-only. The real LeanKG client lands with
- * FR-CTX-05; this slice ships the injectable `kgProvider` seam.
+ * degrades the digest to baseline-only. The real LeanKG client
+ * (`createLeanKgProvider`, src/leankg.ts, FR-CTX-05) plugs into this seam.
  *
  * Returns the rendered section (header + kept entries) or '' when there is
  * nothing to inject, so call sites splice without conditional checks.
@@ -444,8 +446,11 @@ export function spliceCompactContext(
  * drained into the per-(loopId, taskId) trail ledger first so the prompt
  * sees the freshly ingested content. The knowledge-context digest (baseline
  * markdown, plus the KG layer when `kg` is `"leankg"`) joins the same marker
- * slot under its own header (FR-CTX-01). Exported so tests can exercise the
- * real code path without spinning up a worker subprocess.
+ * slot under its own header (FR-CTX-01). With `kg: "leankg"` and no explicit
+ * `kgProvider`, the real LeanKG client (src/leankg.ts, FR-CTX-05) is wired
+ * in: one 1s-budget call per digest build, degraded runs logged and omitted.
+ * Exported so tests can exercise the real code path without spinning up a
+ * worker subprocess.
  */
 export function buildPlannerPrompt(
   goal: string,
@@ -456,14 +461,24 @@ export function buildPlannerPrompt(
     priorTaskIds?: string[];
     kg?: KgMode;
     knowledgeMaxChars?: number;
+    /** KG provider override (tests inject a stub); default: real leankg client. */
+    kgProvider?: () => string;
+    /** Run logger for the client's degraded / provenance lines (FR-CTX-05). */
+    kgLog?: KgLogger;
   } = {},
 ): string {
   if (opts.loopId && opts.taskId) {
     ingestChildTrails({ loopId: opts.loopId, taskId: opts.taskId }, repoPath);
   }
+  const kgProvider =
+    opts.kgProvider ??
+    (opts.kg === 'leankg'
+      ? createLeanKgProvider({ repoPath, query: goal, stage: 'plan', ...(opts.kgLog ? { log: opts.kgLog } : {}) })
+      : undefined);
   const knowledge = buildKnowledgeContext(repoPath, {
     ...(opts.knowledgeMaxChars !== undefined ? { maxChars: opts.knowledgeMaxChars } : {}),
     ...(opts.kg !== undefined ? { kg: opts.kg } : {}),
+    ...(kgProvider ? { kgProvider } : {}),
   });
   return spliceCompactContext(
     `${PLANNER_SYSTEM_PROMPT}\n\n## Goal\n${goal}\n\n${COMPACT_CONTEXT_MARKER}`,

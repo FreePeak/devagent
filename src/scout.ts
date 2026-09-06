@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { enqueueTask, ensureQueueDirs, listTasks, prdsDir, queueDir } from './queue.js';
 import { archivedBoardFailureClass } from './orchestrator/queue-bridge.js';
 import { syncWorkSelectionDocs } from './git/doc-sync.js';
@@ -7,6 +7,9 @@ import type { DevAgentConfig } from './config.js';
 import { runWorkerCli } from './workers/herdr-runtime.js';
 import { buildAdjacentCategoryScanText } from './research/scan-text.js';
 import { buildKnowledgeContext, spliceCompactContext } from './prompt.js';
+import type { KgLogger } from './leankg.js';
+import { createLeanKgProvider } from './leankg.js';
+import { RunLogger } from './logger.js';
 
 export interface ScoutCycleOptions {
   repoPath: string;
@@ -101,7 +104,16 @@ function ledgerTail(repoPath: string): string {
   }
 }
 
-export function buildScoutPrompt(repoPath: string, config: DevAgentConfig): string {
+export function buildScoutPrompt(
+  repoPath: string,
+  config: DevAgentConfig,
+  opts: {
+    /** KG provider override (tests inject a stub); default: real leankg client. */
+    kgProvider?: () => string;
+    /** Run logger for the client's degraded / provenance lines (FR-CTX-05). */
+    kgLog?: KgLogger;
+  } = {},
+): string {
   const lessons = readTextIfExists(join(repoPath, '.selfbuild', 'lessons.md'), 2000);
   const tail = ledgerTail(repoPath);
   const qCount = queueCount(repoPath);
@@ -143,9 +155,23 @@ export function buildScoutPrompt(repoPath: string, config: DevAgentConfig): stri
   // Knowledge-context digest (FR-CTX-01): baseline `.devagent/context/*.md`
   // plus the opt-in KG layer, spliced through the same seam as the planner;
   // no digest content leaves the prompt byte-identical (FR-CTX-02 noop).
+  // FR-CTX-05: with `context.kg` opted in and no explicit override, the real
+  // LeanKG client runs one 1s-budget call per digest build; degraded modes
+  // omit the KG layer and surface in the run log via `kgLog`.
+  const kgProvider =
+    opts.kgProvider ??
+    (config.context?.kg === 'leankg'
+      ? createLeanKgProvider({
+          repoPath,
+          query: basename(repoPath),
+          stage: 'scout',
+          ...(opts.kgLog ? { log: opts.kgLog } : {}),
+        })
+      : undefined);
   const knowledge = buildKnowledgeContext(repoPath, {
     ...(config.lessonsMaxChars !== undefined ? { maxChars: config.lessonsMaxChars } : {}),
     ...(config.context?.kg !== undefined ? { kg: config.context.kg } : {}),
+    ...(kgProvider ? { kgProvider } : {}),
   });
   return spliceCompactContext(prompt, undefined, repoPath, { knowledge });
 }
@@ -195,7 +221,11 @@ export async function runScoutOnce(opts: ScoutCycleOptions, config: DevAgentConf
   mkdirSync(join(repoPath, '.devagent'), { recursive: true });
   ensureQueueDirs(repoPath);
 
-  const prompt = buildScoutPrompt(repoPath, config);
+  // FR-CTX-05: when the KG layer is opted in, the scout cycle gets its own
+  // run log so the client's degraded / provenance lines are queryable
+  // (FR-OPS-01); with `kg` off no logger is created and no leankg call runs.
+  const kgLog = config.context?.kg === 'leankg' ? new RunLogger() : undefined;
+  const prompt = buildScoutPrompt(repoPath, config, { ...(kgLog ? { kgLog } : {}) });
 
   // Optional queue-depth guard: skip when maxQueued reached
   const maxQueued = config.scout?.maxQueued;

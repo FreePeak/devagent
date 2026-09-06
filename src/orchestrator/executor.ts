@@ -6,6 +6,7 @@ import type { RunLogger } from '../logger.js';
 import type { ExecutorFailureClass, WorkerName } from '../types.js';
 import { createWorktree } from '../git/worktree.js';
 import { buildImplementationPrompt, buildKnowledgeContext, buildRepairPrompt, loadLessons } from '../prompt.js';
+import { createLeanKgProvider } from '../leankg.js';
 import { sanitizeTicketId } from '../git/worktree.js';
 
 /**
@@ -242,11 +243,19 @@ export async function executeTask(args: {
   const fullCfg = loadConfig(repoPath);
   // Knowledge-context digest for the in-worker repair leg (FR-CTX-01/03):
   // assembled orchestrator-side, spliced into the repair prompt only — the
-  // worker adapter receives a plain prompt string (FR-CTX-04).
+  // worker adapter receives a plain prompt string (FR-CTX-04). FR-CTX-05:
+  // with `context.kg` on the real LeanKG client runs one 1s-budget call;
+  // timeout / missing binary / non-zero exit omit the KG layer and surface
+  // the degraded mode in the run log.
   const knowledgeMaxChars = args.lessonsMaxChars ?? fullCfg.lessonsMaxChars;
+  const kgProvider =
+    fullCfg.context?.kg === 'leankg'
+      ? createLeanKgProvider({ repoPath, query: task.title, log, stage: 'task' })
+      : undefined;
   const knowledge = buildKnowledgeContext(repoPath, {
     ...(knowledgeMaxChars !== undefined ? { maxChars: knowledgeMaxChars } : {}),
     ...(fullCfg.context?.kg !== undefined ? { kg: fullCfg.context.kg } : {}),
+    ...(kgProvider ? { kgProvider } : {}),
   });
   const resilienceCfg = fullCfg.resilience;
   const noProgressTimeoutMs = resilienceCfg?.noProgressTimeoutMs ?? 10 * 60_000;
