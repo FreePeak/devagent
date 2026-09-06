@@ -133,17 +133,21 @@ program
   .option('--parked-polls <n>', 'consecutive parked cycles including this one (driver-side counter)', Number, 0)
   .option('--requeue-after <n>', 'requeue threshold in parked cycles (0 = never requeue)', Number, 6)
   .option('--poll-secs <n>', 'loop sleep quoted in wait/requeue verdict text', Number, 600)
+  .option('--max-total-attempts <n>', 'cumulative lifetime dispatch cap per task (Q17/Q36): failed/blocked tasks whose totalAttempts reaches it are refused the requeue reset and stay terminal (0 = unbounded)', Number, 0)
   .action((opts) => {
     const parkedPolls = opts.parkedPolls as number;
     const requeueAfter = opts.requeueAfter as number;
     const pollSecs = opts.pollSecs as number;
-    if (![parkedPolls, requeueAfter, pollSecs].every((n) => Number.isFinite(n) && n >= 0)) {
-      console.error('board-recovery: --parked-polls/--requeue-after/--poll-secs must be non-negative numbers');
+    const maxTotalAttempts = opts.maxTotalAttempts as number;
+    if (![parkedPolls, requeueAfter, pollSecs, maxTotalAttempts].every((n) => Number.isFinite(n) && n >= 0)) {
+      console.error(
+        'board-recovery: --parked-polls/--requeue-after/--poll-secs/--max-total-attempts must be non-negative numbers',
+      );
       process.exitCode = 2;
       return;
     }
     try {
-      const verdict = runBoardRecovery(opts.repo as string, { parkedPolls, requeueAfter, pollSecs });
+      const verdict = runBoardRecovery(opts.repo as string, { parkedPolls, requeueAfter, pollSecs, maxTotalAttempts });
       console.log(formatVerdict(verdict));
     } catch (err) {
       console.error(`board-recovery: ${(err as Error).message}`);
@@ -873,6 +877,7 @@ program
   .option('--concurrency <n>', 'parallel executor slots (number or "auto")', parseConcurrency, 2)
   .option('--max-task-retries <n>', 'scheduler retry budget per task', Number, 1)
   .option('--max-recoveries <n>', 'planner-written recovery re-contracts per task before terminal failure (0 disables)', Number, 1)
+  .option('--max-total-attempts <n>', 'cumulative lifetime dispatch cap per task across requeue rounds and recovery contracts; above it the recovery re-contract is refused and the task stays terminal (0 = unbounded)', Number, 0)
   .option('--plan-only', 'persist and print the plan (with contracts), then exit before any executor spend', false)
   .option('--max-waves <n>', 'hard cap on dispatch waves; unfinished tasks stay pending for --resume', Number)
   .option('--resume', 'continue an existing board instead of re-planning', false)
@@ -965,6 +970,7 @@ program
           ...(governor ? { governor } : {}),
           maxTaskRetries: opts.maxTaskRetries,
           maxRecoveries: opts.maxRecoveries,
+          maxTotalAttempts: opts.maxTotalAttempts,
           maxWaves: opts.maxWaves,
           timeoutMs,
           // persist after every wave so resume never re-runs done work

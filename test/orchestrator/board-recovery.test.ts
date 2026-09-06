@@ -47,7 +47,9 @@ function boardRepo(tasks: unknown[]): string {
   return repo;
 }
 
-function readBoardFile(repo: string): { tasks: Array<{ id: string; status: string; attempts: number }> } {
+function readBoardFile(repo: string): {
+  tasks: Array<{ id: string; status: string; attempts: number; totalAttempts?: number }>;
+} {
   return JSON.parse(readFileSync(join(repo, '.devagent-project.json'), 'utf8'));
 }
 
@@ -244,6 +246,70 @@ describe('runBoardRecovery on fixture boards (each decision branch)', () => {
   });
 });
 
+describe('cumulative attempt cap (Q17/Q36 — requeue refuses lifetime-exhausted tasks)', () => {
+  it('refuses the reset at/above the cap: the capped task stays failed, the board archives with the refusal', () => {
+    const repo = boardRepo([
+      t('a', 'done'),
+      { ...t('b', 'failed', 5), totalAttempts: 3 },
+      { ...t('c', 'blocked', 2), totalAttempts: 1 },
+    ]);
+    const v = runBoardRecovery(repo, { ...BASE, maxTotalAttempts: 3 });
+    expect(v.action).toBe('archive');
+    expect(v.reason).toBe(
+      'reset 1 parked task(s) to pending; 1 task(s) over cumulative attempt cap 3; board stuck (1 failed/blocked); ' +
+        'archived to .devagent/archive/board-stuck-20260907-010203.json',
+    );
+    // the archive keeps the decision shape: b refused the fresh budget (still
+    // dispatch-dead, per-round attempts intact); c reset attempts but its
+    // lifetime counter survives untouched — totalAttempts is never reset.
+    const archived = JSON.parse(
+      readFileSync(join(repo, '.devagent', 'archive', 'board-stuck-20260907-010203.json'), 'utf8'),
+    );
+    expect(
+      archived.tasks.map((x: Record<string, unknown>) => [x.id, x.status, x.attempts, x.totalAttempts]),
+    ).toEqual([
+      ['a', 'done', 2, undefined],
+      ['b', 'failed', 5, 3],
+      ['c', 'pending', 0, 1],
+    ]);
+  });
+
+  it('cap 0 keeps the legacy unbounded requeue regardless of lifetime history', () => {
+    const repo = boardRepo([t('a', 'done'), { ...t('b', 'failed', 9), totalAttempts: 99 }]);
+    const v = runBoardRecovery(repo, { ...BASE, maxTotalAttempts: 0 });
+    expect(v).toEqual({ action: 'requeue', reason: 'reset 1 parked task(s) to pending; sleeping 600s' });
+    const tasks = readBoardFile(repo).tasks;
+    expect(tasks[1]?.status).toBe('pending');
+    expect(tasks[1]?.attempts).toBe(0);
+  });
+
+  it('every dead task capped: nothing resets, the board archives stuck with the refusal count', () => {
+    const repo = boardRepo([
+      { ...t('a', 'failed', 4), totalAttempts: 4 },
+      { ...t('b', 'blocked', 9), totalAttempts: 6 },
+    ]);
+    const v = runBoardRecovery(repo, { ...BASE, maxTotalAttempts: 4 });
+    expect(v.action).toBe('archive');
+    expect(v.reason).toContain('reset 0 parked task(s) to pending');
+    expect(v.reason).toContain('2 task(s) over cumulative attempt cap 4');
+    expect(v.reason).toContain('board stuck (2 failed/blocked)');
+    const archived = JSON.parse(
+      readFileSync(join(repo, '.devagent', 'archive', 'board-stuck-20260907-010203.json'), 'utf8'),
+    );
+    expect(archived.tasks.map((x: { status: string }) => x.status)).toEqual(['failed', 'blocked']);
+  });
+
+  it('missing or non-numeric totalAttempts counts as zero lifetime history — the reset proceeds', () => {
+    const repo = boardRepo([
+      t('a', 'done'),
+      t('b', 'failed', 2),
+      { ...t('c', 'blocked', 3), totalAttempts: 'many' },
+    ]);
+    const v = runBoardRecovery(repo, { ...BASE, maxTotalAttempts: 3 });
+    expect(v).toEqual({ action: 'requeue', reason: 'reset 2 parked task(s) to pending; sleeping 600s' });
+  });
+});
+
 describe('board-recovery CLI (verdict contract: wait / requeue / archive)', () => {
   it('prints the archive verdict on a fixture board at the threshold, exit 0', () => {
     const repo = boardRepo([t('a', 'failed'), t('b', 'blocked')]);
@@ -280,8 +346,19 @@ describe('board-recovery CLI (verdict contract: wait / requeue / archive)', () =
     const repo = boardRepo([t('a', 'failed')]);
     expect(recovery(repo, '--repo', repo, '--parked-polls', '-1').status).toBe(2);
     expect(recovery(repo, '--repo', repo, '--requeue-after', 'abc').status).toBe(2);
+    expect(recovery(repo, '--repo', repo, '--max-total-attempts', '-2').status).toBe(2);
     // and the gate acted on nothing
     expect(readBoardFile(repo).tasks[0]?.status).toBe('failed');
+  });
+
+  it('CLI smoke: --max-total-attempts prints the refusal verdict instead of requeuing the exhausted task', () => {
+    const repo = boardRepo([t('a', 'done'), { ...t('b', 'failed', 5), totalAttempts: 5 }]);
+    const r = recovery(repo, '--repo', repo, '--parked-polls', '6', '--max-total-attempts', '5');
+    expect(r.status).toBe(0);
+    expect(r.out).toContain('archive: reset 0 parked task(s) to pending; 1 task(s) over cumulative attempt cap 5');
+    expect(r.out).toContain('archived to .devagent/archive/board-stuck-');
+    // the exhausted task never got a fresh budget: the board left the loop
+    expect(existsSync(join(repo, '.devagent-project.json'))).toBe(false);
   });
 });
 

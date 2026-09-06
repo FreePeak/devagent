@@ -63,6 +63,16 @@ export interface OrchestratorTask {
   dependsOn: string[];
   status: TaskStatus;
   attempts: number;
+  /**
+   * Lifetime dispatch counter across every requeue round and recovery
+   * contract (Q17/Q36): incremented beside every `attempts += 1`, never
+   * reset. Both budget-refresh sites (recovery grant, parked requeue)
+   * refuse above the configurable cumulative cap so an exhausted task
+   * cannot re-burn a fresh `maxTaskRetries` budget every round
+   * (loops 53-55 re-burn class). Optional: boards persisted before this
+   * field carry no lifetime history.
+   */
+  totalAttempts?: number;
   worktreePath?: string;
   failureDetail?: string;
   /** Latest independent audit; set once the task leaves 'untrusted' via audit */
