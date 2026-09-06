@@ -419,7 +419,8 @@ Output ONLY the goal statement (max 120 words), starting with 'Goal:' — this t
 
       # PRD:889: pick-time backlog reconciliation — supersedes the Q27 subject
       # heuristic for goals naming a Phase 4 backlog id. When the goal's SUBJECT
-      # names one (Q35, Q24, ...), `devagent backlog-check` is the authority:
+      # names one (Q35, Q24, ...) or a PRD line ref (PRD:889 — the form goals
+      # use when the bullet's trailing id collides with a struck twin),
       # checkBacklogPick (src/task.ts) cross-checks the id against merged PR
       # titles, PRD completion notes, and the struck state — strictly stronger
       # evidence than the ledger-subject match below, which only sees ledger
@@ -438,7 +439,7 @@ Output ONLY the goal statement (max 120 words), starting with 'Goal:' — this t
       # own "already shipped" verdict line is in the output; otherwise the
       # iteration falls through to the ledger guard rather than silently
       # skipping every id-naming goal.
-      BACKLOG_PICK=$(printf '%s' "${GOAL%%(*}" | cut -c1-80 | grep -oE 'Q[0-9]+' | head -1 || true)
+      BACKLOG_PICK=$(printf '%s' "${GOAL%%(*}" | cut -c1-80 | grep -oE 'PRD:[0-9]+|Q[0-9]+' | head -1 || true)
       GUARD_RESOLVED=0
       if [ -n "$BACKLOG_PICK" ]; then
         BC_RC=0
