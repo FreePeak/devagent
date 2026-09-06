@@ -5,7 +5,7 @@ import type { OrchestratorTask, ProjectBoard } from './types.js';
 import type { RunLogger } from '../logger.js';
 import type { ExecutorFailureClass, WorkerName } from '../types.js';
 import { createWorktree } from '../git/worktree.js';
-import { buildImplementationPrompt, buildRepairPrompt, loadLessons } from '../prompt.js';
+import { buildImplementationPrompt, buildKnowledgeContext, buildRepairPrompt, loadLessons } from '../prompt.js';
 import { sanitizeTicketId } from '../git/worktree.js';
 
 /**
@@ -240,6 +240,14 @@ export async function executeTask(args: {
   const maxAttempts = 2; // in-worker repair loop; scheduler owns cross-wave retries
   const { loadConfig, herdrEnabled } = await import('../config.js');
   const fullCfg = loadConfig(repoPath);
+  // Knowledge-context digest for the in-worker repair leg (FR-CTX-01/03):
+  // assembled orchestrator-side, spliced into the repair prompt only — the
+  // worker adapter receives a plain prompt string (FR-CTX-04).
+  const knowledgeMaxChars = args.lessonsMaxChars ?? fullCfg.lessonsMaxChars;
+  const knowledge = buildKnowledgeContext(repoPath, {
+    ...(knowledgeMaxChars !== undefined ? { maxChars: knowledgeMaxChars } : {}),
+    ...(fullCfg.context?.kg !== undefined ? { kg: fullCfg.context.kg } : {}),
+  });
   const resilienceCfg = fullCfg.resilience;
   const noProgressTimeoutMs = resilienceCfg?.noProgressTimeoutMs ?? 10 * 60_000;
   const apiMaxAttempts = resilienceCfg?.apiMaxAttempts;
@@ -256,7 +264,7 @@ export async function executeTask(args: {
   let infraRetries = 0;
   while (logicAttempts < maxAttempts || infraRetries < 200) {
     const spawnOpts: Record<string, unknown> = {
-      prompt: attempt === 1 ? prompt : buildRepairPrompt(plan, attempt - 1, 'previous attempt failed the test gate', lessons),
+      prompt: attempt === 1 ? prompt : buildRepairPrompt(plan, attempt - 1, 'previous attempt failed the test gate', lessons, knowledge),
       cwd: worktreePath,
       timeoutMs,
       ...(apiMaxAttempts !== undefined ? { apiMaxAttempts } : {}),

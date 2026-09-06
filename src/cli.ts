@@ -686,6 +686,7 @@ program
               autoPr: c.autoPr,
               lessonsFile: config.lessonsFile,
               lessonsMaxChars: config.lessonsMaxChars,
+              context: config.context,
               ...(model ? { model } : {}),
               ...(variant ? { variant } : {}),
               cleanup: c.cleanup,

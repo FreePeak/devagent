@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { TicketSpec } from './types.js';
 import type { ImplementationPlan } from './planner.js';
@@ -21,6 +21,14 @@ export const COMPACT_CONTEXT_MARKER = '## Prior Worker Trails';
 export const CHILD_TRAILS_MAX_CHARS = 4000;
 /** On-disk root for the per-loop trail ledger. */
 const TRAILS_ROOT = '.selfbuild/trails';
+/** Repo-relative directory of always-on knowledge-context markdown files (FR-CTX-02). */
+export const KNOWLEDGE_CONTEXT_DIR = '.devagent/context';
+/** Section header the knowledge digest renders under when spliced at the marker. */
+export const KNOWLEDGE_CONTEXT_HEADER = '## Knowledge Context';
+/** Sub-header marking the KG layer inside the digest (FR-CTX-01 layering). */
+export const KG_CONTEXT_SUBHEADER = '### Structural memory (leankg)';
+/** KG layer modes for config `context.kg` (FR-CTX-03); default `off`. */
+export type KgMode = 'leankg' | 'off';
 
 function trailFile(cwd: string, loopId: string, taskId: string): string {
   return join(cwd, TRAILS_ROOT, loopId, `${taskId}.jsonl`);
@@ -135,9 +143,21 @@ ${plan.tasks.map((task, i) => `${i + 1}. ${task}`).join('\n')}
 - When finished, ensure the test suite passes as well as you can without a live environment.${lessonsSection(lessons)}`;
 }
 
-/** Follow-up prompt for a failed attempt: carries the gate evidence back to the worker (FR-IMPL-04). */
-export function buildRepairPrompt(plan: ImplementationPlan, attempt: number, failureDetail: string, lessons?: string): string {
-  return `Your previous implementation attempt (${attempt}) did NOT pass validation.
+/**
+ * Follow-up prompt for a failed attempt: carries the gate evidence back to the
+ * worker (FR-IMPL-04). The optional `knowledge` argument is the pre-rendered
+ * knowledge-context digest (FR-CTX-01); it splices in through the same
+ * `spliceCompactContext` seam the planner uses — absent/empty digest leaves
+ * the prompt byte-identical to the pre-feature shape.
+ */
+export function buildRepairPrompt(
+  plan: ImplementationPlan,
+  attempt: number,
+  failureDetail: string,
+  lessons?: string,
+  knowledge?: string,
+): string {
+  const base = `Your previous implementation attempt (${attempt}) did NOT pass validation.
 
 ## Failure evidence
 ${failureDetail.trim() || '(no output captured)'}
@@ -153,6 +173,7 @@ ${plan.ticket.acceptanceCriteria.length
 
 Constraints unchanged: implement only the acceptance criteria and plan — no refactors
 or new modules beyond scope; repo conventions; expand-first migrations; no unrelated edits.${lessonsSection(lessons)}`;
+  return spliceCompactContext(base, undefined, '', { knowledge });
 }
 
 /**
@@ -243,6 +264,22 @@ function compactContext(
 }
 
 /**
+ * Shared ratchet (FR-CTX-01): drop the oldest entries whole until the joined
+ * block fits `maxChars`; lines are never split. Worst case is a single newest
+ * line that exceeds the cap on its own — it is surfaced whole and the rest
+ * are reported as dropped.
+ */
+function ratchetToBudget(lines: string[], maxChars: number): { kept: string[]; dropped: number } {
+  let start = 0;
+  while (start < lines.length - 1) {
+    const candidate = lines.slice(start).join('\n');
+    if (candidate.length <= maxChars) break;
+    start++;
+  }
+  return { kept: lines.slice(start), dropped: start };
+}
+
+/**
  * Build a character-bounded digest of the prior child-worker trail files
  * listed in `trailPaths`. The input files are JSONL ledgers — one record
  * per line — and the function applies the same ratchet discipline as
@@ -281,16 +318,86 @@ export async function buildChildTrailsDigest(
   // Drop oldest entries whole until the block fits the cap. Worst case is
   // that a single line exceeds the cap on its own; in that case we surface
   // that line alone and report the rest as dropped.
-  let start = 0;
-  while (start < lines.length - 1) {
-    const candidate = lines.slice(start).join('\n');
-    if (candidate.length <= maxChars) break;
-    start++;
-  }
-  const dropped = start;
-  const digest = lines.slice(start).join('\n');
-  return { digest, dropped, total };
+  const { kept, dropped } = ratchetToBudget(lines, maxChars);
+  return { digest: kept.join('\n'), dropped, total };
 }
+
+/**
+ * List the baseline knowledge-context files under `.devagent/context/`,
+ * oldest first (mtime, name tiebreak) so the shared ratchet drops the oldest
+ * entries whole and the newest knowledge survives the budget (FR-CTX-02).
+ * A missing or unreadable directory yields [] — the digest degrades to noop.
+ */
+function listKnowledgeFiles(repoPath: string): string[] {
+  const dir = join(repoPath, KNOWLEDGE_CONTEXT_DIR);
+  if (!existsSync(dir)) return [];
+  try {
+    return readdirSync(dir)
+      .filter((f) => f.endsWith('.md'))
+      .map((f) => {
+        const p = join(dir, f);
+        let mtimeMs = 0;
+        try {
+          mtimeMs = statSync(p).mtimeMs;
+        } catch {
+          /* unreadable stat: sort as oldest */
+        }
+        return { p, mtimeMs, f };
+      })
+      .sort((a, b) => a.mtimeMs - b.mtimeMs || a.f.localeCompare(b.f))
+      .map((e) => e.p);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Build the layered knowledge-context digest (FR-CTX-01/02/03): the always-on
+ * markdown baseline from `.devagent/context/*.md` plus the opt-in KG layer
+ * when `kg` is `"leankg"` and the provider yields content. The combined entry
+ * stream is ratchet-capped through the shared `ratchetToBudget` machinery at
+ * the same character budget as `lessonsMaxChars` (default 4000): oldest
+ * entries drop whole, never split. The KG layer is orchestrator-side only
+ * (FR-CTX-04) and never blocks: an absent, throwing, or empty provider
+ * degrades the digest to baseline-only. The real LeanKG client lands with
+ * FR-CTX-05; this slice ships the injectable `kgProvider` seam.
+ *
+ * Returns the rendered section (header + kept entries) or '' when there is
+ * nothing to inject, so call sites splice without conditional checks.
+ */
+export function buildKnowledgeContext(
+  repoPath: string,
+  opts: { maxChars?: number; kg?: KgMode; kgProvider?: () => string } = {},
+): string {
+  const budget = opts.maxChars ?? LESSONS_MAX_CHARS;
+  const lines: string[] = [];
+  for (const p of listKnowledgeFiles(repoPath)) {
+    let raw: string;
+    try {
+      raw = readFileSync(p, 'utf8');
+    } catch {
+      continue;
+    }
+    for (const line of raw.split('\n')) {
+      const trimmed = line.trimEnd();
+      if (trimmed) lines.push(trimmed);
+    }
+  }
+  if (opts.kg === 'leankg' && opts.kgProvider) {
+    try {
+      const kg = (opts.kgProvider() ?? '').trim();
+      if (kg) {
+        lines.push(KG_CONTEXT_SUBHEADER, ...kg.split('\n').map((l) => l.trimEnd()).filter(Boolean));
+      }
+    } catch {
+      // Unreachable provider: baseline-only digest, pipeline continues (FR-CTX-03).
+    }
+  }
+  if (lines.length === 0) return '';
+  const { kept } = ratchetToBudget(lines, budget);
+  return `${KNOWLEDGE_CONTEXT_HEADER}\n${kept.join('\n')}`;
+}
+
 
 /**
  * System prompt handed to the planner LLM. Kept as a module-local constant
@@ -307,22 +414,26 @@ Rules:
 [{"id":"T1","title":"...","prompt":"precise implementation instructions including which files/functions to touch","acceptanceCriteria":["src/x.ts exists and exports y","npm test passes"],"constraints":["do not modify src/other.ts"],"dependsOn":[]}]`;
 
 /**
- * Splice prior-worker-trail content into the marker slot of an assembled
- * prompt. The marker sits at a fixed offset on every call path so the prefix
- * above it stays cacheable across iterations. When the marker is absent the
- * section is appended at the tail — same offset convention.
+ * Splice prior-worker-trail and knowledge-context content into the marker slot
+ * of an assembled prompt. The marker sits at a fixed offset on every call path
+ * so the prefix above it stays cacheable across iterations. When the marker is
+ * absent the section is appended at the tail — same offset convention. With
+ * neither section present the prompt is returned byte-identical (noop).
+ * Exported so the scout builder reuses the same seam (FR-CTX-01).
  */
-function spliceCompactContext(
+export function spliceCompactContext(
   prompt: string,
   loopId: string | undefined,
   repoPath: string,
-  opts: { taskId?: string; priorTaskIds?: string[] },
+  opts: { taskId?: string; priorTaskIds?: string[]; knowledge?: string },
 ): string {
   const trailSection = loopId ? compactContext(loopId, repoPath, opts) : '';
+  const knowledgeSection = opts.knowledge?.trim() ?? '';
+  const section = [trailSection, knowledgeSection].filter(Boolean).join('\n\n');
   if (prompt.includes(COMPACT_CONTEXT_MARKER)) {
-    return trailSection ? prompt.replace(COMPACT_CONTEXT_MARKER, trailSection.trimEnd()) : prompt;
+    return section ? prompt.replace(COMPACT_CONTEXT_MARKER, section.trimEnd()) : prompt;
   }
-  return trailSection ? `${prompt}\n\n${trailSection.trimEnd()}` : prompt;
+  return section ? `${prompt}\n\n${section.trimEnd()}` : prompt;
 }
 
 /**
@@ -331,21 +442,33 @@ function spliceCompactContext(
  * prompt so the prefix above it stays cacheable across iterations. When
  * `loopId` and `taskId` are supplied, the loop's child-worker worklogs are
  * drained into the per-(loopId, taskId) trail ledger first so the prompt
- * sees the freshly ingested content. Exported so tests can exercise the
+ * sees the freshly ingested content. The knowledge-context digest (baseline
+ * markdown, plus the KG layer when `kg` is `"leankg"`) joins the same marker
+ * slot under its own header (FR-CTX-01). Exported so tests can exercise the
  * real code path without spinning up a worker subprocess.
  */
 export function buildPlannerPrompt(
   goal: string,
   repoPath: string,
-  opts: { loopId?: string; taskId?: string; priorTaskIds?: string[] } = {},
+  opts: {
+    loopId?: string;
+    taskId?: string;
+    priorTaskIds?: string[];
+    kg?: KgMode;
+    knowledgeMaxChars?: number;
+  } = {},
 ): string {
   if (opts.loopId && opts.taskId) {
     ingestChildTrails({ loopId: opts.loopId, taskId: opts.taskId }, repoPath);
   }
+  const knowledge = buildKnowledgeContext(repoPath, {
+    ...(opts.knowledgeMaxChars !== undefined ? { maxChars: opts.knowledgeMaxChars } : {}),
+    ...(opts.kg !== undefined ? { kg: opts.kg } : {}),
+  });
   return spliceCompactContext(
     `${PLANNER_SYSTEM_PROMPT}\n\n## Goal\n${goal}\n\n${COMPACT_CONTEXT_MARKER}`,
     opts.loopId,
     repoPath,
-    { taskId: opts.taskId, priorTaskIds: opts.priorTaskIds },
+    { taskId: opts.taskId, priorTaskIds: opts.priorTaskIds, knowledge },
   );
 }

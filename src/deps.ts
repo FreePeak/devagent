@@ -13,7 +13,7 @@ import { runMigrationStaticGate } from './validation/runner.js';
 import { evaluateReadiness } from './validation/readiness-gate.js';
 import { createWorktree, isGitRepository, finalizeRunWorktree } from './git/worktree.js';
 import { getWorker } from './workers/index.js';
-import { buildImplementationPrompt, buildRepairPrompt, loadLessons } from './prompt.js';
+import { buildImplementationPrompt, buildKnowledgeContext, buildRepairPrompt, loadLessons } from './prompt.js';
 import type { CleanupMode } from './config.js';
 import { findOrcaWorktreeByPath, dropOrcaWorkspace } from './integrations/orca.js';
 import { isNonRetryableApiError } from './sessionguard/events.js';
@@ -204,7 +204,13 @@ export function buildDeps(creds: Credentials, cfg: StageConfig, log: RunLogger):
 
 /** Dispatch a worker inside an isolated worktree with the retry loop (FR-IMPL-01..04). */
 export async function implementStage(
-  cfg: StageConfig & Pick<RunConfig, 'worker' | 'maxLoops' | 'model' | 'variant'> & { lessonsFile?: string; lessonsMaxChars?: number },
+  cfg: StageConfig &
+    Pick<RunConfig, 'worker' | 'maxLoops' | 'model' | 'variant'> & {
+      lessonsFile?: string;
+      lessonsMaxChars?: number;
+      /** Knowledge-context layer config (FR-CTX-03); `context.kg` gates the KG digest tier. */
+      context?: { kg?: 'leankg' | 'off' };
+    },
   plan: ImplementationPlan,
   log: RunLogger,
 ): Promise<ImplementResult> {
@@ -291,6 +297,12 @@ export async function implementStage(
   const workerName = cfg.worker;
   const worker = getWorker(workerName);
   const lessons = loadLessons(cfg.repoPath, cfg.lessonsFile, cfg.lessonsMaxChars);
+  // Knowledge-context digest for the repair leg (FR-CTX-01): orchestrator-side
+  // assembly only — the worker adapter still receives a plain prompt string (FR-CTX-04).
+  const knowledge = buildKnowledgeContext(cfg.repoPath, {
+    ...(cfg.lessonsMaxChars !== undefined ? { maxChars: cfg.lessonsMaxChars } : {}),
+    ...(cfg.context?.kg !== undefined ? { kg: cfg.context.kg } : {}),
+  });
   const prompt = buildImplementationPrompt(plan, lessons);
   let repairPrompt = prompt;
   const maxAttempts = Math.max(1, cfg.maxLoops);
@@ -386,7 +398,7 @@ export async function implementStage(
           await new Promise((r) => setTimeout(r, backoffDelay(infraRetries)));
           continue;
         }
-        repairPrompt = buildRepairPrompt(plan, logicAttempts + 1, result.resultText ?? `worker exited ${result.exitCode}`, lessons);
+        repairPrompt = buildRepairPrompt(plan, logicAttempts + 1, result.resultText ?? `worker exited ${result.exitCode}`, lessons, knowledge);
         lastFailureClass = 'worker-error';
         logicAttempts++;
         continue;
@@ -401,7 +413,7 @@ export async function implementStage(
         succeeded = true;
         return { ok: true, worker: workerName, attempts: displayAttempt, worktreePath };
       }
-      repairPrompt = buildRepairPrompt(plan, logicAttempts + 1, g1.detail ?? 'test suite failed', lessons);
+      repairPrompt = buildRepairPrompt(plan, logicAttempts + 1, g1.detail ?? 'test suite failed', lessons, knowledge);
       lastFailureClass = 'test-gate';
       logicAttempts++;
     }
