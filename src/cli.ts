@@ -18,7 +18,7 @@ import type { WorkerName } from './types.js';
 import { DEVAGENT_VERSION } from './version.js';
 import { appendReleaseRecord } from './orchestrator/ledger.js';
 import { checkBacklogPick, listMergedPrTitles, strikeBacklogItems } from './task.js';
-import { alreadyShipped, evaluateStarvation, readLedgerLines } from './orchestrator/selfbuild-gate.js';
+import { alreadyShipped, evaluateStarvation, productiveGoals, readLedgerLines } from './orchestrator/selfbuild-gate.js';
 import { buildAdjacentCategoryScanText } from './research/scan-text.js';
 
 function parseConcurrency(v: string): number | 'auto' {
@@ -47,10 +47,11 @@ program
 program
   .command('backlog-check')
   .description(
-    'Machine-readable PRD backlog pick check (PRD:889): cross-check a Phase 4 backlog id named by a selfbuild goal against merged PR titles + completion notes BEFORE dispatch (same rule as `task --pick`). Exit 0 = current backlog (dispatch ok), 1 = already shipped (skip the iteration), 2 = unresolved (id not in the backlog, no docs/PRD.md, or no merged-title evidence — caller falls back to its own guard). With --strike, confirmed-shipped items are struck from the Phase 4 backlog section in the same run.',
+    'Machine-readable PRD backlog pick check (PRD:889): cross-check a Phase 4 backlog ref named by a selfbuild goal — an item id (Q40) or a PRD line ref (PRD:889) — against merged PR titles + completion notes + productive ledger-row goals BEFORE dispatch (same rule as `task --pick`; the ledger goals are the fallback when merged PR titles are generic auto-cleanup snapshots, and a goal with partial-completion language — "remainder", "residual", "slice" — keeps its item open). Exit 0 = current backlog (dispatch ok), 1 = already shipped (skip the iteration), 2 = unresolved (ref not in the backlog, no docs/PRD.md, or no merged-title evidence — caller falls back to its own guard). With --strike, confirmed-shipped items are struck from the Phase 4 backlog section in the same run.',
   )
-  .argument('<pick-id>', 'backlog item id named by the goal (e.g. Q40)')
+  .argument('<pick-id>', 'backlog item id (e.g. Q40) or PRD line ref (e.g. PRD:889) named by the goal')
   .option('--repo <path>', 'target repository', process.cwd())
+  .option('--ledger <path>', 'goals-evidence JSONL (default <repo>/.selfbuild/ledger.jsonl)')
   .option('--strike', 'write confirmed-shipped items struck (~~...~~) into docs/PRD.md', false)
   .action(async (pickId: string, opts) => {
     const prdPath = join(opts.repo, 'docs', 'PRD.md');
@@ -61,7 +62,10 @@ program
     }
     const prd = readFileSync(prdPath, 'utf8');
     const mergedTitles = await listMergedPrTitles(opts.repo);
-    const check = checkBacklogPick(pickId, prd, mergedTitles);
+    const ledgerGoals = productiveGoals(
+      readLedgerLines(opts.ledger ?? join(opts.repo, '.selfbuild', 'ledger.jsonl')),
+    );
+    const check = checkBacklogPick(pickId, prd, mergedTitles, ledgerGoals);
     if (opts.strike && check.struckIds.length > 0) {
       writeFileSync(prdPath, strikeBacklogItems(prd, check.struckIds));
       console.log(`struck: ${check.struckIds.join(' ')}`);

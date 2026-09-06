@@ -175,6 +175,27 @@ export function alreadyShipped(goal: string, ledgerLines: string[]): AlreadyShip
 }
 
 /**
+ * Goal texts of productive ledger rows (statuses in PRODUCTIVE_STATUSES).
+ * backlog-check uses these as fallback shipped evidence when merged PR titles
+ * are generic (src/task.ts checkBacklogPick ledger tier). Rows that are not
+ * JSON or carry no non-empty `goal` field (release records, malformed lines)
+ * are skipped — they are not goal evidence.
+ */
+export function productiveGoals(ledgerLines: string[]): string[] {
+  const goals: string[] = [];
+  for (const raw of ledgerLines) {
+    if (!PRODUCTIVE_RE.test(raw)) continue;
+    try {
+      const row = JSON.parse(raw) as { goal?: unknown };
+      if (typeof row.goal === 'string' && row.goal.trim() !== '') goals.push(row.goal.trim());
+    } catch {
+      // unparseable row: no goal evidence
+    }
+  }
+  return goals;
+}
+
+/**
  * Read ledger lines from a JSONL file. A missing/unreadable ledger reads as
  * empty — the same fallback the shell applied (`[ -f ... ] || return 1` →
  * not starved / not shipped → continue).

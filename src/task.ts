@@ -165,6 +165,8 @@ export interface BacklogItem {
   title: string;
   /** Full markdown line, e.g. "- **Title** — description (Q40)." */
   line: string;
+  /** 1-based line number in docs/PRD.md — what a `PRD:<line>` pick ref resolves to */
+  lineNumber: number;
   /** Whether the line is already struck (wrapped in ~~) */
   struck: boolean;
 }
@@ -195,7 +197,8 @@ export function parseBacklogItems(prd: string): BacklogItem[] {
   const items: BacklogItem[] = [];
   let inSection = false;
 
-  for (const raw of lines) {
+  for (let idx = 0; idx < lines.length; idx++) {
+    const raw = lines[idx]!;
     const trimmed = raw.trimStart();
 
     // Track heading boundaries
@@ -222,6 +225,7 @@ export function parseBacklogItems(prd: string): BacklogItem[] {
       id,
       title: (titleM?.[1] ?? '').trim(),
       line: raw,
+      lineNumber: idx + 1,
       struck,
     });
   }
@@ -262,29 +266,63 @@ function normalizeTitle(s: string): string {
 }
 
 /**
- * Check a backlog pick against merged PR titles and PRD completion notes.
+ * Partial-completion markers in a ledger-row goal: the loop ships big backlog
+ * items in slices ("PRD:888 remainder — migrate the sibling drivers",
+ * "PRD:889 residual — …"), so a goal carrying one of these words proves the
+ * referenced item is being consumed in parts, not finished. While any goal
+ * referencing an item matches this, the ledger tier withholds its evidence
+ * and the item survives unreduced.
+ */
+const PARTIAL_COMPLETION_RE = /\b(remainder|residual|partial|slice|increment|follow-up)\b/i;
+
+/**
+ * Check a backlog pick against merged PR titles, PRD completion notes, and —
+ * as fallback evidence when merged PR titles are generic (auto-cleanup
+ * snapshots name nothing) — productive ledger-row goals.
  * Implements the curator title-match rule from the 2026-08-31 queue sweep
  * (docs/PRD.md:773): a pick is already shipped when its id or bold title text
- * appears in a merged PR title, or its bold title text appears in a completion
- * note. The whole current backlog is reconciled in the same pass: every
- * confirmed-shipped (non-struck) item is returned in `struckIds` so the caller
- * can strike them from the Phase 4 backlog section in the same run — the pick
- * being among them rejects it.
+ * appears in a merged PR title, its bold title text appears in a completion
+ * note, or a productive ledger goal references its PRD line without
+ * partial-completion language. The whole current backlog is reconciled in the
+ * same pass: every confirmed-shipped (non-struck) item is returned in
+ * `struckIds` so the caller can strike them from the Phase 4 backlog section
+ * in the same run — the pick being among them rejects it.
  *
  * Completion notes are title-matched only (never id-matched): notes reference
  * open items by id too (e.g. the run-21 note "Q27 ... deeper failure-class
  * carryover stays on the backlog"), so an id hit there would strike an item
  * that is still current.
  *
- * @param pickId  backlog item id, e.g. "Q40"
+ * Pick forms: an item id ("Q40") or a PRD line ref ("PRD:889") — the form a
+ * selfbuild goal uses when it names a backlog bullet by its docs/PRD.md line
+ * instead of by id. Id collisions (two bullets parsing to the same Q-token —
+ * the struck :884 and the open :889 both end in "Q27") resolve toward the
+ * unstruck item: the struck twin is shipped state, not the pick's target.
+ *
+ * @param pickId  backlog item id ("Q40") or PRD line ref ("PRD:889")
  * @param prd     full text of docs/PRD.md
  * @param mergedTitles  list of merged PR commit subjects (from git log origin/main)
+ * @param ledgerGoals  goal texts of productive ledger rows (fallback evidence)
  * @returns       check result with shipped status, message, prompt (accepted
  *                picks), and ids to strike in the same run
  */
-export function checkBacklogPick(pickId: string, prd: string, mergedTitles: string[]): BacklogPickCheck {
+export function checkBacklogPick(
+  pickId: string,
+  prd: string,
+  mergedTitles: string[],
+  ledgerGoals: string[] = [],
+): BacklogPickCheck {
   const items = parseBacklogItems(prd);
-  const pick = items.find((i) => i.id.toLowerCase() === pickId.toLowerCase());
+  const refM = /^PRD:\s*(\d+)$/i.exec(pickId.trim());
+  let pick: BacklogItem | undefined;
+  if (refM) {
+    const line = Number(refM[1]);
+    pick = items.find((i) => i.lineNumber === line);
+  } else {
+    pick =
+      items.find((i) => i.id.toLowerCase() === pickId.toLowerCase() && !i.struck) ??
+      items.find((i) => i.id.toLowerCase() === pickId.toLowerCase());
+  }
 
   if (!pick) {
     return { ok: false, shipped: false, message: `backlog item ${pickId} not found in the Phase 4 current backlog`, struckIds: [] };
@@ -308,7 +346,20 @@ export function checkBacklogPick(pickId: string, prd: string, mergedTitles: stri
       // note merely references while it stays open (see the Q27 example above).
       if (titleNorm && h.includes(titleNorm)) return raw.trim();
     }
-    return null;
+    // Ledger tier: productive-row goals as shipped evidence when merged PR
+    // titles are generic. Strict `PRD:<line>` reference only — an incidental
+    // title or id mention in a goal is how a slice row ("Consolidate
+    // stuck-board recovery … per backlog item Consolidate the loop scripts")
+    // would read as the whole item. Any referencing goal with
+    // partial-completion language suppresses the tier for the item.
+    const refRe = new RegExp(`PRD:\\s*${item.lineNumber}\\b`, 'i');
+    let shippedGoal: string | null = null;
+    for (const goal of ledgerGoals) {
+      if (!refRe.test(goal)) continue;
+      if (PARTIAL_COMPLETION_RE.test(goal)) return null; // sliced — tier withholds evidence
+      shippedGoal ??= goal.trim();
+    }
+    return shippedGoal;
   };
 
   // Reconcile the whole backlog; the picked item being confirmed-shipped rejects it.
@@ -317,7 +368,7 @@ export function checkBacklogPick(pickId: string, prd: string, mergedTitles: stri
     if (item.struck) continue;
     const evidence = evidenceFor(item);
     if (!evidence) continue;
-    if (item.id.toLowerCase() === pickId.toLowerCase()) {
+    if (item.lineNumber === pick.lineNumber) {
       return { ok: false, shipped: true, message: `${pickId} already shipped: ${evidence}`, struckIds: [...struckIds, item.id] };
     }
     struckIds.push(item.id);

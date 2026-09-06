@@ -29,7 +29,7 @@ const PRD_FIXTURE = `## 17. Roadmap
 `;
 
 /** Real repo with docs/PRD.md + squash-merged PR subjects on origin/main. */
-function fixture(opts: { subjects: string[]; withOrigin?: boolean; prd?: string }): string {
+function fixture(opts: { subjects: string[]; withOrigin?: boolean; prd?: string; ledger?: string[] }): string {
   const repo = mkdtempSync(join(tmpdir(), 'da-backlog-'));
   dirs.push(repo);
   const g = (...args: string[]) => spawnSync('git', args, { cwd: repo, encoding: 'utf8' });
@@ -43,6 +43,10 @@ function fixture(opts: { subjects: string[]; withOrigin?: boolean; prd?: string 
     writeFileSync(join(repo, 'CHANGELOG.md'), s + '\n', { flag: 'a' });
     g('add', '-A');
     g('commit', '-m', s);
+  }
+  if (opts.ledger) {
+    mkdirSync(join(repo, '.selfbuild'), { recursive: true });
+    writeFileSync(join(repo, '.selfbuild', 'ledger.jsonl'), opts.ledger.join('\n') + '\n');
   }
   if (opts.withOrigin !== false) g('update-ref', 'refs/remotes/origin/main', 'HEAD');
   return repo;
@@ -119,8 +123,9 @@ describe('selfbuild-loop.sh wiring (PRD:889)', () => {
 
   it('dispatches backlog-check with --strike on the goal subject id before phases 4-7', () => {
     // Subject extraction mirrors already_shipped: text before the first "(",
-    // capped at 80 chars, first Q-token.
-    expect(script).toContain("BACKLOG_PICK=$(printf '%s' \"${GOAL%%(*}\" | cut -c1-80 | grep -oE 'Q[0-9]+' | head -1 || true)");
+    // capped at 80 chars, first PRD:<line> ref or Q-token — goals naming a
+    // bullet by its docs/PRD.md line ("PRD:889") must fire the guard too.
+    expect(script).toContain("BACKLOG_PICK=$(printf '%s' \"${GOAL%%(*}\" | cut -c1-80 | grep -oE 'PRD:[0-9]+|Q[0-9]+' | head -1 || true)");
     expect(script).toContain('BC_ARGS=(backlog-check "$BACKLOG_PICK" --repo "$REPO")');
     // Dry-run must never write the PRD.
     expect(script).toContain('[ "$DRY_RUN" != 1 ] && BC_ARGS+=(--strike)');
@@ -139,5 +144,111 @@ describe('selfbuild-loop.sh wiring (PRD:889)', () => {
 
   it('commits a written strike locally so the next sync-docs does not refuse on a dirty PRD', () => {
     expect(script).toContain('git commit -m "self-build loop $N: strike confirmed-shipped backlog items (PRD:889 pick reconciliation)"');
+  });
+});
+
+// PRD:889 residual — goals name backlog bullets by docs/PRD.md line
+// ("PRD:889"), and when merged PR titles are generic auto-cleanup snapshots
+// the productive ledger rows are the shipped evidence. Mirrors the real
+// docs/PRD.md:884/:889 collision: the struck bullet and the open one both
+// parse to Q27 (extractItemId keys on the last [A-Z]+\d+ token, and the open
+// bullet ends "(Q27 family; …)"), so a naive id lookup resolves onto the
+// struck twin and the guard never fires.
+describe('backlog-check line refs + ledger fallback (PRD:889 residual)', () => {
+  const COLLIDE_FIXTURE = `## 17. Roadmap
+
+#### Phase 4 — current backlog (2026-09-07, collision fixture)
+
+~~- **Cross-board retry memory beyond the SHA guard** — the shipped twin (Q27).~~
+- **PRD-backlog reconciliation at pick time** — the open twin (Q27 family; trailing).
+- **Consolidate the loop scripts** — fold recovery into src/orchestrator/ (Q19).
+
+## 18. Open Questions
+`;
+  // Line 5 = struck Q27 twin, line 6 = open Q27 twin, line 7 = Q19.
+  const goalRow = (loop: number, status: string, goal: string) =>
+    JSON.stringify({ loop, ts: '2026-09-07T00:00:00Z', status, goal });
+
+  it('exit 1: a PRD:<line> pick resolves to the bullet; a productive goal naming the line is shipped evidence', () => {
+    const repo = fixture({
+      subjects: ['devagent(TASK-x): auto-cleanup snapshot (#162)'],
+      prd: COLLIDE_FIXTURE,
+      ledger: [goalRow(120, 'ok', 'Goal: PRD:6 — wire checkBacklogPick into the selfbuild driver')],
+    });
+    const r = backlogCheck(repo, 'PRD:6', '--repo', repo);
+    expect(r.status).toBe(1);
+    expect(r.out).toContain('PRD:6 already shipped');
+  });
+
+  it('--strike with ledger evidence strikes only the referenced line, not its struck-id twin', () => {
+    const repo = fixture({
+      subjects: ['chore: unrelated'],
+      prd: COLLIDE_FIXTURE,
+      ledger: [goalRow(120, 'ok', 'Goal: PRD:6 — shipped the reconciliation wiring')],
+    });
+    // Pick :7 (Q19, current) while :6 is confirmed-shipped via the ledger goal.
+    const r = backlogCheck(repo, 'PRD:7', '--repo', repo, '--strike');
+    expect(r.status).toBe(0);
+    expect(r.out).toContain('struck: Q27');
+    const prd = readFileSync(join(repo, 'docs', 'PRD.md'), 'utf8');
+    expect(prd).toContain('~~- **PRD-backlog reconciliation at pick time**');
+    expect(prd).toContain('(Q27 family; trailing).~~');
+    expect(prd).not.toContain('~~- **Consolidate the loop scripts**');
+  });
+
+  it('partial-completion guard: a "remainder" goal referencing the line keeps the item open', () => {
+    const repo = fixture({
+      subjects: ['chore: unrelated'],
+      prd: COLLIDE_FIXTURE,
+      ledger: [
+        goalRow(121, 'ok', 'Goal: PRD:7 — fold starved() out of shell into typed code'),
+        goalRow(122, 'ok', 'Goal: PRD:7 remainder — migrate the three sibling drivers'),
+      ],
+    });
+    const r = backlogCheck(repo, 'PRD:7', '--repo', repo, '--strike');
+    expect(r.status).toBe(0);
+    expect(r.out).toContain('PRD:7 is current backlog');
+    const prd = readFileSync(join(repo, 'docs', 'PRD.md'), 'utf8');
+    expect(prd).not.toContain('~~- **Consolidate the loop scripts**');
+  });
+
+  it('a failed ledger row is not shipped evidence', () => {
+    const repo = fixture({
+      subjects: ['chore: unrelated'],
+      prd: COLLIDE_FIXTURE,
+      ledger: [goalRow(120, 'failed', 'Goal: PRD:6 — attempted the wiring')],
+    });
+    const r = backlogCheck(repo, 'PRD:6', '--repo', repo);
+    expect(r.status).toBe(0);
+    expect(r.out).toContain('PRD:6 is current backlog');
+  });
+
+  it('ledger evidence is the strict PRD:<line> ref only — a goal quoting the title without the ref cannot strike', () => {
+    const repo = fixture({
+      subjects: ['chore: unrelated'],
+      prd: COLLIDE_FIXTURE,
+      ledger: [
+        goalRow(105, 'ok', 'Goal: Consolidate stuck-board recovery into typed code per backlog item Consolidate the loop scripts'),
+      ],
+    });
+    const r = backlogCheck(repo, 'PRD:7', '--repo', repo, '--strike');
+    expect(r.status).toBe(0);
+    const prd = readFileSync(join(repo, 'docs', 'PRD.md'), 'utf8');
+    expect(prd).not.toContain('~~- **Consolidate the loop scripts**');
+  });
+
+  it('id collision resolves toward the unstruck twin: pick Q27 targets the open bullet, not the struck one', () => {
+    const repo = fixture({ subjects: ['chore: unrelated'], prd: COLLIDE_FIXTURE });
+    const r = backlogCheck(repo, 'Q27', '--repo', repo);
+    // Pre-fix this read `already shipped (struck in docs/PRD.md)` off the twin.
+    expect(r.status).toBe(0);
+    expect(r.out).toContain('Q27 is current backlog');
+  });
+
+  it('exit 2: a PRD:<line> ref pointing outside the backlog section is unresolved', () => {
+    const repo = fixture({ subjects: ['chore: unrelated'], prd: COLLIDE_FIXTURE });
+    const r = backlogCheck(repo, 'PRD:1', '--repo', repo);
+    expect(r.status).toBe(2);
+    expect(r.out).toContain('not found');
   });
 });
