@@ -18,6 +18,7 @@ import type { WorkerName } from './types.js';
 import { DEVAGENT_VERSION } from './version.js';
 import { appendReleaseRecord } from './orchestrator/ledger.js';
 import { checkBacklogPick, listMergedPrTitles, strikeBacklogItems } from './task.js';
+import { alreadyShipped, evaluateStarvation, readLedgerLines } from './orchestrator/selfbuild-gate.js';
 import { buildAdjacentCategoryScanText } from './research/scan-text.js';
 
 function parseConcurrency(v: string): number | 'auto' {
@@ -72,6 +73,44 @@ program
     // current. Exit 2 tells the driver to fall back to the ledger heuristic.
     if (check.ok && mergedTitles.length === 0) process.exitCode = 2;
     else process.exitCode = check.ok ? 0 : check.shipped ? 1 : 2;
+  });
+
+program
+  .command('selfbuild-gate')
+  .description(
+    'Machine-readable selfbuild starvation + Q27 re-burn gates (PRD:888): the decisions from scripts/selfbuild-loop.sh (starved(), already_shipped()) folded into src/orchestrator/selfbuild-gate.ts so they are typed and tested; the shell is a thin caller. Same exit-code contract as backlog-check: 0 = continue (not starved / goal not shipped), 1 = gate verdict (starved — halt; already shipped — skip), 2 = unresolved (neither/both gate flags given — caller misuse). A missing/unreadable ledger reads as continue, matching the shell fallback. A crashed CLI also exits 1, so callers must only honor rc 1 when the verdict word ("starved:" / "already shipped") is in the output.',
+  )
+  .option('--repo <path>', 'target repository owning .selfbuild/ledger.jsonl', process.cwd())
+  .option('--starved', 'starvation gate: consecutive non-productive rows since the last productive row reach --limit', false)
+  .option('--limit <n>', 'starvation limit (default 5)', Number, 5)
+  .option('--already-shipped <goal>', 'Q27 re-burn guard: a productive ledger row already carries this goal')
+  .action((opts) => {
+    const goal = opts.alreadyShipped as string | undefined;
+    if (Boolean(opts.starved) === (goal !== undefined)) {
+      console.error('selfbuild-gate: pass exactly one of --starved or --already-shipped <goal>');
+      process.exitCode = 2;
+      return;
+    }
+    const lines = readLedgerLines(join(opts.repo, '.selfbuild', 'ledger.jsonl'));
+    if (opts.starved) {
+      const v = evaluateStarvation(lines, opts.limit);
+      if (v.starved) {
+        console.log(`starved: ${v.count} consecutive non-productive iterations >= limit ${v.limit} — halt`);
+        process.exitCode = 1;
+      } else {
+        console.log(`productive: ${v.count} consecutive non-productive iterations < limit ${v.limit} — continue`);
+        process.exitCode = 0;
+      }
+      return;
+    }
+    const v = alreadyShipped(goal as string, lines);
+    if (v.shipped) {
+      console.log(`already shipped (${v.reason} match on a productive ledger row) — skip`);
+      process.exitCode = 1;
+    } else {
+      console.log('not shipped — dispatch ok');
+      process.exitCode = 0;
+    }
   });
 
 program

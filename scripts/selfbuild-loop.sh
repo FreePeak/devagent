@@ -125,77 +125,27 @@ phase() { # phase <loop> <phase> [detail]
     "$([ -n "$detail_txt" ] && printf ',"detail":"%s"' "$detail_txt")" >> "$EVENTS"
 }
 
-# Starvation gate: consecutive non-productive iterations across ALL runs.
-# Unlike the circuit breaker (in-process failures), this catches a loop that
-# has been thrashing for days without shipping anything (Kitchen Loop 7.2).
-# Productive = shipped or handed to review; the ledger's richer statuses
-# ("pr-open", "merged", "pushed" — written by the Orca-driven runs) all count,
-# otherwise a healthy streak reads as starvation and halts the loop.
-# Q27 re-burn guard: a goal is "already handled" when any ledger entry with
-# a productive status (ok|pr-open|merged|pushed) carries the same goal text
-# (normalized: quotes stripped, whitespace collapsed). Phase 2-3 selection can
-# otherwise re-pick a goal whose PR already merged — loops 53-55/57/58 and the
-# 2026-09-01 Q35 re-burn (shipped as #100, then re-selected because the driver
-# restart lost the record) each burned attempts on an already-planned goal.
-# Since PRD:889 this is the fallback guard: goals naming a Phase 4 backlog id
-# are first resolved by the pick-time `devagent backlog-check` (see the guard
-# before phases 4-7), which supersedes this heuristic when it resolves.
+# Starvation gate + Q27 re-burn guard (PRD:888): the decision logic lives in
+# src/orchestrator/selfbuild-gate.ts (typed + tested), reached through
+# `devagent selfbuild-gate`. Exit-code contract is backlog-check's (PRD:889):
+# 0 = continue, 1 = gate verdict. A crashed CLI also exits 1, so rc 1 only
+# counts when the CLI's own verdict word is in the output — the same guard as
+# the backlog-check wiring below. A missing ledger reads as continue (not
+# starved / not shipped), matching the old `[ -f ... ] || return 1` fallback.
+# The preserved classes — productive break on ok|pr-open|merged|pushed,
+# exemption of operator-degraded|operator-diverged|provider-degraded, and
+# subject-id matching with the loop-100 "+ Q41" false-positive guard — are
+# documented in the module header.
 already_shipped() { # already_shipped <goal-text>
-  [ -f "$STATE/ledger.jsonl" ] || return 1
-  # Match on the PRD backlog item id (Q35, Q24, ...) when the goal's SUBJECT
-  # names one. The id is stable but goal text is rewritten between selection
-  # and record, and an ok row may only MENTION an id in passing: loop-100's
-  # doc-sync goal reads "+ Q41 degradation surface", yet Q41 — the open
-  # no-notification-surface gap (PRD :937) — is still unshipped. A whole-row
-  # id match made loop-109's "Goal: Q41 ..." skip as already-shipped (false
-  # positive that contributed to the 2026-09-06 starvation halt). So the id
-  # must sit in the SUBJECT of BOTH the candidate and the ok row: take the
-  # goal text up to the first "(" (or 90 chars) and require the id there. The
-  # real re-burn class still matches (loop-58/71 re-picked Q27/Q35 with the
-  # id in the subject). Keep the first-60-char goal-prefix fallback too.
-  want=$(printf '%s' "$1" | tr -d '"' | tr -s '[:space:]' ' ')
-  local subject item
-  subject=$(printf '%s' "${want%%(*}" | cut -c1-80)
-  item=$(printf '%s' "$subject" | grep -oE 'Q[0-9]+' | head -1 || true)
-  awk -v want="$want" -v item="${item:-}" '
-    /"status":"(ok|pr-open|merged|pushed)"/ {
-      gsub(/"/, "", $0)
-      gsub(/[[:space:]]+/, " ", $0)
-      key = substr(want, 1, 60)
-      if (index($0, key) > 0) { found = 1; next }
-      gsub(/.*goal:/, "", $0)            # isolate the goal field value
-      head = substr($0, 1, 90)
-      sub(/\(.*/, "", head)             # subject before first paren
-      if (item != "" && index(head, item) > 0) found = 1
-    }
-    END { exit found ? 0 : 1 }
-  ' "$STATE/ledger.jsonl"
+  local rc=0 out
+  out="$("${DEVAGENT[@]}" selfbuild-gate --already-shipped "$1" --repo "$REPO" 2>&1)" || rc=$?
+  [ "$rc" -eq 1 ] && [[ "$out" == *"already shipped"* ]]
 }
 
 starved() {
-  [ -f "$STATE/ledger.jsonl" ] || return 1
-  local count
-  count=$(awk -v lim="$STARVATION_LIMIT" '
-    { lines[NR] = $0 }
-    END {
-      c = 0
-      for (i = NR; i >= 1; i--) {
-        if (lines[i] ~ /"status":"(ok|pr-open|merged|pushed)"/) break
-        # Degraded rows are expected pauses, not evidence of a thrashing
-        # loop — never count them toward starvation:
-        #   operator-degraded  operator absence / dirty PRD / omp wedge skip
-        #   operator-diverged  doc-sync hit a diverged history the operator
-        #                      must reconcile (conflict or diverged+dirty PRD)
-        #   provider-degraded  preflight found the provider down (no spend);
-        #                      2026-09-05: three circuit-outage rows tripped
-        #                      the 5-strike gate and halted the factory after
-        #                      the provider had already recovered.
-        if (lines[i] ~ /"status":"(operator-degraded|operator-diverged|provider-degraded)"/) continue
-        if (++c >= lim) break
-      }
-      print c
-    }' "$STATE/ledger.jsonl")
-  [ "${count:-0}" -ge "$STARVATION_LIMIT" ]
+  local rc=0 out
+  out="$("${DEVAGENT[@]}" selfbuild-gate --starved --limit "$STARVATION_LIMIT" --repo "$REPO" 2>&1)" || rc=$?
+  [ "$rc" -eq 1 ] && [[ "$out" == *"starved:"* ]]
 }
 
 # Deferred cleanup of auto-pr leftovers. `devagent task --auto-pr` pushes the
