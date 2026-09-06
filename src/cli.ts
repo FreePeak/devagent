@@ -11,6 +11,7 @@ import { buildStatusView, renderStatusCard, statusJson } from './commands/status
 import { buildProbeArgvFor } from './commands/probe-argv.js';
 import { runSyncDocs } from './commands/sync-docs.js';
 import { runPreflightGate, PREFLIGHT_ROLES, isPreflightRole } from './resilience/preflight.js';
+import { DEGRADE_STREAK_THRESHOLD, readDegradationStreak } from './resilience/degradation.js';
 import { runPipeline } from './pipeline.js';
 import { buildDeps, buildDryRunDeps } from './deps.js';
 import type { WorkerName } from './types.js';
@@ -441,6 +442,7 @@ program
   .option('--limit <n>', 'number of runs', Number, 10)
   .option('--repo <path>', 'target repository', process.cwd())
   .option('--providers', 'report proxy-probe result, last transient class, circuit state, and the dispatch model-id preflight verdict for the repo config (Q32)', false)
+  .option('--degrade-threshold <n>', 'consecutive degraded ledger rows that print the provider-outage breach line under --providers (Q41)', Number, DEGRADE_STREAK_THRESHOLD)
   .option('--json', 'emit the phase view as JSON (machine format)', false)
   .action(async (opts) => {
     if (opts.json) {
@@ -464,6 +466,16 @@ program
           : 'transient: none recorded';
         console.log(`  ${transientLine}`);
         console.log(`  circuit: ${state.circuit} (since ${state.circuitChangedAt ?? state.updatedAt})`);
+      }
+      // Consecutive cross-role provider degradation (Q41): degraded rows are
+      // starvation-gate-exempt (scripts/selfbuild-loop.sh:190), so a sustained
+      // outage is invisible on every human surface unless aggregated here.
+      // Breach line at >= --degrade-threshold trailing degraded rows.
+      const streak = readDegradationStreak(repoPath, opts.degradeThreshold as number);
+      if (streak.breach) {
+        const window = streak.windowMs !== null ? ` in ${Math.round(streak.windowMs / 1000)}s` : '';
+        const roles = streak.roles.length ? ` across roles: ${streak.roles.join(', ')}` : '';
+        console.log(`degradation: ${streak.count} consecutive degraded rows${window}${roles} — provider outage (threshold ${streak.threshold})`);
       }
       // Dispatch model-id preflight verdict (PRD Phase 4 Q32): the same gate
       // executor.ts/deps.ts run before any worker spend, surfaced here so a
