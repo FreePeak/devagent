@@ -334,6 +334,7 @@ function finalize(run: SpawnCliResult, sessionId: string | null, start: number):
       durationMs: Date.now() - start,
       timedOut: true,
       errorText: run.stderr.trim() || undefined,
+      ...(run.coldStart ? { coldStart: true } : {}),
       ...cost,
     };
   }
@@ -419,10 +420,12 @@ export class GrokAdapter implements WorkerAdapter {
         ...(spawnEnv ? { env: spawnEnv } : {}),
         noProgressTimeoutMs,
         ...(opts.watchdogLedger ? { watchdogLedger: opts.watchdogLedger } : {}),
+        ...(opts.coldStartTimeoutMs ? { coldStartTimeoutMs: opts.coldStartTimeoutMs } : {}),
       });
       last = await runWorkerCli(prepared.cmd, prepared.args, {
         ...prepared.opts,
         noProgressTimeoutMs,
+        ...(opts.coldStartTimeoutMs ? { coldStartTimeoutMs: opts.coldStartTimeoutMs } : {}),
         ...(opts.herdr ? { herdr: true } : {}),
       });
 

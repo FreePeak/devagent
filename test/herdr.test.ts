@@ -216,6 +216,60 @@ describe('herdr integration', () => {
     }
   }, 30_000);
 
+  // Q31: cold-start (first-progress) deadline at the herdr-pane site. Real
+  // timers stay (documented exception): the deadline polls Date.now()
+  // against a pane process whose output timing fake timers cannot advance.
+  it('cold-start deadline kills a silent pane and records coldStartFired (Q31)', async () => {
+    process.env.DEVAGENT_HERDR_BIN = stubBin;
+    process.env.STUB_LOG = stubLog;
+    const repo = mkdtempSync(join(tmpdir(), 'cs-herdr-fire-'));
+    try {
+      const r = await runCommandInHerdrPane('sleep', ['30'], {
+        cwd: stubDir,
+        timeoutMs: 30_000,
+        noProgressTimeoutMs: 30_000,
+        coldStartTimeoutMs: 600,
+        watchdogLedger: { repoPath: repo, taskId: 'Q31-1', attempt: 1, worker: 'omp' },
+      });
+      expect(r!.timedOut).toBe(true);
+      expect(r!.coldStart).toBe(true);
+      const row = JSON.parse(readFileSync(join(repo, '.devagent/runs/orchestration/events.jsonl'), 'utf8').trim()) as Record<string, unknown>;
+      expect(row).toMatchObject({
+        event: 'watchdog-health',
+        site: 'herdr-pane',
+        coldStartFired: true,
+        watchdogFired: false,
+        clockResets: 0,
+      });
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it('first progress disarms the cold-start clock; later silence trips the no-progress watchdog (Q31)', async () => {
+    process.env.DEVAGENT_HERDR_BIN = stubBin;
+    process.env.STUB_LOG = stubLog;
+    const repo = mkdtempSync(join(tmpdir(), 'cs-herdr-disarm-'));
+    try {
+      // Emits one adapter-classified progress line immediately, then goes
+      // silent. Budgets leave room for pane startup: the cold-start deadline
+      // must be disarmed by the first sample that sees the line.
+      const r = await runCommandInHerdrPane('sh', ['-c', `echo '{"type":"tool_execution_start"}'; sleep 30`], {
+        cwd: stubDir,
+        timeoutMs: 30_000,
+        noProgressTimeoutMs: 2_500,
+        coldStartTimeoutMs: 2_000,
+        watchdogLedger: { repoPath: repo, taskId: 'Q31-2', attempt: 1, worker: 'omp' },
+      });
+      expect(r!.timedOut).toBe(true);
+      expect(r!.coldStart).toBeUndefined();
+      const row = JSON.parse(readFileSync(join(repo, '.devagent/runs/orchestration/events.jsonl'), 'utf8').trim()) as Record<string, unknown>;
+      expect(row).toMatchObject({ coldStartFired: false, watchdogFired: true, clockResets: 1 });
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  }, 30_000);
+
   it('never writes a herdr-pane row without ledger context or with the clock disabled', async () => {
     process.env.DEVAGENT_HERDR_BIN = stubBin;
     process.env.STUB_LOG = stubLog;

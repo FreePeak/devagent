@@ -99,6 +99,14 @@ export interface WorkerSpawnOptions {
    */
   noProgressTimeoutMs?: number;
   /**
+   * Q31: first-progress deadline (cold-start budget). Kill the launch when no
+   * adapter-classified progress line (src/workers/progress.ts) arrives within
+   * this long of spawn start — bounds omp-class plugin/MCP init stalls that
+   * startup chatter otherwise resets the silence clock over. 0 disables.
+   * Env `DEVAGENT_COLD_START_TIMEOUT_MS`; dispatchers default to 90s.
+   */
+  coldStartTimeoutMs?: number;
+  /**
    * Run this worker launch inside a herdr pane (persistent terminal runtime)
    * instead of a direct child process. Set by the executor from config
    * `herdr.enabled`; see src/integrations/herdr.ts.
@@ -136,6 +144,12 @@ export interface WorkerResult {
    * burning the full retry budget on a dead endpoint.
    */
   noProgress?: boolean;
+  /**
+   * Q31: true when the launch was killed by the cold-start (first-progress)
+   * deadline — no adapter-classified progress line arrived within
+   * coldStartTimeoutMs. Classified transient alongside `noProgress`.
+   */
+  coldStart?: boolean;
   /**
    * FR-GROK-03: xAI `usage.cost_in_usd_ticks` recorded verbatim for this run —
    * an exact integer tick count, never rounded or converted to a currency

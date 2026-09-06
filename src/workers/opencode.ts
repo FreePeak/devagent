@@ -78,10 +78,12 @@ export class OpenCodeAdapter implements WorkerAdapter {
         ...(opts.env ? { env: opts.env } : {}),
         ...(noProgressTimeoutMs ? { noProgressTimeoutMs } : {}),
         ...(opts.watchdogLedger ? { watchdogLedger: opts.watchdogLedger } : {}),
+        ...(opts.coldStartTimeoutMs ? { coldStartTimeoutMs: opts.coldStartTimeoutMs } : {}),
       });
       let raw = await runWorkerCli(prepared.cmd, prepared.args, {
         ...prepared.opts,
         ...(noProgressTimeoutMs ? { noProgressTimeoutMs } : {}),
+        ...(opts.coldStartTimeoutMs ? { coldStartTimeoutMs: opts.coldStartTimeoutMs } : {}),
         ...(opts.herdr ? { herdr: true } : {}),
       });
       // Binary fallback: if `opencode` is not installed, try `opencode2` once.
@@ -94,10 +96,12 @@ export class OpenCodeAdapter implements WorkerAdapter {
           ...(opts.env ? { env: opts.env } : {}),
           ...(noProgressTimeoutMs ? { noProgressTimeoutMs } : {}),
           ...(opts.watchdogLedger ? { watchdogLedger: opts.watchdogLedger } : {}),
+          ...(opts.coldStartTimeoutMs ? { coldStartTimeoutMs: opts.coldStartTimeoutMs } : {}),
         });
         raw = await runWorkerCli(fallbackPrepared.cmd, fallbackPrepared.args, {
           ...fallbackPrepared.opts,
           ...(noProgressTimeoutMs ? { noProgressTimeoutMs } : {}),
+          ...(opts.coldStartTimeoutMs ? { coldStartTimeoutMs: opts.coldStartTimeoutMs } : {}),
           ...(opts.herdr ? { herdr: true } : {}),
         });
         if (isSpawnFailure(raw)) {
@@ -171,6 +175,7 @@ export class OpenCodeAdapter implements WorkerAdapter {
         sessionId: null,
         durationMs: Date.now() - start,
         timedOut: true,
+        ...(final.coldStart ? { coldStart: true } : {}),
       };
     }
 

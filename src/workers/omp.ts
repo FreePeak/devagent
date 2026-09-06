@@ -225,6 +225,7 @@ function finalize(run: SpawnCliResult, sessionId: string | null, start: number):
       durationMs: Date.now() - start,
       timedOut: true,
       errorText: run.stderr.trim() || undefined,
+      ...(run.coldStart ? { coldStart: true } : {}),
     };
   }
   const events: WorkerEvent[] = outcome.parsed ? [{ type: 'result', ...outcome.parsed }] : [];
@@ -285,11 +286,13 @@ export class OmpAdapter implements WorkerAdapter {
         timeoutMs: opts.timeoutMs,
         ...(opts.env ? { env: opts.env } : {}),
         noProgressTimeoutMs,
+        ...(opts.coldStartTimeoutMs ? { coldStartTimeoutMs: opts.coldStartTimeoutMs } : {}),
         ...(opts.watchdogLedger ? { watchdogLedger: opts.watchdogLedger } : {}),
       });
       last = await runWorkerCli(prepared.cmd, prepared.args, {
         ...prepared.opts,
         noProgressTimeoutMs,
+        ...(opts.coldStartTimeoutMs ? { coldStartTimeoutMs: opts.coldStartTimeoutMs } : {}),
         ...(opts.herdr ? { herdr: true } : {}),
       });
 

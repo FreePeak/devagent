@@ -237,11 +237,14 @@ export async function runCommandInHerdrPane(
     if (run.code !== 0) return null;
 
     const noProgressMs = opts.noProgressTimeoutMs ?? 0;
+    const coldStartMs = opts.coldStartTimeoutMs ?? 0;
     const start = Date.now();
     let lastBytes = -1;
     let lastProgressAt = Date.now();
     let timedOut = false;
     let watchdogFired = false;
+    // Q31: set only when the cold-start (first-progress) deadline fired.
+    let coldStartFired = false;
     let clockResets = 0;
 
     // Progress = NEW TOOLCALL OR TEXT output, not raw byte growth. glm-style
@@ -289,6 +292,17 @@ export async function runCommandInHerdrPane(
         timedOut = true;
         break;
       }
+      if (coldStartMs > 0 && clockResets === 0 && now - start >= coldStartMs) {
+        // Q31: first-progress deadline. Until the classifier has seen one
+        // meaningful line (clockResets === 0 — the seed counts), coldStartMs
+        // is the binding budget: startup chatter that never evidences new
+        // work must not keep a wedged plugin/MCP init alive to the silence
+        // clock. Distinct from the no-progress fire below, like Q34 separates
+        // it from wall-clock expiry.
+        coldStartFired = true;
+        timedOut = true;
+        break;
+      }
       if (noProgressMs > 0 && now - lastProgressAt >= noProgressMs && now - start >= graceMs) {
         // Q34: watchdogFired is recorded only for the no-progress branch —
         // wall-clock expiry is a different outcome and the row must not conflate them.
@@ -300,7 +314,7 @@ export async function runCommandInHerdrPane(
     }
 
     // Q34: exactly one watchdog-health row per pane launch with a clock armed.
-    if (opts.watchdogLedger && noProgressMs > 0) {
+    if (opts.watchdogLedger && (noProgressMs > 0 || coldStartMs > 0)) {
       const ctx = opts.watchdogLedger;
       appendWatchdogHealthRecord(ctx.repoPath, {
         ts: new Date().toISOString(),
@@ -316,6 +330,7 @@ export async function runCommandInHerdrPane(
         visibility: 'herdr-pane',
         noProgressTimeoutMs: noProgressMs,
         watchdogFired,
+        coldStartFired,
         wallClockMs: Date.now() - start,
         clockResets,
         meaningfulBytes: lastBytes,
@@ -333,6 +348,7 @@ export async function runCommandInHerdrPane(
         stdout: readIfExists(outFile),
         stderr: readIfExists(errFile),
         timedOut: true,
+        ...(coldStartFired ? { coldStart: true } : {}),
       };
     }
 

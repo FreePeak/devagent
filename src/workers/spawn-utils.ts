@@ -24,6 +24,13 @@ export interface SpawnCliOptions {
   noProgressTimeoutMs?: number;
   /** Q34: structured watchdog-health ledger context (rows require an armed clock). */
   watchdogLedger?: WatchdogLedgerContext;
+  /**
+   * Q31: cold-start budget — kill the child when no adapter-classified
+   * progress line (src/workers/progress.ts) arrives within this long of
+   * launch start. 0/absent disables. Arms the streaming watchdog path even
+   * when noProgressTimeoutMs is unset; firing sets `coldStart` on the result.
+   */
+  coldStartTimeoutMs?: number;
 }
 
 export interface SpawnCliResult {
@@ -31,6 +38,8 @@ export interface SpawnCliResult {
   stdout: string;
   stderr: string;
   timedOut: boolean;
+  /** Q31: true only when the cold-start (first-progress) deadline killed the launch. */
+  coldStart?: boolean;
 }
 
 /**
@@ -89,7 +98,7 @@ export function buildEnv(opts: SpawnCliOptions): NodeJS.ProcessEnv {
  */
 export function spawnCli(cmd: string, args: string[], opts: SpawnCliOptions): Promise<SpawnCliResult> {
   const noProgressMs = opts.noProgressTimeoutMs ?? 0;
-  if (noProgressMs > 0) return spawnCliStreaming(cmd, args, opts);
+  if (noProgressMs > 0 || (opts.coldStartTimeoutMs ?? 0) > 0) return spawnCliStreaming(cmd, args, opts);
 
   return new Promise((resolve) => {
     const controller = new AbortController();
@@ -146,10 +155,13 @@ export function spawnCli(cmd: string, args: string[], opts: SpawnCliOptions): Pr
 }
 
 /**
- * Streaming variant with no-progress watchdog. Any stdout/stderr output
- * resets the watchdog clock. When the watchdog fires, the child (and its
- * process group when possible) is SIGKILLed. Used by worker adapters for
- * infinite transient retry; git/gh callers keep the execFile path.
+ * Streaming variant with the progress clocks. Only adapter-classified
+ * progress lines (src/workers/progress.ts) reset the no-progress clock;
+ * raw output does not. Q31 adds the cold-start deadline: until the first
+ * progress line, `coldStartTimeoutMs` is the binding budget. When either
+ * fires, the child (and its process group when possible) is SIGKILLed.
+ * Used by worker adapters for infinite transient retry; git/gh callers
+ * keep the execFile path.
  */
 export function spawnCliStreaming(
   cmd: string,
@@ -157,6 +169,7 @@ export function spawnCliStreaming(
   opts: SpawnCliOptions,
 ): Promise<SpawnCliResult> {
   const noProgressMs = opts.noProgressTimeoutMs ?? 0;
+  const coldStartMs = opts.coldStartTimeoutMs ?? 0;
   const start = Date.now();
   return new Promise((resolve) => {
     const env = buildEnv(opts);
@@ -171,6 +184,8 @@ export function spawnCliStreaming(
     const stderrChunks: string[] = [];
     let timedOut = false;
     let watchdogFired = false;
+    // Q31: set only when the cold-start (first-progress) deadline fired.
+    let coldStartFired = false;
     let exitCode: number | null = null;
     let done = false;
     let lastProgressAt = Date.now();
@@ -198,7 +213,7 @@ export function spawnCliStreaming(
       done = true;
       if (wallTimer) clearTimeout(wallTimer);
       if (watchdog) clearInterval(watchdog);
-      if (opts.watchdogLedger && noProgressMs > 0) {
+      if (opts.watchdogLedger && (noProgressMs > 0 || coldStartMs > 0)) {
         const ctx = opts.watchdogLedger;
         appendWatchdogHealthRecord(ctx.repoPath, {
           ts: new Date().toISOString(),
@@ -216,6 +231,7 @@ export function spawnCliStreaming(
           visibility: spawnVisibility() === 'headless' ? 'headless' : 'fallback',
           noProgressTimeoutMs: noProgressMs,
           watchdogFired,
+          coldStartFired,
           wallClockMs: Date.now() - start,
           clockResets,
           meaningfulBytes,
@@ -227,6 +243,7 @@ export function spawnCliStreaming(
         stdout: stdoutChunks.join(''),
         stderr: stderrChunks.join(''),
         timedOut,
+        ...(coldStartFired ? { coldStart: true } : {}),
       });
     };
 
@@ -283,10 +300,29 @@ export function spawnCliStreaming(
     wallTimer.unref?.();
 
     let watchdog: NodeJS.Timeout | null = null;
-    if (noProgressMs > 0) {
+    // Arm the poll on whichever clock is tighter; both branches below stay
+    // gated by their own budget, so a cold-start-only launch polls at the
+    // cold-start cadence and vice versa.
+    const armedClockMs = noProgressMs > 0 && coldStartMs > 0
+      ? Math.min(noProgressMs, coldStartMs)
+      : Math.max(noProgressMs, coldStartMs);
+    if (armedClockMs > 0) {
       watchdog = setInterval(() => {
         if (done || timedOut) return;
-        if (Date.now() - lastProgressAt >= noProgressMs) {
+        const now = Date.now();
+        // Q31: first-progress deadline. Until the classifier has seen one
+        // progress line (clockResets === 0), coldStartMs is the binding
+        // budget: startup chatter that never evidences new work must not
+        // keep a wedged plugin/MCP init alive to the 10m silence clock.
+        if (coldStartMs > 0 && clockResets === 0 && now - start >= coldStartMs) {
+          coldStartFired = true;
+          timedOut = true;
+          try {
+            child.kill('SIGKILL');
+          } catch {}
+          return;
+        }
+        if (noProgressMs > 0 && now - lastProgressAt >= noProgressMs) {
           watchdogFired = true;
           timedOut = true;
           try {
@@ -294,7 +330,7 @@ export function spawnCliStreaming(
           } catch {}
           // Give close handler a chance; watchdog keeps polling until wallTimer caps
         }
-      }, Math.min(1000, Math.max(200, Math.floor(noProgressMs / 4))));
+      }, Math.min(1000, Math.max(200, Math.floor(armedClockMs / 4))));
       watchdog.unref?.();
     }
 

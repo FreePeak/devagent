@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { execPath } from 'node:process';
 import { LEDGER_DIR, appendWatchdogHealthRecord } from '../src/orchestrator/ledger.js';
 import { spawnCli, spawnCliStreaming } from '../src/workers/spawn-utils.js';
+import { loadConfig } from '../src/config.js';
 /**
  * Q34: spawn-cli watchdog-health rows. One row per CLI launch whenever a
  * no-progress clock is armed and the dispatcher supplied ledger identity —
@@ -157,6 +158,7 @@ describe('spawn-cli watchdog-health rows', () => {
         site: 'herdr-pane',
         noProgressTimeoutMs: 600_000,
         watchdogFired: false,
+        coldStartFired: false,
         wallClockMs: 1_000,
         clockResets: 3,
         meaningfulBytes: 512,
@@ -166,5 +168,157 @@ describe('spawn-cli watchdog-health rows', () => {
     const raw = readFileSync(join(repo, LEDGER_DIR, 'events.jsonl'), 'utf8').trim().split('\n');
     expect(raw).toHaveLength(1);
     expect(JSON.parse(raw[0]!)).toMatchObject({ event: 'watchdog-health', site: 'herdr-pane', clockResets: 3 });
+  });
+});
+
+/**
+ * Q31: the cold-start (first-progress) deadline. Startup chatter that never
+ * evidences new work must not keep a wedged plugin/MCP init alive to the
+ * 10-minute silence clock; the first adapter-classified progress line
+ * disarms the deadline and the no-progress watchdog takes over from there.
+ * Real timers stay (same documented exception as above): the deadline lives
+ * inside spawnCliStreaming's interval polling Date.now() against a real OS
+ * child's output timing, which fake timers cannot advance.
+ */
+describe('spawn-cli cold-start deadline', () => {
+  it('kills a silent child at the cold-start budget and records coldStartFired', async () => {
+    const repo = tempDir('cs-fire-');
+    const dir = tempDir('cs-firechild-');
+    const stub = join(dir, 'silent.mjs');
+    writeFileSync(stub, `setTimeout(() => {}, 60_000);`);
+    const r = await spawnCliStreaming(execPath, [stub], {
+      cwd: dir,
+      timeoutMs: 30_000,
+      noProgressTimeoutMs: 30_000,
+      coldStartTimeoutMs: 600,
+      watchdogLedger: ctx(repo),
+    });
+    expect(r.timedOut).toBe(true);
+    expect(r.coldStart).toBe(true);
+    const all = rows(repo);
+    expect(all).toHaveLength(1);
+    expect(all[0]).toMatchObject({
+      event: 'watchdog-health',
+      site: 'spawn-cli',
+      coldStartFired: true,
+      watchdogFired: false,
+      noProgressTimeoutMs: 30_000,
+      clockResets: 0,
+    });
+  });
+
+  it('non-progress startup chatter does not extend the budget', async () => {
+    const repo = tempDir('cs-chatter-');
+    const dir = tempDir('cs-chatterchild-');
+    const stub = join(dir, 'chatter.mjs');
+    // omp-class plugin/MCP init: continuous output that evidences no new work.
+    writeFileSync(stub, `setInterval(() => console.log('loading plugin root...'), 100);`);
+    const r = await spawnCliStreaming(execPath, [stub], {
+      cwd: dir,
+      timeoutMs: 30_000,
+      noProgressTimeoutMs: 30_000,
+      coldStartTimeoutMs: 600,
+      watchdogLedger: ctx(repo),
+    });
+    expect(r.timedOut).toBe(true);
+    expect(r.coldStart).toBe(true);
+    const all = rows(repo);
+    expect(all[0]).toMatchObject({ coldStartFired: true, watchdogFired: false });
+  });
+
+  it('the first progress line disarms the deadline; later silence trips the no-progress clock', async () => {
+    const repo = tempDir('cs-disarm-');
+    const dir = tempDir('cs-disarmchild-');
+    const stub = join(dir, 'progress-then-silence.mjs');
+    writeFileSync(stub, `console.log('{"type":"tool_execution_start"}'); setTimeout(() => {}, 60_000);`);
+    const r = await spawnCliStreaming(execPath, [stub], {
+      cwd: dir,
+      timeoutMs: 30_000,
+      noProgressTimeoutMs: 600,
+      coldStartTimeoutMs: 30_000,
+      watchdogLedger: ctx(repo),
+    });
+    expect(r.timedOut).toBe(true);
+    expect(r.coldStart).toBeUndefined();
+    const all = rows(repo);
+    expect(all[0]).toMatchObject({ coldStartFired: false, watchdogFired: true });
+  });
+
+  it('leaves a launch that progresses inside the budget untouched', async () => {
+    const repo = tempDir('cs-ok-');
+    const dir = tempDir('cs-okchild-');
+    const stub = join(dir, 'progress.mjs');
+    writeFileSync(stub, `console.log('{"type":"tool_execution_start"}'); process.exit(0);`);
+    const r = await spawnCliStreaming(execPath, [stub], {
+      cwd: dir,
+      timeoutMs: 10_000,
+      noProgressTimeoutMs: 5_000,
+      coldStartTimeoutMs: 600,
+      watchdogLedger: ctx(repo),
+    });
+    expect(r.timedOut).toBe(false);
+    expect(r.coldStart).toBeUndefined();
+    const all = rows(repo);
+    expect(all[0]!.coldStartFired).toBe(false);
+  });
+
+  it('spawnCli routes to the streaming watchdog when only the cold-start clock is armed', async () => {
+    const dir = tempDir('cs-route-');
+    const stub = join(dir, 'silent.mjs');
+    writeFileSync(stub, `setTimeout(() => {}, 60_000);`);
+    const r = await spawnCli(execPath, [stub], {
+      cwd: dir,
+      timeoutMs: 30_000,
+      coldStartTimeoutMs: 600,
+    });
+    expect(r.timedOut).toBe(true);
+    expect(r.coldStart).toBe(true);
+  });
+
+  it('coldStartTimeoutMs: 0 disables the deadline (wall clock stays the only net)', async () => {
+    const dir = tempDir('cs-off-');
+    const stub = join(dir, 'silent.mjs');
+    writeFileSync(stub, `setTimeout(() => {}, 60_000);`);
+    const r = await spawnCli(execPath, [stub], {
+      cwd: dir,
+      timeoutMs: 700,
+      noProgressTimeoutMs: 0,
+      coldStartTimeoutMs: 0,
+    });
+    expect(r.timedOut).toBe(true);
+    expect(r.coldStart).toBeUndefined();
+  });
+});
+
+describe('resilience.coldStartTimeoutMs config', () => {
+  const withEnv = async (value: string, fn: () => void): Promise<void> => {
+    const saved = process.env.DEVAGENT_COLD_START_TIMEOUT_MS;
+    process.env.DEVAGENT_COLD_START_TIMEOUT_MS = value;
+    try {
+      fn();
+    } finally {
+      if (saved === undefined) delete process.env.DEVAGENT_COLD_START_TIMEOUT_MS;
+      else process.env.DEVAGENT_COLD_START_TIMEOUT_MS = saved;
+    }
+  };
+
+  it('reads DEVAGENT_COLD_START_TIMEOUT_MS, including 0 as disable', async () => {
+    await withEnv('45000', () => {
+      expect(loadConfig('/nonexistent-path-for-sure').resilience?.coldStartTimeoutMs).toBe(45_000);
+    });
+    await withEnv('0', () => {
+      expect(loadConfig('/nonexistent-path-for-sure').resilience?.coldStartTimeoutMs).toBe(0);
+    });
+  });
+
+  it('env overrides the file value; negative values are rejected', async () => {
+    const repo = tempDir('cs-cfg-');
+    writeFileSync(join(repo, 'devagent.json'), JSON.stringify({ resilience: { coldStartTimeoutMs: 30_000 } }));
+    expect(loadConfig(repo).resilience?.coldStartTimeoutMs).toBe(30_000);
+    await withEnv('120000', () => {
+      expect(loadConfig(repo).resilience?.coldStartTimeoutMs).toBe(120_000);
+    });
+    writeFileSync(join(repo, 'devagent.json'), JSON.stringify({ resilience: { coldStartTimeoutMs: -1 } }));
+    expect(() => loadConfig(repo)).toThrow(/Invalid resilience\.coldStartTimeoutMs/);
   });
 });

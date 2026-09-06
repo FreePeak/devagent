@@ -230,4 +230,25 @@ describe('pi adapter - retry semantics', () => {
       expect.anything(),
     );
   });
+
+  it('threads coldStartTimeoutMs to the spawn and surfaces coldStart on the result (Q31)', async () => {
+    const { PiAdapter: FreshPi } = await import('../../src/workers/pi.js');
+    runWorkerCliMock.mockResolvedValue(run({ exitCode: -1, timedOut: true, coldStart: true, stderr: 'cold-start deadline' }));
+    const adapter = new FreshPi();
+    const result = await adapter.spawn(baseOpts({ apiMaxAttempts: 1, coldStartTimeoutMs: 90_000 }));
+    expect(result.timedOut).toBe(true);
+    expect(result.coldStart).toBe(true);
+    const spawnOpts = (runWorkerCliMock.mock.calls[0] as unknown[])[2] as Record<string, unknown>;
+    expect(spawnOpts.coldStartTimeoutMs).toBe(90_000);
+  });
+
+  it('omits coldStartTimeoutMs from the spawn opts when unset and never fakes coldStart on a clean run', async () => {
+    const { PiAdapter: FreshPi } = await import('../../src/workers/pi.js');
+    runWorkerCliMock.mockResolvedValue(run({ exitCode: 0, stdout: `${SESSION_HEADER}\n${ASSISTANT_END}\n` }));
+    const adapter = new FreshPi();
+    const result = await adapter.spawn(baseOpts());
+    expect(result.coldStart).toBeUndefined();
+    const spawnOpts = (runWorkerCliMock.mock.calls[0] as unknown[])[2] as Record<string, unknown>;
+    expect('coldStartTimeoutMs' in spawnOpts).toBe(false);
+  });
 });

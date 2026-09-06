@@ -344,13 +344,18 @@ export async function implementStage(
   const noProgressTimeoutMsCfg = resilienceCfg?.noProgressTimeoutMs;
   const effectiveApiMaxAttempts = apiMaxAttemptsCfg;
   const effectiveNoProgress = noProgressTimeoutMsCfg ?? 10 * 60_000;
+  // Q31: first-progress deadline (cold-start budget); 0 disables. Env
+  // DEVAGENT_COLD_START_TIMEOUT_MS overrides the 90s default.
+  const effectiveColdStart = resilienceCfg?.coldStartTimeoutMs ?? 90_000;
 
   // Transient infrastructure failures (Console Go endpoint, upstream, watchdog
   // timeout) must not consume the logic retry budget. Only bounded
   // maxLoops covers real implementation failures (non-zero exit with no
   // transient signal, or gate failures).
-  const isInfraTransient = (r: { timedOut: boolean; resultText: string | null; exitCode: number }): boolean => {
-    if (r.timedOut) return true;
+  const isInfraTransient = (r: { timedOut: boolean; coldStart?: boolean; resultText: string | null; exitCode: number }): boolean => {
+    // Q31: a cold-start kill is transient infra alongside the watchdog
+    // timeout — a wedged CLI init is not the worker's fault.
+    if (r.timedOut || r.coldStart) return true;
     const t = r.resultText ?? '';
     if (t && isNonRetryableApiError(t)) return false;
     return t ? isTransientProviderError(t) : false;
@@ -377,6 +382,7 @@ export async function implementStage(
         ...(cfg.variant ? { variant: cfg.variant } : {}),
         ...(effectiveApiMaxAttempts !== undefined ? { apiMaxAttempts: effectiveApiMaxAttempts } : {}),
         ...(effectiveNoProgress !== undefined ? { noProgressTimeoutMs: effectiveNoProgress } : {}),
+        ...(effectiveColdStart ? { coldStartTimeoutMs: effectiveColdStart } : {}),
         ...(useHerdr ? { herdr: true } : {}),
         // Q34: ledger identity from the dispatcher; rows land under the main
         // repo, never the ephemeral worktree cwd.
