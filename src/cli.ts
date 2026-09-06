@@ -8,6 +8,7 @@ import { ensureStateBranch } from './git/state-branch.js';
 import { runInit, renderInitReport } from './commands/init.js';
 import { buildStatusView, renderStatusCard, statusJson } from './commands/status.js';
 import { buildProbeArgvFor } from './commands/probe-argv.js';
+import { runSyncDocs } from './commands/sync-docs.js';
 import { runPreflightGate, PREFLIGHT_ROLES, isPreflightRole } from './resilience/preflight.js';
 import { runPipeline } from './pipeline.js';
 import { buildDeps, buildDryRunDeps } from './deps.js';
@@ -1465,6 +1466,18 @@ program
   .action(async (task: string, opts) => {
     const { runAttach } = await import('./commands/sessions.js');
     await runAttach(task, { exec: opts.exec, repoPath: opts.repo });
+  });
+
+program
+  .command('sync-docs')
+  .description(
+    'Refresh work-selection docs (docs/PRD.md) from origin before doc-driven selection (PRD §17): fast-forward when linear, rebase with --autostash when diverged and clean, refuse on a dirty PRD. Exit codes: 0 ok/up-to-date, 1 failure (fetch/network), 2 dirty refusal, 3 diverged (conflict or diverged+dirty). --json emits {ok, upToDate, diverged, dirty, detail}',
+  )
+  .option('--json', 'machine-readable payload {ok, upToDate, diverged, dirty, detail}', false)
+  .option('--repo <path>', 'repository to sync', process.cwd())
+  .option('--branch <name>', 'origin branch to sync from', 'main')
+  .action(async (opts) => {
+    await runSyncDocs({ json: opts.json, repoPath: opts.repo, branch: opts.branch });
   });
 
 program
