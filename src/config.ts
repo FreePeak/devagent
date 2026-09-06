@@ -65,8 +65,18 @@ export interface DevAgentConfig {
    * when no adapter-classified progress line arrives within this long
    * (default 90s at the dispatch sites; 0 disables). Env override:
    * DEVAGENT_COLD_START_TIMEOUT_MS.
+   * Q41: degradeWebhookUrl pages a human — `devagent preflight` POSTs one
+   * JSON alert when the trailing operator-degraded streak first reaches
+   * DEGRADE_STREAK_THRESHOLD (once per outage episode, never mid-streak).
+   * Absent/empty = paging stays off. Env override:
+   * DEVAGENT_DEGRADE_WEBHOOK_URL.
    */
-  resilience?: { apiMaxAttempts?: number; noProgressTimeoutMs?: number; coldStartTimeoutMs?: number };
+  resilience?: {
+    apiMaxAttempts?: number;
+    noProgressTimeoutMs?: number;
+    coldStartTimeoutMs?: number;
+    degradeWebhookUrl?: string;
+  };
   /**
    * Herdr runtime: run worker CLIs inside herdr (https://github.com/herdrdev/herdr)
    * panes in a dedicated persistent session so runs are visible, reattachable,
@@ -155,6 +165,7 @@ export function loadConfig(repoPath: string = process.cwd()): DevAgentConfig {
   const envApiMax = process.env.DEVAGENT_API_MAX_ATTEMPTS;
   const envNoProgress = process.env.DEVAGENT_NO_PROGRESS_TIMEOUT_MS;
   const envColdStart = process.env.DEVAGENT_COLD_START_TIMEOUT_MS;
+  const envDegradeWebhook = process.env.DEVAGENT_DEGRADE_WEBHOOK_URL;
   const envResilience: Partial<NonNullable<DevAgentConfig['resilience']>> = {};
   if (envApiMax !== undefined && envApiMax !== '') {
     const n = Number(envApiMax);
@@ -168,6 +179,9 @@ export function loadConfig(repoPath: string = process.cwd()): DevAgentConfig {
   if (envColdStart !== undefined && envColdStart !== '') {
     const n = Number(envColdStart);
     if (Number.isFinite(n) && n >= 0) envResilience.coldStartTimeoutMs = n;
+  }
+  if (envDegradeWebhook !== undefined && envDegradeWebhook !== '') {
+    envResilience.degradeWebhookUrl = envDegradeWebhook;
   }
 
   const config: DevAgentConfig = {
@@ -206,6 +220,9 @@ export function loadConfig(repoPath: string = process.cwd()): DevAgentConfig {
     }
     if (r.coldStartTimeoutMs !== undefined && (!Number.isFinite(r.coldStartTimeoutMs) || r.coldStartTimeoutMs < 0)) {
       throw new Error(`Invalid resilience.coldStartTimeoutMs "${r.coldStartTimeoutMs}"; expected >= 0`);
+    }
+    if (r.degradeWebhookUrl !== undefined && !/^https?:\/\/\S+$/.test(r.degradeWebhookUrl)) {
+      throw new Error(`Invalid resilience.degradeWebhookUrl "${r.degradeWebhookUrl}"; expected an http(s) URL`);
     }
   }
   if (config.herdr !== undefined) {

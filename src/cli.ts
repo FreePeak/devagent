@@ -1273,6 +1273,7 @@ program
         `[preflight] DEGRADED role=${decision.role} worker=${worker} model=${rawModel || '(default)'} attempts=${decision.attempts} — skip this cycle's agent dispatch (ledger: .devagent/runs/orchestration/events.jsonl)`,
       );
       if (decision.detail) console.error(`[preflight] last probe: ${decision.detail}`);
+      if (decision.paged) console.error('[preflight] paged operator webhook (resilience.degradeWebhookUrl)');
       process.exitCode = 1;
     }
   });

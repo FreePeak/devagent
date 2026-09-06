@@ -11,7 +11,10 @@ import {
   isPreflightRole,
   runPreflightGate,
 } from '../src/resilience/preflight.js';
+import type { DegradeBreachAlert } from '../src/resilience/preflight.js';
 import { readProxyState, recordProxyProbe } from '../src/resilience/proxy-state.js';
+import { DEGRADE_STREAK_THRESHOLD } from '../src/resilience/degradation.js';
+import { loadConfig } from '../src/config.js';
 import { LEDGER_DIR } from '../src/orchestrator/ledger.js';
 
 const noDelay = () => Promise.resolve();
@@ -269,4 +272,137 @@ describe('devagent preflight CLI (skip semantics end to end)', () => {
     expect(existsSync(join(repo, LEDGER_DIR, 'events.jsonl'))).toBe(false);
     expect(readProxyState(repo)).toBeNull();
   }, 240_000);
+});
+
+describe('degradation paging (Q41 write side)', () => {
+  const dirs: string[] = [];
+  let savedWebhook: string | undefined;
+  /** Repo with the paging knob set; no config file = paging disabled. */
+  const tempRepo = (webhookUrl?: string) => {
+    const dir = mkdtempSync(join(tmpdir(), 'da-page-'));
+    dirs.push(dir);
+    if (webhookUrl) {
+      writeFileSync(join(dir, 'devagent.json'), JSON.stringify({ resilience: { degradeWebhookUrl: webhookUrl } }));
+    }
+    return dir;
+  };
+  beforeEach(() => {
+    // Hermetic vs an operator-exported DEVAGENT_DEGRADE_WEBHOOK_URL.
+    savedWebhook = process.env.DEVAGENT_DEGRADE_WEBHOOK_URL;
+    delete process.env.DEVAGENT_DEGRADE_WEBHOOK_URL;
+  });
+  afterEach(() => {
+    if (savedWebhook === undefined) delete process.env.DEVAGENT_DEGRADE_WEBHOOK_URL;
+    else process.env.DEVAGENT_DEGRADE_WEBHOOK_URL = savedWebhook;
+    while (dirs.length) rmSync(dirs.pop()!, { recursive: true, force: true });
+  });
+
+  /** One degraded gate cycle: the probe always fails, so one row lands per call. */
+  const degradeCycle = (
+    repo: string,
+    notify: (url: string, alert: DegradeBreachAlert) => Promise<void>,
+  ) =>
+    runPreflightGate({
+      repoPath: repo,
+      role: 'selfbuild',
+      worker: 'omp',
+      model: 'omniroute/dev',
+      argv: ['omp', '-p'],
+      probe: async () => ({ ok: false, detail: 'unrecognized_model: probe 403' }),
+      delayMs: noDelay,
+      notify,
+    });
+
+  it('pages exactly once at the threshold and stays silent for the rest of the streak', async () => {
+    const repo = tempRepo('https://pager.invalid/hook');
+    const calls: Array<{ url: string; alert: DegradeBreachAlert }> = [];
+    const decisions = [];
+    for (let i = 0; i <= DEGRADE_STREAK_THRESHOLD; i++) {
+      decisions.push(await degradeCycle(repo, async (url, alert) => void calls.push({ url, alert })));
+    }
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe('https://pager.invalid/hook');
+    expect(calls[0]!.alert).toMatchObject({
+      event: 'provider-degraded-breach',
+      repo,
+      role: 'selfbuild',
+      worker: 'omp',
+      model: 'omniroute/dev',
+      count: DEGRADE_STREAK_THRESHOLD,
+      threshold: DEGRADE_STREAK_THRESHOLD,
+      detail: 'unrecognized_model: probe 403',
+    });
+    expect(typeof calls[0]!.alert.ts).toBe('string');
+    expect(calls[0]!.alert.roles).toEqual(['selfbuild']);
+    // The breach cycle reports it on the decision; later cycles do not re-page.
+    expect(decisions[DEGRADE_STREAK_THRESHOLD - 1]?.paged).toBe(true);
+    expect(decisions[DEGRADE_STREAK_THRESHOLD]?.paged).toBeUndefined();
+  });
+
+  it('stays silent while the streak is below the threshold', async () => {
+    const repo = tempRepo('https://pager.invalid/hook');
+    let calls = 0;
+    for (let i = 0; i < DEGRADE_STREAK_THRESHOLD - 1; i++) {
+      const decision = await degradeCycle(repo, async () => void (calls += 1));
+      expect(decision.paged).toBeUndefined();
+    }
+    expect(calls).toBe(0);
+  });
+
+  it('never throws into the loop when the paging transport fails', async () => {
+    const repo = tempRepo('https://pager.invalid/hook');
+    for (let i = 0; i < DEGRADE_STREAK_THRESHOLD - 1; i++) await degradeCycle(repo, async () => {});
+    const decision = await degradeCycle(repo, async () => {
+      throw new Error('connect ECONNREFUSED 127.0.0.1:443');
+    });
+    // The outage decision is untouched by the paging failure.
+    expect(decision.ok).toBe(false);
+    expect(decision.attempts).toBe(PREFLIGHT_PROBE_ATTEMPTS);
+    expect(decision.detail).toBe('unrecognized_model: probe 403');
+    expect(decision.paged).toBeUndefined();
+    expect(readProxyState(repo)?.circuit).toBe('open');
+  });
+
+  it('does not page when resilience.degradeWebhookUrl is unset (opt-in)', async () => {
+    const repo = tempRepo();
+    let calls = 0;
+    for (let i = 0; i <= DEGRADE_STREAK_THRESHOLD; i++) {
+      const decision = await degradeCycle(repo, async () => void (calls += 1));
+      expect(decision.paged).toBeUndefined();
+    }
+    expect(calls).toBe(0);
+    expect(readFileSync(join(repo, LEDGER_DIR, 'events.jsonl'), 'utf8').split('\n').filter((l) => l.trim())).toHaveLength(
+      DEGRADE_STREAK_THRESHOLD + 1,
+    );
+  });
+});
+
+describe('resilience.degradeWebhookUrl config (paging knob)', () => {
+  const dirs: string[] = [];
+  afterEach(() => {
+    while (dirs.length) rmSync(dirs.pop()!, { recursive: true, force: true });
+  });
+  const repoWithConfig = (value: unknown) => {
+    const dir = mkdtempSync(join(tmpdir(), 'da-page-cfg-'));
+    dirs.push(dir);
+    writeFileSync(join(dir, 'devagent.json'), JSON.stringify({ resilience: { degradeWebhookUrl: value } }));
+    return dir;
+  };
+
+  it('reads the file value and lets DEVAGENT_DEGRADE_WEBHOOK_URL override it', () => {
+    const repo = repoWithConfig('https://hook.example/a');
+    expect(loadConfig(repo).resilience?.degradeWebhookUrl).toBe('https://hook.example/a');
+    const saved = process.env.DEVAGENT_DEGRADE_WEBHOOK_URL;
+    process.env.DEVAGENT_DEGRADE_WEBHOOK_URL = 'https://hook.example/b';
+    try {
+      expect(loadConfig(repo).resilience?.degradeWebhookUrl).toBe('https://hook.example/b');
+    } finally {
+      if (saved === undefined) delete process.env.DEVAGENT_DEGRADE_WEBHOOK_URL;
+      else process.env.DEVAGENT_DEGRADE_WEBHOOK_URL = saved;
+    }
+  });
+
+  it('rejects a value that is not an http(s) URL', () => {
+    expect(() => loadConfig(repoWithConfig('pager.invalid/hook'))).toThrow(/Invalid resilience\.degradeWebhookUrl/);
+  });
 });
