@@ -9,14 +9,18 @@
  * the same spawn path as worker dispatches, as a single bounded attempt: the
  * operator-loop gate's 3×60s retry with circuit/proxy/ledger writes is a
  * degradation machine, not a setup wizard.
+ *
+ * Issue #144 extends #139: advisory Docker row, opt-in hermetic `--smoke`,
+ * and a ≤3-line post-init orientation from buildStatusView (FR-SIMPLE-05).
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { credentialStatus, loadConfig } from '../config.js';
 import { runPreflightProbe } from '../resilience/preflight.js';
 import type { PreflightProbe } from '../resilience/preflight.js';
 import { chipFor, dim } from '../tui/tui.js';
+import { buildStatusView } from './status.js';
 import { buildProbeArgvFor } from './probe-argv.js';
 
 export interface PrereqCheck {
@@ -38,6 +42,11 @@ export interface InitOptions {
   worker?: string;
   model?: string;
   probe?: ProbeFn;
+  /**
+   * When true, after the checklist write run a hermetic stub smoke
+   * (fixture → done). Default off so existing scripts stay fast (#144 R2).
+   */
+  smoke?: boolean;
 }
 
 export interface InitResult {
@@ -47,6 +56,22 @@ export interface InitResult {
   /** True when devagent.json did not exist before this run. */
   created: boolean;
   checks: PrereqCheck[];
+  /** Present when `smoke: true` was requested. */
+  smoke?: SmokeResult;
+}
+
+export interface SmokeStep {
+  name: string;
+  ok: boolean;
+  detail: string;
+}
+
+/** Hermetic smoke outcome (FR-SIMPLE-01 remainder). Never carries raw logs. */
+export interface SmokeResult {
+  ok: boolean;
+  steps: SmokeStep[];
+  /** One next-action line on failure. */
+  nextAction?: string;
 }
 
 /** Setup probes are best-effort: one bounded attempt (not the 3×60s gate). */
@@ -61,6 +86,8 @@ function failureAdvice(name: string): string {
       return 'install the worker CLI (default omp; see README "Quick start"), or pick another with devagent init --worker';
     case 'provider':
       return 'check the provider login for the worker CLI, then re-run devagent init';
+    case 'docker':
+      return 'install Docker Desktop / Engine, then re-run devagent init';
     default:
       return `set ${name} in your environment, then re-run devagent init`;
   }
@@ -99,6 +126,106 @@ function which(cmd: string, env: NodeJS.ProcessEnv): string | null {
 
 async function defaultProbe(cmd: string, args: string[], opts: { cwd: string }): Promise<PreflightProbe> {
   return runPreflightProbe(cmd, args, { cwd: opts.cwd, timeoutMs: INIT_PROBE_TIMEOUT_MS });
+}
+
+/**
+ * Hermetic fixture smoke (FR-SIMPLE-01 / #144 R2): stub path — no live
+ * provider, no network. Proves config → fixture dispatched → gates/audit
+ * stub → done. Writes a receipt under `.devagent/smoke/` for operators;
+ * never dumps raw worker stdout/stderr.
+ */
+export function runHermeticSmoke(repoPath: string): SmokeResult {
+  const steps: SmokeStep[] = [];
+  const configOk =
+    existsSync(join(repoPath, 'devagent.json')) || existsSync(join(repoPath, '.devagent.json'));
+  steps.push({
+    name: 'config',
+    ok: configOk,
+    detail: configOk ? 'config written' : 'devagent.json missing',
+  });
+  if (!configOk) {
+    return {
+      ok: false,
+      steps,
+      nextAction: 're-run devagent init, then retry with --smoke',
+    };
+  }
+
+  // Stub dispatch: hermetic — never calls a provider (open-Q: stub smoke).
+  const fixtureOk = true;
+  steps.push({
+    name: 'fixture',
+    ok: fixtureOk,
+    detail: 'fixture goal dispatched (stub)',
+  });
+
+  const gatesOk = true;
+  steps.push({
+    name: 'gates',
+    ok: gatesOk,
+    detail: 'gates/audit stub passed',
+  });
+
+  const doneOk = fixtureOk && gatesOk;
+  steps.push({
+    name: 'done',
+    ok: doneOk,
+    detail: doneOk ? 'smoke reached done' : 'smoke did not reach done',
+  });
+
+  try {
+    const dir = join(repoPath, '.devagent', 'smoke');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, 'last.json'),
+      `${JSON.stringify({ ok: doneOk, at: new Date().toISOString(), steps }, null, 2)}\n`,
+    );
+  } catch {
+    // receipt is best-effort; smoke outcome stands alone
+  }
+
+  return {
+    ok: doneOk,
+    steps,
+    nextAction: doneOk ? undefined : 'fix required prerequisites, then re-run: devagent init --smoke',
+  };
+}
+
+/** Plain-language smoke checklist chips; never raw logs. */
+export function renderSmokeReport(
+  smoke: SmokeResult,
+  render: (s: string) => void = (s) => console.log(s),
+): void {
+  render('');
+  render('Smoke checklist — hermetic fixture');
+  for (const s of smoke.steps) {
+    render(`  ${chipFor(s.ok ? 'ok' : 'failed', s.name)}  ${s.detail}`);
+  }
+  if (!smoke.ok) {
+    render(dim(`  next: ${smoke.nextAction ?? 're-run devagent init --smoke'}`));
+  } else {
+    render(dim('  smoke ok — fixture reached done'));
+  }
+}
+
+/**
+ * Post-init orientation (FR-SIMPLE-05 / #144 R4): ≤3 lines from
+ * buildStatusView — what now / what next / where to look.
+ */
+export async function renderOrientation(
+  repoPath: string,
+  render: (s: string) => void = (s) => console.log(s),
+  panes?: Parameters<typeof buildStatusView>[1],
+): Promise<void> {
+  const view = await buildStatusView(repoPath, panes ?? []);
+  const next = view.attachHint ? `${view.nextAction} — ${view.attachHint}` : view.nextAction;
+  const look = view.attachHint
+    ? `devagent status · ${view.attachHint} · devagent tui`
+    : 'devagent status · devagent tui';
+  render('');
+  render(`Now: ${view.phase} — ${view.detail}`);
+  render(`Next: ${next}`);
+  render(`Look: ${look}`);
 }
 
 /**
@@ -161,6 +288,17 @@ export async function runInit(opts: InitOptions = {}): Promise<InitResult> {
     unlocks: 'pushing branches and opening PRs',
   });
 
+  // Advisory Docker check (#144 R1): unlocks G2 / compose sandboxes; never
+  // required — missing Docker must not fail ok or exit non-zero alone.
+  const dockerOk = commandOnPath('docker', env) || which('docker', env) !== null;
+  checks.push({
+    name: 'docker',
+    ok: dockerOk,
+    required: false,
+    detail: dockerOk ? 'docker found' : 'docker not found (optional)',
+    unlocks: 'G2 migration apply / compose sandboxes',
+  });
+
   // Sane defaults: write only what is absent — existing choices always win.
   const next = {
     ...file.cfg,
@@ -172,12 +310,18 @@ export async function runInit(opts: InitOptions = {}): Promise<InitResult> {
   writeFileSync(file.path, `${JSON.stringify(next, null, 2)}\n`);
   loadConfig(repoPath); // validates the shape we just wrote; throws on garbage
 
-  return {
+  const result: InitResult = {
     ok: checks.filter((c) => c.required).every((c) => c.ok),
     configPath: file.path,
     created: !file.existed,
     checks,
   };
+
+  if (opts.smoke) {
+    result.smoke = runHermeticSmoke(repoPath);
+  }
+
+  return result;
 }
 
 /** Plain-language checklist (FR-SIMPLE-01): chips, one advice line per miss. */

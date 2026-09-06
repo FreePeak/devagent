@@ -253,6 +253,16 @@ describe('renderDashboard', () => {
     expect(help).toContain('q or Ctrl+C  quit');
   });
 
+  it('fitLines: the help overlay on a tiny terminal still fits rows (no scroll desync)', () => {
+    // A frame taller than the terminal scrolls the alternate screen and
+    // desyncs the incremental renderer — used to garble everything on short
+    // terminals the moment `?` was pressed.
+    for (const rows of [10, 12, 14, 20, 40]) {
+      const out = renderDashboard(snap, { rows, showHelp: true });
+      expect(out.split('\n').length, `rows=${rows}`).toBeLessThanOrEqual(rows);
+    }
+  });
+
   it('aggregateStatus: live state outranks a sticky failed_recent count', () => {
     // failed_recent is taskCount().failed — never decays, so it must never
     // outrank a live run (2026-09-05 header-stale-FAILED defect).

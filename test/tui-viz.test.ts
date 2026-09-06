@@ -98,3 +98,23 @@ describe('renderFrame (flicker-free incremental redraw)', () => {
     expect(visibleLen(content)).toBeLessThanOrEqual(80); // 79 glyphs + ellipsis
   });
 });
+
+describe('wide-char width (CJK cells)', () => {
+  it('counts CJK/fullwidth glyphs as two cells, astral as two', () => {
+    expect(visibleLen('中文')).toBe(4);
+    expect(visibleLen('a中b')).toBe(4);
+    expect(visibleLen('ｆｕｌｌ')).toBe(8); // fullwidth latin
+    expect(visibleLen('👍')).toBe(2); // astral
+    expect(visibleLen('\x1b[31m中文\x1b[0m')).toBe(4); // SGR ignored
+  });
+  it('clamps CJK content to the column budget (a wrap would desync the diff)', () => {
+    const out = clampLine('目'.repeat(50), 20);
+    expect(visibleLen(out)).toBeLessThanOrEqual(20);
+    expect(out).toContain('…');
+  });
+  it('renderFrame output for CJK rows never exceeds the width', () => {
+    const seq = renderFrame(null, ['目标'.repeat(40)], 30);
+    const content = seq.slice('\x1b[H'.length, seq.indexOf('\x1b[K')).replace(/^\r/, '');
+    expect(visibleLen(content)).toBeLessThanOrEqual(30);
+  });
+});

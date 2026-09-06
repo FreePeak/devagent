@@ -549,13 +549,21 @@ function upgradeOverlayLines(width: number): string[] {
   return boxLines('Upgrade', body, inner);
 }
 
-/** Trim `body` so header+body+footer fit `rows` (htop always fits). */
+/**
+ * Trim so header+body+footer fit `rows` (htop always fits). Never emit more
+ * than `rows` lines total: a frame taller than the terminal scrolls the
+ * alternate screen and desyncs the incremental diff (pressing `?` on a short
+ * terminal garbled the whole dashboard). The header's tail is cut first —
+ * help lines are appended last — and at least one body row always survives.
+ */
 function fitLines(header: string[], body: string[], footer: string[], rows: number, keep: 'top' | 'bottom'): string[] {
-  const budget = rows - header.length - footer.length;
-  if (budget >= body.length) return [...header, ...body, ...footer];
+  const head =
+    header.length + footer.length + 1 > rows ? header.slice(0, Math.max(1, rows - footer.length - 1)) : header;
+  const budget = rows - head.length - footer.length;
+  if (budget >= body.length) return [...head, ...body, ...footer];
   const cut = Math.max(1, budget);
   const trimmed = keep === 'top' ? body.slice(0, cut) : body.slice(body.length - cut);
-  return [...header, ...trimmed, ...footer];
+  return [...head, ...trimmed, ...footer];
 }
 
 /** Full frame as lines (interactive diffs these; one-shot joins them). */
@@ -791,6 +799,45 @@ async function runInteractive(opts: TuiOptions, daemonMode: 'attach' | 'embedded
   // output IS the screen; a stray dashboard frame here would corrupt it.
   let suspended = false;
 
+  // ESC disambiguation: a lone Esc press is held as `pendingInput` until we
+  // know no arrow-style sequence is following. Without this flush the Esc
+  // key (close overlay / help) did nothing until the next keypress arrived.
+  const ESC_FLUSH_MS = 90;
+  let escFlushTimer: ReturnType<typeof setTimeout> | null = null;
+  const flushPendingEsc = (): void => {
+    escFlushTimer = null;
+    if (stopped) {
+      pendingInput = '';
+      return;
+    }
+    if (suspended) {
+      pendingInput = ''; // attach child owns the terminal; drop the partial
+      return;
+    }
+    const partial = pendingInput;
+    pendingInput = '';
+    void (async () => {
+      try {
+        const { keys } = decodeKeys(partial, { flush: true });
+        for (const key of keys) await handleKey(key);
+      } catch (err) {
+        note = `internal: ${err instanceof Error ? err.message : String(err)}`.slice(0, 80);
+        safeDraw();
+      }
+    })();
+  };
+  const armEscFlush = (): void => {
+    if (escFlushTimer) return;
+    escFlushTimer = setTimeout(flushPendingEsc, ESC_FLUSH_MS);
+    escFlushTimer.unref?.();
+  };
+  const disarmEscFlush = (): void => {
+    if (escFlushTimer) {
+      clearTimeout(escFlushTimer);
+      escFlushTimer = null;
+    }
+  };
+
   // Live tail (FR-TUI-03): the daemon's SSE /events stream, buffered locally.
   const logLines: LogLine[] = [];
   let logScroll = 0;
@@ -816,7 +863,10 @@ async function runInteractive(opts: TuiOptions, daemonMode: 'attach' | 'embedded
   let prevWidth = termColumns();
 
   const draw = () => {
-    if (suspended) return; // attach child owns the terminal (FR-TUI-06)
+    // stopped: the screen was already restored — a late draw would write
+    // frame escapes into the operator's normal shell. suspended: the attach
+    // child owns the terminal (FR-TUI-06).
+    if (stopped || suspended) return;
     const width = termColumns();
     const rows = Math.max(12, termRows() - 1); // headroom: never scroll
     if (width !== prevWidth) {
@@ -892,11 +942,24 @@ async function runInteractive(opts: TuiOptions, daemonMode: 'attach' | 'embedded
   }, TICKER_MS);
   ticker.unref?.();
 
+  // External SIGINT (kill -INT, PTY teardown) must quit cleanly. It cannot go
+  // through stdin: raw mode has ISIG off, and the old `stdin.write('q')` hack
+  // wrote to the TTY's *output* side — it printed a stray 'q' instead of
+  // quitting. Call quit() directly; while an attach child owns the terminal,
+  // the signal is the child's to handle, not ours.
+  const onSigint = () => {
+    if (!suspended) quit();
+  };
+  process.on('SIGINT', onSigint);
+
   const quit = () => {
     if (stopped) return;
     stopped = true;
     if (timer) clearTimeout(timer);
     if (redrawTimer) clearTimeout(redrawTimer);
+    disarmEscFlush();
+    pendingInput = '';
+    process.removeListener('SIGINT', onSigint);
     events.stop();
     clearInterval(ticker);
     stdin.removeListener('data', onData);
@@ -916,6 +979,9 @@ async function runInteractive(opts: TuiOptions, daemonMode: 'attach' | 'embedded
   };
 
   const handleKey = async (key: Key): Promise<void> => {
+    // A key burst can span the quit key ('1qj'): after quit() the remaining
+    // keys must not mutate state or draw onto the restored shell terminal.
+    if (stopped) return;
     if (pendingKill) {
       if (key.kind === 'char' && (key.ch === 'y' || key.ch === 'Y')) {
         const target = pendingKill;
@@ -964,11 +1030,16 @@ async function runInteractive(opts: TuiOptions, daemonMode: 'attach' | 'embedded
         clampSelection();
         break;
       case '2':
+        view = 'sessions';
+        clampSelection();
+        break;
+      case '3':
+        view = 'log';
+        break;
       case 's':
         view = view === 'sessions' ? 'workers' : 'sessions';
         clampSelection();
         break;
-      case '3':
       case 'l':
         view = view === 'log' ? 'workers' : 'log';
         break;
@@ -992,7 +1063,12 @@ async function runInteractive(opts: TuiOptions, daemonMode: 'attach' | 'embedded
           note = 'attach: select a worker or session pane';
           break;
         }
+        // A burst like 'aa' must not queue a second attach behind the first
+        // (the second 'a' runs after this await returns and would re-attach).
+        if (suspended) break;
         suspended = true;
+        pendingInput = ''; // a held partial must not leak into the child
+        disarmEscFlush();
         stdin.removeListener('data', onData);
         try {
           stdin.setRawMode(false);
@@ -1001,18 +1077,32 @@ async function runInteractive(opts: TuiOptions, daemonMode: 'attach' | 'embedded
         }
         stdin.pause();
         out.write('\x1b[?1049l\x1b[?25h');
-        const code = await suspendToShell(item.paneId, item.taskId, opts.repoPath ?? process.cwd());
-        out.write('\x1b[?1049h\x1b[?25l');
-        stdin.resume();
+        let code = 1;
+        let attachError: string | null = null;
         try {
-          stdin.setRawMode(true);
-        } catch {
-          /* stdin gone (terminal closed while attached) */
+          code = await suspendToShell(item.paneId, item.taskId, opts.repoPath ?? process.cwd());
+        } catch (err) {
+          // Without this catch the teardown below never ran: suspended stayed
+          // true, the data listener stayed off — a frozen dashboard (2026-09-05
+          // keybinding incident #3).
+          attachError = err instanceof Error ? err.message : String(err);
+        } finally {
+          out.write('\x1b[?1049h\x1b[?25l');
+          stdin.resume();
+          try {
+            stdin.setRawMode(true);
+          } catch {
+            /* stdin gone (terminal closed while attached) */
+          }
+          stdin.on('data', onData);
+          suspended = false;
+          prevFrame = null;
         }
-        stdin.on('data', onData);
-        suspended = false;
-        prevFrame = null;
-        note = code === 0 ? `detached from ${item.taskId}` : `attach exited (${code})`;
+        note = attachError
+          ? `attach failed: ${attachError}`.slice(0, 80)
+          : code === 0
+            ? `detached from ${item.taskId}`
+            : `attach exited (${code})`;
         void poll();
         break;
       }
@@ -1098,6 +1188,8 @@ async function runInteractive(opts: TuiOptions, daemonMode: 'attach' | 'embedded
     try {
       const { keys, pending } = decodeKeys(pendingInput + buf.toString('utf8'));
       pendingInput = pending;
+      if (pendingInput) armEscFlush();
+      else disarmEscFlush();
       for (const key of keys) await handleKey(key);
     } catch (err) {
       // A throw here is otherwise fatal in raw mode (nothing upstream can
@@ -1139,6 +1231,7 @@ async function runInteractive(opts: TuiOptions, daemonMode: 'attach' | 'embedded
       // Never let a poll failure become an unhandled rejection (it would kill
       // the process): show it, and keep the poll loop alive below.
       note = `internal: ${err instanceof Error ? err.message : String(err)}`.slice(0, 80);
+      if (!stopped) safeDraw(); // the note must actually reach the footer
     } finally {
       polling = false;
     }
@@ -1172,18 +1265,10 @@ export async function runTui(opts: TuiOptions = {}): Promise<void> {
     entered = true;
     process.stdin.setRawMode(true);
     process.stdin.resume();
-    // Ctrl+C in raw mode never delivers SIGINT (the terminal has the TTY in
-    // raw mode), but a signal from outside (kill -INT, PTY teardown) must
-    // still quit cleanly — restore happens in runInteractive's quit().
-    const onSigint = () => {
-      process.stdin.write('q');
-    };
-    process.once('SIGINT', onSigint);
-    try {
-      await runInteractive(session.opts, session.mode);
-    } finally {
-      process.removeListener('SIGINT', onSigint);
-    }
+    // SIGINT is owned by runInteractive (it registers its own handler and
+    // calls quit() directly — the old stdin.write('q') hack wrote to the TTY
+    // output side and never actually quit).
+    await runInteractive(session.opts, session.mode);
   } catch (err) {
     // Best-effort surface, then restore the user's terminal; never crash.
     try {

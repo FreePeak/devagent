@@ -6,6 +6,7 @@ import { loadConfig, loadCredentials, credentialStatus, type CleanupMode } from 
 import { RunLogger } from './logger.js';
 import { ensureStateBranch } from './git/state-branch.js';
 import { runInit, renderInitReport } from './commands/init.js';
+import { wireFrSimple } from './commands/fr-simple-wire.js';
 import { buildStatusView, renderStatusCard, statusJson } from './commands/status.js';
 import { buildProbeArgvFor } from './commands/probe-argv.js';
 import { runSyncDocs } from './commands/sync-docs.js';
@@ -1888,5 +1889,11 @@ recordCmd
     });
     console.log(`recorded release-created ${version} (${tag} @ ${sha}) -> .devagent/runs/orchestration/events.jsonl`);
   });
+
+// FR-SIMPLE overlay (#144): after all commands are registered, re-wire
+// init/validate/ledger/queue-list with the human-card actions (--smoke,
+// --json, failure clusters). Commander .action() replaces the prior handler;
+// .option() is additive.
+wireFrSimple(program);
 
 program.parseAsync();
