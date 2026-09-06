@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, afterEach, beforeEach, vi } from 'vitest';
+import type { Mock } from 'vitest';
 import {
   buildGrokArgs,
   interpretGrokForTest,
@@ -8,6 +9,9 @@ import {
   isGrokProgressLine,
   grokChainNext,
   grokRetryModel,
+  grokPromptCacheKey,
+  grokPromptCacheEnv,
+  GROK_PROMPT_CACHE_KEY_ENV,
 } from '../../src/workers/grok.js';
 import { isTransientProviderError, transientErrorClass } from '../../src/resilience/classify.js';
 import { getWorker, workers } from '../../src/workers/index.js';
@@ -312,5 +316,140 @@ describe('grok adapter - Seam D: within-xAI fallback chain (FR-GROK-06)', () => 
     expect(grokRetryModel('grok-build-0.1', 'tokens per minute limit reached')).toBe(
       'grok-build-0.1',
     );
+  });
+});
+
+const ledger = (taskId: string, attempt = 1) => ({
+  repoPath: '/repo',
+  taskId,
+  attempt,
+  worker: 'grok',
+});
+
+describe('grok adapter - Seam A: per-task prompt-cache key (FR-GROK-04)', () => {
+  it('same task → same key across retries (attempt moves, key does not)', () => {
+    const first = grokPromptCacheKey(baseOpts({ watchdogLedger: ledger('TASK-abc', 1) }));
+    const retry = grokPromptCacheKey(baseOpts({ watchdogLedger: ledger('TASK-abc', 2) }));
+    expect(first).toBe('devagent-TASK-abc');
+    expect(retry).toBe(first);
+  });
+
+  it('distinct tasks → distinct keys', () => {
+    const a = grokPromptCacheKey(baseOpts({ watchdogLedger: ledger('TASK-abc') }));
+    const b = grokPromptCacheKey(baseOpts({ watchdogLedger: ledger('TASK-def') }));
+    expect(a).not.toBe(b);
+  });
+
+  it('absent watchdogLedger → no key derived and no key emitted', () => {
+    expect(grokPromptCacheKey(baseOpts())).toBeUndefined();
+    expect(grokPromptCacheEnv(baseOpts())).toEqual({});
+  });
+
+  it('blank taskId → no key (probe/one-off spawns stay keyless)', () => {
+    expect(grokPromptCacheKey(baseOpts({ watchdogLedger: ledger('   ') }))).toBeUndefined();
+    expect(grokPromptCacheEnv(baseOpts({ watchdogLedger: ledger('  ') }))).toEqual({});
+  });
+
+  it('the key never rides argv (grok 1.0.13 has no cache-key flag; env is the channel)', () => {
+    const opts = baseOpts({ watchdogLedger: ledger('TASK-abc') });
+    expect(buildGrokArgs(opts).join(' ')).not.toContain('devagent-TASK-abc');
+    expect(buildGrokArgs(opts, { resume: true }).join(' ')).not.toContain('devagent-TASK-abc');
+  });
+});
+
+describe('grok adapter - Seam E: cache key through the prepareWorkerSpawn env channel (FR-GROK-04)', () => {
+  let runWorkerCliMock: Mock;
+  let prepareWorkerSpawnMock: Mock;
+
+  const errRun = {
+    exitCode: 0,
+    stdout: '{"type":"error","message":"upstream 503 from api.x.ai"}\n',
+    stderr: '',
+    timedOut: false,
+  };
+  const okRun = {
+    exitCode: 0,
+    stdout:
+      '{"type":"text","data":"done"}\n{"type":"end","sessionId":"s-1","stopReason":"end_turn"}\n',
+    stderr: '',
+    timedOut: false,
+  };
+
+  const spawnEnvOf = (call: unknown[]): Record<string, string> | undefined => {
+    const preparedOpts = call[2];
+    if (!preparedOpts || typeof preparedOpts !== 'object' || !('env' in preparedOpts)) {
+      return undefined;
+    }
+    const env: unknown = preparedOpts.env;
+    if (typeof env !== 'object' || env === null) return undefined;
+    // Mocked prepareWorkerSpawn options carry the adapter's merged env verbatim.
+    return env as Record<string, string>;
+  };
+
+  // vi.doMock only reaches modules imported after resetModules — a static
+  // import cannot pick the mocks up, so the adapter is re-imported per test
+  // (module-loading-boundary exception to the static-import rule).
+  async function freshGrokAdapter() {
+    const { GrokAdapter: Fresh } = await import('../../src/workers/grok.js');
+    return Fresh;
+  }
+
+  beforeEach(() => {
+    vi.resetModules();
+    prepareWorkerSpawnMock = vi.fn().mockResolvedValue({
+      cmd: 'grok',
+      args: [],
+      opts: {},
+      strippedEnv: [],
+    });
+    vi.doMock('../../src/workers/sandbox.js', () => ({
+      prepareWorkerSpawn: prepareWorkerSpawnMock,
+    }));
+    runWorkerCliMock = vi.fn();
+    vi.doMock('../../src/workers/herdr-runtime.js', () => ({
+      runWorkerCli: runWorkerCliMock,
+    }));
+  });
+
+  afterEach(() => {
+    vi.doUnmock('../../src/workers/sandbox.js');
+    vi.doUnmock('../../src/workers/herdr-runtime.js');
+    vi.resetModules();
+  });
+
+  it('emits the same key on the first attempt and the retry (cache hits stick across the loop)', async () => {
+    const Grok = await freshGrokAdapter();
+    runWorkerCliMock.mockResolvedValueOnce(errRun).mockResolvedValueOnce(okRun);
+    const adapter = new Grok(async () => {});
+    await adapter.spawn(baseOpts({ watchdogLedger: ledger('TASK-abc') }));
+    expect(runWorkerCliMock).toHaveBeenCalledTimes(2);
+    const first = spawnEnvOf(prepareWorkerSpawnMock.mock.calls[0] ?? []);
+    const retry = spawnEnvOf(prepareWorkerSpawnMock.mock.calls[1] ?? []);
+    expect(first?.[GROK_PROMPT_CACHE_KEY_ENV]).toBe('devagent-TASK-abc');
+    expect(retry?.[GROK_PROMPT_CACHE_KEY_ENV]).toBe(first?.[GROK_PROMPT_CACHE_KEY_ENV]);
+  });
+
+  it('merges over caller env without dropping it; the per-task key wins', async () => {
+    const Grok = await freshGrokAdapter();
+    runWorkerCliMock.mockResolvedValue(okRun);
+    const adapter = new Grok(async () => {});
+    await adapter.spawn(
+      baseOpts({
+        watchdogLedger: ledger('TASK-abc'),
+        env: { FOO: 'bar', [GROK_PROMPT_CACHE_KEY_ENV]: 'stale' },
+      }),
+    );
+    const env = spawnEnvOf(prepareWorkerSpawnMock.mock.calls[0] ?? []);
+    expect(env?.FOO).toBe('bar');
+    expect(env?.[GROK_PROMPT_CACHE_KEY_ENV]).toBe('devagent-TASK-abc');
+  });
+
+  it('no watchdogLedger → no env overlay reaches prepareWorkerSpawn', async () => {
+    const Grok = await freshGrokAdapter();
+    runWorkerCliMock.mockResolvedValue(okRun);
+    const adapter = new Grok(async () => {});
+    await adapter.spawn(baseOpts());
+    const env = spawnEnvOf(prepareWorkerSpawnMock.mock.calls[0] ?? []);
+    expect(env).toBeUndefined();
   });
 });
