@@ -39,7 +39,7 @@ DEVAGENT=(npx tsx "$REPO/src/cli.ts")
 if [ -n "${SELFBUILD_MODEL:-}" ]; then
   CLAUDE_BIN="${SELFBUILD_CLAUDE:-omp -p --mode json --no-prewalk --no-lsp --no-extensions --model $SELFBUILD_MODEL}"
 else
-  CLAUDE_BIN="${SELFBUILD_CLAUDE:-omp -p --mode json --no-prewalk --no-lsp --no-extensions --model omniroute/dev}"
+  CLAUDE_BIN="${SELFBUILD_CLAUDE:-omp -p --mode json --no-prewalk --no-lsp --no-extensions --model router/dev}"
 fi
 
 mkdir -p "$STATE/research" "$STATE/goals" "$STATE/logs"

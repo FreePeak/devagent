@@ -47,8 +47,8 @@ PUSH_MODE="${SELFBUILD_PUSH_MODE:-pr}"
 # Research/PO dispatch (FR-VIS-04, 2026-09-05): these phases run INSIDE a
 # herdr pane via `devagent pane-run` (operator-visible), not bare headless
 # child processes. Overridable per role for provider pinning.
-RESEARCH_BIN="${SELFBUILD_RESEARCH_BIN:-omp -p --mode json --no-prewalk --no-lsp --no-extensions --model omniroute/dev}"
-PO_BIN="${SELFBUILD_PO_BIN:-omp -p --mode json --no-prewalk --no-lsp --no-extensions --model omniroute/dev}"
+RESEARCH_BIN="${SELFBUILD_RESEARCH_BIN:-omp -p --mode json --no-prewalk --no-lsp --no-extensions --model router/dev}"
+PO_BIN="${SELFBUILD_PO_BIN:-omp -p --mode json --no-prewalk --no-lsp --no-extensions --model router/dev}"
 CLAUDE_TIMEOUT="${SELFBUILD_CLAUDE_TIMEOUT:-600}"
 # Research runs omp with URL-fetch tooling; competitor crawls need 10-15 min
 # even when healthy (2026-09-02 live: 32 fetches, killed at 300s). PO picks a
