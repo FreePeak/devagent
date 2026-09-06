@@ -17,6 +17,7 @@ import { buildDeps, buildDryRunDeps } from './deps.js';
 import type { WorkerName } from './types.js';
 import { DEVAGENT_VERSION } from './version.js';
 import { appendReleaseRecord } from './orchestrator/ledger.js';
+import { checkBacklogPick, listMergedPrTitles, strikeBacklogItems } from './task.js';
 import { buildAdjacentCategoryScanText } from './research/scan-text.js';
 
 function parseConcurrency(v: string): number | 'auto' {
@@ -40,6 +41,37 @@ program
   )
   .action(() => {
     console.log(buildAdjacentCategoryScanText());
+  });
+
+program
+  .command('backlog-check')
+  .description(
+    'Machine-readable PRD backlog pick check (PRD:889): cross-check a Phase 4 backlog id named by a selfbuild goal against merged PR titles + completion notes BEFORE dispatch (same rule as `task --pick`). Exit 0 = current backlog (dispatch ok), 1 = already shipped (skip the iteration), 2 = unresolved (id not in the backlog, no docs/PRD.md, or no merged-title evidence — caller falls back to its own guard). With --strike, confirmed-shipped items are struck from the Phase 4 backlog section in the same run.',
+  )
+  .argument('<pick-id>', 'backlog item id named by the goal (e.g. Q40)')
+  .option('--repo <path>', 'target repository', process.cwd())
+  .option('--strike', 'write confirmed-shipped items struck (~~...~~) into docs/PRD.md', false)
+  .action(async (pickId: string, opts) => {
+    const prdPath = join(opts.repo, 'docs', 'PRD.md');
+    if (!existsSync(prdPath)) {
+      console.error(`backlog-check: no docs/PRD.md in ${opts.repo}`);
+      process.exitCode = 2;
+      return;
+    }
+    const prd = readFileSync(prdPath, 'utf8');
+    const mergedTitles = await listMergedPrTitles(opts.repo);
+    const check = checkBacklogPick(pickId, prd, mergedTitles);
+    if (opts.strike && check.struckIds.length > 0) {
+      writeFileSync(prdPath, strikeBacklogItems(prd, check.struckIds));
+      console.log(`struck: ${check.struckIds.join(' ')}`);
+    }
+    console.log(check.message);
+    // An unresolved check must not silently supersede the caller's own guard:
+    // with no origin/offline the merged-title evidence is empty, so a shipped
+    // item that is neither struck nor named in a completion note would read as
+    // current. Exit 2 tells the driver to fall back to the ledger heuristic.
+    if (check.ok && mergedTitles.length === 0) process.exitCode = 2;
+    else process.exitCode = check.ok ? 0 : check.shipped ? 1 : 2;
   });
 
 program

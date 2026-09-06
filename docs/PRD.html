@@ -2102,23 +2102,23 @@ sync degrades to a skipped heartbeat cycle (ace2b88).</p>
 </blockquote>
 <h4 id="phase-4--current-backlog-2026-09-03-curation-run-24">Phase 4 —
 current backlog (2026-09-03, curation run 24)</h4>
-<ul>
-<li><strong>Cross-board retry memory beyond the SHA guard</strong> —
-commit 60638d3 stops re-issuing shipped goals, but re-queued failures
+<p><del>- <strong>Cross-board retry memory beyond the SHA guard</strong>
+— commit 60638d3 stops re-issuing shipped goals, but re-queued failures
 still get a fresh attempt budget; carry the prior board's failure class
 onto the re-bridged goal so the scout deprioritizes until the root-cause
-fix lands (Q27).</li>
-<li><strong>Regression oracle before board merge</strong> — gates judge
-single PRs and PR #108's committed STRIDE allowlist widens suppression
-paths; add a board-level "is the system at least as good?" check (full
-suite on the merged result) ahead of <code>autoMerge</code>, per the
-Kitchen Loop zero-regression rule.</li>
-<li><strong>GRADIENT — structural gradient sensor</strong> — exit-code
-scalar architecture gate (sentrux: <code>.sentrux/rules.toml</code>,
-lowest-scoring root cause per change) plus an adjacent-category scan
-(sensors, MCP servers, harness tooling) in scout/selfbuild research
-prompts; the agent-products-only funnel is why sentrux was missed
-entirely (2026-09-01 human deep-dive; Q38).</li>
+fix lands (Q27).</del> <del>- <strong>Regression oracle before board
+merge</strong> — gates judge single PRs and PR #108's committed STRIDE
+allowlist widens suppression paths; add a board-level "is the system at
+least as good?" check (full suite on the merged result) ahead of
+<code>autoMerge</code>, per the Kitchen Loop zero-regression rule.</del>
+<del>- <strong>GRADIENT — structural gradient sensor</strong> —
+exit-code scalar architecture gate (sentrux:
+<code>.sentrux/rules.toml</code>, lowest-scoring root cause per change)
+plus an adjacent-category scan (sensors, MCP servers, harness tooling)
+in scout/selfbuild research prompts; the agent-products-only funnel is
+why sentrux was missed entirely (2026-09-01 human deep-dive;
+Q38).</del></p>
+<ul>
 <li><strong>Release/tag events as ledger outcomes</strong> — <del>the
 release workflow needed same-day hotfixes (9c7132a remote-tag resolution
 + idempotent tag) yet the ledger stays PR-URL-only; record tag/release
@@ -2142,21 +2142,20 @@ re-selected three runs running (PRs #119/#120/#122) because the Phase 4
 backlog lags merges; cross-check a pick against merged PR titles and
 these completion notes before dispatch, and strike shipped items in the
 same run (Q27 family; extends the curator title-match rule from the
-2026-08-31 queue sweep).</li>
-<li><strong>Lessons must-beat-best-so-far + held-out tier</strong> —
-Q39's measured score now ranks the digest, but nothing requires a
-candidate to beat the current best on loops it did not inform; add the
-AHE/Meta-Harness held-out slice so ranking cannot game the training
-distribution (flagged "future work" in the run-24 note above).</li>
-<li><strong>Simplicity-first surface pass (§21 FR-SIMPLE)</strong> — the
-2026-09-05 operator direction (§21) makes user simplicity the deciding
-quality: ship the implementable v1 slice — <code>devagent init</code>
-guided setup with prerequisite checks + verified smoke (FR-SIMPLE-01),
-the ≤3-step goal path with sane defaults (FR-SIMPLE-02), and
-human-readable-by-default status rendering in the §20.8 card/chip
-language with <code>--json</code> opt-out (FR-SIMPLE-03, FR-SIMPLE-04);
-walk the §21.1 four principles over the onboarding path at release
-review (FR-SIMPLE-06).</li>
+2026-08-31 queue sweep). <del>- <strong>Lessons must-beat-best-so-far +
+held-out tier</strong> — Q39's measured score now ranks the digest, but
+nothing requires a candidate to beat the current best on loops it did
+not inform; add the AHE/Meta-Harness held-out slice so ranking cannot
+game the training distribution (flagged "future work" in the run-24 note
+above).</del> <del>- <strong>Simplicity-first surface pass (§21
+FR-SIMPLE)</strong> — the 2026-09-05 operator direction (§21) makes user
+simplicity the deciding quality: ship the implementable v1 slice —
+<code>devagent init</code> guided setup with prerequisite checks +
+verified smoke (FR-SIMPLE-01), the ≤3-step goal path with sane defaults
+(FR-SIMPLE-02), and human-readable-by-default status rendering in the
+§20.8 card/chip language with <code>--json</code> opt-out (FR-SIMPLE-03,
+FR-SIMPLE-04); walk the §21.1 four principles over the onboarding path
+at release review (FR-SIMPLE-06).</del></li>
 </ul>
 <h3 id="phase-5--personal-agent-surface-proposed-post-v1">Phase 5 —
 Personal agent surface (proposed, post-v1)</h3>
