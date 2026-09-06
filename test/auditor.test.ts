@@ -280,6 +280,74 @@ describe('recovery contracts (LH manager re-contracting)', () => {
   });
 });
 
+describe('cumulative attempt cap (Q17/Q36)', () => {
+  it('refuses the recovery re-contract once lifetime dispatches reach the cap; the task stays terminal failed', async () => {
+    const b = board([task({ id: 'T1' })]);
+    let execs = 0;
+    let recoveries = 0;
+    await runScheduler(
+      b,
+      { repoPath: '.', executor: 'claude-code', concurrency: 1, maxTaskRetries: 1, maxRecoveries: 5, maxTotalAttempts: 2, timeoutMs: 1000 },
+      {
+        executeTask: async () => {
+          execs += 1;
+          return { ok: false, detail: 'tests failed' };
+        },
+        planRecovery: async () => {
+          recoveries += 1;
+          return { prompt: 'try harder' };
+        },
+      },
+      log,
+    );
+    // round 1: dispatch #1 (total 1 < cap) fails -> grant, attempts reset;
+    // round 2: dispatch #2 (total 2 >= cap) fails -> grant refused even
+    // though maxRecoveries 5 still allows it. Uncapped, this doomed task
+    // would have burned 6 dispatches — the loops 53-55 re-burn class.
+    expect(execs).toBe(2);
+    expect(recoveries).toBe(1);
+    const t1 = b.tasks[0]!;
+    expect(t1.status).toBe('failed');
+    expect(t1.attempts).toBe(1); // per-round budget semantics unchanged
+    expect(t1.totalAttempts).toBe(2); // lifetime counter, never reset
+  });
+
+  it('keeps a capped failed task terminal on early escalation despite leftover per-round budget', async () => {
+    const b = board([task({ id: 'T1' })]);
+    let execs = 0;
+    let plannerCalls = 0;
+    await runScheduler(
+      b,
+      { repoPath: '.', executor: 'claude-code', concurrency: 1, maxTaskRetries: 3, maxRecoveries: 1, maxTotalAttempts: 2, timeoutMs: 1000 },
+      {
+        executeTask: async () => {
+          execs += 1;
+          return { ok: true };
+        },
+        auditTask: async () => ({
+          verdict: 'fail',
+          integrity: 'clean',
+          criteriaResults: [{ criterion: 'b holds', met: false, evidence: 'grep found nothing' }],
+          summary: 'not done',
+        }), // identical primary gap every attempt
+        planRecovery: async () => {
+          plannerCalls += 1;
+          return { prompt: 'rewrite' };
+        },
+      },
+      log,
+    );
+    // attempt 1: gap streak 1 -> retry; attempt 2: streak 2 -> early
+    // escalation -> grant refused at the cap (total 2 >= 2) before any
+    // planner spend, and the failed task stays out of the queue even
+    // though attempts 2 < maxTaskRetries 3.
+    expect(execs).toBe(2);
+    expect(plannerCalls).toBe(0);
+    expect(b.tasks[0]!.status).toBe('failed');
+    expect(b.tasks[0]!.totalAttempts).toBe(2);
+  });
+});
+
 describe('repeat-gap escalation (SWE-agent L2)', () => {
   const failVerdict = (criterion: string): AuditVerdict => ({
     verdict: 'fail',

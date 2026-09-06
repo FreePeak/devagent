@@ -81,6 +81,14 @@ export interface SchedulerOptions {
   /** Recovery-contract grants per task before a failure goes terminal */
   maxRecoveries?: number;
   /**
+   * Cumulative lifetime cap on dispatches per task across requeue rounds
+   * and recovery contracts (Q17/Q36): 0/undefined = unbounded (legacy).
+   * Above it the recovery re-contract is refused and failed tasks are not
+   * re-dispatched, so a fresh per-round `maxTaskRetries` budget can never
+   * re-burn the same failure class indefinitely.
+   */
+  maxTotalAttempts?: number;
+  /**
    * Consecutive audits repeating the same primary gap that trigger early
    * recovery escalation (default 2 — SWE-agent decay data says a third
    * identical attempt rarely recovers).
@@ -107,10 +115,24 @@ export async function runScheduler(
 ): Promise<ProjectBoard> {
   const maxRecoveries = opts.maxRecoveries ?? 1;
   const repeatGapThreshold = opts.repeatGapThreshold ?? 2;
+  const maxTotalAttempts = opts.maxTotalAttempts ?? 0;
+  /** Q17/Q36: lifetime dispatches at/above the cap — the budget must not refresh. */
+  const cumulativeCapped = (task: OrchestratorTask): boolean =>
+    maxTotalAttempts > 0 && (task.totalAttempts ?? 0) >= maxTotalAttempts;
 
   /** Grant one planner-written re-contract before a failure goes terminal. */
   const grantRecovery = async (task: OrchestratorTask): Promise<boolean> => {
     if (!deps.planRecovery || (task.recoveries ?? 0) >= maxRecoveries) return false;
+    // Refuse the fresh per-round budget before spending planner work: the
+    // task stays terminal (caller flips it to 'failed').
+    if (cumulativeCapped(task)) {
+      log.warn(
+        'task',
+        `${task.id} recovery refused: ${task.totalAttempts ?? 0} lifetime attempt(s) >= cumulative cap ${maxTotalAttempts}`,
+        {},
+      );
+      return false;
+    }
     let rec: { prompt: string; acceptanceCriteria?: string[] } | null = null;
     try {
       rec = await deps.planRecovery({ task, board });
@@ -150,7 +172,9 @@ export async function runScheduler(
   for (;;) {
     board.tasks = recomputeReadiness(board.tasks);
     const queue = board.tasks.filter(
-      (t) => t.status === 'ready' || (t.status === 'failed' && t.attempts < opts.maxTaskRetries),
+      (t) =>
+        t.status === 'ready' ||
+        (t.status === 'failed' && t.attempts < opts.maxTaskRetries && !cumulativeCapped(t)),
     );
     if (queue.length === 0) break;
     // Budget ceiling: stop dispatching, leave the board resumable
@@ -202,6 +226,8 @@ export async function runScheduler(
         activeWorkers += 1;
         task.status = 'dispatched';
         task.attempts += 1;
+        // lifetime counter (Q17/Q36): never reset by recovery grants or requeue
+        task.totalAttempts = (task.totalAttempts ?? 0) + 1;
         log.info('task', `Dispatching ${task.id}: ${task.title}`, { attempt: task.attempts });
         try {
           const r = await deps.executeTask({ task, board, repoPath: opts.repoPath, timeoutMs: opts.timeoutMs, lessonsFile: opts.lessonsFile, lessonsMaxChars: opts.lessonsMaxChars, log });

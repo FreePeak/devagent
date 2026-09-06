@@ -41,10 +41,15 @@ import { BOARD_FILE } from './types.js';
  *   - all failed/blocked,
  *     parked polls < threshold  → wait (parked, logged with P/Q counter)
  *   - threshold reached         → requeue (failed/blocked → pending,
- *                                 attempts reset to 0), then re-inspect:
- *     still failed/blocked      → archive board-stuck (defensive: requeue
- *                                 clears every dispatch-dead status, so this
- *                                 only fires if the reset write failed)
+ *                                 attempts reset to 0; a task whose
+ *                                 lifetime `totalAttempts` reaches the
+ *                                 cumulative cap Q17/Q36 is refused the
+ *                                 reset and stays dispatch-dead), then
+ *                                 re-inspect:
+ *     still failed/blocked      → archive board-stuck (fires in practice
+ *                                 when the cap refused every dead task;
+ *                                 defensively also if the reset write
+ *                                 failed)
  *     every task pending        → the scheduler still cannot dispatch
  *                                 (readiness never recomputes for a board
  *                                 with no done tasks to unblock deps), so
@@ -67,6 +72,7 @@ const DEAD_STATUSES: readonly string[] = ['failed', 'blocked'];
 interface BoardTaskLike {
   status?: unknown;
   attempts?: unknown;
+  totalAttempts?: unknown;
 }
 
 /** Parsed board file: the raw object (written back verbatim after a requeue)
@@ -94,6 +100,13 @@ export interface RecoveryOptions {
   requeueAfter: number;
   /** Loop sleep seconds, quoted in wait/requeue verdict text. */
   pollSecs: number;
+  /**
+   * Cumulative lifetime dispatch cap (Q17/Q36): a failed/blocked task whose
+   * `totalAttempts` reaches it is refused the requeue reset and stays
+   * terminal. 0/undefined = unbounded (legacy: every requeue round handed
+   * out a fresh `maxTaskRetries` budget — the loops 53-55 re-burn class).
+   */
+  maxTotalAttempts?: number;
 }
 
 export type RecoveryAction = 'wait' | 'requeue' | 'archive';
@@ -153,10 +166,11 @@ export function decideBoardRecovery(counts: BoardCounts, opts: RecoveryOptions):
 
 /**
  * Post-requeue decision, over the counts recomputed AFTER the reset write.
- * The stuck branch is defensive table parity — requeue clears every
- * dispatch-dead status (and a failed reset write throws, exiting the gate
- * unresolved), so it cannot fire in practice. The all-pending branch is the
- * real one: a board with no done task never recomputes readiness, so
+ * The stuck branch fires when the cumulative attempt cap (Q17/Q36) refused
+ * the reset for at least one dead task — those stay failed/blocked and the
+ * board is archived; defensively it also covers a failed reset write (which
+ * throws, exiting the gate unresolved). The all-pending branch is the
+ * original real one: a board with no done task never recomputes readiness, so
  * requeue cannot unstick it; archive and let the queue bridge take over.
  */
 export function decidePostRequeue(counts: BoardCounts): PostRequeueIntent {
@@ -193,27 +207,44 @@ function readBoard(boardPath: string): BoardFile | null {
   return { raw: parsed, tasks };
 }
 
+/** Outcome of a requeue pass: resets performed vs refused by the cumulative cap. */
+export interface RequeueResult {
+  /** Dead tasks reset to pending with a fresh per-round attempts budget. */
+  reset: number;
+  /** Dead tasks at/above the cumulative cap — refused, left terminal (Q17/Q36). */
+  capped: number;
+}
+
 /**
  * Port of requeue_parked(): failed/blocked → pending with the attempts
  * budget reset; writes only when something changed, preserving the shell's
  * byte-for-byte JSON shape (2-space indent, trailing newline). tmp+rename
- * so a crash mid-write cannot corrupt the board.
+ * so a crash mid-write cannot corrupt the board. Above the cumulative cap
+ * (Q17/Q36, 0 = unbounded) a dead task is refused the fresh budget and
+ * stays failed/blocked; `totalAttempts` itself is never reset. Missing or
+ * non-numeric lifetime history counts as zero, mirroring the shell's
+ * leniency on hand-edited boards.
  */
-export function requeueParked(boardPath: string, board: BoardFile): number {
-  let n = 0;
+export function requeueParked(boardPath: string, board: BoardFile, maxTotalAttempts = 0): RequeueResult {
+  let reset = 0;
+  let capped = 0;
   for (const t of board.tasks) {
-    if (t && DEAD_STATUSES.includes(String(t.status))) {
-      t.status = 'pending';
-      t.attempts = 0;
-      n++;
+    if (!t || !DEAD_STATUSES.includes(String(t.status))) continue;
+    const total = Number(t.totalAttempts);
+    if (maxTotalAttempts > 0 && Number.isFinite(total) && total >= maxTotalAttempts) {
+      capped++;
+      continue;
     }
+    t.status = 'pending';
+    t.attempts = 0;
+    reset++;
   }
-  if (n > 0) {
+  if (reset > 0) {
     const tmp = `${boardPath}.tmp`;
     writeFileSync(tmp, JSON.stringify(board.raw, null, 2) + '\n');
     renameSync(tmp, boardPath);
   }
-  return n;
+  return { reset, capped };
 }
 
 /** Move the board into .devagent/archive/ under `prefix-<stamp>.json`; returns the repo-relative path. */
@@ -274,14 +305,18 @@ export function runBoardRecovery(repoPath: string, opts: RunBoardRecoveryOptions
     return { action: 'wait', reason: `board complete (${counts.done} done); archived to ${rel}` };
   }
 
-  const reset = requeueParked(boardPath, board);
+  const { reset, capped } = requeueParked(boardPath, board, opts.maxTotalAttempts ?? 0);
   const post = decidePostRequeue(countBoard(board.tasks));
   if (post.kind === 'requeue') {
     return { action: 'requeue', reason: `reset ${reset} parked task(s) to pending${sleep}` };
   }
   const rel = archiveBoard(repoPath, boardPath, 'board-stuck', stamp);
+  // capped > 0 guarantees stuck > 0 here, so refusals always land on this
+  // archive verdict: the tasks stay terminal and the loop re-bridges.
+  const capNote =
+    capped > 0 ? `${capped} task(s) over cumulative attempt cap ${opts.maxTotalAttempts ?? 0}; ` : '';
   return {
     action: 'archive',
-    reason: `reset ${reset} parked task(s) to pending; ${post.detail}; archived to ${rel}`,
+    reason: `reset ${reset} parked task(s) to pending; ${capNote}${post.detail}; archived to ${rel}`,
   };
 }
