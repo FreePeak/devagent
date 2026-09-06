@@ -61,4 +61,43 @@ describe('decodeKeys', () => {
   it('preserves a multibyte utf8 char as one key', () => {
     expect(decodeKeys('ü').keys).toEqual([{ kind: 'char', ch: 'ü' }]);
   });
+
+  // 2026-09-05 keybinding incident: a tilde sequence split across chunks was
+  // decoded early (SEQ_MAX=3 vs the 4-char "\x1b[5~"), and the trailing '~'
+  // leaked into the next chunk as a literal character.
+  it('holds a split tilde sequence pending until the ~ arrives', () => {
+    const a = decodeKeys('\x1b[5');
+    expect(a.keys).toEqual([]);
+    expect(a.pending).toBe('\x1b[5');
+    const b = decodeKeys(`${a.pending}~`);
+    expect(b.keys).toEqual([{ kind: 'pgup' }]);
+    expect(b.pending).toBe('');
+  });
+
+  it('flush mode degrades a stuck partial to a single Esc press', () => {
+    // The caller's ESC-disambiguation timer fired: the held prefix becomes the
+    // Esc key instead of stalling until another keypress arrives.
+    expect(decodeKeys('\x1b', { flush: true }).keys).toEqual([{ kind: 'esc' }]);
+    expect(decodeKeys('\x1b[', { flush: true }).keys).toEqual([{ kind: 'esc' }]);
+    expect(decodeKeys('\x1b[5', { flush: true }).keys).toEqual([{ kind: 'esc' }]);
+    expect(decodeKeys('\x1bO', { flush: true }).keys).toEqual([{ kind: 'esc' }]);
+    // Without flush the partial is still held, not decoded.
+    expect(decodeKeys('\x1b').pending).toBe('\x1b');
+  });
+
+  it('consumes unknown tilde sequences whole (Delete no longer leaks esc+3+~)', () => {
+    // "\x1b[3~" (Delete) used to decode as Esc + '3' + '~': Esc closed the
+    // overlay and '3' switched the view. Now it is one key; unknown codes drop.
+    expect(decodeKeys('\x1b[3~').keys).toEqual([{ kind: 'delete' }]);
+    expect(decodeKeys('\x1b[2~').keys).toEqual([]); // Insert
+    expect(decodeKeys('\x1b[15~').keys).toEqual([]); // F5 — no home+'5'+'~' garbage
+  });
+
+  it('consumes unknown CSI finals whole (shift-tab no longer leaks esc+Z)', () => {
+    expect(decodeKeys('\x1b[Zj').keys).toEqual([{ kind: 'char', ch: 'j' }]);
+  });
+
+  it('maps parameterized arrows by base final', () => {
+    expect(decodeKeys('\x1b[1;5A').keys).toEqual([{ kind: 'up' }]);
+  });
 });

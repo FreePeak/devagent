@@ -139,26 +139,31 @@ phase() { # phase <loop> <phase> [detail]
 # restart lost the record) each burned attempts on an already-planned goal.
 already_shipped() { # already_shipped <goal-text>
   [ -f "$STATE/ledger.jsonl" ] || return 1
-  # Match on the PRD backlog item id (Q35, Q24, ...) when the goal's subject
-  # names one — goal text is rewritten between selection and ledger record,
-  # but the item id is stable. The id is extracted from the first 80 chars
-  # only: a goal that MERELY references an id in its body (loop-104's
-  # "strike shipped bullets" goal mentions Q27 at char ~150 while executing
-  # the Q27-family reconciliation bullet) must not match every ok row that
-  # ever shipped that id — that false positive skipped 3 of the 5 strikes
-  # that tripped the 2026-09-06 starvation gate. Subject-scoped ids still
-  # catch the real re-burn class (Q35 re-picked as "Goal: Ship the Q35 ...",
-  # Q24 as "Goal: Q24 ..."). Also match the normalized first 60 chars as a
-  # loose fallback.
+  # Match on the PRD backlog item id (Q35, Q24, ...) when the goal's SUBJECT
+  # names one. The id is stable but goal text is rewritten between selection
+  # and record, and an ok row may only MENTION an id in passing: loop-100's
+  # doc-sync goal reads "+ Q41 degradation surface", yet Q41 — the open
+  # no-notification-surface gap (PRD :937) — is still unshipped. A whole-row
+  # id match made loop-109's "Goal: Q41 ..." skip as already-shipped (false
+  # positive that contributed to the 2026-09-06 starvation halt). So the id
+  # must sit in the SUBJECT of BOTH the candidate and the ok row: take the
+  # goal text up to the first "(" (or 90 chars) and require the id there. The
+  # real re-burn class still matches (loop-58/71 re-picked Q27/Q35 with the
+  # id in the subject). Keep the first-60-char goal-prefix fallback too.
   want=$(printf '%s' "$1" | tr -d '"' | tr -s '[:space:]' ' ')
-  local item
-  item=$(printf '%s' "${want:0:80}" | grep -oE 'Q[0-9]+' | head -1 || true)
+  local subject item
+  subject=$(printf '%s' "${want%%(*}" | cut -c1-80)
+  item=$(printf '%s' "$subject" | grep -oE 'Q[0-9]+' | head -1 || true)
   awk -v want="$want" -v item="${item:-}" '
     /"status":"(ok|pr-open|merged|pushed)"/ {
       gsub(/"/, "", $0)
       gsub(/[[:space:]]+/, " ", $0)
       key = substr(want, 1, 60)
-      if ((item != "" && index($0, item) > 0) || index($0, key) > 0) found = 1
+      if (index($0, key) > 0) { found = 1; next }
+      gsub(/.*goal:/, "", $0)            # isolate the goal field value
+      head = substr($0, 1, 90)
+      sub(/\(.*/, "", head)             # subject before first paren
+      if (item != "" && index(head, item) > 0) found = 1
     }
     END { exit found ? 0 : 1 }
   ' "$STATE/ledger.jsonl"

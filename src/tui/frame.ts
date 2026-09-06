@@ -11,7 +11,7 @@
  * columns first so no line ever wraps (a wrapped line would desync the diff).
  */
 
-import { visibleLen } from './viz.js';
+import { charCellWidth, visibleLen } from './viz.js';
 
 /** Copy any leading ANSI SGR sequence at position i without burning width budget. */
 function sgrAt(line: string, i: number): string | null {
@@ -35,9 +35,10 @@ export function clampLine(line: string, width: number, reset = '\x1b[0m'): strin
       i += sgr.length;
       continue;
     }
-    const ch = line[i]!;
-    const w = ch.codePointAt(0)! > 0xffff ? 2 : 1; // ballpark: astral ≈ 2 cells
+    const cp = line.codePointAt(i)!;
+    const w = charCellWidth(cp);
     if (vis + w > limit) break;
+    const ch = String.fromCodePoint(cp);
     out += ch;
     vis += w;
     i += ch.length;
