@@ -1,0 +1,8 @@
+{"type":"available_commands","tools":["run_terminal_command","read_file","search_replace","todo_write"]}
+{"type":"thought","data":"Running"}
+{"type":"thought","data":" the"}
+{"type":"thought","data":" gate."}
+{"type":"tool_call","toolCallId":"call-whole-1","title":"run_terminal_command","kind":"execute","status":"pending","toolName":"run_terminal_command","rawInput":{"command":"npm test","description":"Run the test gate"},"content":[],"locations":[]}
+{"type":"tool_call_update","toolCallId":"call-whole-1","status":"completed","content":[{"type":"content","content":{"type":"text","text":"Run the test gate"}}],"rawOutput":"all tests passed","locations":[]}
+{"type":"usage","usage":{"input_tokens":812,"output_tokens":41,"cache_read_input_tokens":1024,"cache_creation_input_tokens":0,"reasoning_tokens":9},"total_cost_usd_ticks":981000}
+{"type":"tool_call","toolCallId":"call-whole-2","title":"read_file","kind":"read","status":"pending","toolName":"read_file","rawInput":{"path":"src/foo.ts"},"content":[],"locations":[]}

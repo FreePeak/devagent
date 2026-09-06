@@ -1,9 +1,16 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { buildGrokArgs, interpretGrokForTest, GrokAdapter, isGrokProgressLine } from '../../src/workers/grok.js';
+import {
+  buildGrokArgs,
+  interpretGrokForTest,
+  GrokAdapter,
+  isGrokProgressLine,
+  grokChainNext,
+  grokRetryModel,
+} from '../../src/workers/grok.js';
+import { isTransientProviderError, transientErrorClass } from '../../src/resilience/classify.js';
 import { getWorker, workers } from '../../src/workers/index.js';
-import type { WorkerSpawnOptions } from '../../src/types.js';
 
 const fixture = (name: string): string =>
   readFileSync(fileURLToPath(new URL(`./__fixtures__/${name}`, import.meta.url)), 'utf8');
@@ -105,6 +112,22 @@ describe('grok adapter - Seam B: streaming-json NDJSON parsing (captured fixture
     expect(o.parsed).toBeNull();
   });
 
+  it('classifies the captured 401 as non-retryable end-to-end (FR-GROK-06)', () => {
+    // The grok error fixture's message contains "temporarily unavailable"
+    // and "retry in a few seconds" — transient wording that must NOT flip
+    // an auth failure into an infinite infra retry.
+    const o = interpretGrokForTest({
+      exitCode: 0,
+      stdout: fixture('grok-error-2026-09-06.jsonl'),
+      stderr: '',
+      timedOut: false,
+    });
+    expect(o.isError).toBe(true);
+    expect(o.errorText).toContain('Unauthorized (401)');
+    expect(isTransientProviderError(o.errorText)).toBe(false);
+    expect(transientErrorClass(o.errorText)).toBeNull();
+  });
+
   it('surfaces stderr on garbage stdout with no end event', () => {
     const o = interpretGrokForTest({
       exitCode: 1,
@@ -127,6 +150,38 @@ describe('grok adapter - Seam B: streaming-json NDJSON parsing (captured fixture
     });
     expect(o.parsed).toBeNull();
     expect(o.timedOut).toBe(true);
+  });
+
+  it('reads a stream ending on whole tool_call events as progress, never empty/failed (FR-GROK-06)', () => {
+    const o = interpretGrokForTest({
+      exitCode: 0,
+      stdout: fixture('grok-toolcall-whole-2026-09-07.jsonl'),
+      stderr: '',
+      timedOut: false,
+    });
+    expect(o.isError).toBe(false);
+    expect(o.errorText).toBeUndefined();
+    expect(o.toolCallCount).toBe(2);
+    // The last tool event survives as `parsed`, so finalize emits a result
+    // event: the zero-events "empty" signature cannot fire.
+    expect(o.parsed).not.toBeNull();
+    expect(o.parsed?.type).toBe('tool_call');
+    expect(o.parsed?.toolCallId).toBe('call-whole-2');
+    // No assistant text was streamed — resultText stays honestly null.
+    expect(o.resultText).toBeNull();
+    // Cost still rides the usage row.
+    expect(o.costUsdTicks).toBe(981000);
+  });
+
+  it('does not promote stderr noise to errorText while tool activity is present (FR-GROK-06)', () => {
+    const o = interpretGrokForTest({
+      exitCode: 0,
+      stdout: fixture('grok-toolcall-whole-2026-09-07.jsonl'),
+      stderr: 'warning: telemetry flush failed',
+      timedOut: false,
+    });
+    expect(o.isError).toBe(false);
+    expect(o.errorText).toBeUndefined();
   });
 });
 
@@ -204,5 +259,58 @@ describe('grok adapter - Seam C: meaningful-line progress filter (Q33)', () => {
     expect(isGrokProgressLine('')).toBe(false);
     expect(isGrokProgressLine('   ')).toBe(false);
     expect(isGrokProgressLine('not json')).toBe(false);
+  });
+});
+
+describe('grok adapter - Seam A: chain model override on argv (FR-GROK-06)', () => {
+  it('forwards the chain override even when opts.model is unset', () => {
+    const args = buildGrokArgs(baseOpts({ model: undefined }), { model: 'grok-4.3' });
+    expect(args).toContain('--model');
+    expect(args[args.indexOf('--model') + 1]).toBe('grok-4.3');
+  });
+
+  it('the override still passes the FR-GROK-02 predicate (aliases are dropped)', () => {
+    const args = buildGrokArgs(baseOpts({ model: undefined }), { model: 'coding' });
+    expect(args).not.toContain('--model');
+  });
+});
+
+describe('grok adapter - Seam D: within-xAI fallback chain (FR-GROK-06)', () => {
+  it('steps grok-4.6 → grok-4.3 → grok-build-0.1 and stops', () => {
+    expect(grokChainNext('grok-4.6')).toBe('grok-4.3');
+    expect(grokChainNext('grok-4.3')).toBe('grok-build-0.1');
+    expect(grokChainNext('grok-build-0.1')).toBeNull();
+  });
+
+  it('positions dated pins and xai/-qualified ids at their chain rung', () => {
+    expect(grokChainNext('grok-4.6-2026-08-14')).toBe('grok-4.3');
+    expect(grokChainNext('xai/grok-4.3')).toBe('grok-build-0.1');
+  });
+
+  it('unset starts at the chain head; a non-chain family yields null', () => {
+    expect(grokChainNext(undefined)).toBe('grok-4.6');
+    expect(grokChainNext('')).toBe('grok-4.6');
+    expect(grokChainNext('grok-4.5')).toBeNull();
+  });
+
+  it('advances only on the rate-limit-tpm class', () => {
+    const tpm = '429 rate_limit_error: exceeded tokens per minute (TPM) limit';
+    expect(grokRetryModel('grok-4.6', tpm)).toBe('grok-4.3');
+    // RPS is a cooldown problem, not a context problem: same model.
+    expect(
+      grokRetryModel('grok-4.6', '429 requests per second (RPS) limit exceeded'),
+    ).toBe('grok-4.6');
+    // 5xx, generic rate-limit, and non-transient text never step the chain.
+    expect(grokRetryModel('grok-4.6', 'Server error (503) from https://api.x.ai/v1')).toBe(
+      'grok-4.6',
+    );
+    expect(grokRetryModel('grok-4.6', '429 too many requests')).toBe('grok-4.6');
+    expect(grokRetryModel('grok-4.6', null)).toBe('grok-4.6');
+  });
+
+  it('chain exhaustion keeps the tail model (cross-provider fallback is above)', () => {
+    expect(grokRetryModel('grok-build-0.1', 'tokens per minute limit reached')).toBe(
+      'grok-build-0.1',
+    );
   });
 });

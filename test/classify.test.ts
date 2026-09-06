@@ -35,4 +35,25 @@ describe('isTransientProviderError', () => {
     expect(isTransientProviderError(undefined)).toBe(false);
     expect(isTransientProviderError('')).toBe(false);
   });
+
+  it('flags xAI 429 sub-classes and numeric 5xx as transient (FR-GROK-06)', () => {
+    expect(isTransientProviderError('exceeded tokens per minute (TPM) limit')).toBe(true);
+    expect(isTransientProviderError('rate_limit_error: tokens_per_minute exceeded')).toBe(true);
+    expect(isTransientProviderError('requests per second limit reached')).toBe(true);
+    expect(
+      isTransientProviderError('Server error (503) from https://api.x.ai/v1/chat/completions'),
+    ).toBe(true);
+    expect(isTransientProviderError('500 internal server error')).toBe(true);
+  });
+
+  it('keeps the grok 401 fixture non-retryable despite transient wording (FR-GROK-06)', () => {
+    // Excerpt from test/workers/__fixtures__/grok-error-2026-09-06.jsonl:
+    // "temporarily unavailable" + "retry in a few seconds" must not flip
+    // an auth failure into an infinite infra retry.
+    expect(
+      isTransientProviderError(
+        'Internal error: "Unauthorized (401) from http://127.0.0.1:20128/v1/chat/completions: authentication_error: Invalid API key. Authentication is temporarily unavailable (often a network blip right after wake). Your session is still signed in and will recover automatically — retry in a few seconds; no need to run /login."',
+      ),
+    ).toBe(false);
+  });
 });
