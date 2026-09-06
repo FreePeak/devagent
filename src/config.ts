@@ -59,9 +59,14 @@ export interface DevAgentConfig {
    * Resilience: worker retry budget is Infinity by default; this caps
    * apiMaxAttempts when set. Null/false disables the watchdog; a number
    * enables the no-progress watchdog (default 10m when resilience block present,
-   * else 0 for back-compat). Env overrides: DEVAGENT_API_MAX_ATTEMPTS, DEVAGENT_NO_PROGRESS_TIMEOUT_MS.
+   * else 0 for back-compat). Env overrides: DEVAGENT_API_MAX_ATTEMPTS,
+   * DEVAGENT_NO_PROGRESS_TIMEOUT_MS.
+   * Q31: coldStartTimeoutMs is the first-progress deadline — kill a launch
+   * when no adapter-classified progress line arrives within this long
+   * (default 90s at the dispatch sites; 0 disables). Env override:
+   * DEVAGENT_COLD_START_TIMEOUT_MS.
    */
-  resilience?: { apiMaxAttempts?: number; noProgressTimeoutMs?: number };
+  resilience?: { apiMaxAttempts?: number; noProgressTimeoutMs?: number; coldStartTimeoutMs?: number };
   /**
    * Herdr runtime: run worker CLIs inside herdr (https://github.com/herdrdev/herdr)
    * panes in a dedicated persistent session so runs are visible, reattachable,
@@ -149,6 +154,7 @@ export function loadConfig(repoPath: string = process.cwd()): DevAgentConfig {
 
   const envApiMax = process.env.DEVAGENT_API_MAX_ATTEMPTS;
   const envNoProgress = process.env.DEVAGENT_NO_PROGRESS_TIMEOUT_MS;
+  const envColdStart = process.env.DEVAGENT_COLD_START_TIMEOUT_MS;
   const envResilience: Partial<NonNullable<DevAgentConfig['resilience']>> = {};
   if (envApiMax !== undefined && envApiMax !== '') {
     const n = Number(envApiMax);
@@ -158,6 +164,10 @@ export function loadConfig(repoPath: string = process.cwd()): DevAgentConfig {
   if (envNoProgress !== undefined && envNoProgress !== '') {
     const n = Number(envNoProgress);
     if (Number.isFinite(n) && n >= 0) envResilience.noProgressTimeoutMs = n;
+  }
+  if (envColdStart !== undefined && envColdStart !== '') {
+    const n = Number(envColdStart);
+    if (Number.isFinite(n) && n >= 0) envResilience.coldStartTimeoutMs = n;
   }
 
   const config: DevAgentConfig = {
@@ -193,6 +203,9 @@ export function loadConfig(repoPath: string = process.cwd()): DevAgentConfig {
     }
     if (r.noProgressTimeoutMs !== undefined && (!Number.isFinite(r.noProgressTimeoutMs) || r.noProgressTimeoutMs < 0)) {
       throw new Error(`Invalid resilience.noProgressTimeoutMs "${r.noProgressTimeoutMs}"; expected >= 0`);
+    }
+    if (r.coldStartTimeoutMs !== undefined && (!Number.isFinite(r.coldStartTimeoutMs) || r.coldStartTimeoutMs < 0)) {
+      throw new Error(`Invalid resilience.coldStartTimeoutMs "${r.coldStartTimeoutMs}"; expected >= 0`);
     }
   }
   if (config.herdr !== undefined) {

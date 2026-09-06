@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -94,4 +94,84 @@ describe('implementStage worktree isolation (FR-IMPL-01)', () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+});
+
+describe('implementStage cold-start classification (Q31)', () => {
+  beforeEach(() => {
+    mockGetWorker.mockReset();
+    mockCreate.mockReset();
+    mockIsRepo.mockReset();
+  });
+
+  it('passes the 90s cold-start default and retries a coldStart result as transient infra', async () => {
+    // Hermetic vs an operator-exported DEVAGENT_COLD_START_TIMEOUT_MS.
+    const saved = process.env.DEVAGENT_COLD_START_TIMEOUT_MS;
+    delete process.env.DEVAGENT_COLD_START_TIMEOUT_MS;
+    const dir = mkdtempSync(join(tmpdir(), 'da-impl-cs-'));
+    try {
+      mockCreate.mockRejectedValue(new Error('not a git repository'));
+      mockIsRepo.mockResolvedValue(false);
+      // First attempt: cold-start kill (exit -1, no transient text). Without
+      // the coldStart classification this would consume a logic attempt and
+      // terminal-fail at maxLoops=1; with it, the second attempt is reached.
+      const spawn = vi
+        .fn()
+        .mockResolvedValueOnce({
+          exitCode: -1,
+          events: [],
+          resultText: null,
+          sessionId: null,
+          durationMs: 1,
+          timedOut: false,
+          coldStart: true,
+        })
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          events: [],
+          resultText: null,
+          sessionId: null,
+          durationMs: 1,
+          timedOut: false,
+        });
+      mockGetWorker.mockReturnValue({ name: 'claude-code', spawn } as never);
+      const cfg = stageCfg(dir);
+      const log = new RunLogger(dir);
+      const d = buildDeps({ linearApiKey: 'x' }, cfg, log);
+      const result = await d.implementStage!(cfg, plan, log);
+      expect(spawn).toHaveBeenCalledTimes(2);
+      expect((spawn.mock.calls[0] as unknown[])[0]).toMatchObject({ coldStartTimeoutMs: 90_000 });
+      expect(result.ok).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      if (saved !== undefined) process.env.DEVAGENT_COLD_START_TIMEOUT_MS = saved;
+    }
+  }, 30_000);
+
+  it('honors resilience.coldStartTimeoutMs from devagent.json over the default', async () => {
+    const saved = process.env.DEVAGENT_COLD_START_TIMEOUT_MS;
+    delete process.env.DEVAGENT_COLD_START_TIMEOUT_MS;
+    const dir = mkdtempSync(join(tmpdir(), 'da-impl-cfg-'));
+    try {
+      writeFileSync(join(dir, 'devagent.json'), JSON.stringify({ resilience: { coldStartTimeoutMs: 15_000 } }));
+      mockCreate.mockRejectedValue(new Error('not a git repository'));
+      mockIsRepo.mockResolvedValue(false);
+      const spawn = vi.fn().mockResolvedValue({
+        exitCode: 0,
+        events: [],
+        resultText: null,
+        sessionId: null,
+        durationMs: 1,
+        timedOut: false,
+      });
+      mockGetWorker.mockReturnValue({ name: 'claude-code', spawn } as never);
+      const cfg = stageCfg(dir);
+      const log = new RunLogger(dir);
+      const d = buildDeps({ linearApiKey: 'x' }, cfg, log);
+      await d.implementStage!(cfg, plan, log);
+      expect((spawn.mock.calls[0] as unknown[])[0]).toMatchObject({ coldStartTimeoutMs: 15_000 });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      if (saved !== undefined) process.env.DEVAGENT_COLD_START_TIMEOUT_MS = saved;
+    }
+  }, 30_000);
 });

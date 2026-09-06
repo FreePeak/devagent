@@ -259,6 +259,10 @@ export async function executeTask(args: {
   });
   const resilienceCfg = fullCfg.resilience;
   const noProgressTimeoutMs = resilienceCfg?.noProgressTimeoutMs ?? 10 * 60_000;
+  // Q31: first-progress deadline for cold-start stalls (omp-class plugin/MCP
+  // init wedges of 60-487s that startup chatter resets the silence clock
+  // over). 0 disables. Env DEVAGENT_COLD_START_TIMEOUT_MS.
+  const coldStartTimeoutMs = resilienceCfg?.coldStartTimeoutMs ?? 90_000;
   const apiMaxAttempts = resilienceCfg?.apiMaxAttempts;
   const useHerdr = herdrEnabled(fullCfg);
   const model = fullCfg.model;
@@ -278,6 +282,7 @@ export async function executeTask(args: {
       timeoutMs,
       ...(apiMaxAttempts !== undefined ? { apiMaxAttempts } : {}),
       ...(noProgressTimeoutMs !== undefined ? { noProgressTimeoutMs } : {}),
+      ...(coldStartTimeoutMs ? { coldStartTimeoutMs } : {}),
       ...(useHerdr ? { herdr: true } : {}),
       ...(model ? { model } : {}),
       ...(variant ? { variant } : {}),
@@ -320,7 +325,7 @@ export async function executeTask(args: {
         // visibility observability only
       }
     }
-    if (result.timedOut || result.exitCode !== 0 || result.errorText || result.noProgress) {
+    if (result.timedOut || result.exitCode !== 0 || result.errorText || result.noProgress || result.coldStart) {
       // Inspect both resultText and errorText: the proxy surfaces transient
       // provider outages (rate-limited empty streams) as stderr-only with no
       // .result field, so resultText alone misses them and the task used to
@@ -332,12 +337,15 @@ export async function executeTask(args: {
       if (
         result.timedOut ||
         result.noProgress ||
+        // Q31: a cold-start kill is the same infra class as a silence-clock
+        // fire — retry cheaply, do not burn a logic attempt.
+        result.coldStart ||
         (text && !isNonRetryable(text) && (isTransient(text) || isTransient(result.errorText ?? null)))
       ) {
         infraRetries++;
         try {
           const { recordTransientClass } = await import('../resilience/proxy-state.js');
-          recordTransientClass(repoPath, [text, result.timedOut ? 'no-progress watchdog timeout' : ''].filter(Boolean).join(' '));
+          recordTransientClass(repoPath, [text, result.coldStart ? 'cold-start deadline exceeded' : result.timedOut ? 'no-progress watchdog timeout' : ''].filter(Boolean).join(' '));
         } catch {
           // observability must never break the retry
         }

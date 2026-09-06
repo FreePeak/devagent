@@ -61,10 +61,12 @@ export class ClaudeCodeAdapter implements WorkerAdapter {
         ...(opts.env ? { env: opts.env } : {}),
         ...(noProgressTimeoutMs ? { noProgressTimeoutMs } : {}),
         ...(opts.watchdogLedger ? { watchdogLedger: opts.watchdogLedger } : {}),
+        ...(opts.coldStartTimeoutMs ? { coldStartTimeoutMs: opts.coldStartTimeoutMs } : {}),
       });
       last = await runWorkerCli(prepared.cmd, prepared.args, {
         ...prepared.opts,
         ...(noProgressTimeoutMs ? { noProgressTimeoutMs } : {}),
+        ...(opts.coldStartTimeoutMs ? { coldStartTimeoutMs: opts.coldStartTimeoutMs } : {}),
         ...(opts.herdr ? { herdr: true } : {}),
       });
 
@@ -203,6 +205,7 @@ function finalize(run: SpawnCliResult, start: number): WorkerResult {
       durationMs: Date.now() - start,
       timedOut: true,
       errorText: run.stderr.trim() || undefined,
+      ...(run.coldStart ? { coldStart: true } : {}),
     };
   }
 

@@ -257,6 +257,13 @@ export interface WatchdogHealthLedgerRecord extends LedgerRecordBase {
   noProgressTimeoutMs: number;
   /** True only when the no-progress watchdog fired — never for wall-clock expiry. */
   watchdogFired: boolean;
+  /**
+   * Q31: true only when the cold-start (first-progress) deadline fired — no
+   * adapter-classified progress line arrived within the budget. Distinct
+   * from `watchdogFired`, like the silence-clock fire is distinct from
+   * wall-clock expiry.
+   */
+  coldStartFired: boolean;
   /** Wall-clock launch duration. */
   wallClockMs: number;
   /** Meaningful-progress clock resets observed (herdr: the seed counts as one). */
