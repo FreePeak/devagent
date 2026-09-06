@@ -19,6 +19,7 @@ import { DEVAGENT_VERSION } from './version.js';
 import { appendReleaseRecord } from './orchestrator/ledger.js';
 import { checkBacklogPick, listMergedPrTitles, strikeBacklogItems } from './task.js';
 import { alreadyShipped, evaluateStarvation, productiveGoals, readLedgerLines } from './orchestrator/selfbuild-gate.js';
+import { formatVerdict, runBoardRecovery } from './orchestrator/board-recovery.js';
 import { buildAdjacentCategoryScanText } from './research/scan-text.js';
 
 function parseConcurrency(v: string): number | 'auto' {
@@ -120,6 +121,33 @@ program
     } else {
       console.log('not shipped — dispatch ok');
       process.exitCode = 0;
+    }
+  });
+
+program
+  .command('board-recovery')
+  .description(
+    'Machine-readable orchestrator board-recovery gate (PRD:888 Q19): the board-recovery decisions from scripts/orchestrate-loop.sh (requeue_parked, completed-board archive, stuck/undispatchable archive thresholds, re-bridge fall-through) folded into src/orchestrator/board-recovery.ts so they are typed and tested; the shell is a thin caller. The gate performs the action it verdicts (requeue write, board archive, merged-worktree prune) and prints exactly one verdict line "<wait|requeue|archive>: <reason>": wait = sleep and continue, requeue = parked tasks reset (sleep and continue), archive = stuck board archived (fall through to the queue bridge this cycle). Exit 0 = verdict printed; exit 2 = unresolved (bad flags or a board that vanished mid-cycle) — callers must fall back to wait, never act on a crashed gate.',
+  )
+  .option('--repo <path>', 'target repository owning .devagent-project.json', process.cwd())
+  .option('--parked-polls <n>', 'consecutive parked cycles including this one (driver-side counter)', Number, 0)
+  .option('--requeue-after <n>', 'requeue threshold in parked cycles (0 = never requeue)', Number, 6)
+  .option('--poll-secs <n>', 'loop sleep quoted in wait/requeue verdict text', Number, 600)
+  .action((opts) => {
+    const parkedPolls = opts.parkedPolls as number;
+    const requeueAfter = opts.requeueAfter as number;
+    const pollSecs = opts.pollSecs as number;
+    if (![parkedPolls, requeueAfter, pollSecs].every((n) => Number.isFinite(n) && n >= 0)) {
+      console.error('board-recovery: --parked-polls/--requeue-after/--poll-secs must be non-negative numbers');
+      process.exitCode = 2;
+      return;
+    }
+    try {
+      const verdict = runBoardRecovery(opts.repo as string, { parkedPolls, requeueAfter, pollSecs });
+      console.log(formatVerdict(verdict));
+    } catch (err) {
+      console.error(`board-recovery: ${(err as Error).message}`);
+      process.exitCode = 2;
     }
   });
 
