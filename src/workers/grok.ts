@@ -4,6 +4,18 @@ import { runWorkerCli } from './herdr-runtime.js';
 import { prepareWorkerSpawn } from './sandbox.js';
 import { isGrokModelId } from './model-id.js';
 import { appendWorkerCostRecord } from '../orchestrator/ledger.js';
+import { transientErrorClass } from '../resilience/classify.js';
+
+export interface GrokArgsOptions {
+  /** When true, build a resume argv (uses -c + -p RESUME_PROMPT). */
+  resume?: boolean;
+  /**
+   * FR-GROK-06: within-xAI chain override — replaces opts.model for this
+   * attempt when a TPM-class retry steps to the next rung. Still validated
+   * by the FR-GROK-02 predicate at forward time.
+   */
+  model?: string;
+}
 
 const RESUME_PROMPT = 'Continue';
 /**
@@ -12,11 +24,6 @@ const RESUME_PROMPT = 'Continue';
  * so the retry loop fires, instead of the wall clock being the only net.
  */
 const DEFAULT_NO_PROGRESS_TIMEOUT_MS = 10 * 60 * 1000;
-
-export interface GrokArgsOptions {
-  /** When true, build a resume argv (uses -c + -p RESUME_PROMPT). */
-  resume?: boolean;
-}
 
 /**
  * Build the exact argv we pass to `grok` (Grok Build CLI) for a given spawn.
@@ -42,7 +49,7 @@ export interface GrokArgsOptions {
  * [models] default), which is the intended worker model anyway.
  */
 export function buildGrokArgs(opts: WorkerSpawnOptions, o: GrokArgsOptions = {}): string[] {
-  const rawModel = opts.model?.trim();
+  const rawModel = (o.model !== undefined ? o.model : opts.model)?.trim();
   const grokModel = rawModel !== undefined && isGrokModelId(rawModel) ? rawModel : undefined;
   const base: string[] = ['--output-format', 'streaming-json'];
   if (o.resume) {
@@ -52,18 +59,46 @@ export function buildGrokArgs(opts: WorkerSpawnOptions, o: GrokArgsOptions = {})
 }
 
 /**
- * Meaningful-line filter for grok's streaming-json stream (PRD Q33 port of
- * the omp/pi precedent): `thought` chunks are pure deliberation (48 of them
- * in a 10s echo run, 2026-09-06 capture) and must never reset the watchdog;
- * tool calls and finalized text chunks are new work.
+ * FR-GROK-06: the within-xAI fallback chain, ordered by preference (PRD
+ * §20.2: grok-4.6 is the recommended coding default, grok-4.3 the 1M-ctx
+ * sibling, grok-build-0.1 the small-context escape hatch). A TPM
+ * (tokens-per-minute) 429 is context-shaped — a smaller-context model in
+ * the same provider can serve the same turn where a cooldown cannot — so
+ * the retry loop steps this chain before any cross-provider fallback,
+ * which lives above the adapter and only sees the exhausted-chain result.
  */
-export function isGrokProgressLine(line: string): boolean {
-  if (!line.trim()) return false;
-  if (line.includes('"type":"thought"')) return false;
-  if (line.includes('"type":"tool_call"')) return true;
-  if (line.includes('"type":"tool_call_update"')) return true;
-  if (line.includes('"type":"text","data"')) return true;
-  return false;
+export const GROK_FALLBACK_CHAIN = ['grok-4.6', 'grok-4.3', 'grok-build-0.1'] as const;
+
+/**
+ * Pure chain selector: the next model to try after `model` hits a
+ * TPM-class limit. Accepts `xai/`-qualified ids and dated pins
+ * (`grok-4.6-2026-08-14` sits at the `grok-4.6` rung). Unset/empty starts
+ * at the chain head (the CLI default just burned its TPM budget — pin the
+ * next attempt explicitly). A non-chain grok family (e.g. `grok-4.5`) or
+ * the chain tail yields null: the selector never second-guesses an
+ * operator-pinned model and never invents a fourth rung.
+ */
+export function grokChainNext(model: string | undefined | null): string | null {
+  const raw = model?.trim().toLowerCase().replace(/^xai\//, '');
+  if (!raw) return GROK_FALLBACK_CHAIN[0] ?? null;
+  const idx = GROK_FALLBACK_CHAIN.findIndex((m) => raw === m || raw.startsWith(`${m}-`));
+  if (idx === -1) return null;
+  return GROK_FALLBACK_CHAIN[idx + 1] ?? null;
+}
+
+/**
+ * Pure retry-model decision: advance the within-xAI chain only on a
+ * `rate-limit-tpm` transient class (FR-GROK-06). Every other outcome —
+ * RPS 429 (the same-model cooldown is the fix), 5xx, timeouts,
+ * non-transient — keeps the current model. Chain exhaustion returns the
+ * current model unchanged.
+ */
+export function grokRetryModel(
+  current: string | undefined,
+  errorText: string | null | undefined,
+): string | undefined {
+  if (transientErrorClass(errorText ?? null) !== 'rate-limit-tpm') return current;
+  return grokChainNext(current) ?? current;
 }
 
 export interface GrokOutcome {
@@ -79,6 +114,27 @@ export interface GrokOutcome {
    * field — a missing cost is never coerced to 0.
    */
   costUsdTicks?: number;
+  /**
+   * FR-GROK-06: number of whole `tool_call` events seen. xAI streams tool
+   * calls whole (not token-streamed), so a run can legitimately end on one;
+   * the count is the evidence the stream was not empty.
+   */
+  toolCallCount: number;
+}
+
+/**
+ * Meaningful-line filter for grok's streaming-json stream (PRD Q33 port of
+ * the omp/pi precedent): `thought` chunks are pure deliberation (48 of them
+ * in a 10s echo run, 2026-09-06 capture) and must never reset the watchdog;
+ * tool calls and finalized text chunks are new work.
+ */
+export function isGrokProgressLine(line: string): boolean {
+  if (!line.trim()) return false;
+  if (line.includes('"type":"thought"')) return false;
+  if (line.includes('"type":"tool_call"')) return true;
+  if (line.includes('"type":"tool_call_update"')) return true;
+  if (line.includes('"type":"text","data"')) return true;
+  return false;
 }
 
 /** Test seam: re-export of the parser. */
@@ -123,7 +179,7 @@ function pickCostTicks(event: Record<string, unknown>): number | undefined {
  *   {"type":"available_commands","tools":[...]}   startup header
  *   {"type":"thought","data":"<chunk>"}           thinking (ignored)
  *   {"type":"text","data":"<chunk>"}              assistant text chunks
- *   {"type":"tool_call"|"tool_call_update",...}   ACP tool events (ignored)
+ *   {"type":"tool_call"|"tool_call_update",...}   ACP tool events (whole, not token-streamed)
  *   {"type":"usage","usage":{...}}                token accounting
  *   {"type":"error","message":"..."}              provider failure
  *   {"type":"end","sessionId":"...","stopReason":"end_turn","usage":...}
@@ -136,6 +192,14 @@ function pickCostTicks(event: Record<string, unknown>): number | undefined {
  * surfaces as an in-stream `error` event. Capture the first message so the
  * failure is not misread as an empty-but-successful run.
  *
+ * Stream-tool-call-whole (FR-GROK-06): because tool calls arrive whole, a
+ * turn can end on a `tool_call`/`tool_call_update` event with no trailing
+ * `text` or `end` event. That shape is real progress, not an empty/failed
+ * run: the parser keeps the last tool event as the outcome's `parsed`
+ * (finalize turns it into a result event, defeating the zero-events empty
+ * signature) and stderr noise is never promoted to errorText while tool
+ * activity is present.
+ *
  * Cost accounting (FR-GROK-03): the `usage` and `end` events carry the exact
  * xAI cost as integer USD ticks. Copy it verbatim onto the outcome (no
  * rounding, no currency conversion); the `end` total wins over any earlier
@@ -147,6 +211,8 @@ function interpretGrok(run: SpawnCliResult): GrokOutcome {
   let streamError: string | null = null;
   let endEvent: Record<string, unknown> | null = null;
   let costUsdTicks: number | undefined;
+  let toolCallCount = 0;
+  let lastToolCall: Record<string, unknown> | null = null;
   const textChunks: string[] = [];
 
   for (const line of run.stdout.split('\n')) {
@@ -168,6 +234,12 @@ function interpretGrok(run: SpawnCliResult): GrokOutcome {
     }
     if (event.type === 'text' && typeof event.data === 'string') {
       textChunks.push(event.data);
+    }
+    if (event.type === 'tool_call') {
+      toolCallCount++;
+      lastToolCall = event;
+    } else if (event.type === 'tool_call_update') {
+      lastToolCall = event;
     }
     if (event.type === 'error' && streamError === null && typeof event.message === 'string') {
       streamError = event.message;
@@ -193,15 +265,18 @@ function interpretGrok(run: SpawnCliResult): GrokOutcome {
   const errorText =
     streamError ??
     (joined !== '' && isError ? joined : undefined) ??
-    (endEvent === null && joined === '' && run.stderr.trim() ? run.stderr.trim() : undefined);
+    (endEvent === null && joined === '' && toolCallCount === 0 && run.stderr.trim()
+      ? run.stderr.trim()
+      : undefined);
   return {
     isError,
     sessionId,
     errorText,
     resultText,
-    parsed: endEvent,
+    parsed: endEvent ?? lastToolCall,
     timedOut: run.timedOut,
     costUsdTicks,
+    toolCallCount,
   };
 }
 
@@ -249,6 +324,9 @@ function finalize(run: SpawnCliResult, sessionId: string | null, start: number):
  *     supported credential channels (XAI_API_KEY is sandbox-allowlisted).
  *   - Provider failures can surface as in-stream `error` events at exit 0;
  *     the parser captures them (see interpretGrok).
+ *   - TPM-class 429s step the within-xAI fallback chain
+ *     (`grok-4.6 → grok-4.3 → grok-build-0.1`, FR-GROK-06) before the
+ *     exhausted-chain result can reach cross-provider fallback above.
  */
 export class GrokAdapter implements WorkerAdapter {
   readonly name = 'grok' as const;
@@ -270,6 +348,10 @@ export class GrokAdapter implements WorkerAdapter {
         : DEFAULT_NO_PROGRESS_TIMEOUT_MS;
     const wallDeadline = opts.timeoutMs > 0 ? start + opts.timeoutMs : Infinity;
 
+    // FR-GROK-06: the model actually forwarded to the CLI. Tier aliases are
+    // dropped by buildGrokArgs, so the chain starts unpositioned (undefined).
+    let activeModel =
+      opts.model !== undefined && isGrokModelId(opts.model) ? opts.model.trim() : undefined;
     let args = buildGrokArgs(opts);
     let sessionId: string | null = null;
     let last: SpawnCliResult | null = null;
@@ -305,8 +387,12 @@ export class GrokAdapter implements WorkerAdapter {
       if (last.exitCode === -1 && !last.timedOut) break; // ENOENT
       if (attempt === maxAttempts) break;
       if (Date.now() >= wallDeadline) break;
+      // FR-GROK-06: a TPM-class 429 is context-shaped — step the
+      // within-xAI chain before retrying; every other class keeps the
+      // model (cooldown/backoff is the fix there).
+      activeModel = grokRetryModel(activeModel, outcome.errorText);
       await this.sleep(2_000 * attempt);
-      args = buildGrokArgs(opts, { resume: true });
+      args = buildGrokArgs(opts, { resume: true, model: activeModel });
     }
 
     const result = finalize(last ?? fallbackEmpty(), sessionId, start);

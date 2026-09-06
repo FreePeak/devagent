@@ -28,6 +28,34 @@ describe('transientErrorClass (coarse class, exhaustive over isTransientProvider
     expect(transientErrorClass('too many requests on upstream')).toBe('rate-limit');
   });
 
+  it('splits xAI 429 into rate-limit-tpm vs rate-limit-rps (FR-GROK-06)', () => {
+    expect(
+      transientErrorClass('429 rate_limit_error: exceeded tokens per minute (TPM) limit'),
+    ).toBe('rate-limit-tpm');
+    expect(transientErrorClass('tokens_per_minute budget exhausted on grok-4.6')).toBe(
+      'rate-limit-tpm',
+    );
+    expect(transientErrorClass('429 requests per second (RPS) limit exceeded')).toBe(
+      'rate-limit-rps',
+    );
+    expect(transientErrorClass('rps limit hit on proxy')).toBe('rate-limit-rps');
+    // Generic 429s keep the coarse label — the split is signal-driven, not
+    // a rename of every rate-limit row.
+    expect(transientErrorClass('429 too many requests')).toBe('rate-limit');
+    expect(transientErrorClass('rate limit exceeded, retry after 60s')).toBe('rate-limit');
+  });
+
+  it('labels numeric 5xx as server-error without masking named classes', () => {
+    expect(
+      transientErrorClass('Server error (503) from https://api.x.ai/v1/chat/completions'),
+    ).toBe('server-error');
+    expect(transientErrorClass('500 internal server error')).toBe('server-error');
+    // Ordering guards: named classes and network errors win over the bare code.
+    expect(transientErrorClass('bad gateway 502')).toBe('bad-gateway');
+    expect(transientErrorClass('overloaded 529')).toBe('rate-limit');
+    expect(transientErrorClass('connect ECONNREFUSED 127.0.0.1:503')).toBe('network');
+  });
+
   it('labels overloaded as overloaded', () => {
     expect(transientErrorClass('overloaded')).toBe('overloaded');
     expect(transientErrorClass('Service overloaded, try again')).toBe('overloaded');
@@ -243,6 +271,21 @@ describe('devagent status --providers (report surface)', () => {
       // liveness check: each required lane must appear
       const labels = ['probe', 'transient', 'circuit'] as const;
       for (const lab of labels) expect(out.toLowerCase()).toContain(lab);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it('surfaces the xAI rate-limit-tpm class end-to-end (FR-GROK-06)', () => {
+    const repo = mkdtempSync(join(tmpdir(), 'da-status-tpm-'));
+    try {
+      const rec = recordTransientClass(
+        repo,
+        '429 rate_limit_error: exceeded tokens per minute (TPM) limit on grok-4.6',
+      );
+      expect(rec?.class).toBe('rate-limit-tpm');
+      const out = statusProviders(repo);
+      expect(out).toContain('transient: rate-limit-tpm');
     } finally {
       rmSync(repo, { recursive: true, force: true });
     }

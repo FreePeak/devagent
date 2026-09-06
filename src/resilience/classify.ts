@@ -21,6 +21,15 @@ const TRANSIENT_PATTERNS: RegExp[] = [
   /overloaded/i,
   /rate limit/i,
   /too many requests/i,
+  // xAI 429 sub-classes (FR-GROK-06, PRD:1116): the API distinguishes RPS
+  // from TPM (tokens-per-minute) limits — a 500k-ctx prompt can exhaust TPM
+  // in one shot while staying under RPS. Match the wording directly so the
+  // class survives bodies that omit "429"/"rate limit" verbatim.
+  /\btpm\b|tokens?[ _-]?per[ _-]?minute/i,
+  /\brps\b|requests?[ _-]?per[ _-]?second/i,
+  // Numeric 5xx: xAI surfaces them as "Server error (503) from ..."; the
+  // named gateway/timeout prose already matched above, bare codes did not.
+  /\b5\d{2}\b/,
   /429|529/,
   /timeout/i,
   /timed out/i,
@@ -53,16 +62,23 @@ export function isTransientProviderError(text: string | undefined | null): boole
  * above maps to exactly one label. Reported by `devagent status --providers`
  * so the proxy-gate decision is operator-observable instead of log-grep-only.
  */
+// xAI 429 split (FR-GROK-06): TPM and RPS are ordered before the generic
+// rate-limit label because they demand different remedies — a TPM hit needs
+// the within-xAI model step-down (shorter context), an RPS hit just needs
+// the same-model cooldown. Generic 429s keep the coarse 'rate-limit' label.
 const TRANSIENT_CLASS_RULES: Array<[RegExp, string]> = [
   [/\[claude-code:unrecognized_model\]/, 'unrecognized-model'],
   [/unrecognized_model/i, 'unrecognized-model'],
   [/empty stream|empty response/i, 'empty-stream'],
+  [/\btpm\b|tokens?[ _-]?per[ _-]?minute/i, 'rate-limit-tpm'],
+  [/\brps\b|requests?[ _-]?per[ _-]?second/i, 'rate-limit-rps'],
   [/rate limit|too many requests|429|529/i, 'rate-limit'],
   [/overloaded/i, 'overloaded'],
   [/upstream request failed|error from provider/i, 'upstream'],
   [/bad gateway|gateway timeout/i, 'bad-gateway'],
   [/ETIMEDOUT|timeout|timed out/i, 'timeout'],
   [/connection lost|connection refused|ECONNRESET|ECONNREFUSED|ENOTFOUND|fetch failed|network error|socket hang up/i, 'network'],
+  [/\b5\d{2}\b/, 'server-error'],
   [/endpoint is unavailable|provider.*unavailable|service unavailable|unavailable/i, 'unavailable'],
 ];
 
