@@ -1006,6 +1006,8 @@ program
               const branch = `devagent/${task.id}-${attemptSuffix(task.attempts, task.recoveries)}`;
               const repoPath = a.repoPath;
               // The task worktree holds the committed work; push that branch.
+              // Auto-cleanup already pushed it when its snapshot ran (Q29), so
+              // this push is the idempotent no-op for that path.
               await pushBranch(repoPath, branch);
               const baseBranch = config.githubBaseBranch ?? 'main';
               const body = [

@@ -5,9 +5,9 @@ import { runCli } from '../workers/spawn-utils.js';
  * Internal: spawn a git command. Routes through runCli so the child
  * inherits the fallback PATH (live-smoke lesson: a parent's minimal PATH
  * produced `spawn git ENOENT` for every worktree operation, killing the
- * selfbuild loop on loop 50 and tripping the circuit breaker). The 30s
+ * selfbuild loop on loop 50 and tripping the circuit breaker). The default 30s
  * timeout is generous enough for worktree add/remove but tight enough to
- * surface hung `git index-pack` calls.
+ * surface hung `git index-pack` calls; callers override it per command.
  *
  * Translates non-zero exit / ENOENT into a thrown Error so the existing
  * `try { await run(...) } catch { return false }` call sites keep working.
@@ -16,8 +16,9 @@ async function run(
   cmd: string,
   args: string[],
   cwd: string,
+  timeoutMs = 30_000,
 ): Promise<{ stdout: string; stderr: string }> {
-  const r = await runCli(cmd, args, { cwd, timeoutMs: 30_000 });
+  const r = await runCli(cmd, args, { cwd, timeoutMs });
   if (r.exitCode !== 0) {
     const err = new Error(`${cmd} ${args.join(' ')} exited ${r.exitCode}: ${r.stderr.slice(0, 200)}`) as Error & {
       stdout?: string;
@@ -96,9 +97,18 @@ export async function createWorktree(
 /**
  * Post-run disposal of a run's worktree (auto-cleanup stage).
  *
- * 'remove' mode snapshots any uncommitted worker output onto the run branch
- * first (nothing is ever lost), then removes the worktree registration and
- * directory. The branch itself is kept: it holds the snapshot and stays cheap.
+ * 'remove' mode is one commit path: snapshot any uncommitted worker output
+ * onto the run branch (nothing is ever lost), push that branch to the remote,
+ * and only then remove the worktree registration and directory. The branch
+ * itself is kept: it holds the snapshot and stays cheap.
+ *
+ * Push-before-removal is the Q29 fix (PRD §18). Publish used to be the only
+ * stage that pushed, and its failure is swallowed non-fatal
+ * (`src/orchestrator/scheduler.ts`), so a green task's snapshot could sit
+ * unpushed behind a worktree that had already died. Sequencing remote
+ * persistence ahead of the worktree's death means a failed push leaves the
+ * tree recoverable, and publish's later push resolves to a no-op.
+ *
  * 'preserve' keeps the tree untouched for inspection (failure debugging).
  */
 export interface FinalizeWorktreeOptions {
@@ -106,19 +116,66 @@ export interface FinalizeWorktreeOptions {
   worktreePath: string;
   ticketId: string;
   mode: 'remove' | 'preserve';
+  /**
+   * Remote the run branch is pushed to before removal. Default 'origin'.
+   * When the remote is not configured the push is skipped, so local-only
+   * repos keep the pre-Q29 disposal behaviour.
+   */
+  remote?: string;
 }
 
 export interface FinalizeResult {
   action: 'removed' | 'preserved';
   /** True when uncommitted changes were snapshotted onto the branch pre-removal */
   committed: boolean;
-  /** Present when removal was requested but failed (tree left in place) */
+  /** True when the run branch reached the remote before removal was attempted */
+  pushed: boolean;
+  /** Present when removal was requested but did not happen (tree left in place) */
   error?: string;
+}
+
+/** Network push: the 30s worktree budget is too tight (mirrors pushBranch). */
+const PUSH_TIMEOUT_MS = 120_000;
+
+/**
+ * Push the run branch from the main repo — repoPath is the only cwd
+ * guaranteed to outlive the worktree, and the branch ref lives in the shared
+ * object database, so the push needs no working tree of its own.
+ *
+ * Skipped (not failed) when there is no branch to name — a detached HEAD has
+ * no run branch to persist — or no such remote. Any other failure is
+ * reported so the caller can hold the worktree instead of stranding the
+ * snapshot.
+ */
+async function pushRunBranch(
+  repoPath: string,
+  worktreePath: string,
+  remote: string,
+): Promise<{ pushed: boolean; error?: string }> {
+  let branch: string;
+  try {
+    branch = await currentBranch(worktreePath);
+  } catch {
+    return { pushed: false };
+  }
+  try {
+    await run('git', ['remote', 'get-url', remote], repoPath);
+  } catch {
+    return { pushed: false };
+  }
+  try {
+    // Same refspec as `pushBranch` (src/integrations/github.ts), so the
+    // publish stage's push is idempotent rather than a competing update.
+    await run('git', ['push', '-u', remote, `${branch}:${branch}`], repoPath, PUSH_TIMEOUT_MS);
+    return { pushed: true };
+  } catch (err) {
+    return { pushed: false, error: `run branch ${branch} not pushed to ${remote}: ${(err as Error).message}` };
+  }
 }
 
 export async function finalizeRunWorktree(opts: FinalizeWorktreeOptions): Promise<FinalizeResult> {
   if (opts.mode === 'preserve') {
-    return { action: 'preserved', committed: false };
+    return { action: 'preserved', committed: false, pushed: false };
   }
   let committed = false;
   try {
@@ -129,12 +186,17 @@ export async function finalizeRunWorktree(opts: FinalizeWorktreeOptions): Promis
   } catch {
     // Snapshot is best-effort; removal below still proceeds for a clean tree.
   }
+  const push = await pushRunBranch(opts.repoPath, opts.worktreePath, opts.remote ?? 'origin');
+  if (push.error) {
+    // Atomicity: the worktree only dies once its output is on the remote.
+    return { action: 'preserved', committed, pushed: false, error: push.error };
+  }
   try {
     await run('git', ['worktree', 'remove', '--force', opts.worktreePath], opts.repoPath);
     await run('git', ['worktree', 'prune'], opts.repoPath);
-    return { action: 'removed', committed };
+    return { action: 'removed', committed, pushed: push.pushed };
   } catch (err) {
-    return { action: 'preserved', committed, error: (err as Error).message };
+    return { action: 'preserved', committed, pushed: push.pushed, error: (err as Error).message };
   }
 }
 

@@ -89,7 +89,7 @@ describe('finalizeRunWorktree (auto-cleanup stage)', () => {
       mode: 'preserve',
     });
 
-    expect(fin).toEqual({ action: 'preserved', committed: false });
+    expect(fin).toEqual({ action: 'preserved', committed: false, pushed: false });
     expect(existsSync(wt.worktreePath)).toBe(true);
   });
 });
