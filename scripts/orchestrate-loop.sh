@@ -80,28 +80,6 @@ board_pending_tasks() { # count tasks waiting to become ready
   ' "$BOARD" 2>/dev/null || echo 0
 }
 
-cleanup_merged_worktrees() { # remove worktrees/branches whose PRs merged (safe-gated)
-  if [ -x "$REPO/scripts/git-cleanup-merged.sh" ]; then
-    echo "[cleanup] pruning merged branches/worktrees"
-    "$REPO/scripts/git-cleanup-merged.sh" --root "$REPO" --apply >/dev/null 2>&1 || true
-  fi
-}
-
-requeue_parked() { # reset failed/blocked tasks back to pending; prints count reset
-  [ -f "$BOARD" ] || { echo 0; return; }
-  node -e '
-    const fs = require("fs");
-    const f = process.argv[1];
-    const b = JSON.parse(fs.readFileSync(f, "utf8"));
-    let n = 0;
-    for (const t of b.tasks) {
-      if (["failed", "blocked"].includes(t.status)) { t.status = "pending"; t.attempts = 0; n++; }
-    }
-    if (n > 0) fs.writeFileSync(f, JSON.stringify(b, null, 2) + "\n");
-    console.log(n);
-  ' "$BOARD" 2>/dev/null || echo 0
-}
-
 echo "[orchestrator] loop start repo=$REPO dry_run=$DRY_RUN plan_only=$PLAN_ONLY poll=${POLL_SECS}s"
 fails=0
 parked_polls=0
@@ -136,63 +114,47 @@ while :; do
   TOTAL="$(board_total_tasks)"
 
   if [ "$OPEN" -eq 0 ] && [ "$TOTAL" -gt 0 ]; then
-    if [ "$DONE_COUNT" -eq "$TOTAL" ]; then
-      # Infinity cycle: archive the completed board so the next iteration
-      # re-bridges scouted queue items and plans a fresh board from the goal.
-      TS="$(date +%Y%m%d-%H%M%S)"
-      mkdir -p "$REPO/.devagent/archive"
-      mv "$BOARD" "$REPO/.devagent/archive/board-$TS.json"
-      echo "[cycle] board complete ($DONE_COUNT done); archived to .devagent/archive/board-$TS.json"
-      cleanup_merged_worktrees
-    else
-      # Board is stuck: every task is failed/blocked. Requeue periodically so a
-      # transient upstream failure does not park the factory forever.
-      if [ "$REQUEUE_AFTER" -gt 0 ]; then
-        parked_polls=$(( parked_polls + 1 ))
-        echo "[parked] $((TOTAL - DONE_COUNT)) task(s) failed/blocked ($parked_polls/$REQUEUE_AFTER); sleeping ${POLL_SECS}s"
-        if [ "$parked_polls" -ge "$REQUEUE_AFTER" ]; then
-          N="$(requeue_parked)"
-          echo "[requeue] reset $N parked task(s) to pending"
-          parked_polls=0
-          # Requeue cannot unstick a task whose attempts budget is spent
-          # (scheduler.ts only re-selects failed tasks with attempts <
-          # maxTaskRetries), so after two fruitless requeue rounds archive
-          # the stuck board: the bridge then plans a fresh board from the
-          # oldest queued goal, same as the completed-board infinity cycle.
-          STUCK="$(board_stuck_tasks)"
-          PENDING_COUNT="$(board_pending_tasks)"
-          ARCHIVED=0
-          if [ "$STUCK" -gt 0 ]; then
-            TS="$(date +%Y%m%d-%H%M%S)"
-            mkdir -p "$REPO/.devagent/archive"
-            mv "$BOARD" "$REPO/.devagent/archive/board-stuck-$TS.json"
-            echo "[cycle] board stuck ($STUCK failed/blocked); archived to .devagent/archive/board-stuck-$TS.json"
-            ARCHIVED=1
-          elif [ "$PENDING_COUNT" -eq "$TOTAL" ] && [ "$TOTAL" -gt 0 ]; then
-            # Requeued but the scheduler still cannot dispatch (attempts budget
-            # spent): archive so the queue bridge can take over.
-            TS="$(date +%Y%m%d-%H%M%S)"
-            mkdir -p "$REPO/.devagent/archive"
-            mv "$BOARD" "$REPO/.devagent/archive/board-stuck-$TS.json"
-            echo "[cycle] board all-pending but undispatchable; archived to .devagent/archive/board-stuck-$TS.json"
-            ARCHIVED=1
-          fi
-        fi
-      else
-        echo "[parked] $((TOTAL - DONE_COUNT)) task(s) failed/blocked; sleeping ${POLL_SECS}s (requeue disabled)"
-      fi
+    # Board recovery (PRD:888 Q19): the decisions live in
+    # src/orchestrator/board-recovery.ts, reached through `devagent
+    # board-recovery`. The gate performs the action it verdicts (requeue
+    # write, completed/stuck board archive, merged-worktree prune) and prints
+    # exactly one verdict line; the shell only maps it to loop control:
+    #   wait    -> sleep, continue
+    #   requeue -> parked tasks reset; poll counter cleared; sleep, continue
+    #   archive -> stuck board archived; fall through to the queue bridge so
+    #              the factory re-bridges the oldest queued goal this cycle
+    #              (#73: no full-poll idle with the board already gone).
+    # rc != 0 or an unrecognized verdict falls back to wait — a crashed gate
+    # must never archive a board or hot-loop the factory.
+    if [ "$REQUEUE_AFTER" -gt 0 ]; then
+      parked_polls=$(( parked_polls + 1 ))
     fi
-    if [ "${ARCHIVED:-0}" -eq 1 ]; then
-      # Board was archived (stuck): fall through to the queue bridge this
-      # cycle instead of sleeping, so the factory re-bridges the oldest
-      # queued goal immediately. (Previously the parked block always did
-      # `sleep POLL_SECS; continue`, leaving the board absent and the
-      # factory idle for a whole poll interval.)
-      :
-    else
-      sleep "$POLL_SECS"
-      continue
-    fi
+    RC=0
+    RECOVERY="$("${DEVAGENT[@]}" board-recovery --repo "$REPO" --parked-polls "$parked_polls" --requeue-after "$REQUEUE_AFTER" --poll-secs "$POLL_SECS" 2>&1)" || RC=$?
+    VERDICT=""
+    [ "$RC" -eq 0 ] && VERDICT="${RECOVERY%%:*}"
+    case "$VERDICT" in
+      archive)
+        echo "[recovery] $RECOVERY"
+        parked_polls=0
+        ;;
+      requeue)
+        echo "[recovery] $RECOVERY"
+        parked_polls=0
+        sleep "$POLL_SECS"
+        continue
+        ;;
+      wait)
+        echo "[recovery] $RECOVERY"
+        sleep "$POLL_SECS"
+        continue
+        ;;
+      *)
+        echo "[recovery] board-recovery gate unresolved (exit $RC): $RECOVERY"
+        sleep "$POLL_SECS"
+        continue
+        ;;
+    esac
   fi
   parked_polls=0
 
