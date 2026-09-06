@@ -1,5 +1,5 @@
-import type { WorkerAdapter, WorkerEvent, WorkerResult, WorkerSpawnOptions } from '../types.js';
-import type { SpawnCliResult } from './spawn-utils.js';
+import type { WorkerAdapter, WorkerCapabilities, WorkerEvent, WorkerResult, WorkerSpawnOptions } from '../types.js';
+import { resolveNoProgressTimeoutMs, type SpawnCliResult } from './spawn-utils.js';
 import { runWorkerCli } from './herdr-runtime.js';
 import { prepareWorkerSpawn } from './sandbox.js';
 import { isGrokModelId } from './model-id.js';
@@ -22,6 +22,9 @@ const RESUME_PROMPT = 'Continue';
  * If set on opts, override the per-attempt no-progress watchdog for grok.
  * Mirrors the omp default: a silent provider stall must trip the watchdog
  * so the retry loop fires, instead of the wall clock being the only net.
+ *
+ * Q30: declared as the adapter's capability so the shared spawn-path resolver
+ * owns the precedence instead of a per-adapter copy.
  */
 const DEFAULT_NO_PROGRESS_TIMEOUT_MS = 10 * 60 * 1000;
 
@@ -372,6 +375,14 @@ function finalize(run: SpawnCliResult, sessionId: string | null, start: number):
 export class GrokAdapter implements WorkerAdapter {
   readonly name = 'grok' as const;
 
+  /** Q30: arms a 10-minute silence clock by default; the declaration is a
+   * floor, so a caller-passed 0 falls back to it rather than disarming the
+   * watchdog this adapter's retry loop depends on.
+   */
+  readonly capabilities: WorkerCapabilities = {
+    defaultNoProgressTimeoutMs: DEFAULT_NO_PROGRESS_TIMEOUT_MS,
+  };
+
   isProgress(line: string): boolean {
     return isGrokProgressLine(line);
   }
@@ -383,10 +394,7 @@ export class GrokAdapter implements WorkerAdapter {
 
   async spawn(opts: WorkerSpawnOptions): Promise<WorkerResult> {
     const start = Date.now();
-    const noProgressTimeoutMs =
-      opts.noProgressTimeoutMs !== undefined && opts.noProgressTimeoutMs > 0
-        ? opts.noProgressTimeoutMs
-        : DEFAULT_NO_PROGRESS_TIMEOUT_MS;
+    const noProgressTimeoutMs = resolveNoProgressTimeoutMs(opts.noProgressTimeoutMs, this.capabilities);
     const wallDeadline = opts.timeoutMs > 0 ? start + opts.timeoutMs : Infinity;
 
     // FR-GROK-06: the model actually forwarded to the CLI. Tier aliases are

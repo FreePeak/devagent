@@ -1,5 +1,5 @@
-import type { WorkerAdapter, WorkerEvent, WorkerResult, WorkerSpawnOptions } from '../types.js';
-import type { SpawnCliResult } from './spawn-utils.js';
+import type { WorkerAdapter, WorkerCapabilities, WorkerEvent, WorkerResult, WorkerSpawnOptions } from '../types.js';
+import { resolveNoProgressTimeoutMs, type SpawnCliResult } from './spawn-utils.js';
 import { runWorkerCli } from './herdr-runtime.js';
 import { prepareWorkerSpawn } from './sandbox.js';
 import { backoffDelay } from '../sessionguard/backoff.js';
@@ -8,18 +8,6 @@ import { isRetryableWithoutSession } from '../resilience/classify.js';
 
 const RESUME_PROMPT = 'Continue';
 const DEFAULT_API_MAX_ATTEMPTS = Infinity;
-
-function resolveNoProgressTimeoutMs(explicit: number | undefined): number {
-  if (explicit !== undefined) return explicit;
-  const env = process.env.DEVAGENT_NO_PROGRESS_TIMEOUT_MS;
-  if (env !== undefined && env !== '') {
-    const n = Number(env);
-    if (Number.isFinite(n) && n >= 0) return n;
-  }
-  // 0 = watchdog off (callers like deps.ts/consume use config to pass 10m in prod).
-  // Keeping direct adapter invocations fast in unit tests.
-  return 0;
-}
 
 /**
  * Adapter over the Claude Code headless CLI:
@@ -34,6 +22,14 @@ function resolveNoProgressTimeoutMs(explicit: number | undefined): number {
 export class ClaudeCodeAdapter implements WorkerAdapter {
   readonly name = 'claude-code' as const;
 
+  /**
+   * Q30: declares no watchdog budget — 0 = watchdog off (callers like
+   * deps.ts/consume use config to pass 10m in prod). Keeping direct adapter
+   * invocations fast in unit tests. The spawn path reads this declaration
+   * (`resolveNoProgressTimeoutMs`) instead of a local resolver.
+   */
+  readonly capabilities: WorkerCapabilities = { defaultNoProgressTimeoutMs: 0 };
+
   constructor(
     private readonly sleep: (ms: number) => Promise<void> = (ms) =>
       new Promise((resolve) => setTimeout(resolve, ms)),
@@ -42,7 +38,7 @@ export class ClaudeCodeAdapter implements WorkerAdapter {
   async spawn(opts: WorkerSpawnOptions): Promise<WorkerResult> {
     const start = Date.now();
     const maxAttempts = opts.apiMaxAttempts ?? DEFAULT_API_MAX_ATTEMPTS;
-    const noProgressTimeoutMs = resolveNoProgressTimeoutMs(opts.noProgressTimeoutMs);
+    const noProgressTimeoutMs = resolveNoProgressTimeoutMs(opts.noProgressTimeoutMs, this.capabilities);
     const wallDeadline = opts.timeoutMs > 0 ? start + opts.timeoutMs : Infinity;
 
     let args = baseArgs(opts);

@@ -159,6 +159,29 @@ export interface WorkerResult {
   costUsdTicks?: number;
 }
 
+/**
+ * Q30 capability block: per-adapter limits the spawn path must honor, declared
+ * by the adapter instead of being re-derived at every call site. Before this,
+ * each adapter carried its own copy of the no-progress watchdog default
+ * (inline `DEFAULT_NO_PROGRESS_TIMEOUT_MS` ternaries in omp/pi/grok, local
+ * `resolveNoProgressTimeoutMs` helpers in claude-code/opencode) so the registry
+ * declared nothing and the resolution drifted per adapter.
+ */
+export interface WorkerCapabilities {
+  /**
+   * Silence budget (ms) the no-progress watchdog arms when the caller passed
+   * no `noProgressTimeoutMs`. 0 = the adapter runs with the clock disarmed
+   * unless config/env arms it (claude-code, opencode). A nonzero declaration
+   * is also a floor: those CLIs must never run silent-and-unwatched (omp/pi/
+   * grok retries and pi's stdin-EOF routing both depend on an armed clock),
+   * so a caller-passed 0 falls back to this value. Env
+   * `DEVAGENT_NO_PROGRESS_TIMEOUT_MS` overrides the declaration; an explicit
+   * positive caller value always wins. Resolution lives in
+   * `resolveNoProgressTimeoutMs` (src/workers/spawn-utils.ts).
+   */
+  readonly defaultNoProgressTimeoutMs: number;
+}
+
 /** Uniform contract over heterogeneous headless coding-agent CLIs. */
 export interface WorkerAdapter {
   readonly name: WorkerName;
@@ -171,6 +194,14 @@ export interface WorkerAdapter {
    * hook only moves the decision closer to the adapter's stream shape.
    */
   isProgress?(line: string): boolean;
+  /** Optional per-adapter capability block (PRD Q30), following the Q33
+   * `isProgress` precedent: the adapter declares what the spawn path must
+   * honor, and the shared resolution reads that declaration instead of
+   * keeping its own copy. When absent, the spawn path falls back to a
+   * disarmed watchdog (`defaultNoProgressTimeoutMs: 0`) — the historical
+   * behavior of an adapter that never declared a budget.
+   */
+  readonly capabilities?: WorkerCapabilities;
   spawn(opts: WorkerSpawnOptions): Promise<WorkerResult>;
 }
 
