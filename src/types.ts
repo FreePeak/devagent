@@ -136,6 +136,13 @@ export interface WorkerResult {
    * burning the full retry budget on a dead endpoint.
    */
   noProgress?: boolean;
+  /**
+   * FR-GROK-03: xAI `usage.cost_in_usd_ticks` recorded verbatim for this run —
+   * an exact integer tick count, never rounded or converted to a currency
+   * float. Undefined when the provider omitted the field (a missing cost is
+   * not a zero cost); only grok reports it today.
+   */
+  costUsdTicks?: number;
 }
 
 /** Uniform contract over heterogeneous headless coding-agent CLIs. */

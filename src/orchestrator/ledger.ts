@@ -296,6 +296,35 @@ export function appendWatchdogHealthRecord(repoPath: string, record: WatchdogHea
   }
 }
 
+/**
+ * FR-GROK-03: exact per-run cost row. One row per grok worker run that
+ * reported a cost, carrying xAI's `usage.cost_in_usd_ticks` verbatim so the
+ * ledger answers "what did this loop cost" without a price table. A run the
+ * provider did not price writes no row — cost is never recorded as 0.
+ */
+export interface WorkerCostLedgerRecord extends LedgerRecordBase {
+  kind: 'event';
+  event: 'worker-cost';
+  /** Worker CLI that produced the cost (grok today). */
+  worker: string;
+  /** Exact integer USD ticks, copied verbatim from the provider stream. */
+  costUsdTicks: number;
+}
+
+/**
+ * Append a worker-cost record. Never throws into the caller's path —
+ * best-effort observability by design.
+ */
+export function appendWorkerCostRecord(repoPath: string, record: WorkerCostLedgerRecord): void {
+  try {
+    const file = ledgerPath(repoPath);
+    mkdirSync(join(repoPath, LEDGER_DIR), { recursive: true });
+    appendFileSync(file, `${JSON.stringify(record)}\n`);
+  } catch {
+    // best-effort observability only
+  }
+}
+
 /** Read audit records, oldest first; optional task filter. Returns [] when absent. */
 export function readLedger(repoPath: string, opts: { taskId?: string } = {}): AuditLedgerRecord[] {
   const file = ledgerPath(repoPath);

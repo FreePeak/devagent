@@ -3,6 +3,7 @@ import type { SpawnCliResult } from './spawn-utils.js';
 import { runWorkerCli } from './herdr-runtime.js';
 import { prepareWorkerSpawn } from './sandbox.js';
 import { isGrokModelId } from './model-id.js';
+import { appendWorkerCostRecord } from '../orchestrator/ledger.js';
 
 const RESUME_PROMPT = 'Continue';
 /**
@@ -72,11 +73,43 @@ export interface GrokOutcome {
   resultText: string | null;
   parsed: Record<string, unknown> | null;
   timedOut: boolean;
+  /**
+   * FR-GROK-03: exact xAI cost in integer USD ticks, copied verbatim from the
+   * stream's `usage`/`end` events. Undefined when neither event carried the
+   * field — a missing cost is never coerced to 0.
+   */
+  costUsdTicks?: number;
 }
 
 /** Test seam: re-export of the parser. */
 export function interpretGrokForTest(run: SpawnCliResult): GrokOutcome {
   return interpretGrok(run);
+}
+
+/**
+ * FR-GROK-03: read the exact cost figure off one stream event, verbatim — no
+ * rounding, no currency conversion. grok's `end` event carries the run total
+ * as `total_cost_usd_ticks`; the xAI API/PRD names the same quantity
+ * `usage.cost_in_usd_ticks`. Accept either spelling, at the event top level or
+ * nested under `usage`, and return the first finite number found. Absent or
+ * non-finite yields undefined — never 0 — so a run the provider did not price
+ * stays distinct from a genuinely free (0-tick) run.
+ */
+function pickCostTicks(event: Record<string, unknown>): number | undefined {
+  const usage = event.usage;
+  const nested =
+    usage !== null && typeof usage === 'object' && !Array.isArray(usage)
+      ? (usage as Record<string, unknown>)
+      : undefined;
+  for (const candidate of [
+    event.cost_in_usd_ticks,
+    event.total_cost_usd_ticks,
+    nested?.cost_in_usd_ticks,
+    nested?.total_cost_usd_ticks,
+  ]) {
+    if (typeof candidate === 'number' && Number.isFinite(candidate)) return candidate;
+  }
+  return undefined;
 }
 
 /**
@@ -102,11 +135,18 @@ export function interpretGrokForTest(run: SpawnCliResult): GrokOutcome {
  * Like omp, grok can exit 0 while the provider call failed: the failure
  * surfaces as an in-stream `error` event. Capture the first message so the
  * failure is not misread as an empty-but-successful run.
+ *
+ * Cost accounting (FR-GROK-03): the `usage` and `end` events carry the exact
+ * xAI cost as integer USD ticks. Copy it verbatim onto the outcome (no
+ * rounding, no currency conversion); the `end` total wins over any earlier
+ * `usage` row. A run whose events omit the field leaves the cost undefined —
+ * never 0.
  */
 function interpretGrok(run: SpawnCliResult): GrokOutcome {
   let sessionId: string | null = null;
   let streamError: string | null = null;
   let endEvent: Record<string, unknown> | null = null;
+  let costUsdTicks: number | undefined;
   const textChunks: string[] = [];
 
   for (const line of run.stdout.split('\n')) {
@@ -132,9 +172,17 @@ function interpretGrok(run: SpawnCliResult): GrokOutcome {
     if (event.type === 'error' && streamError === null && typeof event.message === 'string') {
       streamError = event.message;
     }
+    if (event.type === 'usage') {
+      const c = pickCostTicks(event);
+      if (c !== undefined) costUsdTicks = c;
+    }
     if (event.type === 'end') {
       endEvent = event;
       if (typeof event.sessionId === 'string') sessionId = event.sessionId;
+      // The terminal `end` event is the authoritative accounting; it overrides
+      // any earlier `usage` row. Absent cost here leaves the usage value intact.
+      const c = pickCostTicks(event);
+      if (c !== undefined) costUsdTicks = c;
     }
   }
 
@@ -153,6 +201,7 @@ function interpretGrok(run: SpawnCliResult): GrokOutcome {
     resultText,
     parsed: endEvent,
     timedOut: run.timedOut,
+    costUsdTicks,
   };
 }
 
@@ -162,6 +211,8 @@ function fallbackEmpty(): SpawnCliResult {
 
 function finalize(run: SpawnCliResult, sessionId: string | null, start: number): WorkerResult {
   const outcome = interpretGrok(run);
+  const cost =
+    outcome.costUsdTicks !== undefined ? { costUsdTicks: outcome.costUsdTicks } : {};
   if (run.timedOut) {
     return {
       exitCode: run.exitCode,
@@ -171,6 +222,7 @@ function finalize(run: SpawnCliResult, sessionId: string | null, start: number):
       durationMs: Date.now() - start,
       timedOut: true,
       errorText: run.stderr.trim() || undefined,
+      ...cost,
     };
   }
   const events: WorkerEvent[] = outcome.parsed ? [{ type: 'result', ...outcome.parsed }] : [];
@@ -182,6 +234,7 @@ function finalize(run: SpawnCliResult, sessionId: string | null, start: number):
     durationMs: Date.now() - start,
     timedOut: false,
     errorText: outcome.errorText,
+    ...cost,
   };
 }
 
@@ -256,6 +309,22 @@ export class GrokAdapter implements WorkerAdapter {
       args = buildGrokArgs(opts, { resume: true });
     }
 
-    return finalize(last ?? fallbackEmpty(), sessionId, start);
+    const result = finalize(last ?? fallbackEmpty(), sessionId, start);
+    // FR-GROK-03: persist the exact cost onto the run ledger for every grok
+    // worker run the provider priced. Best-effort — a ledger write must never
+    // fail the run. Identity comes from the dispatcher's watchdog context;
+    // probe/one-off spawns without it are not orchestrated runs.
+    if (opts.watchdogLedger && result.costUsdTicks !== undefined) {
+      appendWorkerCostRecord(opts.watchdogLedger.repoPath, {
+        ts: new Date().toISOString(),
+        kind: 'event',
+        event: 'worker-cost',
+        taskId: opts.watchdogLedger.taskId,
+        attempt: opts.watchdogLedger.attempt,
+        worker: 'grok',
+        costUsdTicks: result.costUsdTicks,
+      });
+    }
+    return result;
   }
 }

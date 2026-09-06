@@ -130,6 +130,59 @@ describe('grok adapter - Seam B: streaming-json NDJSON parsing (captured fixture
   });
 });
 
+describe('grok adapter - Seam B: exact cost ticks (FR-GROK-03)', () => {
+  const run = (stdout: string) =>
+    interpretGrokForTest({ exitCode: 0, stdout, stderr: '', timedOut: false });
+
+  it('copies total_cost_usd_ticks off the end event verbatim', () => {
+    const o = run(
+      '{"type":"end","sessionId":"s1","stopReason":"end_turn","usage":{"input_tokens":10},"total_cost_usd_ticks":527119000}\n',
+    );
+    expect(o.costUsdTicks).toBe(527119000);
+  });
+
+  it('reads cost_in_usd_ticks off a usage event when the end event omits it', () => {
+    const o = run(
+      '{"type":"usage","usage":{"input_tokens":5,"cost_in_usd_ticks":12345}}\n' +
+        '{"type":"end","sessionId":"s1","stopReason":"end_turn"}\n',
+    );
+    expect(o.costUsdTicks).toBe(12345);
+  });
+
+  it('prefers the terminal end total over an earlier usage row', () => {
+    const o = run(
+      '{"type":"usage","usage":{"cost_in_usd_ticks":111}}\n' +
+        '{"type":"end","total_cost_usd_ticks":999}\n',
+    );
+    expect(o.costUsdTicks).toBe(999);
+  });
+
+  it('leaves cost undefined when no event carries it — never coerced to 0', () => {
+    const o = run('{"type":"end","sessionId":"s1","stopReason":"end_turn","usage":{"input_tokens":1}}\n');
+    expect(o.costUsdTicks).toBeUndefined();
+  });
+
+  it('keeps a genuine 0-tick run as 0, not undefined', () => {
+    const o = run('{"type":"end","total_cost_usd_ticks":0}\n');
+    expect(o.costUsdTicks).toBe(0);
+  });
+
+  it('ignores a non-numeric cost field instead of coercing it', () => {
+    const o = run('{"type":"end","total_cost_usd_ticks":"527119000"}\n');
+    expect(o.costUsdTicks).toBeUndefined();
+  });
+
+  it('records the captured smoke run cost verbatim', () => {
+    const o = interpretGrokForTest({
+      exitCode: 0,
+      stdout: fixture('grok-smoke-2026-09-06.jsonl'),
+      stderr: '',
+      timedOut: false,
+    });
+    expect(o.costUsdTicks).toBe(527119000);
+  });
+});
+
 describe('grok adapter - Seam C: meaningful-line progress filter (Q33)', () => {
   const adapter = new GrokAdapter();
 
