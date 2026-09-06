@@ -6,6 +6,7 @@ import { syncWorkSelectionDocs } from './git/doc-sync.js';
 import type { DevAgentConfig } from './config.js';
 import { runWorkerCli } from './workers/herdr-runtime.js';
 import { buildAdjacentCategoryScanText } from './research/scan-text.js';
+import { buildKnowledgeContext, spliceCompactContext } from './prompt.js';
 
 export interface ScoutCycleOptions {
   repoPath: string;
@@ -112,7 +113,7 @@ export function buildScoutPrompt(repoPath: string, config: DevAgentConfig): stri
     } catch { return '(none)'; }
   })();
 
-  return [
+  const prompt = [
     `You are the DevAgent SCOUT. Repo: ${repoPath}.`,
     `Read docs/PRD.md section 4 (competitive landscape) and section 17 (roadmap), plus .selfbuild/ledger.jsonl tail and lessons below.`,
     `Queue depth: ${qCount} task(s). Recent PRDs: ${recentPrds}.`,
@@ -139,6 +140,14 @@ export function buildScoutPrompt(repoPath: string, config: DevAgentConfig): stri
     `## Notes`,
     `<optional notes>`,
   ].filter(Boolean).join('\n');
+  // Knowledge-context digest (FR-CTX-01): baseline `.devagent/context/*.md`
+  // plus the opt-in KG layer, spliced through the same seam as the planner;
+  // no digest content leaves the prompt byte-identical (FR-CTX-02 noop).
+  const knowledge = buildKnowledgeContext(repoPath, {
+    ...(config.lessonsMaxChars !== undefined ? { maxChars: config.lessonsMaxChars } : {}),
+    ...(config.context?.kg !== undefined ? { kg: config.context.kg } : {}),
+  });
+  return spliceCompactContext(prompt, undefined, repoPath, { knowledge });
 }
 
 export function parseScoutOutput(text: string): { id: string; title: string; goal: string; criteria: string[]; prdMarkdown: string } | null {

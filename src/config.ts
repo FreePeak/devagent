@@ -80,6 +80,14 @@ export interface DevAgentConfig {
   /** Character budget for injected lessons; oldest entries are dropped whole (default 4000). */
   lessonsMaxChars?: number;
   /**
+   * Knowledge-context layers (FR-CTX-01..03). The `.devagent/context/*.md`
+   * markdown baseline is always-on and needs no configuration; `kg` opts into
+   * the structural KG digest tier layered on top of it. Default `off`: when
+   * off or the provider is unreachable the digest is baseline-only and the
+   * pipeline continues — never blocked.
+   */
+  context?: { kg?: 'leankg' | 'off' };
+  /**
    * Trigram-Jaccard similarity threshold for the lessons dedupe guard (PRD
    * Phase 4 "Lessons eval guard"): a candidate lesson at or above this
    * similarity to an existing entry is rejected before append (default 0.8,
@@ -209,6 +217,9 @@ export function loadConfig(repoPath: string = process.cwd()): DevAgentConfig {
     if (o.regressionOracle !== undefined && typeof o.regressionOracle !== 'boolean') {
       throw new Error(`Invalid orchestrate.regressionOracle "${String(o.regressionOracle)}"; expected true or false`);
     }
+  }
+  if (config.context?.kg !== undefined && !['leankg', 'off'].includes(config.context.kg)) {
+    throw new Error(`Invalid context.kg "${config.context.kg}"; expected leankg or off`);
   }
   if (config.lessonsDedupeSimilarity !== undefined) {
     const t = config.lessonsDedupeSimilarity;
