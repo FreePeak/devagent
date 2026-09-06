@@ -139,13 +139,20 @@ phase() { # phase <loop> <phase> [detail]
 # restart lost the record) each burned attempts on an already-planned goal.
 already_shipped() { # already_shipped <goal-text>
   [ -f "$STATE/ledger.jsonl" ] || return 1
-  local want
-  # Match on the PRD backlog item id (Q35, Q24, ...) when the goal names one —
-  # goal text is rewritten between selection and ledger record, but the item id
-  # is stable. Also match the normalized first 60 chars as a loose fallback.
+  # Match on the PRD backlog item id (Q35, Q24, ...) when the goal's subject
+  # names one — goal text is rewritten between selection and ledger record,
+  # but the item id is stable. The id is extracted from the first 80 chars
+  # only: a goal that MERELY references an id in its body (loop-104's
+  # "strike shipped bullets" goal mentions Q27 at char ~150 while executing
+  # the Q27-family reconciliation bullet) must not match every ok row that
+  # ever shipped that id — that false positive skipped 3 of the 5 strikes
+  # that tripped the 2026-09-06 starvation gate. Subject-scoped ids still
+  # catch the real re-burn class (Q35 re-picked as "Goal: Ship the Q35 ...",
+  # Q24 as "Goal: Q24 ..."). Also match the normalized first 60 chars as a
+  # loose fallback.
   want=$(printf '%s' "$1" | tr -d '"' | tr -s '[:space:]' ' ')
   local item
-  item=$(printf '%s' "$want" | grep -oE 'Q[0-9]+' | head -1 || true)
+  item=$(printf '%s' "${want:0:80}" | grep -oE 'Q[0-9]+' | head -1 || true)
   awk -v want="$want" -v item="${item:-}" '
     /"status":"(ok|pr-open|merged|pushed)"/ {
       gsub(/"/, "", $0)
