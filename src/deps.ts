@@ -14,6 +14,7 @@ import { evaluateReadiness } from './validation/readiness-gate.js';
 import { createWorktree, isGitRepository, finalizeRunWorktree } from './git/worktree.js';
 import { getWorker } from './workers/index.js';
 import { buildImplementationPrompt, buildKnowledgeContext, buildRepairPrompt, loadLessons } from './prompt.js';
+import { createLeanKgProvider } from './leankg.js';
 import type { CleanupMode } from './config.js';
 import { findOrcaWorktreeByPath, dropOrcaWorkspace } from './integrations/orca.js';
 import { isNonRetryableApiError } from './sessionguard/events.js';
@@ -298,10 +299,22 @@ export async function implementStage(
   const worker = getWorker(workerName);
   const lessons = loadLessons(cfg.repoPath, cfg.lessonsFile, cfg.lessonsMaxChars);
   // Knowledge-context digest for the repair leg (FR-CTX-01): orchestrator-side
-  // assembly only — the worker adapter still receives a plain prompt string (FR-CTX-04).
+  // assembly only — the worker adapter still receives a plain prompt string
+  // (FR-CTX-04). FR-CTX-05: with `context.kg` on, the real LeanKG client runs
+  // one 1s-budget call; degraded modes omit the KG layer and land in the run log.
+  const kgProvider =
+    cfg.context?.kg === 'leankg'
+      ? createLeanKgProvider({
+          repoPath: cfg.repoPath,
+          query: `${plan.ticket.id} ${plan.ticket.title}`,
+          log,
+          stage: 'implement',
+        })
+      : undefined;
   const knowledge = buildKnowledgeContext(cfg.repoPath, {
     ...(cfg.lessonsMaxChars !== undefined ? { maxChars: cfg.lessonsMaxChars } : {}),
     ...(cfg.context?.kg !== undefined ? { kg: cfg.context.kg } : {}),
+    ...(kgProvider ? { kgProvider } : {}),
   });
   const prompt = buildImplementationPrompt(plan, lessons);
   let repairPrompt = prompt;
