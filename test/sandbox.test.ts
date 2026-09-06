@@ -78,6 +78,7 @@ const FAKE_GITHUB_TOKEN = 'ghp-' + 'secret';
 const FAKE_STRIPE_KEY = 'sk-' + 'live';
 const FAKE_NPM_TOKEN = 'npm-' + 'secret';
 const FAKE_AWS_SECRET = 'aws-' + 'secret';
+const FAKE_XAI_KEY = 'xai-' + 'secret';
 
 describe('sanitizeWorkerEnv', () => {
   const baseEnv = {
@@ -90,6 +91,7 @@ describe('sanitizeWorkerEnv', () => {
     MY_SERVICE_PASSWORD: 'pw',
     SLACK_CLIENT_SECRET: 'slack',
     STRIPE_API_KEY: FAKE_STRIPE_KEY,
+    XAI_API_KEY: FAKE_XAI_KEY,
   };
 
   it('strips secret-shaped vars regardless of provider prefix', () => {
@@ -114,6 +116,10 @@ describe('sanitizeWorkerEnv', () => {
     expect(env.HOME).toBe('/Users/t');
     expect(env.ANTHROPIC_API_KEY).toBe(FAKE_ANTHROPIC_KEY);
     expect(stripped).not.toContain('ANTHROPIC_API_KEY');
+    // XAI_API_KEY is allowlisted for the grok worker (FR-GROK-01): the
+    // /_API_KEY$/ scrubber would otherwise strip the CLI's only env auth.
+    expect(env.XAI_API_KEY).toBe(FAKE_XAI_KEY);
+    expect(stripped).not.toContain('XAI_API_KEY');
   });
 
   it('does not mutate the caller environment', () => {

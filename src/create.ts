@@ -21,7 +21,7 @@ export interface CreateOptions {
   selfUpdate?: boolean;
   dryRun?: boolean;
   intervalMinutes?: number;
-  scoutWorker?: 'opencode' | 'claude-code' | 'omp' | 'pi';
+  scoutWorker?: 'opencode' | 'claude-code' | 'omp' | 'pi' | 'grok';
   trackIntervalMinutes?: number;
 }
 

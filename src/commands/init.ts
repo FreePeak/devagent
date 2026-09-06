@@ -259,11 +259,13 @@ export async function runInit(opts: InitOptions = {}): Promise<InitResult> {
     detail: workerPath ? `worker CLI ${workerBin} found (${workerPath})` : `worker CLI ${workerBin} not found`,
   });
 
-  // Provider probe, best-effort, scoped to omp for v1: the shared probe's
-  // success shape ("text":"OK") is omp-specific — other workers would report
-  // "could not verify" on healthy providers. No answer never blocks setup.
-  if (worker === 'omp' && workerPath) {
-    const argv = buildProbeArgvFor('omp', model);
+  // Provider probe, best-effort, scoped to the workers whose answer shape
+  // the shared probe understands (omp `--mode json` and grok
+  // `--output-format streaming-json` — see runPreflightProbe): other
+  // workers would report "could not verify" on healthy providers. No
+  // answer never blocks setup.
+  if ((worker === 'omp' || worker === 'grok') && workerPath) {
+    const argv = buildProbeArgvFor(worker, model);
     const r = await probe(argv[0]!, [argv[1]!, 'OK', ...argv.slice(2)], { cwd: repoPath });
     checks.push({
       name: 'provider',

@@ -1,10 +1,12 @@
 import type { WorkerAdapter, WorkerName } from '../types.js';
 import { ClaudeCodeAdapter } from './claude-code.js';
+import { GrokAdapter } from './grok.js';
 import { OmpAdapter } from './omp.js';
 import { OpenCodeAdapter } from './opencode.js';
 import { PiAdapter } from './pi.js';
 
 export { ClaudeCodeAdapter } from './claude-code.js';
+export { GrokAdapter } from './grok.js';
 export { OmpAdapter } from './omp.js';
 export { OpenCodeAdapter } from './opencode.js';
 export { PiAdapter } from './pi.js';
@@ -17,6 +19,7 @@ export const workers: Record<WorkerName, WorkerAdapter> = {
   opencode: new OpenCodeAdapter(),
   omp: new OmpAdapter(),
   pi: new PiAdapter(),
+  grok: new GrokAdapter(),
 };
 
 /** Factory: resolve a worker adapter by name. Throws on unknown names. */
