@@ -90,7 +90,7 @@ GRADIENT_SCAN_TEXT="$("${DEVAGENT[@]}" scan-text 2>/dev/null)" || GRADIENT_SCAN_
 [ -n "$GRADIENT_SCAN_TEXT" ] || echo "[gradient] scan-text dispatch failed — prompts run without the adjacent-category scan" >&2
 
 # Restore durable loop state (ledger + lessons) from origin before numbering.
-bash "$REPO/scripts/selfbuild-state.sh" pull || echo "[state] pull failed, starting from local state"
+GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh -o BatchMode=yes -o ConnectTimeout=10}" timeout 60 bash "$REPO/scripts/selfbuild-state.sh" pull || echo "[state] pull failed, starting from local state"
 
 
 record() { # record <loop> <status> <goal>
@@ -99,7 +99,7 @@ record() { # record <loop> <status> <goal>
   printf '{"loop":%s,"ts":"%s","status":"%s","goal":"%s"}\n' \
     "$1" "$(date -u +%FT%TZ)" "$2" "$goal_txt" >> "$STATE/ledger.jsonl"
   # Publish immediately (even for failures) so the next run continues here.
-  bash "$REPO/scripts/selfbuild-state.sh" push || echo "[state] push deferred"
+  GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh -o BatchMode=yes -o ConnectTimeout=10}" timeout 60 bash "$REPO/scripts/selfbuild-state.sh" push || echo "[state] push deferred"
   # Q39 impact telemetry: mirror one loop-result event row per iteration so
   # lesson impact scoring can join lessons-eval rows (devagent lessons --loop)
   # to the deterministic loop outcome in .devagent/runs/orchestration/events.jsonl.
@@ -242,9 +242,11 @@ while :; do
     echo "=== self-build loop $N start $(date -u +%FT%TZ) ==="
 
     # Starvation gate: halt a loop that stopped shipping (checked before spending tokens).
+    # Exit 0 — an intentional stop. Exit 1 + hub restart=on-failure resurrects
+    # the halt every backoff interval (2026-09-06: 58 hollow loop-106 starts).
     if starved; then
       echo "[starvation] $STARVATION_LIMIT consecutive non-productive iterations — halting loop"
-      exit 1
+      exit 0
     fi
 
     # Sweep auto-pr leftovers whose 30-min grace period has elapsed.
