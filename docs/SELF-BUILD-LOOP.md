@@ -76,10 +76,10 @@ Environment knobs (all optional):
 |---|---|---|
 | `SELFBUILD_MAX_ITERATIONS` | `0` | 0 = run until circuit-breaker trips |
 | `SELFBUILD_MAX_CONSECUTIVE_FAILURES` | `3` | Circuit breaker: abort after N failed loops in a row |
-| `SELFBUILD_WORKER` | `claude-code` | Worker CLI passed to `devagent task` |
+| `SELFBUILD_WORKER` | `omp` | Worker CLI passed to `devagent task` |
 | `SELFBUILD_PUSH_MODE` | `pr` | `pr` (branch + PR via auto-pr) or `main` (direct commit) |
-| `SELFBUILD_CLAUDE` | `claude -p` | Headless researcher invocation |
-| `SELFBUILD_STARVATION_LIMIT` | `5` | Halt when the last N ledger entries are all non-`ok` (cross-run thrash guard) |
+| `SELFBUILD_CLAUDE` | `omp … --model router/dev` | Research/PO headless invocation (research + PO both use pane-run via herdr with this binary as fallback) |
+| `SELFBUILD_STARVATION_LIMIT` | `5` | Halt (exit 0 — intentional stop, supervisor must not resurrect) when the last N ledger entries are all non-`ok` (cross-run thrash guard); degraded rows don't count |
 | `SELFBUILD_CLEANUP_DELAY_SECS` | `1800` | Grace period before a pr-mode iteration's worktree + branch (`devagent/TASK`) are removed; deletion only happens once the branch tip is verified on origin |
 | `SELFBUILD_DRY_RUN` | `0` | `1` executes all phases without side effects (stub outputs, no claude/task/push) |
 

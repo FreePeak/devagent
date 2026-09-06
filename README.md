@@ -149,6 +149,7 @@ See [docs/HERDR.md](docs/HERDR.md) for the full behavior contract.
 | [Self-Build Loop](docs/SELF-BUILD-LOOP.md) | Markdown | Infinity loop driver (`scripts/selfbuild-loop.sh`) + Orca automation modes |
 | [Git cleanup of merged MRs/PRs](docs/cleanup-merged.md) | Markdown | `scripts/git-cleanup-merged.sh`: delete local branches + worktrees whose GitLab MR / GitHub PR was merged, across all nested repos in `~/work` (dry-run default, launchd automation) |
 | [Herdr runtime support](docs/HERDR.md) | Markdown | Run worker launches inside herdr panes (persistent terminal workspace manager): visible, reattachable, disconnect-proof; opt-in via `herdr.enabled` or `DEVAGENT_HERDR=1` |
+| [DevAgent × Grok](docs/GROK.md) | Markdown | Grok/xAI integration plan (worker adapter M0–M2), 2026-09 competitive install-ease scan, and the few-tools easy-install path |
 
 Research sources backing the PRD are cited inline and collected in the [research appendix](docs/PRD.md#19-research-appendix).
 
