@@ -59,6 +59,43 @@ export function buildGrokArgs(opts: WorkerSpawnOptions, o: GrokArgsOptions = {})
 }
 
 /**
+ * FR-GROK-04: env var carrying the per-task prompt-cache key into the grok
+ * child. The Grok Build CLI (argv verified against 1.0.13) has no cache-key
+ * flag — the supported per-request channel is config-driven:
+ * `[model.<id>].env_http_headers = { "x-grok-conv-id" =
+ * "DEVAGENT_PROMPT_CACHE_KEY" }` in ~/.grok/config.toml maps this env var to
+ * the sticky-routing header xAI prices cached input against (~25% of input
+ * cost, PRD §20.2). Like XAI_API_KEY, it reaches the CLI through the spawn
+ * env, never argv.
+ */
+export const GROK_PROMPT_CACHE_KEY_ENV = 'DEVAGENT_PROMPT_CACHE_KEY';
+
+/**
+ * FR-GROK-04: derive the per-task prompt-cache key. Deterministic function
+ * of the task id the dispatcher already threads (watchdogLedger.taskId —
+ * same identity source as the FR-GROK-03 cost rows), so every attempt in a
+ * task's retry loop and every re-dispatch of that task carries the identical
+ * key instead of going cache-cold. Deliberately excludes attempt/retry
+ * fields: a key that moved per attempt would defeat stickiness. Returns
+ * undefined for probe/one-off spawns without ledger context — no key is
+ * emitted rather than a fabricated per-process one.
+ */
+export function grokPromptCacheKey(opts: WorkerSpawnOptions): string | undefined {
+  const taskId = opts.watchdogLedger?.taskId?.trim();
+  return taskId ? `devagent-${taskId}` : undefined;
+}
+
+/**
+ * Env overlay for the grok child carrying the FR-GROK-04 cache key. Empty
+ * when the spawn has no task context, so the caller env passes through
+ * untouched and no key is emitted.
+ */
+export function grokPromptCacheEnv(opts: WorkerSpawnOptions): Record<string, string> {
+  const key = grokPromptCacheKey(opts);
+  return key ? { [GROK_PROMPT_CACHE_KEY_ENV]: key } : {};
+}
+
+/**
  * FR-GROK-06: the within-xAI fallback chain, ordered by preference (PRD
  * §20.2: grok-4.6 is the recommended coding default, grok-4.3 the 1M-ctx
  * sibling, grok-build-0.1 the small-context escape hatch). A TPM
@@ -322,6 +359,9 @@ function finalize(run: SpawnCliResult, sessionId: string | null, start: number):
  *   - Model forwarded only when exact-slug or `xai/`-qualified (FR-GROK-02).
  *   - No `--api-key` CLI flag — browser OAuth or `XAI_API_KEY` env are the
  *     supported credential channels (XAI_API_KEY is sandbox-allowlisted).
+ *   - Per-task prompt-cache key (FR-GROK-04) rides the spawn env as
+ *     `DEVAGENT_PROMPT_CACHE_KEY=devagent-<taskId>`, derived once per spawn
+ *     so every attempt of the retry loop keeps the cache warm; never argv.
  *   - Provider failures can surface as in-stream `error` events at exit 0;
  *     the parser captures them (see interpretGrok).
  *   - TPM-class 429s step the within-xAI fallback chain
@@ -353,6 +393,13 @@ export class GrokAdapter implements WorkerAdapter {
     let activeModel =
       opts.model !== undefined && isGrokModelId(opts.model) ? opts.model.trim() : undefined;
     let args = buildGrokArgs(opts);
+    // FR-GROK-04: derive the per-task cache key once per spawn — the retry
+    // loop rebuilds argv but must never re-derive a different key, or every
+    // re-dispatch goes cache-cold. Merged over the caller env so dispatch
+    // extras survive; the per-task key wins over any inherited value.
+    const cacheEnv = grokPromptCacheEnv(opts);
+    const spawnEnv =
+      (opts.env || Object.keys(cacheEnv).length > 0) ? { ...opts.env, ...cacheEnv } : undefined;
     let sessionId: string | null = null;
     let last: SpawnCliResult | null = null;
     // Retries use -c (continue most-recent session in cwd) and we cap at
@@ -369,7 +416,7 @@ export class GrokAdapter implements WorkerAdapter {
       const prepared = await prepareWorkerSpawn('grok', args, {
         cwd: opts.cwd,
         timeoutMs: opts.timeoutMs,
-        ...(opts.env ? { env: opts.env } : {}),
+        ...(spawnEnv ? { env: spawnEnv } : {}),
         noProgressTimeoutMs,
         ...(opts.watchdogLedger ? { watchdogLedger: opts.watchdogLedger } : {}),
       });
