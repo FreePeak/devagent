@@ -19,13 +19,18 @@ export function isPureThinkingLine(line: string): boolean {
   if (line.includes('"thinking_delta"')) return true;
   // pi: message_update whose assistantMessageEvent is a thinking variant.
   if (line.includes('"type":"thinking_delta"') || line.includes('"type":"thinking_start"')) return true;
+  // grok: streaming-json thought chunks (observed 2026-09-06: 48 thought
+  // chunks in a 10s echo run — pure deliberation, never progress).
+  if (line.includes('"type":"thought"')) return true;
   return false;
 }
 
 /**
- * NDJSON-shape progress predicate shared by omp and pi (both emit
+ * NDJSON-shape progress predicate shared by omp, pi, and grok (omp/pi emit
  * `{"type":"tool_execution_start|end", ...}` and text-bearing
- * message_update events). Returns true when the line evidences new work.
+ * message_update events; grok emits `tool_call`/`tool_call_update` and
+ * `{"type":"text","data":...}` chunks). Returns true when the line
+ * evidences new work.
  */
 export function isNdjsonProgressLine(line: string): boolean {
   if (!line.trim()) return false;
@@ -35,5 +40,10 @@ export function isNdjsonProgressLine(line: string): boolean {
   // Assistant text completed (answer turn) counts; thinking text does not.
   if (line.includes('"type":"text_end"')) return true;
   if (line.includes('"type":"toolcall_start"')) return true;
+  // grok streaming-json shapes (captured 2026-09-06): tool calls and
+  // finalized text chunks evidence new work; headers/usage do not.
+  if (line.includes('"type":"tool_call"')) return true;
+  if (line.includes('"type":"tool_call_update"')) return true;
+  if (line.includes('"type":"text","data"')) return true;
   return false;
 }

@@ -83,11 +83,13 @@ function boundDetail(text: string): string {
 
 /**
  * One provider probe: ask the worker CLI to reply to "OK" and require an
- * answer. `--mode json` success looks like an event stream containing
- * `"text":"OK"`; a probe that exits 0 without it is degraded. This mirrors
- * the orchestrate-loop probe but runs through the same spawn path as the
- * worker adapters so env hardening (nested-env blocklist, PATH fallback)
- * stays consistent.
+ * answer. `--mode json` (omp) success looks like an event stream containing
+ * `"text":"OK"`; grok's `--output-format streaming-json` emits the answer
+ * as a text chunk — `{"type":"text","data":"OK"}` (captured 2026-09-06) —
+ * so both shapes count. A probe that exits 0 without either is degraded.
+ * This mirrors the orchestrate-loop probe but runs through the same spawn
+ * path as the worker adapters so env hardening (nested-env blocklist, PATH
+ * fallback) stays consistent.
  */
 export async function runPreflightProbe(
   cmd: string,
@@ -95,7 +97,9 @@ export async function runPreflightProbe(
   opts: { cwd: string; env?: Record<string, string>; /** Wall-clock cap; default PREFLIGHT_PROBE_TIMEOUT_MS. */ timeoutMs?: number },
 ): Promise<PreflightProbe> {
   const run = await spawnCli(cmd, args, { cwd: opts.cwd, timeoutMs: opts.timeoutMs ?? PREFLIGHT_PROBE_TIMEOUT_MS, env: opts.env });
-  const ok = run.exitCode === 0 && run.stdout.includes('"text":"OK"');
+  const ok =
+    run.exitCode === 0 &&
+    (run.stdout.includes('"text":"OK"') || run.stdout.includes('"type":"text","data":"OK"'));
   return ok
     ? { ok: true }
     : { ok: false, detail: boundDetail(`${run.stderr}\n${run.stdout}`) || `exit ${run.exitCode}` };

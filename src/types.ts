@@ -50,7 +50,7 @@ export type ExecutorFailureClass =
 
 // ---------- Workers ----------
 
-export type WorkerName = 'claude-code' | 'opencode' | 'omp' | 'pi';
+export type WorkerName = 'claude-code' | 'opencode' | 'omp' | 'pi' | 'grok';
 
 /**
  * Q34 observability context for watchdog-health ledger rows. Dispatchers

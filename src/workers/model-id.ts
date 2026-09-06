@@ -39,6 +39,29 @@ function providerQualifiedReason(worker: string, model: string | undefined): str
 }
 
 /**
+ * Grok Build accepts exact xAI model slugs (`grok-4.6`, `grok-build-0.1`,
+ * `grok-4.3`, dated pins like `grok-4.6-2026-08-14`) or `xai/`-qualified
+ * ids. Driver tier aliases ("coding") and bare config aliases ("free",
+ * "dev") are NOT grok ids — the loop-58 `--model coding` burn is the
+ * precedent for rejecting them at the gate instead of mid-board.
+ */
+const GROK_EXACT_SLUG = /^grok-[a-z0-9][a-z0-9.-]*$/;
+
+/** True when the model is an exact grok slug or `xai/`-qualified. */
+export function isGrokModelId(model: string | undefined): boolean {
+  const raw = model?.trim();
+  if (raw === undefined || raw === '') return false;
+  return raw.startsWith('xai/') || GROK_EXACT_SLUG.test(raw);
+}
+
+function grokModelIdReason(model: string | undefined): string | null {
+  const raw = model?.trim();
+  if (raw === undefined || raw === '') return null; // unset = adapter default
+  if (isGrokModelId(raw)) return null;
+  return `worker "grok" requires an exact xAI model slug ("grok-4.6", "grok-build-0.1", dated pins) or an "xai/"-qualified id; got "${raw}" (driver tier aliases like "coding" are not valid grok ids)`;
+}
+
+/**
  * The per-adapter registry of accepted id shapes: one predicate per
  * registered worker (Q33 `isProgress` precedent). Passthrough adapters own
  * their id normalization at argv build time and deliberately accept
@@ -48,6 +71,7 @@ function providerQualifiedReason(worker: string, model: string | undefined): str
 const MODEL_ID_VALIDATORS: Record<string, ModelIdPredicate> = {
   omp: (model) => providerQualifiedReason('omp', model),
   pi: (model) => providerQualifiedReason('pi', model),
+  grok: (model) => grokModelIdReason(model),
   'claude-code': () => null,
   opencode: () => null,
 };

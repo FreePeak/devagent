@@ -9,7 +9,7 @@ import { buildAdjacentCategoryScanText } from './research/scan-text.js';
 
 export interface ScoutCycleOptions {
   repoPath: string;
-  worker?: 'opencode' | 'claude-code' | 'omp' | 'pi';
+  worker?: 'opencode' | 'claude-code' | 'omp' | 'pi' | 'grok';
   /** Override interval; not used in once mode but persisted to heartbeat */
   intervalMinutes?: number;
   dryRun?: boolean;
@@ -179,7 +179,7 @@ function fallbackTask(prompt: string, config: DevAgentConfig): { id: string; tit
 
 export async function runScoutOnce(opts: ScoutCycleOptions, config: DevAgentConfig): Promise<ScoutCycleResult> {
   const repoPath = opts.repoPath;
-  const worker = opts.worker ?? (config.scout?.worker as 'opencode' | 'claude-code' | 'omp' | 'pi' | undefined) ?? 'omp';
+  const worker = opts.worker ?? (config.scout?.worker as 'opencode' | 'claude-code' | 'omp' | 'pi' | 'grok' | undefined) ?? 'omp';
   const intervalMinutes = opts.intervalMinutes ?? config.scout?.intervalMinutes ?? 30;
   const hbPath = heartbeatPath(repoPath);
 
@@ -445,7 +445,7 @@ export function writeHeartbeat(
 }
 
 export async function runScoutLoop(
-  opts: { repoPath: string; worker?: 'opencode' | 'claude-code' | 'omp' | 'pi'; intervalMinutes: number; timeoutMs?: number; signal?: AbortSignal },
+  opts: { repoPath: string; worker?: 'opencode' | 'claude-code' | 'omp' | 'pi' | 'grok'; intervalMinutes: number; timeoutMs?: number; signal?: AbortSignal },
   config: DevAgentConfig,
   onCycle?: (result: ScoutCycleResult) => void,
 ): Promise<void> {

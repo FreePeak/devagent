@@ -34,6 +34,9 @@ const DEFAULT_ENV_ALLOWLIST = [
   // LLM providers used by the worker CLIs themselves
   'ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL', 'ANTHROPIC_AUTH_TOKEN',
   'OPENAI_API_KEY', 'OPENAI_BASE_URL',
+  // grok (xAI): the Grok Build CLI authenticates via browser OAuth or
+  // XAI_API_KEY; the /_API_KEY$/ scrubber strips it otherwise (FR-GROK-01).
+  'XAI_API_KEY',
   // opencode provider config
   'OPENCODE_API_KEY',
   // pi provider config (pi resolves provider keys from env; omniroute is the
