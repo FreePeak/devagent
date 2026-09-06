@@ -270,8 +270,9 @@ describe('consumeOnce regression gate wiring', () => {
     const r = await consumeOnce({ repoPath: repo, autoPr: false, autoMerge: true, maxLoops: 1, timeoutMs: 10_000 });
     expect(r.ok).toBe(true);
     expect(r.merged).toBe(true);
-    // the suite never ran: no non-git runCli invocation
-    const suiteCalls = mockRun.mock.calls.filter((c) => c[0] !== 'git');
+    // the suite never ran: no non-git, non-gh runCli invocation (the merged
+    // oracle's board enumeration via `gh pr list` is not a suite run)
+    const suiteCalls = mockRun.mock.calls.filter((c) => c[0] !== 'git' && c[0] !== 'gh');
     expect(suiteCalls).toEqual([]);
   });
 });

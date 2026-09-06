@@ -9,6 +9,7 @@ import { detectTestCommand, type TestCommand } from './validation/test-gate.js';
 import { runCli } from './workers/spawn-utils.js';
 import { runPipeline } from './pipeline.js';
 import { isTransientProviderError } from './resilience/classify.js';
+import { listOpenPrs, type PrStatus } from './integrations/autopr.js';
 
 export interface ConsumeOptions {
   repoPath: string;
@@ -40,7 +41,7 @@ export interface RegressionOracleResult {
   /** true when no runnable command was found or the gate is disabled. */
   skipped: boolean;
   /** Why the gate skipped (or null when it ran). */
-  reason?: 'no-test-command' | 'disabled' | 'worktree-failed' | 'install-failed';
+  reason?: 'no-test-command' | 'disabled' | 'worktree-failed' | 'install-failed' | 'merge-conflict';
   /** Tail of the failing suite output, for the regression-failed detail. */
   excerpt?: string;
 }
@@ -129,6 +130,114 @@ export async function runRegressionOracle(
     if (remove.exitCode !== 0) {
       lg('warn', 'regression oracle worktree remove failed', {
         gate: 'regression',
+        path: staging,
+        stderr: remove.stderr.slice(0, 200),
+      });
+    }
+  }
+}
+
+/**
+ * Merged-result oracle (PRD §17 Phase 4, curation run 24): the per-branch
+ * regression oracle judges each PR in isolation, so a board of individually-
+ * green PRs can still merge to a red result. Before an auto-merge, rebuild the
+ * whole board in a throwaway worktree — check out the candidate's base, merge
+ * every open devagent PR head sharing that base (including the candidate), then
+ * run the repo's full suite on the merged tree. A merge conflict or a red suite
+ * blocks the merge (the PR survives); a skipped gate (no runnable command /
+ * knob off / failed worktree or install) lets auto-merge proceed. The worktree
+ * is always removed.
+ */
+export async function runMergedResultOracle(
+  repoPath: string,
+  branch: string,
+  opts: {
+    timeoutMs: number;
+    enabled?: boolean;
+    log?: RunLogger;
+    /** Injectable board enumeration (defaults to `listOpenPrs`); for tests. */
+    listPrs?: () => Promise<PrStatus[]>;
+  },
+): Promise<RegressionOracleResult> {
+  const lg = (level: 'info' | 'warn', message: string, extra: Record<string, unknown>) => {
+    if (opts.log) opts.log[level]('validate', message, extra);
+  };
+  const enabled = opts.enabled ?? loadOrchestrateConfig(repoPath).regressionOracle;
+  if (enabled === false) return { passed: true, skipped: true, reason: 'disabled' };
+
+  // Enumerate the board: every open PR sharing the candidate's base, plus the
+  // candidate itself. A failed enumeration (gh unavailable) degrades to a
+  // candidate-only board on the default base rather than blocking the merge.
+  let base = 'main';
+  const heads: string[] = [branch];
+  try {
+    const prs = await (opts.listPrs ?? (() => listOpenPrs(repoPath)))();
+    const candidate = prs.find((p) => p.headRefName === branch);
+    if (candidate?.baseRefName) {
+      base = candidate.baseRefName;
+      for (const p of prs) {
+        if (p.baseRefName === base && p.headRefName && !heads.includes(p.headRefName)) heads.push(p.headRefName);
+      }
+    }
+  } catch (err) {
+    lg('warn', 'merged-result oracle PR enumeration failed; falling back to candidate-only', {
+      gate: 'merged-regression',
+      error: (err as Error).message,
+    });
+  }
+
+  const worktreesRoot = join(repoPath, '.devagent-worktrees');
+  mkdirSync(worktreesRoot, { recursive: true });
+  const staging = join(worktreesRoot, `merged-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+  const add = await runCli('git', ['worktree', 'add', '--detach', staging, base], {
+    cwd: repoPath,
+    timeoutMs: 60_000,
+  });
+  if (add.exitCode !== 0) {
+    lg('warn', 'merged-result oracle worktree add failed; skipping gate', {
+      gate: 'merged-regression',
+      base,
+      stderr: add.stderr.slice(0, 200),
+    });
+    return { passed: true, skipped: true, reason: 'worktree-failed' };
+  }
+  try {
+    // Merge every board head onto the base. A conflict aborts the merge and
+    // blocks auto-merge (git reports conflicts on stdout, errors on stderr).
+    for (const head of heads) {
+      const m = await runCli('git', ['merge', '--no-edit', head], { cwd: staging, timeoutMs: 60_000 });
+      if (m.exitCode !== 0) {
+        await runCli('git', ['merge', '--abort'], { cwd: staging, timeoutMs: 60_000 });
+        lg('warn', 'merged-result oracle blocked merge: conflict', { gate: 'merged-regression', head });
+        const lines = `${m.stdout}${m.stderr}`.trimEnd().split('\n');
+        return { passed: false, skipped: false, reason: 'merge-conflict', excerpt: lines.slice(-15).join('\n') };
+      }
+    }
+    const testCommand = detectTestCommand(staging);
+    if (!testCommand) return { passed: true, skipped: true, reason: 'no-test-command' };
+    // Fresh worktrees lack node_modules; npm suites with a lockfile get an
+    // install first, and a failed install skips the gate (fail-open).
+    const install = await installSuiteDeps(staging, testCommand, opts.timeoutMs, lg);
+    if (install) return install;
+    const run = await runCli(testCommand.cmd, testCommand.args, { cwd: staging, timeoutMs: opts.timeoutMs });
+    if (run.exitCode === 0) {
+      lg('info', 'merged-result oracle passed', { gate: 'merged-regression', heads });
+      return { passed: true, skipped: false };
+    }
+    lg('warn', 'merged-result oracle blocked merge: suite failed on merged result', {
+      gate: 'merged-regression',
+      exitCode: run.exitCode,
+    });
+    const lines = `${run.stdout}${run.stderr}`.trimEnd().split('\n');
+    return { passed: false, skipped: false, excerpt: lines.slice(-15).join('\n') };
+  } finally {
+    const remove = await runCli('git', ['worktree', 'remove', '--force', staging], {
+      cwd: repoPath,
+      timeoutMs: 60_000,
+    });
+    if (remove.exitCode !== 0) {
+      lg('warn', 'merged-result oracle worktree remove failed', {
+        gate: 'merged-regression',
         path: staging,
         stderr: remove.stderr.slice(0, 200),
       });
@@ -343,6 +452,27 @@ async function runQueuedTask(
         return {
           ok: true,
           detail: `done: ${task.id} -> ${prUrl} (regression-failed${excerpt})`,
+          prUrl,
+          merged: false,
+        };
+      }
+    }
+
+    if (branch) {
+      // Merged-result oracle (PRD §17 Phase 4, curation run 24): the per-branch
+      // gate above only sees this PR alone. Rebuild the whole board (base + every
+      // open PR head) in a throwaway worktree and run the suite there; a merge
+      // conflict or a red merged suite blocks auto-merge (the PR survives).
+      const merged = await runMergedResultOracle(opts.repoPath, branch, {
+        timeoutMs: opts.timeoutMs,
+        log,
+      });
+      if (!merged.passed) {
+        const kind = merged.reason === 'merge-conflict' ? 'merge-conflict' : 'merged-regression-failed';
+        const excerpt = merged.excerpt ? `: ${merged.excerpt}` : '';
+        return {
+          ok: true,
+          detail: `done: ${task.id} -> ${prUrl} (${kind}${excerpt})`,
           prUrl,
           merged: false,
         };
