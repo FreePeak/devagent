@@ -44,6 +44,16 @@ fi
 
 mkdir -p "$STATE/research" "$STATE/goals" "$STATE/logs"
 cd "$REPO"
+# GRADIENT adjacent-category scan (PRD Phase 4): canonical text printed by the
+# `devagent scan-text` subcommand from src/research/scan-text.ts — embedded
+# verbatim in the phase-1 research and phases-2-3 prompts below so they cannot
+# drift from the module. Runs after `cd "$REPO"` like every other DEVAGENT call
+# (a LaunchAgent cwd must not break npx resolution); a failed capture degrades
+# to empty, not a dead driver.
+GRADIENT_SCAN_TEXT="$("${DEVAGENT[@]}" scan-text 2>/dev/null)" || GRADIENT_SCAN_TEXT=""
+# Degrade with a message (repo convention: selfbuild-state pull, queue-claim) —
+# a silent empty string would hollow out both prompts below with no trace.
+[ -n "$GRADIENT_SCAN_TEXT" ] || echo "[gradient] scan-text dispatch failed — prompts run without the adjacent-category scan" >&2
 
 bash "$REPO/scripts/selfbuild-state.sh" pull >/dev/null 2>&1 || true
 
@@ -132,6 +142,9 @@ while :; do
 Repo: $REPO. Read docs/PRD.md section 4 (competitive landscape) and section 17 (roadmap).
 Recent loop ledger (already shipped — do NOT re-pick these): ${PREV_TAIL:-none}.
 $LESSONS_CTX
+
+$GRADIENT_SCAN_TEXT
+
 Web-search what changed recently for: Devin/Cognition, GitHub Copilot coding agent, OpenHands, Factory Droid, Google Jules, OpenAI Codex cloud agent; and for projects that run agents in self-improving loops over their own codebase.
 Output compact markdown (<400 words): NEW competitor moves with URLs; self-build loop patterns worth copying; then a ranked recommendation of the single best next backlog item for this iteration and why.
 Afterwards, append any DURABLE new lessons (1-3 bullets, dated heading '## <date>') to $LESSONS — never delete or edit existing lessons (ratchet-only)." \
@@ -169,6 +182,7 @@ Afterwards, append any DURABLE new lessons (1-3 bullets, dated heading '## <date
 Repo: $REPO. Inputs: docs/PRD.md (Phase 4 backlog), .selfbuild/research/loop-$N.md, recent ledger entries below.
 $PREV_TAIL
 $LESSONS_CTX
+$GRADIENT_SCAN_TEXT
 Select exactly ONE backlog item scoped to a single implementable+testable iteration.
 Validation checks (all must pass): maps to a PRD backlog item; NOT already shipped per the ledger entries above (reject any goal that restates a merged item); no dependency on an earlier failed loop; verifiable by the repo test suite or CLI smoke run.
 Output ONLY the goal statement (max 120 words), starting with 'Goal:' — this text is passed directly to devagent orchestrate." \
