@@ -2,6 +2,7 @@ import { spawnCli } from '../workers/spawn-utils.js';
 import { loadConfig } from '../config.js';
 import { appendOperatorDegradedRecord } from '../orchestrator/ledger.js';
 import { DEGRADE_STREAK_THRESHOLD, readDegradationStreak } from './degradation.js';
+import { postOperatorAlert } from './operator-alert.js';
 import { recordProxyProbe } from './proxy-state.js';
 
 /**
@@ -64,9 +65,6 @@ export const OMP_STARTUP_WEDGE_PATTERN = /Still starting after \d+s/;
 /** Stable ledger taskId for operator preflight rows. */
 export const PREFLIGHT_LEDGER_TASK_ID = 'operator-preflight';
 
-/** Wall-clock cap for the paging POST: paging must never stall a loop cycle. */
-export const DEGRADE_WEBHOOK_TIMEOUT_MS = 5_000;
-
 /** One probe outcome. */
 export interface PreflightProbe {
   ok: boolean;
@@ -113,21 +111,6 @@ export interface DegradeBreachAlert {
   roles: string[];
   /** Bounded last-failure excerpt from the probe CLI. */
   detail?: string;
-}
-
-/**
- * Default paging transport: JSON POST to the operator webhook. A non-2xx
- * response rejects; the gate swallows it (see pageDegradeBreach) so paging can
- * never become a second failure surface on top of the outage it reports.
- */
-export async function postDegradeAlert(url: string, alert: DegradeBreachAlert): Promise<void> {
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(alert),
-    signal: AbortSignal.timeout(DEGRADE_WEBHOOK_TIMEOUT_MS),
-  });
-  if (!res.ok) throw new Error(`degrade webhook responded ${res.status}`);
 }
 
 /** Bound an error excerpt for ledger/log output. */
@@ -231,13 +214,13 @@ export async function runPreflightGate(args: {
   delayMs?: (ms: number) => Promise<void>;
   /**
    * Injection seam for tests: outbound paging transport. Defaults to
-   * postDegradeAlert (JSON POST).
+   * postOperatorAlert (the shared JSON POST, src/resilience/operator-alert.ts).
    */
   notify?: (url: string, alert: DegradeBreachAlert) => Promise<void>;
 }): Promise<PreflightDecision> {
   const probe = args.probe ?? runPreflightProbe;
   const delayMs = args.delayMs ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
-  const notify = args.notify ?? postDegradeAlert;
+  const notify = args.notify ?? postOperatorAlert;
   const cwd = args.cwd ?? args.repoPath;
   const [cmd, promptFlag, ...flags] = args.argv;
   if (!cmd || promptFlag !== '-p') {

@@ -197,18 +197,15 @@ while :; do
 
   GOAL="$(resolve_goal)"
   # Autonomous chain: scouted queue items become the board when none exists
-  # yet, or when the existing board cannot dispatch anything (stale/failed
-  # board would otherwise wedge the factory while the queue fills up).
+  # yet. A board that cannot dispatch anything is archived by the recovery
+  # gate above (`devagent board-recovery`), which now fires the board-archived
+  # operator alert and prunes .devagent/archive/ to the retention bound (Q16).
+  # The shell never moves a board itself, so no archive escapes notify/
+  # retention. When the gate archives a stuck board it falls through to here
+  # with the board gone, and this branch re-bridges the oldest queued goal in
+  # the same cycle (#73: no full-poll idle with the board already archived).
   if [ "$DRY_RUN" != "1" ]; then
     if [ ! -f "$BOARD" ]; then
-      if BRIDGE_OUT="$("${DEVAGENT[@]}" queue bridge --repo "$REPO" 2>&1)"; then
-        echo "$BRIDGE_OUT" | tail -2
-      fi
-    elif [ "$OPEN" -eq 0 ] && [ "$(board_pending_tasks)" -eq 0 ] && [ "$parked_polls" -ge "$REQUEUE_AFTER" ]; then
-      echo "[bridge] board has no dispatchable tasks; archiving to re-bridge queue"
-      TS="$(date +%Y%m%d-%H%M%S)"
-      mkdir -p "$REPO/.devagent/archive"
-      mv "$BOARD" "$REPO/.devagent/archive/board-stuck-$TS.json"
       if BRIDGE_OUT="$("${DEVAGENT[@]}" queue bridge --repo "$REPO" 2>&1)"; then
         echo "$BRIDGE_OUT" | tail -2
       fi

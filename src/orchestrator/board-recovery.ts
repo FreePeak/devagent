@@ -1,7 +1,10 @@
-import { accessSync, constants, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { accessSync, constants, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { BOARD_FILE } from './types.js';
+import { loadConfig } from '../config.js';
+import { postOperatorAlert } from '../resilience/operator-alert.js';
+import type { OperatorNotifier } from '../resilience/operator-alert.js';
 
 /**
  * Orchestrator board recovery (PRD:888 Q19) — the board-recovery decisions
@@ -63,6 +66,16 @@ import { BOARD_FILE } from './types.js';
  * board has open work) and passes the post-increment value via
  * --parked-polls. Folding it into the gate would require persisting driver
  * state the board file does not carry.
+ *
+ * Q16 (PRD:913) — archive is now a signalled, bounded event. Every board the
+ * gate moves into .devagent/archive/ (both the completed-board and the
+ * stuck-board verdicts) fires a best-effort `board-archived` operator alert
+ * through the shared paging transport (src/resilience/operator-alert.ts, the
+ * same injectable `notify` seam Q41 uses) and prunes the archive to the
+ * newest `resilience.archiveKeep` boards. Paging/retention are observability:
+ * neither may turn a successful archive into a cycle failure. The shell's old
+ * inline `mv` (which archived with zero signal) is gone — archiving flows only
+ * through this gate.
  */
 
 /** Statuses the scheduler can never dispatch again (the dispatch-dead pair). */
@@ -247,17 +260,94 @@ export function requeueParked(boardPath: string, board: BoardFile, maxTotalAttem
   return { reset, capped };
 }
 
-/** Move the board into .devagent/archive/ under `prefix-<stamp>.json`; returns the repo-relative path. */
-export function archiveBoard(
+/** Default bound for .devagent/archive/ retention (Q16): the newest N stamped archives are kept. */
+export const ARCHIVE_RETENTION_KEEP = 20;
+
+/** Archive filenames carry a `YYYYMMDD-HHMMSS` stamp; only these are pruned. */
+const ARCHIVE_NAME = /^(?:board|board-stuck)-(\d{8}-\d{6})\.json$/;
+
+/**
+ * Bounded retention prune of .devagent/archive/ (Q16): keep the newest `keep`
+ * stamped archives, delete the rest. Ordering is by the filename stamp (not
+ * mtime) so it is deterministic under an injected clock; files that do not
+ * match the archive pattern are never touched. `keep` <= 0 / non-finite is
+ * unbounded (never prune). Best-effort: a failed unlink is swallowed — a
+ * retention miss must not break the recovery cycle. Returns the removed names.
+ */
+export function pruneArchive(repoPath: string, opts: { keep?: number } = {}): string[] {
+  const keep = opts.keep ?? ARCHIVE_RETENTION_KEEP;
+  if (!Number.isFinite(keep) || keep <= 0) return [];
+  const dir = join(repoPath, '.devagent', 'archive');
+  let names: string[];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return []; // no archive dir yet — nothing to prune
+  }
+  const stamped = names
+    .map((name) => ({ name, stamp: ARCHIVE_NAME.exec(name)?.[1] }))
+    .filter((x): x is { name: string; stamp: string } => x.stamp !== undefined)
+    .sort((a, b) => (a.stamp < b.stamp ? 1 : a.stamp > b.stamp ? -1 : 0)); // newest first
+  const removed: string[] = [];
+  for (const { name } of stamped.slice(keep)) {
+    try {
+      rmSync(join(dir, name));
+      removed.push(name);
+    } catch {
+      // a single stubborn file must not abort the prune or the cycle
+    }
+  }
+  return removed;
+}
+
+/** Options for archiveBoard's best-effort Q16 side effects (tests inject them). */
+export interface ArchiveBoardOptions {
+  /** Operator webhook URL; absent/empty = no paging (opt-in, like Q41). */
+  url?: string;
+  /** Injection seam for tests: outbound paging transport. Defaults to postOperatorAlert. */
+  notify?: OperatorNotifier;
+  /** Injectable clock for the alert ts (tests). */
+  now?: Date;
+  /** Human-readable why, carried onto the board-archived alert. */
+  reason?: string;
+  /** Retention bound; unset = ARCHIVE_RETENTION_KEEP. */
+  keep?: number;
+}
+
+/**
+ * Move the board into .devagent/archive/ under `prefix-<stamp>.json`, then
+ * fire the best-effort `board-archived` operator alert and prune the archive
+ * to the retention bound (Q16). Returns the repo-relative path. Paging and
+ * retention never fail the archive: a missing webhook, a broken config, a
+ * transport throw or a stubborn unlink are all swallowed.
+ */
+export async function archiveBoard(
   repoPath: string,
   boardPath: string,
   prefix: 'board' | 'board-stuck',
   stamp: string,
-): string {
+  opts: ArchiveBoardOptions = {},
+): Promise<string> {
   const dir = join(repoPath, '.devagent', 'archive');
   mkdirSync(dir, { recursive: true });
   const rel = join('.devagent', 'archive', `${prefix}-${stamp}.json`);
   renameSync(boardPath, join(repoPath, rel));
+  if (opts.url) {
+    const notify = opts.notify ?? postOperatorAlert;
+    try {
+      await notify(opts.url, {
+        event: 'board-archived',
+        ts: (opts.now ?? new Date()).toISOString(),
+        repo: repoPath,
+        prefix,
+        path: rel,
+        reason: opts.reason ?? `${prefix} board archived`,
+      });
+    } catch {
+      // paging is observability, never a failure signal for the loop (Q16)
+    }
+  }
+  pruneArchive(repoPath, { keep: opts.keep });
   return rel;
 }
 
@@ -280,6 +370,8 @@ function pruneMergedWorktrees(repoPath: string): void {
 export interface RunBoardRecoveryOptions extends RecoveryOptions {
   /** Injectable clock for the archive stamp (tests). */
   now?: Date;
+  /** Injection seam for tests: outbound operator paging transport (Q16). */
+  notify?: OperatorNotifier;
 }
 
 /**
@@ -289,18 +381,39 @@ export interface RunBoardRecoveryOptions extends RecoveryOptions {
  * decision and the action — the CLI maps that to exit 2 (unresolved → the
  * shell falls back to wait).
  */
-export function runBoardRecovery(repoPath: string, opts: RunBoardRecoveryOptions): BoardRecoveryVerdict {
+export async function runBoardRecovery(
+  repoPath: string,
+  opts: RunBoardRecoveryOptions,
+): Promise<BoardRecoveryVerdict> {
   const boardPath = join(repoPath, BOARD_FILE);
   const board = readBoard(boardPath);
   if (!board) return { action: 'wait', reason: 'board unreadable' };
   const stamp = formatTimestamp(opts.now ?? new Date());
   const sleep = `; sleeping ${opts.pollSecs}s`;
+  // Q16: resolve the paging webhook + retention bound once. A broken config
+  // must not turn an archive into a cycle failure, so paging stays opt-in and
+  // the retention bound falls back to ARCHIVE_RETENTION_KEEP.
+  let url: string | undefined;
+  let keep: number | undefined;
+  try {
+    const r = loadConfig(repoPath).resilience;
+    url = r?.degradeWebhookUrl;
+    keep = r?.archiveKeep;
+  } catch {
+    // unreadable devagent.json: archive proceeds without paging/retention override
+  }
 
   const counts = countBoard(board.tasks);
   const intent = decideBoardRecovery(counts, opts);
   if (intent.kind === 'wait') return { action: 'wait', reason: intent.reason };
   if (intent.kind === 'archive-complete') {
-    const rel = archiveBoard(repoPath, boardPath, 'board', stamp);
+    const rel = await archiveBoard(repoPath, boardPath, 'board', stamp, {
+      url,
+      keep,
+      notify: opts.notify,
+      now: opts.now,
+      reason: `board complete (${counts.done} done)`,
+    });
     pruneMergedWorktrees(repoPath);
     return { action: 'wait', reason: `board complete (${counts.done} done); archived to ${rel}` };
   }
@@ -310,11 +423,17 @@ export function runBoardRecovery(repoPath: string, opts: RunBoardRecoveryOptions
   if (post.kind === 'requeue') {
     return { action: 'requeue', reason: `reset ${reset} parked task(s) to pending${sleep}` };
   }
-  const rel = archiveBoard(repoPath, boardPath, 'board-stuck', stamp);
   // capped > 0 guarantees stuck > 0 here, so refusals always land on this
   // archive verdict: the tasks stay terminal and the loop re-bridges.
   const capNote =
     capped > 0 ? `${capped} task(s) over cumulative attempt cap ${opts.maxTotalAttempts ?? 0}; ` : '';
+  const rel = await archiveBoard(repoPath, boardPath, 'board-stuck', stamp, {
+    url,
+    keep,
+    notify: opts.notify,
+    now: opts.now,
+    reason: `${capNote}${post.detail}`,
+  });
   return {
     action: 'archive',
     reason: `reset ${reset} parked task(s) to pending; ${capNote}${post.detail}; archived to ${rel}`,

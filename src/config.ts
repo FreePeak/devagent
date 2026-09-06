@@ -68,14 +68,21 @@ export interface DevAgentConfig {
    * Q41: degradeWebhookUrl pages a human — `devagent preflight` POSTs one
    * JSON alert when the trailing operator-degraded streak first reaches
    * DEGRADE_STREAK_THRESHOLD (once per outage episode, never mid-streak).
-   * Absent/empty = paging stays off. Env override:
+   * Q16: the same webhook also carries `board-archived` alerts the
+   * board-recovery gate fires when it moves a stalled board into
+   * .devagent/archive/. Absent/empty = paging stays off. Env override:
    * DEVAGENT_DEGRADE_WEBHOOK_URL.
+   * archiveKeep bounds .devagent/archive/ retention: the newest N archived
+   * boards are kept and older ones pruned on every archive (0 = unbounded,
+   * never prune). Unset = ARCHIVE_RETENTION_KEEP. Env override:
+   * DEVAGENT_ARCHIVE_KEEP.
    */
   resilience?: {
     apiMaxAttempts?: number;
     noProgressTimeoutMs?: number;
     coldStartTimeoutMs?: number;
     degradeWebhookUrl?: string;
+    archiveKeep?: number;
   };
   /**
    * Herdr runtime: run worker CLIs inside herdr (https://github.com/herdrdev/herdr)
@@ -166,6 +173,7 @@ export function loadConfig(repoPath: string = process.cwd()): DevAgentConfig {
   const envNoProgress = process.env.DEVAGENT_NO_PROGRESS_TIMEOUT_MS;
   const envColdStart = process.env.DEVAGENT_COLD_START_TIMEOUT_MS;
   const envDegradeWebhook = process.env.DEVAGENT_DEGRADE_WEBHOOK_URL;
+  const envArchiveKeep = process.env.DEVAGENT_ARCHIVE_KEEP;
   const envResilience: Partial<NonNullable<DevAgentConfig['resilience']>> = {};
   if (envApiMax !== undefined && envApiMax !== '') {
     const n = Number(envApiMax);
@@ -182,6 +190,10 @@ export function loadConfig(repoPath: string = process.cwd()): DevAgentConfig {
   }
   if (envDegradeWebhook !== undefined && envDegradeWebhook !== '') {
     envResilience.degradeWebhookUrl = envDegradeWebhook;
+  }
+  if (envArchiveKeep !== undefined && envArchiveKeep !== '') {
+    const n = Number(envArchiveKeep);
+    if (Number.isInteger(n) && n >= 0) envResilience.archiveKeep = n;
   }
 
   const config: DevAgentConfig = {
@@ -223,6 +235,9 @@ export function loadConfig(repoPath: string = process.cwd()): DevAgentConfig {
     }
     if (r.degradeWebhookUrl !== undefined && !/^https?:\/\/\S+$/.test(r.degradeWebhookUrl)) {
       throw new Error(`Invalid resilience.degradeWebhookUrl "${r.degradeWebhookUrl}"; expected an http(s) URL`);
+    }
+    if (r.archiveKeep !== undefined && (!Number.isInteger(r.archiveKeep) || r.archiveKeep < 0)) {
+      throw new Error(`Invalid resilience.archiveKeep "${r.archiveKeep}"; expected a non-negative integer`);
     }
   }
   if (config.herdr !== undefined) {
