@@ -134,7 +134,7 @@ program
   .option('--requeue-after <n>', 'requeue threshold in parked cycles (0 = never requeue)', Number, 6)
   .option('--poll-secs <n>', 'loop sleep quoted in wait/requeue verdict text', Number, 600)
   .option('--max-total-attempts <n>', 'cumulative lifetime dispatch cap per task (Q17/Q36): failed/blocked tasks whose totalAttempts reaches it are refused the requeue reset and stay terminal (0 = unbounded)', Number, 0)
-  .action((opts) => {
+  .action(async (opts) => {
     const parkedPolls = opts.parkedPolls as number;
     const requeueAfter = opts.requeueAfter as number;
     const pollSecs = opts.pollSecs as number;
@@ -147,7 +147,7 @@ program
       return;
     }
     try {
-      const verdict = runBoardRecovery(opts.repo as string, { parkedPolls, requeueAfter, pollSecs, maxTotalAttempts });
+      const verdict = await runBoardRecovery(opts.repo as string, { parkedPolls, requeueAfter, pollSecs, maxTotalAttempts });
       console.log(formatVerdict(verdict));
     } catch (err) {
       console.error(`board-recovery: ${(err as Error).message}`);
