@@ -137,6 +137,9 @@ phase() { # phase <loop> <phase> [detail]
 # otherwise re-pick a goal whose PR already merged — loops 53-55/57/58 and the
 # 2026-09-01 Q35 re-burn (shipped as #100, then re-selected because the driver
 # restart lost the record) each burned attempts on an already-planned goal.
+# Since PRD:889 this is the fallback guard: goals naming a Phase 4 backlog id
+# are first resolved by the pick-time `devagent backlog-check` (see the guard
+# before phases 4-7), which supersedes this heuristic when it resolves.
 already_shipped() { # already_shipped <goal-text>
   [ -f "$STATE/ledger.jsonl" ] || return 1
   # Match on the PRD backlog item id (Q35, Q24, ...) when the goal's SUBJECT
@@ -464,11 +467,60 @@ Output ONLY the goal statement (max 120 words), starting with 'Goal:' — this t
       echo "[validate] goal file missing Goal: line — marking iteration invalid" ; record "$N" invalid "$(cat "$GOAL_FILE" 2>/dev/null)" ; fails=$(( fails + 1 )) ; else
       GOAL=$(cat "$GOAL_FILE")
 
+      # PRD:889: pick-time backlog reconciliation — supersedes the Q27 subject
+      # heuristic for goals naming a Phase 4 backlog id. When the goal's SUBJECT
+      # names one (Q35, Q24, ...), `devagent backlog-check` is the authority:
+      # checkBacklogPick (src/task.ts) cross-checks the id against merged PR
+      # titles, PRD completion notes, and the struck state — strictly stronger
+      # evidence than the ledger-subject match below, which only sees ledger
+      # rows and misfires on incidental id mentions (loop-109's "Goal: Q41 ..."
+      # skipped while Q41 was still open). A shipped id skips the iteration
+      # BEFORE dispatch; confirmed-shipped items are struck from the Phase 4
+      # backlog in the same run (--strike, dry-run never writes) and the strike
+      # is committed locally, or the next iteration's sync-docs would refuse on
+      # a dirty docs/PRD.md (operator-degraded stall; the PRD was verified
+      # clean at iteration start by the sync gate above). A resolved check
+      # (rc 0 current / rc 1 shipped) supersedes already_shipped; goals without
+      # a backlog id — and unresolved checks (rc 2: id not in the backlog, no
+      # PRD, or no merged-title evidence, e.g. offline) — keep the Q27 ledger
+      # guard below. A crashed check (bad tsx/module resolution, uncaught
+      # throw) also exits 1, so rc 1 only counts as shipped when the CLI's
+      # own "already shipped" verdict line is in the output; otherwise the
+      # iteration falls through to the ledger guard rather than silently
+      # skipping every id-naming goal.
+      BACKLOG_PICK=$(printf '%s' "${GOAL%%(*}" | cut -c1-80 | grep -oE 'Q[0-9]+' | head -1 || true)
+      GUARD_RESOLVED=0
+      if [ -n "$BACKLOG_PICK" ]; then
+        BC_RC=0
+        BC_ARGS=(backlog-check "$BACKLOG_PICK" --repo "$REPO")
+        [ "$DRY_RUN" != 1 ] && BC_ARGS+=(--strike)
+        BC_OUT="$("${DEVAGENT[@]}" "${BC_ARGS[@]}" 2>&1)" || BC_RC=$?
+        printf '[backlog] %s\n' "$BC_OUT"
+        case "$BC_OUT" in
+          *struck:*)
+            git add docs/PRD.md \
+              && git commit -m "self-build loop $N: strike confirmed-shipped backlog items (PRD:889 pick reconciliation)" >/dev/null \
+              || echo "[backlog] strike commit failed — docs/PRD.md left dirty for operator reconcile" >&2 ;;
+        esac
+        if [ "$BC_RC" -eq 1 ] && [[ "$BC_OUT" == *"already shipped"* ]]; then
+          echo "[guard] $BACKLOG_PICK already shipped — skipping before dispatch (PRD:889 pick reconciliation)"
+          record "$N" skipped "$GOAL"
+          # Mark a queue-claimed item done too, or the queue-first selector
+          # re-claims the same already-shipped goal every iteration (the
+          # 2026-09-04 SCOUT-20260903-fallback double-skip class).
+          [ -n "${QUEUED_TASK_ID:-}" ] && node "$REPO/scripts/selfbuild-queue-done.mjs" "$REPO" "$QUEUED_TASK_ID" done "already shipped (PRD:889 pick reconciliation)" >/dev/null 2>&1 || true
+          echo "[ok] loop $N skipped (already shipped)"
+          fails=0
+          continue
+        fi
+        [ "$BC_RC" -eq 0 ] && GUARD_RESOLVED=1
+      fi
+
       # Q27 guard: never re-implement a goal that already shipped (a ledger
       # entry with a productive status carries the same text). Loop 58 re-burned
       # Q35 after its PR #100 merged because the driver restart lost the record;
       # skip it so the iteration doesn't re-burn spend on already-planned work.
-      if already_shipped "$GOAL"; then
+      if [ "$GUARD_RESOLVED" != 1 ] && already_shipped "$GOAL"; then
         echo "[guard] goal already shipped — skipping (Q27 no re-burn)"
         record "$N" skipped "$GOAL"
         # Mark a queue-claimed item done too, or the queue-first selector
