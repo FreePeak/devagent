@@ -1,5 +1,5 @@
-import type { WorkerAdapter, WorkerEvent, WorkerResult, WorkerSpawnOptions } from '../types.js';
-import type { SpawnCliResult } from './spawn-utils.js';
+import type { WorkerAdapter, WorkerCapabilities, WorkerEvent, WorkerResult, WorkerSpawnOptions } from '../types.js';
+import { resolveNoProgressTimeoutMs, type SpawnCliResult } from './spawn-utils.js';
 import { runWorkerCli } from './herdr-runtime.js';
 import { prepareWorkerSpawn } from './sandbox.js';
 
@@ -11,6 +11,9 @@ const RESUME_PROMPT = 'Continue';
  * The 10-minute default mirrors the resilience default elsewhere in
  * devagent so retries fire instead of letting the wall clock be the only
  * safety net.
+ *
+ * Q30: declared as the adapter's capability so the shared spawn-path resolver
+ * owns the precedence instead of a per-adapter copy.
  */
 const DEFAULT_NO_PROGRESS_TIMEOUT_MS = 10 * 60 * 1000;
 
@@ -252,6 +255,14 @@ function finalize(run: SpawnCliResult, sessionId: string | null, start: number):
 export class OmpAdapter implements WorkerAdapter {
   readonly name = 'omp' as const;
 
+  /** Q30: arms a 10-minute silence clock by default; the declaration is a
+   * floor, so a caller-passed 0 falls back to it rather than disarming the
+   * watchdog this adapter's retry loop depends on.
+   */
+  readonly capabilities: WorkerCapabilities = {
+    defaultNoProgressTimeoutMs: DEFAULT_NO_PROGRESS_TIMEOUT_MS,
+  };
+
   constructor(
     private readonly sleep: (ms: number) => Promise<void> = (ms) =>
       new Promise((resolve) => setTimeout(resolve, ms)),
@@ -259,10 +270,7 @@ export class OmpAdapter implements WorkerAdapter {
 
   async spawn(opts: WorkerSpawnOptions): Promise<WorkerResult> {
     const start = Date.now();
-    const noProgressTimeoutMs =
-      opts.noProgressTimeoutMs !== undefined && opts.noProgressTimeoutMs > 0
-        ? opts.noProgressTimeoutMs
-        : DEFAULT_NO_PROGRESS_TIMEOUT_MS;
+    const noProgressTimeoutMs = resolveNoProgressTimeoutMs(opts.noProgressTimeoutMs, this.capabilities);
     const wallDeadline = opts.timeoutMs > 0 ? start + opts.timeoutMs : Infinity;
 
     let args = buildOmpArgs(opts);

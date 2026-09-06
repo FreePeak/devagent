@@ -1,5 +1,5 @@
-import type { WorkerAdapter, WorkerEvent, WorkerResult, WorkerSpawnOptions } from '../types.js';
-import type { SpawnCliResult } from './spawn-utils.js';
+import type { WorkerAdapter, WorkerCapabilities, WorkerEvent, WorkerResult, WorkerSpawnOptions } from '../types.js';
+import { resolveNoProgressTimeoutMs, type SpawnCliResult } from './spawn-utils.js';
 import { runWorkerCli } from './herdr-runtime.js';
 import { prepareWorkerSpawn } from './sandbox.js';
 import { backoffDelay } from '../sessionguard/backoff.js';
@@ -20,16 +20,6 @@ const DEFAULT_API_MAX_ATTEMPTS = Infinity;
 const PROBE_TIMEOUT_MS = 30_000;
 const PROBE_PROMPT = 'Reply with the single word: ok';
 
-function resolveNoProgressTimeoutMs(explicit: number | undefined): number {
-  if (explicit !== undefined) return explicit;
-  const env = process.env.DEVAGENT_NO_PROGRESS_TIMEOUT_MS;
-  if (env !== undefined && env !== '') {
-    const n = Number(env);
-    if (Number.isFinite(n) && n >= 0) return n;
-  }
-  return 0;
-}
-
 /**
  * Adapter over the OpenCode headless CLI:
  *   opencode run --format json <prompt>
@@ -48,6 +38,11 @@ function resolveNoProgressTimeoutMs(explicit: number | undefined): number {
 export class OpenCodeAdapter implements WorkerAdapter {
   readonly name = 'opencode' as const;
 
+  /** Q30: watchdog off by default (callers pass an armed budget from config in
+   * prod); the spawn path reads this declaration instead of a local resolver.
+   */
+  readonly capabilities: WorkerCapabilities = { defaultNoProgressTimeoutMs: 0 };
+
   constructor(
     private readonly sleep: (ms: number) => Promise<void> = (ms) =>
       new Promise((resolve) => setTimeout(resolve, ms)),
@@ -56,7 +51,7 @@ export class OpenCodeAdapter implements WorkerAdapter {
   async spawn(opts: WorkerSpawnOptions): Promise<WorkerResult> {
     const start = Date.now();
     const maxAttempts = opts.apiMaxAttempts ?? DEFAULT_API_MAX_ATTEMPTS;
-    const noProgressTimeoutMs = resolveNoProgressTimeoutMs(opts.noProgressTimeoutMs);
+    const noProgressTimeoutMs = resolveNoProgressTimeoutMs(opts.noProgressTimeoutMs, this.capabilities);
     const wallDeadline = opts.timeoutMs > 0 ? start + opts.timeoutMs : Infinity;
 
     let sessionId: string | null = null;

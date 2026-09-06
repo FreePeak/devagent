@@ -2,7 +2,7 @@ import { execFile, execFileSync, type ExecFileOptionsWithStringEncoding, spawn }
 import { isNdjsonProgressLine } from './progress.js';
 import { appendWatchdogHealthRecord } from '../orchestrator/ledger.js';
 import { spawnVisibility } from '../config.js';
-import type { WatchdogLedgerContext } from '../types.js';
+import type { WatchdogLedgerContext, WorkerCapabilities } from '../types.js';
 
 export interface SpawnCliOptions {
   cwd: string;
@@ -19,7 +19,8 @@ export interface SpawnCliOptions {
    * Watchdog: kill the child when no output (stdout or stderr) arrives for
    * this long. 0 disables. When killed by the watchdog, `timedOut` is true
    * so callers treat it as a transient provider failure and retry forever.
-   * Default 0 for git/gh callers; workers pass 10m when infinite retry is on.
+   * Default 0 for git/gh callers; workers pass the budget their adapter
+   * declares (`WorkerCapabilities.defaultNoProgressTimeoutMs`, PRD Q30).
    */
   noProgressTimeoutMs?: number;
   /** Q34: structured watchdog-health ledger context (rows require an armed clock). */
@@ -40,6 +41,39 @@ export interface SpawnCliResult {
   timedOut: boolean;
   /** Q31: true only when the cold-start (first-progress) deadline killed the launch. */
   coldStart?: boolean;
+}
+
+/**
+ * Resolve the no-progress watchdog budget for one launch (PRD Q30) — the
+ * single place the spawn path decides, reading the adapter's declared
+ * capability instead of the per-adapter copies this replaces (omp/grok/pi
+ * inline `DEFAULT_NO_PROGRESS_TIMEOUT_MS` ternaries, claude-code/opencode
+ * local `resolveNoProgressTimeoutMs` helpers).
+ *
+ * Precedence, preserving every adapter's existing default exactly:
+ * 1. An explicit positive caller value always wins.
+ * 2. An explicit 0 disables the watchdog only for an adapter that declares a
+ *    0 default (`WorkerSpawnOptions.noProgressTimeoutMs`: "0 disables"). An
+ *    adapter declaring a nonzero budget treats 0 as unset — that declaration
+ *    is a floor, because those CLIs need an armed clock (silent-provider
+ *    retries; pi additionally routes on it to close stdin, 2026-09-01 smoke).
+ * 3. `DEVAGENT_NO_PROGRESS_TIMEOUT_MS` (operator-wide default, already folded
+ *    into `config.resilience.noProgressTimeoutMs` by loadConfig) when positive.
+ * 4. The adapter's declared default; 0 when it declares no capabilities.
+ */
+export function resolveNoProgressTimeoutMs(
+  explicit: number | undefined,
+  capabilities?: WorkerCapabilities,
+): number {
+  const declared = capabilities?.defaultNoProgressTimeoutMs ?? 0;
+  if (explicit !== undefined && explicit > 0) return explicit;
+  if (explicit === 0 && declared === 0) return 0;
+  const env = process.env.DEVAGENT_NO_PROGRESS_TIMEOUT_MS;
+  if (env !== undefined && env !== '') {
+    const n = Number(env);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return declared;
 }
 
 /**
