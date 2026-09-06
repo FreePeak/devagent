@@ -2131,31 +2131,39 @@ tag, sha, version, source) in
 CLI path, and a <code>release.yml</code> "Record release event in
 ledger" step — per-loop spend-to-shipped-artifact math can now count
 releases.</li>
-<li><strong>Consolidate the loop scripts</strong> — recovery keeps
+<li><strong>Consolidate the loop scripts</strong> — <del>recovery keeps
 landing in shell (aac28b6 queue-first selection, b302210
 sweep-each-iteration, baa4eda discovery sweep) while untracked
 <code>scripts/orchestrator-loop.sh</code> runs divergent logic; fold
 recovery into <code>src/orchestrator/</code> and reduce the shell to a
-thin caller (Q19).</li>
-<li><strong>PRD-backlog reconciliation at pick time</strong> — Q40 was
-re-selected three runs running (PRs #119/#120/#122) because the Phase 4
-backlog lags merges; cross-check a pick against merged PR titles and
-these completion notes before dispatch, and strike shipped items in the
-same run (Q27 family; extends the curator title-match rule from the
-2026-08-31 queue sweep). <del>- <strong>Lessons must-beat-best-so-far +
-held-out tier</strong> — Q39's measured score now ranks the digest, but
-nothing requires a candidate to beat the current best on loops it did
-not inform; add the AHE/Meta-Harness held-out slice so ranking cannot
-game the training distribution (flagged "future work" in the run-24 note
-above).</del> <del>- <strong>Simplicity-first surface pass (§21
-FR-SIMPLE)</strong> — the 2026-09-05 operator direction (§21) makes user
-simplicity the deciding quality: ship the implementable v1 slice —
-<code>devagent init</code> guided setup with prerequisite checks +
-verified smoke (FR-SIMPLE-01), the ≤3-step goal path with sane defaults
-(FR-SIMPLE-02), and human-readable-by-default status rendering in the
-§20.8 card/chip language with <code>--json</code> opt-out (FR-SIMPLE-03,
-FR-SIMPLE-04); walk the §21.1 four principles over the onboarding path
-at release review (FR-SIMPLE-06).</del></li>
+thin caller (Q19).</del> <strong>Shipped 2026-09-07 (PR #165):</strong>
+<code>src/orchestrator/board-recovery.ts</code> (typed, tested —
+<code>test/orchestrator/board-recovery.test.ts</code>) behind a
+<code>devagent board-recovery</code> CLI (<code>src/cli.ts:128</code>);
+the gate performs the action it verdicts and prints one verdict line,
+and <code>scripts/orchestrate-loop.sh:118-153</code> is now a thin
+caller that only maps
+<code>wait</code>/<code>requeue</code>/<code>archive</code> to loop
+control. <del>- <strong>PRD-backlog reconciliation at pick time</strong>
+— Q40 was re-selected three runs running (PRs #119/#120/#122) because
+the Phase 4 backlog lags merges; cross-check a pick against merged PR
+titles and these completion notes before dispatch, and strike shipped
+items in the same run (Q27 family; extends the curator title-match rule
+from the 2026-08-31 queue sweep).</del> <del>- <strong>Lessons
+must-beat-best-so-far + held-out tier</strong> — Q39's measured score
+now ranks the digest, but nothing requires a candidate to beat the
+current best on loops it did not inform; add the AHE/Meta-Harness
+held-out slice so ranking cannot game the training distribution (flagged
+"future work" in the run-24 note above).</del> <del>-
+<strong>Simplicity-first surface pass (§21 FR-SIMPLE)</strong> — the
+2026-09-05 operator direction (§21) makes user simplicity the deciding
+quality: ship the implementable v1 slice — <code>devagent init</code>
+guided setup with prerequisite checks + verified smoke (FR-SIMPLE-01),
+the ≤3-step goal path with sane defaults (FR-SIMPLE-02), and
+human-readable-by-default status rendering in the §20.8 card/chip
+language with <code>--json</code> opt-out (FR-SIMPLE-03, FR-SIMPLE-04);
+walk the §21.1 four principles over the onboarding path at release
+review (FR-SIMPLE-06).</del></li>
 </ul>
 <h3 id="phase-5--personal-agent-surface-proposed-post-v1">Phase 5 —
 Personal agent surface (proposed, post-v1)</h3>
@@ -2282,12 +2290,21 @@ and only the fail-signal capture (backlog item above) needs fixing?</td>
 </tr>
 <tr>
 <td>Q19</td>
-<td><code>scripts/orchestrate-loop.sh</code> still carries PR #68's
+<td><del><code>scripts/orchestrate-loop.sh</code> still carries PR #68's
 recovery logic only as an untracked-path script risk — PRs #67/#69
 shipped within minutes of each other while the recovery fix lives in a
 tracked-but-shell-level layer; should stuck-board recovery move into
 <code>src/orchestrator/</code> (typed, tested) with the shell reduced to
-a thin caller, or stay in the script where iteration is cheaper?</td>
+a thin caller, or stay in the script where iteration is cheaper?</del>
+Resolved 2026-09-07 (PR #165): moved —
+<code>src/orchestrator/board-recovery.ts</code> with the
+<code>devagent board-recovery</code> CLI (<code>src/cli.ts:128</code>)
+and unit coverage
+(<code>test/orchestrator/board-recovery.test.ts</code>);
+<code>scripts/orchestrate-loop.sh:118-153</code> is a thin caller
+mapping the gate's verdict
+(<code>wait</code>/<code>requeue</code>/<code>archive</code>) to loop
+control. Removed.</td>
 <td>eng</td>
 <td>Phase 4</td>
 </tr>
@@ -2327,11 +2344,19 @@ in <code>src/workers/progress.ts</code>, unit-covered in
 </tr>
 <tr>
 <td>Q34</td>
-<td>Run 1261d6be proves the watchdog can silently never fire; should the
-herdr watcher and <code>spawnCliStreaming</code> emit a per-attempt
-watchdog-health line to the ledger (clock resets, bytes counted, last
-meaningful-output timestamp) so a never-firing watchdog is visible in
-analytics instead of inferred from three 3601s timeouts?</td>
+<td><del>Run 1261d6be proves the watchdog can silently never fire;
+should the herdr watcher and <code>spawnCliStreaming</code> emit a
+per-attempt watchdog-health line to the ledger (clock resets, bytes
+counted, last meaningful-output timestamp) so a never-firing watchdog is
+visible in analytics instead of inferred from three 3601s
+timeouts?</del> Resolved 2026-09-04 (PR #136): emitted from both —
+<code>event: 'watchdog-health'</code> rows written per armed attempt by
+<code>spawnCliStreaming</code> at
+<code>src/workers/spawn-utils.ts:221</code> and the herdr watcher at
+<code>src/integrations/herdr.ts:322</code> via
+<code>appendWatchdogHealthRecord</code>
+(<code>src/orchestrator/ledger.ts:296</code>), carrying clock resets,
+meaningful bytes, idle time, and fire flags. Removed.</td>
 <td>eng</td>
 <td>Phase 4</td>
 </tr>
@@ -2467,10 +2492,19 @@ valid/alias cases. Removed.</td>
 </tr>
 <tr>
 <td>Q31</td>
-<td>PR #91 strips LSP/extension discovery from headless omp but the same
-startup-stall class plausibly exists for other MCP-discovering CLIs;
-should worker preflight include a cold-start latency budget (fail fast
-above N seconds) or is the per-adapter no-progress watchdog enough?</td>
+<td><del>PR #91 strips LSP/extension discovery from headless omp but the
+same startup-stall class plausibly exists for other MCP-discovering
+CLIs; should worker preflight include a cold-start latency budget (fail
+fast above N seconds) or is the per-adapter no-progress watchdog
+enough?</del> Resolved 2026-09-07 (PR #164): budget added —
+<code>coldStartTimeoutMs</code>
+(<code>src/workers/spawn-utils.ts:33</code>) kills a launch when no
+adapter-classified progress line arrives within the deadline and sets
+<code>coldStart</code> on the result
+(<code>src/workers/spawn-utils.ts:42</code>); configured via
+<code>resilience.coldStartTimeoutMs</code>
+(<code>src/config.ts:69</code>) and wired through the
+omp/claude-code/grok adapters. Removed.</td>
 <td>eng</td>
 <td>Phase 4</td>
 </tr>
