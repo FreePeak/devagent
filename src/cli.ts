@@ -2,7 +2,7 @@
 import { Command } from 'commander';
 import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { loadConfig, loadCredentials, credentialStatus, type CleanupMode } from './config.js';
+import { herdrSweepConfig, loadConfig, loadCredentials, credentialStatus, type CleanupMode, type HerdrSweepSettings } from './config.js';
 import { RunLogger } from './logger.js';
 import { ensureStateBranch } from './git/state-branch.js';
 import { runInit, renderInitReport } from './commands/init.js';
@@ -1570,22 +1570,39 @@ program
 
 program
   .command('herdr-sweep')
-  .description('Close idle/agentless stale panes in the devagent herdr session (session-scoped; never touches other sessions or non-herdr processes)')
+  .description('Close idle/agentless stale panes in the devagent herdr session (session-scoped; bounded by herdr.sweep — enabled toggle, denySessions list, operator-attach exemption)')
   .option('--session <name>', 'herdr session to sweep (default DEVAGENT_HERDR_SESSION or "devagent")')
   .option('--dry-run', 'list stale panes without closing', false)
   .option('--orphans', 'also close LIVE panes whose pane-run owner CLI detached from any live selfbuild-loop.sh driver (loop-driver use only; spares operator-attached tasks)', false)
   .action(async (opts) => {
-    const { resolveSession, sweepStalePanes } = await import('./integrations/herdr.js');
+    // Loaded per invocation like every other herdr command: the integration
+    // pulls in the child-process plumbing no other subcommand needs.
+    const { resolveSession, sweepDenyReason, sweepStalePanes, SWEEP_REASON_OPERATOR_ATTACHED } = await import('./integrations/herdr.js');
     const session = resolveSession(opts.session);
-    const stale = await sweepStalePanes(session, { dryRun: opts.dryRun, orphans: Boolean(opts.orphans) });
+    // An invalid config leaves the deny list unknown; resolveSweepSettings()
+    // inside the sweep then refuses to run and says why on stderr.
+    let sweep: HerdrSweepSettings | undefined;
+    try {
+      sweep = herdrSweepConfig();
+    } catch {
+      sweep = undefined;
+    }
+    const denied = sweep ? sweepDenyReason(session, sweep) : null;
+    if (denied !== null) {
+      console.log(`[${session}] sweep ${denied === 'disabled' ? 'disabled (herdr.sweep.enabled / DEVAGENT_HERDR_SWEEP=0)' : `denied for session "${session}" (herdr.sweep.denySessions)`}`);
+      return;
+    }
+    const stale = await sweepStalePanes(session, { dryRun: opts.dryRun, orphans: Boolean(opts.orphans), sweep });
     if (stale.length === 0) {
       console.log(`[${session}] no stale panes`);
       return;
     }
+    const spared = stale.filter((s) => s.reason === SWEEP_REASON_OPERATOR_ATTACHED).length;
     for (const s of stale) {
-      console.log(`${opts.dryRun ? '[stale]' : '[closed]'} ${s.paneId} (${s.label}) status=${s.agentStatus} reason=${s.reason}`);
+      const tag = s.reason === SWEEP_REASON_OPERATOR_ATTACHED ? '[spared]' : opts.dryRun ? '[stale]' : '[closed]';
+      console.log(`${tag} ${s.paneId} (${s.label}) status=${s.agentStatus} reason=${s.reason}`);
     }
-    console.log(`${stale.length} pane(s) ${opts.dryRun ? 'found' : 'closed'} in session "${session}"`);
+    console.log(`${stale.length - spared} pane(s) ${opts.dryRun ? 'found' : 'closed'} in session "${session}"${spared ? `; ${spared} spared (operator-attached)` : ''}`);
   });
 
 program

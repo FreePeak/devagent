@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync 
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { buildEnv, type SpawnCliOptions, type SpawnCliResult } from '../workers/spawn-utils.js';
+import { herdrSweepConfig, type HerdrSweepSettings } from '../config.js';
 import { appendWatchdogHealthRecord } from '../orchestrator/ledger.js';
 
 /**
@@ -396,6 +397,15 @@ function readIfExists(p: string): string {
  * Sessions other than the devagent one are never listed, let alone closed,
  * and the reaper path is untouched — interactive user sessions outside herdr
  * remain out of reach by construction.
+ *
+ * Two further bounds on the blast radius (PRD §18 Q23, FR-VIS-10), because the
+ * session name alone is not a safety property:
+ *  - the managed deny toggle (`herdr.sweep.enabled` /
+ *    `DEVAGENT_HERDR_SWEEP=0`, `herdr.sweep.denySessions`) stops the sweep
+ *    before it lists anything;
+ *  - a pane the FR-VIS-02 roster reports as live, or an operator-attached
+ *    environment, is reported with reason `operator-attached` and never closed
+ *    — the user-attached interactive pane of the 2026-08-26 mass-kill class.
  */
 export interface StalePane {
   workspaceId: string;
@@ -408,10 +418,56 @@ export interface StalePane {
 /** Agent statuses that mean "not doing work right now". */
 const IDLE_STATUSES = new Set(['idle', 'unknown', 'done']);
 
+/**
+ * Reason carried by a candidate the sweep reports but must never close: an
+ * operator is at the wheel of this pane (FR-VIS-10). Exported so the CLI
+ * renders it as a spared line instead of a closed one.
+ */
+export const SWEEP_REASON_OPERATOR_ATTACHED = 'operator-attached';
+
+/**
+ * Q23 deny toggle: why the sweep must not touch `session` at all, or null when
+ * it may. `disabled` = the master toggle (`herdr.sweep.enabled`,
+ * `DEVAGENT_HERDR_SWEEP=0`); `session-denied` = the session sits on the
+ * managed deny list (`herdr.sweep.denySessions`).
+ */
+export function sweepDenyReason(session: string, sweep: HerdrSweepSettings): 'disabled' | 'session-denied' | null {
+  if (!sweep.enabled) return 'disabled';
+  return sweep.denySessions.includes(session) ? 'session-denied' : null;
+}
+
+/**
+ * Resolve the sweep settings, failing closed: an unreadable/invalid
+ * devagent.json leaves the deny list unknown, and an unknown deny list is
+ * never swept. Loud, so the silence stays explainable.
+ */
+function resolveSweepSettings(): HerdrSweepSettings {
+  try {
+    return herdrSweepConfig();
+  } catch (err) {
+    process.stderr.write(`[herdr-sweep] config invalid, sweep skipped: ${(err as Error).message}\n`);
+    return { enabled: false, denySessions: [] };
+  }
+}
+
+/** Pane ids the FR-VIS-02 roster reports as live (`state: "running"`). */
+async function rosteredRunningPaneIds(session: string): Promise<Set<string>> {
+  const ids = new Set<string>();
+  for (const p of await listSessionPanes(session)) {
+    if (p.state === 'running' && p.paneId) ids.add(p.paneId);
+  }
+  return ids;
+}
+
 export async function findStalePanes(
   session: string,
-  opts: { orphans?: boolean } = {},
+  opts: { orphans?: boolean; sweep?: HerdrSweepSettings } = {},
 ): Promise<StalePane[]> {
+  const sweep = opts.sweep ?? resolveSweepSettings();
+  if (sweepDenyReason(session, sweep) !== null) return [];
+  // Config/env `orphans` outranks the caller's flag; unset defers to it, which
+  // is today's behavior (only the loop driver passes --orphans).
+  const orphans = sweep.orphans ?? Boolean(opts.orphans);
   const res = await herdrCli(['--session', session, 'pane', 'list'], { timeoutMs: 10_000 });
   if (res.code !== 0) return [];
   let panes: Array<{
@@ -427,6 +483,13 @@ export async function findStalePanes(
     return [];
   }
   const stale: StalePane[] = [];
+  // Operator at the wheel (FR-VIS-10): herdr-side attach detection sets
+  // PANE_ENV_OP_ATTACH in the pane env, so a sweep launched from that terminal
+  // inherits it — while it is set, nothing in the session is sweepable.
+  const attachEnv = process.env[PANE_ENV_OP_ATTACH];
+  const envAttached = attachEnv !== undefined && attachEnv !== '' && attachEnv !== '0' && attachEnv.toLowerCase() !== 'false';
+  // Roster lookup is lazy: only paid for when a worktree candidate exists.
+  let runningPanes: Set<string> | null = null;
   // 2026-09-05: the loop's herdr-sweep closed an IN-FLIGHT worker pane (omp
   // mid-run inside the task's worktree reported agent_status "idle" because
   // the pane wrapper polls the done-marker file, not the agent state
@@ -440,7 +503,22 @@ export async function findStalePanes(
     const status = p.agent_status ?? 'unknown';
     const cwd = p.cwd ?? '';
     if (!cwd.includes('.devagent-worktrees')) continue;
-    if (await paneForegroundWorker(p.pane_id ?? '')) {
+    // FR-VIS-10 (Q23): an operator at the wheel outranks every stale signal —
+    // including the orphan class. The pane is reported with reason
+    // `operator-attached` so a dry-run explains why it survived, and
+    // sweepStalePanes never closes it.
+    const paneId = p.pane_id ?? '';
+    if (envAttached || (runningPanes ??= await rosteredRunningPaneIds(session)).has(paneId)) {
+      stale.push({
+        workspaceId: p.workspace_id ?? '',
+        paneId,
+        label: p.label ?? '(no label)',
+        agentStatus: status,
+        reason: SWEEP_REASON_OPERATOR_ATTACHED,
+      });
+      continue;
+    }
+    if (await paneForegroundWorker(paneId)) {
       // 2026-09-07: a live foreground worker is normally "leave it alone" —
       // but when its OWNER (the `herdr pane run` CLI the dispatching
       // `devagent task` spawned) is gone or detached from the loop driver,
@@ -451,10 +529,10 @@ export async function findStalePanes(
       // synchronous, so a live worker it does not own is definitionally a
       // dead driver's leftover. Operator manual tasks keep their shell in
       // the ancestry and are spared.
-      if (opts.orphans && (await paneRunOwnerOrphaned(p.pane_id ?? ''))) {
+      if (orphans && (await paneRunOwnerOrphaned(paneId))) {
         stale.push({
           workspaceId: p.workspace_id ?? '',
-          paneId: p.pane_id ?? '',
+          paneId,
           label: p.label ?? '(no label)',
           agentStatus: status,
           reason: 'orphaned-driver',
@@ -467,7 +545,7 @@ export async function findStalePanes(
     if (p.agent_status === undefined) {
       stale.push({
         workspaceId: p.workspace_id ?? '',
-        paneId: p.pane_id ?? '',
+        paneId,
         label: p.label ?? '(no label)',
         agentStatus: status,
         reason: 'no-agent',
@@ -475,7 +553,7 @@ export async function findStalePanes(
     } else if (IDLE_STATUSES.has(status)) {
       stale.push({
         workspaceId: p.workspace_id ?? '',
-        paneId: p.pane_id ?? '',
+        paneId,
         label: p.label ?? '(no label)',
         agentStatus: status,
         reason: `agent-${status}`,
@@ -612,15 +690,21 @@ async function pidAncestryCommands(pid: number): Promise<string[]> {
   return commands;
 }
 
-/** Close every stale pane workspace in `session`. Returns what was closed. */
+/**
+ * Close every stale pane workspace in `session`. Returns the panes it closed
+ * beside the candidates it deliberately spared (reason
+ * SWEEP_REASON_OPERATOR_ATTACHED, never closed). A disabled or session-denied
+ * sweep returns nothing.
+ */
 export async function sweepStalePanes(
   session: string,
-  opts: { dryRun?: boolean; orphans?: boolean } = {},
+  opts: { dryRun?: boolean; orphans?: boolean; sweep?: HerdrSweepSettings } = {},
 ): Promise<StalePane[]> {
-  const stale = await findStalePanes(session, { orphans: opts.orphans });
+  const stale = await findStalePanes(session, { orphans: opts.orphans, sweep: opts.sweep });
   if (opts.dryRun) return stale;
   for (const s of stale) {
     if (!s.workspaceId) continue;
+    if (s.reason === SWEEP_REASON_OPERATOR_ATTACHED) continue;
     await closeWorkspace(s.workspaceId, session);
   }
   return stale;
