@@ -1,6 +1,7 @@
 // Go port of test/sandbox.test.ts: env scrub with the
 // DEVAGENT_WORKER_ENV_ALLOWLIST override, seatbelt profile generation,
 // network allowlist resolution, and prepareWorkerSpawn behavior.
+
 package workers
 
 import (

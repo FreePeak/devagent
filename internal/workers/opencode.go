@@ -17,6 +17,7 @@
 // provider error keeps looping with backoff. Binary fallback: tries
 // `opencode` then `opencode2` if the first binary is missing (ENOENT ->
 // exitCode -1).
+
 package workers
 
 import (

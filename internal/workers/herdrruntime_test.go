@@ -1,26 +1,17 @@
 // Tests for the herdr-runtime routing decision + loud once-per-site
 // fallback (FR-VIS-01) and the FR-GROK-04 cache-key env channel.
+
 package workers
 
 import (
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
 
-// fakeBinIn writes an executable into dir (which the caller puts on PATH)
-// and returns its path.
-func fakeBinIn(t *testing.T, dir, name, body string) {
-	t.Helper()
-	if err := os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/sh\n"+body), 0o755); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestShouldUseHerdr_Precedence(t *testing.T) {
-	os.Unsetenv("DEVAGENT_HERDR")
-	os.Unsetenv("DEVAGENT_VISIBILITY")
+	_ = os.Unsetenv("DEVAGENT_HERDR")
+	_ = os.Unsetenv("DEVAGENT_VISIBILITY")
 	SpawnVisibilityConfig = nil
 
 	// Explicit wins over everything.
@@ -40,7 +31,7 @@ func TestShouldUseHerdr_Precedence(t *testing.T) {
 			t.Fatalf("DEVAGENT_HERDR=%q → %v, want %v", raw, got, want)
 		}
 	}
-	os.Unsetenv("DEVAGENT_HERDR")
+	_ = os.Unsetenv("DEVAGENT_HERDR")
 
 	// DEVAGENT_VISIBILITY: headless forces direct spawn.
 	t.Setenv("DEVAGENT_VISIBILITY", "headless")
@@ -54,7 +45,7 @@ func TestShouldUseHerdr_Precedence(t *testing.T) {
 
 	// Default (no env): visible — FR-VIS-01 flips the historical default so
 	// worker launches are observable unless the operator opts out.
-	os.Unsetenv("DEVAGENT_VISIBILITY")
+	_ = os.Unsetenv("DEVAGENT_VISIBILITY")
 	if !ShouldUseHerdr(nil) {
 		t.Fatal("default visibility must route to panes (FR-VIS-01)")
 	}

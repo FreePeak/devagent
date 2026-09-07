@@ -4,6 +4,7 @@
 //
 // The env blocklist/PATH fallback/PWD sync themselves live in
 // internal/spawn (BuildEnv) and are reused here — single source of truth.
+
 package workers
 
 import (
@@ -194,8 +195,8 @@ func spawnCliStreaming(name string, args []string, opts SpawnCliOptions) SpawnCl
 		timedOutSnapshot := timedOut
 		wdFired, csFired := watchdogFired, coldStartFired
 		resets, mbytes := clockResets, meaningfulBytes
-		idleMs := time.Since(lastProgressAt)
-		wallClockMs := time.Since(start)
+		idle := time.Since(lastProgressAt)
+		wallClock := time.Since(start)
 		exit := -1
 		if !timedOutSnapshot {
 			exit = exitCode
@@ -230,10 +231,10 @@ func spawnCliStreaming(name string, args []string, opts SpawnCliOptions) SpawnCl
 				NoProgressTimeoutMs: noProgressMs,
 				WatchdogFired:       wdFired,
 				ColdStartFired:      csFired,
-				WallClockMs:         wallClockMs.Milliseconds(),
+				WallClockMs:         wallClock.Milliseconds(),
 				ClockResets:         resets,
 				MeaningfulBytes:     mbytes,
-				IdleMs:              idleMs.Milliseconds(),
+				IdleMs:              idle.Milliseconds(),
 				Site:                "spawn-cli",
 				Attempt:             opts.WatchdogLedger.Attempt,
 				Worker:              opts.WatchdogLedger.Worker,

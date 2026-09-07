@@ -6,6 +6,7 @@
 //
 // Byte-parity: error strings and stream-shape semantics mirror the
 // TypeScript originals; tests pin them.
+
 package workers
 
 // WorkerEvent mirrors the TS WorkerEvent: a parsed stream record. The

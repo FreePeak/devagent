@@ -8,6 +8,7 @@
 //   - No `--api-key` CLI flag — env is the supported credential channel.
 //   - stdout is NDJSON event stream; the parser walks lines (see
 //     interpretOmp).
+
 package workers
 
 import (

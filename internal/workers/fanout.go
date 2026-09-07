@@ -7,6 +7,7 @@
 // owned by the orchestrator/planner/git ports (FR-GO-07/08); the ranking
 // policy — the piece this issue pins — lives here as a pure function over
 // leg results so the winner selection cannot drift between runtimes.
+
 package workers
 
 import (

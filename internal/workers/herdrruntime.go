@@ -3,6 +3,7 @@
 // lands, HerdrPaneRunner stays nil and every launch takes the direct
 // child-process path — loudly, once per spawn site, exactly like the TS
 // fallback when herdr is unreachable.
+
 package workers
 
 import (

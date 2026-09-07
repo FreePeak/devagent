@@ -1,6 +1,7 @@
 // Go port of the opencode adapter tests (test/workers.test.ts
 // "opencode adapter" + "opencode zero-event no-progress detection",
 // parser/argv seams).
+
 package workers
 
 import "testing"

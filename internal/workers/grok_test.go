@@ -2,6 +2,7 @@
 // NDJSON parsing over the captured 2026-09-06/07 fixtures, exact cost
 // ticks (FR-GROK-03), meaningful-line filter (Q33), chain model override
 // (FR-GROK-06), and the per-task prompt-cache key (FR-GROK-04).
+
 package workers
 
 import (

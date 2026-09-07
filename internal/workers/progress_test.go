@@ -1,5 +1,6 @@
 // Go port of test/progress.test.ts (PRD Q33): the no-progress watchdog
 // must not treat model deliberation as progress.
+
 package workers
 
 import "testing"

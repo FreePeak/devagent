@@ -1,5 +1,6 @@
 // Go port of test/workers/capabilities.test.ts (PRD Q30): the watchdog
 // budget precedence the spawn path must keep.
+
 package workers
 
 import (

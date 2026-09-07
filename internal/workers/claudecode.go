@@ -13,6 +13,7 @@
 // resumes the same session (`--resume <id> -p "Continue"`) with exponential
 // backoff until the turn completes, attempts are exhausted, or the error is
 // auth/billing.
+
 package workers
 
 import (
@@ -225,7 +226,7 @@ func claudeInterpret(run SpawnCliResult) claudeRunOutcome {
 			}
 		}
 	}
-	isError := asBool(parsed["is_error"]) == true
+	isError := asBool(parsed["is_error"])
 	rawResult, _ := parsed["result"].(string)
 	sessionId := ""
 	if parsed != nil {

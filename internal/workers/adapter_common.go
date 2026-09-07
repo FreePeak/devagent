@@ -1,3 +1,12 @@
+// Package workers is the Go port of src/workers/* (FR-GO-05): the worker
+// adapter layer. Worker CLIs stay external processes; this package owns
+// their argv builders, NDJSON stream parsers (with errorMessage capture),
+// the progress classifier backing the no-progress watchdogs, the sandbox
+// env scrub, and the fan-out winner ranking.
+//
+// Byte-parity: error strings and stream-shape semantics mirror the
+// TypeScript originals; tests pin them.
+
 // Shared adapter plumbing: injectable hooks (clock, sleep, prepare, run)
 // mirroring the TS constructor-injected sleep + test seams, plus small
 // parsing helpers used by the interpreter ports.
@@ -61,24 +70,7 @@ func intPtrIf(cond bool, n int) *int {
 	return &n
 }
 
-// strIf returns s when cond holds, else "" (TS spread `...(cond ? { s } : {})`).
-func strIf(cond bool, s string) string {
-	if !cond {
-		return ""
-	}
-	return s
-}
-
 func itoa(n int) string { return strconv.Itoa(n) }
-
-// trimDefault mirrors TS `opts.x?.trim()` — "" when unset.
-func trimDefault(s string) string { return strings.TrimSpace(s) }
-
-// asAnyString narrows any to a Go string (TS typeof === 'string').
-func asAnyString(v any) (string, bool) {
-	s, ok := v.(string)
-	return s, ok
-}
 
 func asBool(v any) bool {
 	b, _ := v.(bool)
@@ -107,18 +99,6 @@ func derefSpawn(r *SpawnCliResult) SpawnCliResult {
 	return SpawnCliResult{}
 }
 
-// parseJSONObject parses s into a map when s is a JSON object (not an
-// array/scalar); ok=false otherwise. TS equivalents JSON.parse + typeof
-// checks.
-func parseJSONObject(s string) (obj map[string]any, ok bool) {
-	var v any
-	if err := json.Unmarshal([]byte(s), &v); err != nil {
-		return nil, false
-	}
-	obj, ok = v.(map[string]any)
-	return obj, ok
-}
-
 // parseJSONAny parses s into any (TS JSON.parse); err swallowed by caller.
 func parseJSONAny(s string) (v any, ok bool) {
 	if err := json.Unmarshal([]byte(s), &v); err != nil {
@@ -137,7 +117,3 @@ func eventFromResult(parsed map[string]any) WorkerEvent {
 	}
 	return ev
 }
-
-// isJSONWhitespace mirrors TS JSON.parse's tolerance for surrounding
-// whitespace.
-func isJSONWhitespace(s string) bool { return strings.TrimSpace(s) == "" }

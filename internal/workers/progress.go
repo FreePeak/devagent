@@ -6,6 +6,7 @@
 // pi does the same on hard goals (2026-09-01: 25MB thinking-only, 13+ min).
 // A stream line counts as progress when it carries *new work* — a tool call
 // starting/ending, or assistant text (the answer) — never bare thinking.
+
 package workers
 
 import "strings"

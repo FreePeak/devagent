@@ -17,6 +17,7 @@
 //   - TPM-class 429s step the within-xAI fallback chain
 //     (`grok-4.6 → grok-4.3 → grok-build-0.1`, FR-GROK-06) before the
 //     exhausted-chain result can reach cross-provider fallback above.
+
 package workers
 
 import (
@@ -346,10 +347,11 @@ func interpretGrok(run SpawnCliResult) GrokOutcome {
 				textChunks = append(textChunks, data)
 			}
 		}
-		if event["type"] == "tool_call" {
+		switch event["type"] {
+		case "tool_call":
 			toolCallCount++
 			lastToolCall = event
-		} else if event["type"] == "tool_call_update" {
+		case "tool_call_update":
 			lastToolCall = event
 		}
 		if event["type"] == "error" && streamError == "" {

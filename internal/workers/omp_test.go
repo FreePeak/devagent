@@ -1,5 +1,6 @@
 // Go port of test/workers/omp.test.ts (Seams A + B): argument building and
 // stdout envelope parsing, including the real NDJSON fixture (2026-08-30).
+
 package workers
 
 import (

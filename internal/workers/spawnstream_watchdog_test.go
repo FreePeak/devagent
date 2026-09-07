@@ -1,6 +1,7 @@
 // Go port of the spawn-cli streaming watchdog semantics (Q30/Q31/Q34,
 // test/spawn-utils.test.ts + PRD Q33 fixtures): fake binaries on PATH, no
 // real worker CLIs.
+
 package workers
 
 import (

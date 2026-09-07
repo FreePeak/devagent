@@ -6,6 +6,7 @@
 // TODO(FR-GO-06 #187 / FR-GO-07 #188): when the resilience/orchestrator ports
 // land, replace these copies with the shared packages — the adapters must
 // consume one classification source of truth.
+
 package workers
 
 import (

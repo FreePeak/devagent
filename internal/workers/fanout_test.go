@@ -1,5 +1,6 @@
 // Go port of test/fanout.test.ts: winner ranking policy — one flaky
 // rerun, clean pass outranks a flaky rescue, null when every leg fails.
+
 package workers
 
 import "testing"

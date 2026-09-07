@@ -1,6 +1,7 @@
 // Go port of test/claude-code-adapter.test.ts (envelope parsing) plus the
 // model-family argv normalization and the sandboxed spawn env-scrub
 // integration (test/sandbox.test.ts adapter block) via a fake claude bin.
+
 package workers
 
 import (
