@@ -1,0 +1,4 @@
+{
+  "status": 403,
+  "body": { "message": "You have exceeded a secondary rate limit" }
+}
