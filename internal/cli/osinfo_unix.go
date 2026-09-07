@@ -3,6 +3,7 @@
 // osinfo_unix.go holds the governor's OS snapshot for POSIX platforms —
 // the Go port of ResourceGovernor.getSnapshotSync()'s `os.totalmem()` /
 // `os.freemem()` / `os.cpus().length` reads (src/orchestrator/governor.ts).
+
 package cli
 
 import "runtime"
