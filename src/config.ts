@@ -30,6 +30,34 @@ export interface ScoutConfig {
   syncDocs?: boolean;
 }
 
+/**
+ * Sweep-safety controls for `devagent herdr-sweep` (PRD §18 Q23, FR-VIS-10) —
+ * the managed-settings-style deny toggle the session-name trust boundary still
+ * lacked once per-pane agent-state checks shipped as FR-VIS-07. Read through
+ * `herdrSweepConfig()`, which layers the env overrides on top of these values.
+ */
+export interface HerdrSweepConfig {
+  /**
+   * Master toggle for the whole sweep (default true — today's behavior, the
+   * loop drivers call it every iteration). Env override:
+   * `DEVAGENT_HERDR_SWEEP=0|1`.
+   */
+  enabled?: boolean;
+  /**
+   * Orphan class: also close LIVE panes whose pane-run owner detached from any
+   * loop driver. Unset defers to the caller's `--orphans` flag; env override
+   * `DEVAGENT_HERDR_SWEEP_ORPHANS=0|1` wins over both, so a driver that always
+   * passes `--orphans` can be reined in without editing the script.
+   */
+  orphans?: boolean;
+  /**
+   * Sessions the sweep must never list or close, even when they are the
+   * resolved target (an operator's interactive session sharing the automation
+   * namespace — the 2026-08-26 mass-kill class). Exact session names.
+   */
+  denySessions?: string[];
+}
+
 export interface DevAgentConfig {
   worker: WorkerName | 'both';
   maxLoops: number;
@@ -97,8 +125,10 @@ export interface DevAgentConfig {
    * panes in a dedicated persistent session so runs are visible, reattachable,
    * and survive client disconnects. Opt-in. Env overrides:
    * DEVAGENT_HERDR=1|0, DEVAGENT_HERDR_SESSION=<name>.
+   * `sweep` bounds the blast radius of `devagent herdr-sweep` (Q23/FR-VIS-10);
+   * env overrides DEVAGENT_HERDR_SWEEP=0|1, DEVAGENT_HERDR_SWEEP_ORPHANS=0|1.
    */
-  herdr?: { enabled?: boolean; session?: string };
+  herdr?: { enabled?: boolean; session?: string; sweep?: HerdrSweepConfig };
   /**
    * Spawn visibility (FR-VIS-01/04): whether worker CLIs launch in herdr panes
    * the operator can jump into ("visible") or as plain child processes
@@ -162,6 +192,9 @@ export const DEFAULT_CONFIG: DevAgentConfig = {
 };
 
 const CONFIG_FILENAMES = ['devagent.json', '.devagent.json'];
+
+/** herdr session names: the shape `herdr.session` and every `herdr.sweep.denySessions` entry must match. */
+const HERDR_SESSION_RE = /^[a-z][a-z0-9_-]{0,31}$/;
 
 export function loadConfig(repoPath: string = process.cwd()): DevAgentConfig {
   let fileConfig: Partial<DevAgentConfig> = {};
@@ -257,8 +290,27 @@ export function loadConfig(repoPath: string = process.cwd()): DevAgentConfig {
     }
   }
   if (config.herdr !== undefined) {
-    if (config.herdr.session !== undefined && !/^[a-z][a-z0-9_-]{0,31}$/.test(config.herdr.session)) {
+    if (config.herdr.session !== undefined && !HERDR_SESSION_RE.test(config.herdr.session)) {
       throw new Error(`Invalid herdr.session "${config.herdr.session}"; expected [a-z][a-z0-9_-]{0,31}`);
+    }
+    const sw = config.herdr.sweep;
+    if (sw !== undefined) {
+      if (sw.enabled !== undefined && typeof sw.enabled !== 'boolean') {
+        throw new Error(`Invalid herdr.sweep.enabled "${String(sw.enabled)}"; expected true or false`);
+      }
+      if (sw.orphans !== undefined && typeof sw.orphans !== 'boolean') {
+        throw new Error(`Invalid herdr.sweep.orphans "${String(sw.orphans)}"; expected true or false`);
+      }
+      if (sw.denySessions !== undefined) {
+        if (!Array.isArray(sw.denySessions)) {
+          throw new Error(`Invalid herdr.sweep.denySessions "${String(sw.denySessions)}"; expected an array of session names`);
+        }
+        for (const denied of sw.denySessions) {
+          if (typeof denied !== 'string' || !HERDR_SESSION_RE.test(denied)) {
+            throw new Error(`Invalid herdr.sweep.denySessions entry "${String(denied)}"; expected [a-z][a-z0-9_-]{0,31}`);
+          }
+        }
+      }
     }
   }
   if (config.zombiePrs !== undefined) {
@@ -343,6 +395,42 @@ export function spawnVisibility(cfg: DevAgentConfig = loadConfig()): 'visible' |
 /** Target herdr session name (config `herdr.session`, env DEVAGENT_HERDR_SESSION, else "devagent"). */
 export function herdrSessionName(cfg: DevAgentConfig = loadConfig()): string {
   return process.env.DEVAGENT_HERDR_SESSION || cfg.herdr?.session || 'devagent';
+}
+
+/**
+ * Tri-state boolean env flag: `1`/`true` -> true, `0`/`false` -> false, unset
+ * or unrecognized -> undefined so the caller falls through to config/default
+ * (the spawnVisibility precedent — a typo must not silently arm a destructive
+ * path).
+ */
+function parseEnvFlag(value: string | undefined): boolean | undefined {
+  const v = value?.trim().toLowerCase();
+  if (v === '1' || v === 'true') return true;
+  if (v === '0' || v === 'false') return false;
+  return undefined;
+}
+
+/** Resolved `herdr.sweep` section (see HerdrSweepConfig for the semantics). */
+export interface HerdrSweepSettings {
+  enabled: boolean;
+  /** undefined = unset: the caller's own `--orphans` flag decides. */
+  orphans?: boolean;
+  denySessions: string[];
+}
+
+/**
+ * Sweep-safety resolution (PRD §18 Q23, FR-VIS-10): env wins over config,
+ * config wins over the defaults — which are today's behavior (sweep on,
+ * orphan class left to the caller's `--orphans` flag), so
+ * `scripts/selfbuild-loop.sh` keeps working with no config at all.
+ */
+export function herdrSweepConfig(cfg: DevAgentConfig = loadConfig()): HerdrSweepSettings {
+  const sweep = cfg.herdr?.sweep ?? {};
+  return {
+    enabled: parseEnvFlag(process.env.DEVAGENT_HERDR_SWEEP) ?? sweep.enabled ?? true,
+    orphans: parseEnvFlag(process.env.DEVAGENT_HERDR_SWEEP_ORPHANS) ?? sweep.orphans,
+    denySessions: [...(sweep.denySessions ?? [])],
+  };
 }
 
 export function loadCredentials(env: NodeJS.ProcessEnv = process.env): Credentials {
