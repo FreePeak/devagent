@@ -285,7 +285,7 @@ func (s *stateSync) buildTree() (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("hash-object %s: %w", f, err)
 		}
-		sub.WriteString(fmt.Sprintf("100644 blob %s\t%s\n", strings.TrimSpace(sha), f))
+		_, _ = fmt.Fprintf(&sub, "100644 blob %s\t%s\n", strings.TrimSpace(sha), f)
 	}
 	subtree, err := s.git(nil, sub.String(), "mktree")
 	if err != nil {

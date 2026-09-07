@@ -39,7 +39,7 @@ func (d *driver) scheduleCleanup(loopNum int) {
 	if err != nil {
 		return
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	_, _ = f.Write(append(data, '\n'))
 }
 
@@ -90,7 +90,7 @@ func (d *driver) sweepCleanup(logF io.Writer) {
 			continue
 		}
 		if _, ok := d.gitQuiet("show-ref", "--verify", "--quiet", "refs/heads/"+row.Branch); !ok {
-			fmt.Fprintf(logF, "[cleanup] %s already gone\n", row.Branch)
+			_, _ = fmt.Fprintf(logF, "[cleanup] %s already gone\n", row.Branch)
 			_, _ = d.gitQuiet("worktree", "remove", "--force", row.Worktree)
 			continue
 		}
@@ -99,7 +99,7 @@ func (d *driver) sweepCleanup(logF io.Writer) {
 		if remoteTip != "" && strings.TrimSpace(localTip) == remoteTip {
 			if _, ok := d.gitQuiet("worktree", "remove", "--force", row.Worktree); ok {
 				_, _ = d.gitQuiet("branch", "-D", row.Branch)
-				fmt.Fprintf(logF, "[cleanup] removed %s + %s\n", row.Branch, row.Worktree)
+				_, _ = fmt.Fprintf(logF, "[cleanup] removed %s + %s\n", row.Branch, row.Worktree)
 			}
 			// The row is dropped even if the worktree removal failed (bash
 			// `&&` chain: echo only on success, entry always consumed).

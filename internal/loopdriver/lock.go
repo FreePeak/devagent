@@ -39,7 +39,7 @@ func acquireLock(cfg LoopConfig, d *driver) (func(), bool) {
 			}
 		}
 		if live {
-			fmt.Fprintf(cfg.Stdout, "[lock] another selfbuild-loop driver already holds %s (pid %s) — exiting\n", lockDir, holder)
+			_, _ = fmt.Fprintf(cfg.Stdout, "[lock] another selfbuild-loop driver already holds %s (pid %s) — exiting\n", lockDir, holder)
 			return nil, false
 		}
 		if attempt == 0 {
