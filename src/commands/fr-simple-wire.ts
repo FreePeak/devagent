@@ -99,29 +99,44 @@ export function wireFrSimple(program: Command): void {
       json?: boolean;
     }) => {
       if (opts.clusters !== undefined) {
-        const { clusterFailures } = await import('../orchestrator/ledger.js');
+        const { clusterFailures, clusterFailureClasses } = await import('../orchestrator/ledger.js');
         const top = typeof opts.clusters === 'string' ? parseInt(opts.clusters, 10) : 5;
         const clusters = clusterFailures(opts.repo);
+        const classes = clusterFailureClasses(opts.repo);
         const limit = Number.isFinite(top) && top > 0 ? top : 5;
         if (opts.json) {
-          // FailureCluster[] is not LedgerSummary | AuditLedgerRecord[] — serialize directly
-          console.log(JSON.stringify(clusters.slice(0, limit), null, 2));
+          // FailureCluster[]/FailureClassCluster[] are not LedgerSummary |
+          // AuditLedgerRecord[] — serialize directly
+          console.log(JSON.stringify({ clusters: clusters.slice(0, limit), failureClasses: classes.slice(0, limit) }, null, 2));
           return;
         }
-        if (!Number.isFinite(top) || top <= 0 || clusters.length === 0) {
+        if (!Number.isFinite(top) || top <= 0) {
+          console.log(`Nothing to show for --clusters ${opts.clusters}.`);
+          return;
+        }
+        if (clusters.length === 0 && classes.length === 0) {
           console.log(
-            clusters.length === 0
-              ? 'No failure clusters. Failed audits with unmet criteria cluster here once the ledger has records.'
-              : `Nothing to show for --clusters ${opts.clusters}.`,
+            'No failure clusters. Failed audits with unmet criteria and taskInterrupt executor events cluster here once the ledger has records.',
           );
           return;
         }
-        console.log(`failure clusters (top ${Math.min(top, clusters.length)} of ${clusters.length}):`);
-        for (const c of clusters.slice(0, top)) {
-          console.log(
-            `- "${c.criterion}" — ${c.occurrences} occurrence(s) across ${c.tasks.length} task(s)` +
-              ` (${c.openTasks} still open): ${c.tasks.join(', ')}`,
-          );
+        if (clusters.length > 0) {
+          console.log(`failure clusters (top ${Math.min(top, clusters.length)} of ${clusters.length}):`);
+          for (const c of clusters.slice(0, top)) {
+            console.log(
+              `- "${c.criterion}" — ${c.occurrences} occurrence(s) across ${c.tasks.length} task(s)` +
+                ` (${c.openTasks} still open): ${c.tasks.join(', ')}`,
+            );
+          }
+        }
+        if (classes.length > 0) {
+          console.log(`failure classes (top ${Math.min(top, classes.length)} of ${classes.length}):`);
+          for (const c of classes.slice(0, top)) {
+            console.log(
+              `- "${c.failureClass}" — ${c.occurrences} interrupt(s) across ${c.tasks.length} task(s): ${c.tasks.join(', ')}` +
+                (c.exemplar ? ` | exemplar: "${c.exemplar.slice(0, 120)}"` : ''),
+            );
+          }
         }
         return;
       }
