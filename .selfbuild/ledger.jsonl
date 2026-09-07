@@ -117,3 +117,4 @@
 {"loop":156,"ts":"2026-09-07T05:48:13Z","status":"ok","goal":"Goal: Resolve PRD §18 Q23 by landing loop 155's orphaned implementation: branch `origin/devagent/TASK-mtqrredk-4453` (commit 61fd919, already based on main 5d74"}
 {"loop":157,"ts":"2026-09-07T06:47:57Z","status":"ok","goal":"Verified research pick #1 against code state:  - `pageDegradeBreach` (`src/resilience/preflight.ts:153`) is module-private, only called at `:285` inside `runPre"}
 {"loop":158,"ts":"2026-09-07T07:24:12Z","status":"skipped","goal":"Verified pick #1 against code state: - Q11 open at `docs/PRD.md:942` (Phase 4, product); no `repoContext`/trust symbol anywhere in `src/config.ts`. - `buildKnow"}
+{"loop":159,"ts":"2026-09-07T07:27:59Z","status":"provider-degraded","goal":"doc-sync failed: [sync-docs] git fetch failed: Command failed: git fetch origin main"}
