@@ -504,7 +504,7 @@ Output ONLY the goal statement (max 120 words), starting with 'Goal:' — this t
     GOAL_FILE="$STATE/goals/loop-$N.md"
     if ! grep -q '^Goal:' "$GOAL_FILE"; then
       echo "[validate] goal file missing Goal: line — marking iteration invalid" ; record "$N" invalid "$(cat "$GOAL_FILE" 2>/dev/null)" ; fails=$(( fails + 1 )) ; else
-
+      GOAL=$(cat "$GOAL_FILE")
       # Q27 guard: never re-implement a goal that already shipped (a ledger
       # entry with a productive status carries the same text). Loop 58 re-burned
       # Q35 after its PR #100 merged because the driver restart lost the record;
