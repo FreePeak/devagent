@@ -201,6 +201,8 @@ export interface RenderOptions {
   log?: LogViewState;
   /** Terminal row budget; interactive passes stdout.rows, tests pass exact. */
   rows?: number;
+  /** Terminal column budget; interactive resolves stdout.columns, tests pass exact. */
+  width?: number;
   /** Spinner animation frame (interactive only; animated while RUNNING). */
   spinnerFrame?: number;
   /** When the dashboard embedded its own daemon for this session, say so. */
@@ -385,7 +387,7 @@ function termRows(): number {
 
 /** Header strip + metrics line + iteration card (from loop-phase ledger rows). */
 function headerLines(snap: Snapshot, ropts: RenderOptions): string[] {
-  const width = termColumns();
+  const width = ropts.width ?? termColumns();
   const status = snap.status;
   if (snap.authFailed) {
     return [
@@ -417,8 +419,18 @@ function headerLines(snap: Snapshot, ropts: RenderOptions): string[] {
   const openTasks = pending + claimed;
   const meter = `${C.dim}[${C.reset}${meterBar(openTasks, openTasks + done, 10, `${C.yellow}█${C.reset}`, `${C.dim}░${C.reset}`)}${C.dim}]${C.reset}`;
   const samples = ropts.metrics?.samples ?? [];
-  const spark = samples.length
-    ? ` · ${C.dim}activity(${fmtUptime((samples.length * (ropts.metrics?.sampleMs ?? POLL_MS)) / 1000)}) ${C.cyan}${sparkline(samples)}${C.reset}${C.dim} ${samples[samples.length - 1] ?? 0}${C.reset}`
+  // Fixed-width spark: the full 60-sample series renders 60 glyphs and the
+  // meta line has no other budget — on a 100-col terminal the row overflows
+  // into the clamp ellipsis, hiding herdr/vis and rewriting the whole row on
+  // every poll as the spark grows (operator: "activity keeps expanding until
+  // the TUI breaks"). Render the newest SPARK_MAX_GLYPHS samples; the window
+  // label still reports the full sample span.
+  // Size the spark to the terminal: reserve room for the static prefix +
+  // herdr/vis tail so the row never overflows into the clamp ellipsis.
+  const sparkBudget = width < 100 ? 0 : Math.max(8, Math.min(24, width - 108));
+  const sparkTail = sparkBudget > 0 ? samples.slice(-sparkBudget) : [];
+  const spark = samples.length && sparkTail.length
+    ? ` · ${C.dim}activity(${fmtUptime((samples.length * (ropts.metrics?.sampleMs ?? POLL_MS)) / 1000)}) ${C.cyan}${sparkline(sparkTail)}${C.reset}${C.dim} ${samples[samples.length - 1] ?? 0}${C.reset}`
     : '';
   const circuit =
     status.circuit && status.circuit !== 'closed'
@@ -428,7 +440,7 @@ function headerLines(snap: Snapshot, ropts: RenderOptions): string[] {
     `${C.dim} up ${fmtUptime(status.uptime_s)} · runs ${status.runs?.active ?? 0}a/${status.runs?.failed_recent ?? 0}f · queue ${meter} ${pending}p/${claimed}c/${done}d${C.reset}` +
     spark +
     circuit +
-    `${C.dim} · herdr:${status.herdr?.session ?? '-'} · vis:${status.spawn?.visibility ?? 'visible'}${C.reset}`;
+    `${C.dim} · herdr:${status.herdr?.session ?? '-'}${width >= 118 ? ` · vis:${status.spawn?.visibility ?? 'visible'}` : ''}${C.reset}`;
   return [
     `${C.bold}${C.inverse}${padTo(barBody, Math.max(width, visibleLen(barBody) + 1))}${C.reset}`,
     meta,
@@ -568,7 +580,7 @@ function fitLines(header: string[], body: string[], footer: string[], rows: numb
 
 /** Full frame as lines (interactive diffs these; one-shot joins them). */
 export function renderLines(snap: Snapshot, ropts: RenderOptions = {}): string[] {
-  const width = termColumns();
+  const width = ropts.width ?? termColumns();
   const rows = ropts.rows ?? 100;
   const view: TuiView = ropts.view ?? (ropts.showSessions ? 'sessions' : 'workers');
   const panes = rosterPanes(snap);
