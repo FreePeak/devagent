@@ -1624,10 +1624,11 @@ program
   .option('--session <name>', 'herdr session to sweep (default DEVAGENT_HERDR_SESSION or "devagent")')
   .option('--dry-run', 'list stale panes without closing', false)
   .option('--orphans', 'also close LIVE panes whose pane-run owner CLI detached from any live selfbuild-loop.sh driver (loop-driver use only; spares operator-attached tasks)', false)
+  .option('--orphan-brokers', 'also reap orphaned omp daemon_broker processes reparented to launchd (ppid 1); with --dry-run only lists them', false)
   .action(async (opts) => {
     // Loaded per invocation like every other herdr command: the integration
     // pulls in the child-process plumbing no other subcommand needs.
-    const { resolveSession, sweepDenyReason, sweepStalePanes, SWEEP_REASON_OPERATOR_ATTACHED } = await import('./integrations/herdr.js');
+    const { resolveSession, sweepDenyReason, sweepStalePanes, reapOrphanBrokers, SWEEP_REASON_OPERATOR_ATTACHED } = await import('./integrations/herdr.js');
     const session = resolveSession(opts.session);
     // An invalid config leaves the deny list unknown; resolveSweepSettings()
     // inside the sweep then refuses to run and says why on stderr.
@@ -1641,6 +1642,18 @@ program
     if (denied !== null) {
       console.log(`[${session}] sweep ${denied === 'disabled' ? 'disabled (herdr.sweep.enabled / DEVAGENT_HERDR_SWEEP=0)' : `denied for session "${session}" (herdr.sweep.denySessions)`}`);
       return;
+    }
+    // Orphan-broker class (2026-09-08 memory-pressure diagnosis): an omp
+    // __omp_worker_daemon_broker that outlives its session pins an lsp_mux and
+    // a gopls fleet. Process-scoped rather than pane-scoped, but gated behind
+    // the same master toggle / deny list above, and inert without the flag.
+    if (opts.orphanBrokers) {
+      const { orphans, killed } = await reapOrphanBrokers({ dryRun: Boolean(opts.dryRun) });
+      for (const o of orphans) {
+        const tag = opts.dryRun ? '[broker-stale]' : killed.includes(o.pid) ? '[broker-killed]' : '[broker-failed]';
+        console.log(`${tag} pid ${o.pid} ${o.command.slice(0, 90)}`);
+      }
+      if (orphans.length === 0) console.log('[brokers] no orphaned daemon_broker processes');
     }
     const stale = await sweepStalePanes(session, { dryRun: opts.dryRun, orphans: Boolean(opts.orphans), sweep });
     if (stale.length === 0) {

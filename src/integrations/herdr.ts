@@ -627,6 +627,66 @@ export async function paneRunOwnerOrphaned(paneId: string): Promise<boolean> {
   return true; // owner exists but detached from any live driver
 }
 
+/**
+ * Orphaned omp `__omp_worker_daemon_broker` processes: reparented to launchd,
+ * i.e. their owning omp session is gone. pidAncestryCommands stops at ppid<=1
+ * without collecting init, so a length-1 ancestry IS "direct child of launchd"
+ * — the proven-orphan signal. A live session's broker always has its omp (and
+ * the pane's zsh/herdr server) above it, so it never matches.
+ *
+ * The 2026-09-08 class on this box: 4 such brokers (etime 13h..8d) pinned an
+ * lsp_mux and a gopls fleet (~1.3 GiB) after their sessions died. Detection is
+ * evidence-only: pgrep/ps failure yields no candidates, so a sweep without
+ * proof never reaps anything.
+ */
+export async function findOrphanBrokerPids(): Promise<Array<{ pid: number; command: string }>> {
+  const out: Array<{ pid: number; command: string }> = [];
+  for (const pid of await psPidsMatching('__omp_worker_daemon_broker')) {
+    const ancestry = await pidAncestryCommands(pid);
+    if (ancestry.length === 1 && ancestry[0]!.includes('__omp_worker_daemon_broker')) {
+      out.push({ pid, command: ancestry[0]! });
+    }
+  }
+  return out;
+}
+
+/**
+ * SIGTERM each orphaned broker, escalating to SIGKILL for those that ignore it
+ * (observed: one of the four 2026-09-08 orphans survived SIGTERM). Returns the
+ * candidates found and the pids actually signalled. Children (lsp_mux, gopls,
+ * and any daemon started inside the session tree) die or reparent with the
+ * broker — that is the memory win; omp sessions respawn their broker on demand.
+ */
+export async function reapOrphanBrokers(
+  opts: { dryRun?: boolean } = {},
+): Promise<{ orphans: Array<{ pid: number; command: string }>; killed: number[] }> {
+  const orphans = await findOrphanBrokerPids();
+  if (opts.dryRun) return { orphans, killed: [] };
+  const killed: number[] = [];
+  for (const { pid } of orphans) {
+    try {
+      process.kill(pid, 'SIGTERM');
+      killed.push(pid);
+    } catch {
+      // ESRCH: already gone. EPERM: not ours to signal. Neither is a reap.
+    }
+  }
+  if (killed.length > 0) {
+    // Executor form required: the project compiles to ES2022, whose lib has no
+    // Promise.withResolvers (ES2024). Matches the file's other awaited timers.
+    await new Promise<void>((resolve) => setTimeout(resolve, 2000));
+    for (const pid of killed) {
+      try {
+        process.kill(pid, 0);
+        process.kill(pid, 'SIGKILL');
+      } catch {
+        // exited on SIGTERM — done
+      }
+    }
+  }
+  return { orphans, killed };
+}
+
 /** pgrep -f for the pane-run owner CLI; empty on pgrep absence/failure. */
 async function psPidsMatching(pattern: string): Promise<number[]> {
   // Test seam: herdr-sweep tests stub the process table via
