@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { claimNextPending, readTask, setTaskStatus, updateTask, type QueuedTask } from './queue.js';
+import { claimNextPending, completeTask, failTask, readTask, requeueTask, type QueuedTask } from './queue.js';
 import { RunLogger } from './logger.js';
 import { syntheticTicketFromPrompt } from './task.js';
 import type { PipelineDeps } from './pipeline.js';
@@ -315,12 +315,17 @@ export async function consumeOnce(opts: ConsumeOptions): Promise<ConsumeResult> 
 
   const log = new RunLogger();
   log.info('consume', `Claimed ${task.id}: ${task.title}`, { workerId });
+  // Fencing token issued by the claim (FR-VIS-09 queue claims): every write
+  // below carries it, so a lease reclaimed by another worker mid-run makes our
+  // own completion/failure writes refuse instead of clobbering the new owner.
+  const generation = task.leaseGeneration ?? 0;
 
   try {
     const result = await runQueuedTask(task, opts, log);
     if (result.ok) {
-      setTaskStatus(opts.repoPath, task.id, 'done');
-      updateTask(opts.repoPath, task.id, { lastError: undefined });
+      if (!completeTask(opts.repoPath, task.id, generation)) {
+        log.warn('consume', `Completion of ${task.id} refused — lease moved on (generation ${generation})`);
+      }
       return { ok: true, taskId: task.id, detail: result.detail, prUrl: result.prUrl, merged: result.merged };
     }
     // Infinite retry for transient infra failures: requeue as pending instead
@@ -342,14 +347,15 @@ export async function consumeOnce(opts: ConsumeOptions): Promise<ConsumeResult> 
       const { backoffDelay } = await import('./sessionguard/backoff.js');
       // Backoff before requeueing so we don't hot-loop a flapping endpoint.
       await new Promise((r) => setTimeout(r, backoffDelay((task.attempts ?? 0) + 1)));
-      updateTask(opts.repoPath, task.id, { status: 'pending', lastError: result.detail.slice(0, 2000) } as never);
-      // Best-effort: set pending directly if updateTask path coalesces
-      setTaskStatus(opts.repoPath, task.id, 'pending' as never);
-      updateTask(opts.repoPath, task.id, { lastError: result.detail.slice(0, 2000) });
+      if (!requeueTask(opts.repoPath, task.id, generation, result.detail)) {
+        log.warn('consume', `Requeue of ${task.id} refused — lease moved on (generation ${generation})`);
+      }
       log.warn('consume', `Transient infra failure for ${task.id}, requeued as pending`, { detail: result.detail.slice(0, 120) });
       return { ok: false, taskId: task.id, detail: `${result.detail} (transient — requeued)`, prUrl: result.prUrl, merged: result.merged };
     }
-    setTaskStatus(opts.repoPath, task.id, 'failed', result.detail);
+    if (!failTask(opts.repoPath, task.id, generation, result.detail)) {
+      log.warn('consume', `Failure record for ${task.id} refused — lease moved on (generation ${generation})`);
+    }
     return { ok: false, taskId: task.id, detail: result.detail, prUrl: result.prUrl, merged: result.merged };
   } catch (err) {
     const msg = (err as Error).message;
@@ -368,11 +374,14 @@ export async function consumeOnce(opts: ConsumeOptions): Promise<ConsumeResult> 
       } catch {}
       const { backoffDelay } = await import('./sessionguard/backoff.js');
       await new Promise((r) => setTimeout(r, backoffDelay(1)));
-      setTaskStatus(opts.repoPath, task.id, 'pending' as never);
-      updateTask(opts.repoPath, task.id, { lastError: msg.slice(0, 2000) });
+      if (!requeueTask(opts.repoPath, task.id, generation, msg)) {
+        log.warn('consume', `Requeue of ${task.id} refused — lease moved on (generation ${generation})`);
+      }
       return { ok: false, taskId: task.id, detail: `crashed: ${msg} (transient — requeued)` };
     }
-    setTaskStatus(opts.repoPath, task.id, 'failed', msg);
+    if (!failTask(opts.repoPath, task.id, generation, msg)) {
+      log.warn('consume', `Failure record for ${task.id} refused — lease moved on (generation ${generation})`);
+    }
     log.error('consume', `Task ${task.id} crashed: ${msg}`);
     return { ok: false, taskId: task.id, detail: `crashed: ${msg}` };
   }

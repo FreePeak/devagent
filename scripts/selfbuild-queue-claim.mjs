@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 // Queue-first goal selection for the selfbuild loop (scripts/selfbuild-loop.sh).
 //
-// Claims the oldest pending task from .devagent/queue and prints JSON:
-//   {"id":"...","goal":"..."}   — a task was claimed (loop implements its goal)
-//   {}                          — queue empty (loop falls back to LLM selection)
+// Claims the oldest claimable task from .devagent/queue and prints JSON:
+//   {"id":"...","goal":"...","leaseGeneration":N} — a task was claimed (loop implements its goal)
+//   {}                                          — queue empty (loop falls back to LLM selection)
 //
 // Rationale: pending queue tasks (scout PRDs, backlog items) are concrete,
 // already-validated work and outrank fresh LLM goal invention. Without this
@@ -22,10 +22,15 @@ if (!task) {
 }
 const goal = task.goal?.trim() || task.title?.trim() || '';
 if (!goal) {
-  // Unusable entry: fail it so it never blocks the queue head again.
-  const { setTaskStatus } = await import('../src/queue.js');
-  setTaskStatus(repoPath, task.id, 'failed', 'empty goal and title');
+  // Unusable entry: fail it so it never blocks the queue head again. This
+  // process owns the claim it just made, so the write carries its token.
+  const { failTask } = await import('../src/queue.js');
+  failTask(repoPath, task.id, task.leaseGeneration ?? 0, 'empty goal and title');
   console.log('{}');
   process.exit(0);
 }
-console.log(JSON.stringify({ id: task.id, goal: goal.startsWith('Goal:') ? goal : `Goal: ${goal}` }));
+console.log(JSON.stringify({
+  id: task.id,
+  goal: goal.startsWith('Goal:') ? goal : `Goal: ${goal}`,
+  leaseGeneration: task.leaseGeneration ?? 0,
+}));

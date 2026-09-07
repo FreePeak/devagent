@@ -889,6 +889,29 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 > modified — the loop then records a `provider-degraded` row and skips its
 > agent cycle instead of silently building stale work, and a failed scout
 > sync degrades to a skipped heartbeat cycle (ace2b88).
+> **Completed post-v0.3 (2026-09-07):** FR-VIS-09 extended from the loop driver
+> to queue claims — the `claimTask` last-writer-wins TODO meant two consumers
+> that both read a `pending` task each believed they owned it, and the later
+> writer silently overwrote the earlier one's record. Claims now take an atomic
+> `link()` lock per task (`acquireClaimLock`, `src/queue.ts:172`; `link()` fails
+> EEXIST so exactly one caller wins, and it is portable to macOS where `flock`
+> is unavailable — the same primitive family as the driver's mkdir lock) and
+> issue a fencing token: `QueuedTask.leaseGeneration` plus `leaseOwner` and
+> `leaseExpiresAt` (`src/queue.ts:27-31`). A `claimed` task past its lease is
+> reclaimable and the reclaim bumps the generation — a token is never reused —
+> so `claimNextPending` recovers a crashed worker's task instead of wedging
+> (`src/queue.ts:443`). Every claim-lifecycle write carries the token and is
+> refused when stale: `completeTask`/`failTask`/`requeueTask`
+> (`src/queue.ts:348,358,375`) and the guarded `updateTask`/`setTaskStatus`
+> (`expectedGeneration`); `requeueTask` bumps the generation on release so the
+> releasing worker's own late writes die with the release. `src/consume.ts:311`
+> threads its claim token through completion, requeue, and failure, and
+> `scripts/selfbuild-queue-claim.mjs` hands the loop the token
+> (`leaseGeneration`) which `scripts/selfbuild-queue-done.mjs` presents via
+> `DEVAGENT_QUEUE_LEASE` — a stale token refuses loudly instead of clobbering
+> the new owner. Legacy records with no lease fields stay reclaimable. 9
+> deterministic lease tests (`test/queue.test.ts:144`); `devagent queue list`
+> output is unchanged.
 
 #### Phase 4 — current backlog (2026-09-03, curation run 24)
 
@@ -1227,7 +1250,7 @@ machine). FR-VIS-06..08 close them; FR-VIS-09 removes the double-driver failure 
 | FR-VIS-06 | Every agent role dispatches through the pane runtime, not just coding workers: loop research and PO selection run inside herdr panes via `devagent pane-run` (falls back to a direct child only when herdr is unreachable, exit code 3 — loud, never silent); the scout routes its worker spawn through `runWorkerCli` so discovery lands in an attachable pane too | M |
 | FR-VIS-07 | Sweep safety: `herdr-sweep` closes only panes whose cwd sits inside `.devagent-worktrees/` (automation-owned; operator scratch panes in the same session are untouchable) AND whose foreground process is not a worker CLI (`pane process-info` distinguishes a live omp/pi/claude/opencode from an idle shell) — an in-flight pane is never sweepable | M |
 | FR-VIS-08 | Loop-process visibility: loop-phase events (research/po/task) stay on the SSE stream and TUI cards (FR-VIS-02 surface), with the phase's pane discoverable via `devagent sessions`/`attach` while it runs | S |
-| FR-VIS-09 | Single-instance loop drivers: `selfbuild-loop.sh` holds a portable mkdir lock (`.selfbuild/loop.lock.d`, stale-holder recovery via pid liveness) so an orphaned ppid=1 driver and a fresh start can never race loop numbering, ledger writes, or pane sweeps | M |
+| FR-VIS-09 | Single-instance locking: `selfbuild-loop.sh` holds a portable mkdir lock (`.selfbuild/loop.lock.d`, stale-holder recovery via pid liveness) so an orphaned ppid=1 driver and a fresh start can never race loop numbering, ledger writes, or pane sweeps. **Extended 2026-09-07 to queue claims:** the same single-owner guarantee covers task claiming — an atomic `link()` claim lock per task, an incrementing fencing token (`leaseGeneration`/`leaseOwner`/`leaseExpiresAt`), expired leases reclaimable with a generation bump, and complete/fail/requeue writes refused when their token is stale | M |
 
 **TUI dashboard (FR-TUI)** — pilot's dashboard as the reference layout
 (`docs/research/pilot-probe.md` §2; BSL 1.1 — patterns only, no code):
