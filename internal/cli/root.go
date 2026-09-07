@@ -29,16 +29,13 @@ import (
 // notPortedIssue maps each stubbed command to the FR-GO issue that owns its
 // port, so the exit-3 message points at the tracker instead of dead-ending.
 var notPortedIssue = map[string]string{
-	"backlog-check": "#193", "selfbuild-gate": "#194", "board-recovery": "#194",
 	"prd-audit": "#202", "run": "#194", "fleet": "#194",
 	"task": "#194", "orchestrate": "#194", "project": "#194",
-	"mcp": "#200", "preflight": "#194", "page-degrade-breach": "#194",
+	"mcp":   "#200",
 	"guard": "#190", "guard-status": "#190",
-	"automerge": "#194", "autosweep": "#194", "pr-hygiene": "#194",
 	"pane-run": "#201",
 	"daemon":   "#200", "tui": "#198",
-	"create": "#202", "lessons": "#194", "queue list": "#194",
-	"queue show": "#194", "queue bridge": "#194", "consume": "#194",
+	"create":     "#202",
 	"reap-stale": "#190",
 }
 
@@ -202,7 +199,8 @@ func NewRoot() *cobra.Command {
 }
 
 // Execute runs the CLI and maps errors to exit codes the way commander does
-// (usage/parse errors: 1; stubbed commands: 3).
+// (usage/parse errors: 1; stubbed commands: 3; process.exitCode assignments
+// from wired action bodies: applied after a successful dispatch).
 func Execute() {
 	if err := NewRoot().Execute(); err != nil {
 		if st, ok := err.(*notPortedError); ok {
@@ -210,6 +208,9 @@ func Execute() {
 			os.Exit(3)
 		}
 		os.Exit(1)
+	}
+	if commandExitCode != nil && *commandExitCode != 0 {
+		os.Exit(*commandExitCode)
 	}
 }
 
@@ -373,6 +374,17 @@ func wiredCommands() map[string]*cobra.Command {
 		"track":        trackCommand(),
 		"serve":        serveCommand(),
 		"record":       recordCommand(),
+
+		// Orchestrator-era commands (FR-GO-07 #221 / FR-GO-08 #215 wiring).
+		"selfbuild-gate":      newSelfbuildGateCmd(),
+		"board-recovery":      newBoardRecoveryCmd(),
+		"preflight":           newPreflightCmd(),
+		"page-degrade-breach": newPageDegradeBreachCmd(),
+		"queue":               newQueueCmd(),
+		"lessons":             newLessonsCmd(),
+		"pr-hygiene":          newPrHygieneCmd(),
+		"autosweep":           newAutoSweepCmd(),
+		"automerge":           automergeCommand(),
 	}
 	for _, sub := range wired["record"].Commands() {
 		if sub.Name() == "release" {
@@ -454,7 +466,10 @@ func handled(dotted string) bool {
 		"ledger", "log", "record release", "status", "dashboard",
 		"validate", "clean", "rebase-stack", "herdr-sweep", "sessions",
 		"attach", "sync-docs", "scout", "scout-status", "track", "serve",
-		"record", "pane-run":
+		"record", "pane-run",
+		"selfbuild-gate", "board-recovery", "preflight", "page-degrade-breach",
+		"queue", "queue list", "queue show", "queue bridge",
+		"lessons", "lessons scores", "pr-hygiene", "automerge", "autosweep":
 		return true
 	}
 	return false
