@@ -1,7 +1,6 @@
 // Package queue is the Go port of src/queue.ts (FR-GO-07, issue #194):
 // the queued-task store under .devagent/queue + .devagent/prds with fenced
 // claim semantics (FR-VIS-09).
-
 package queue
 
 import (

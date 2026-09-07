@@ -5,7 +5,6 @@
 // lessons-eval rows) and the Q39 impact scoring that joins them.
 //
 // This file mirrors src/lessons/guard.ts (FR-GO-07, issue #194).
-
 package lessons
 
 import (
