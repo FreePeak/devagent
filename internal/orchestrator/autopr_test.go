@@ -1258,8 +1258,5 @@ func autoMustJSONMap(raw string) map[string]any {
 
 func autoInt64P2(v int64) *int64 { return &v }
 
-// strToFloat adapts a float64 literal for pointer options.
-func strToFloat(f float64) float64 { return f }
-
 // strPtrF is the float-pointer helper for gate options.
 func strPtrF(f float64) *float64 { return &f }

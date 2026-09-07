@@ -1,4 +1,5 @@
 // Package file mirrors src/orchestrator/board-recovery.ts (FR-GO-07, issue #194).
+
 package orchestrator
 
 import (
@@ -320,7 +321,7 @@ func postOperatorAlert(url string, alert BoardArchivedAlert) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	return nil
 }
 

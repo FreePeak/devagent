@@ -11,6 +11,7 @@
 // Contract: pure, read-only. Walk ledger rows newest-first, counting the
 // trailing run of degradation rows and stopping at the first productive
 // row. No new ledger status, no writes, no typed-union/TUI plumbing.
+
 package resilience
 
 import (
@@ -71,7 +72,7 @@ func IsDegradationRow(row map[string]any) bool {
 	}
 	if ev, _ := row["event"].(string); ev == "operator-degraded" {
 		ok, isBool := row["ok"].(bool)
-		return !(isBool && ok)
+		return !isBool || !ok
 	}
 	if ev, _ := row["event"].(string); ev == "loop-result" {
 		status, isStr := row["status"].(string)

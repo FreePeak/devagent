@@ -9,7 +9,6 @@ import (
 )
 
 func strPtr(s string) *string { return &s }
-func intPtr2(i int) *int      { return &i }
 
 // ---------------------------------------------------------------------------
 // isTransientProviderError / transientErrorClass

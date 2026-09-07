@@ -1,4 +1,5 @@
 // Package file mirrors src/orchestrator/store.ts (FR-GO-07, issue #194).
+
 package orchestrator
 
 import (

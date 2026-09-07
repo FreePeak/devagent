@@ -12,6 +12,7 @@
 // a non-2xx response must not change the caller's outcome. Paging is
 // observability, never a second failure surface on top of the condition it
 // reports.
+
 package resilience
 
 import (

@@ -1,6 +1,7 @@
 // Package queue is the Go port of src/queue.ts (FR-GO-07, issue #194):
 // the queued-task store under .devagent/queue + .devagent/prds with fenced
 // claim semantics (FR-VIS-09).
+
 package queue
 
 import (
@@ -803,13 +804,6 @@ func derefInt(p *int) int {
 		return 0
 	}
 	return *p
-}
-
-func orStr(v, def *string) *string {
-	if v == nil || *v == "" {
-		return def
-	}
-	return v
 }
 
 func orEmpty(s []string) []string {

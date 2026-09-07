@@ -20,6 +20,7 @@
 // no-op defaults). Everything else — trail JSONL, signature normalization,
 // preflight guards, the repair loop, the commit step — is ported directly
 // and mirrors the TS control flow.
+
 package orchestrator
 
 import (
@@ -743,20 +744,6 @@ func derefInt(p *int) int {
 func intPtr(n int) *int {
 	v := n
 	return &v
-}
-
-// floatPtr returns a pointer to f.
-func floatPtr(f float64) *float64 {
-	v := f
-	return &v
-}
-
-// derefFloat dereferences an optional float field, 0 when nil (TS `?? 0`).
-func derefFloat(p *float64) float64 {
-	if p == nil {
-		return 0
-	}
-	return *p
 }
 
 func classLabel(result WorkerDispatchResult) string {

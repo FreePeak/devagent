@@ -9,6 +9,7 @@
 //	closed    — healthy; probes pass
 //	open      — proxy gate failed (all 3 probes failed); work is skipped
 //	half-open — first probe passed after an outage; recovery trial in flight
+
 package resilience
 
 import (

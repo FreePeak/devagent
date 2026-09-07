@@ -10,6 +10,7 @@
 // success only moves the task to 'untrusted'; it becomes 'done' solely on
 // an independent audit verdict with clean integrity. Failed audits are
 // externalized into evidenceGaps so the retry targets the actual gap.
+
 package orchestrator
 
 import (
@@ -488,7 +489,7 @@ func runDispatch(task *OrchestratorTask, board *ProjectBoard, opts SchedulerOpti
 		}
 		earlyEscalation := derefInt(task.RepeatGaps) >= repeatGapThreshold && derefInt(task.Recoveries) < maxRecoveries
 		task.Status = TaskStatusPending
-		if !(task.Attempts < opts.MaxTaskRetries && !earlyEscalation) {
+		if task.Attempts >= opts.MaxTaskRetries || earlyEscalation {
 			if grantRecovery(task) {
 				task.Status = TaskStatusPending
 			} else {
@@ -599,13 +600,6 @@ func publishTaskPr(deps SchedulerDeps, task *OrchestratorTask, board *ProjectBoa
 	if prURL != "" {
 		task.PrURL = prURL
 	}
-}
-
-func maxRecoveriesOf(opts SchedulerOptions) int {
-	if opts.MaxRecoveries != nil {
-		return *opts.MaxRecoveries
-	}
-	return 1
 }
 
 func maxInt(a, b int) int {

@@ -5,6 +5,7 @@
 // caller injects its own notifier in tests and swallows the result — paging
 // is observability, never a second failure surface on top of the condition
 // it reports.
+
 package resilience
 
 import (

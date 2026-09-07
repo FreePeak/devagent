@@ -1,5 +1,11 @@
-// Package file mirrors src/resilience/classify.ts (FR-GO-07, issue #194):
-// transient provider-error classification — the patterns safe to retry
+// Package resilience — Go port of src/resilience (FR-GO-07, issue #194).
+//
+// FR-GO-02 (PR #211 seed) landed the single probe function; this
+// extension adds the rest of src/resilience: transient classification,
+// degradation streak, proxy-state circuit, pager, operator alert, and
+// the typed preflight gate.
+//
+// classify.ts port: transient provider-error classification — the patterns safe to retry
 // forever, the ordered coarse class labels reported by `devagent status
 // --providers`, and the sessionless-retry decision. isNonRetryableApiError
 // mirrors the re-export from src/sessionguard/events.ts.
@@ -52,7 +58,7 @@ var transientPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)rate limit`),
 	regexp.MustCompile(`(?i)too many requests`),
 	// xAI 429 sub-classes (FR-GROK-06, PRD:1116): the API distinguishes RPS
-	// from TPM (tokens-per-minute) limits — a 500k-ctx prompt can exhaust TPM
+	// from TPM (tokens-per-minute) limits â a 500k-ctx prompt can exhaust TPM
 	// in one shot while staying under RPS. Match the wording directly so the
 	// class survives bodies that omit "429"/"rate limit" verbatim.
 	regexp.MustCompile(`(?i)\btpm\b|tokens?[ _-]?per[ _-]?minute`),
@@ -71,7 +77,7 @@ var transientPatterns = []*regexp.Regexp{
 	// omniroute proxy surfaces rate-limited empty upstream streams as
 	// "[claude-code:unrecognized_model]" on stderr and a JSON array with no
 	// .result field. The proxy's own log shows "all 1 active accounts rate
-	// limited" — the only fix is to retry once the upstream cooldowns. Loop
+	// limited" â the only fix is to retry once the upstream cooldowns. Loop
 	// stalls without this (loop-66 incident: 1h+ of false-failed workers).
 	regexp.MustCompile(`(?i)unrecognized_model`),
 	regexp.MustCompile(`\[claude-code:unrecognized_model\]`),
@@ -108,7 +114,7 @@ type transientClassRule struct {
 }
 
 // xAI 429 split (FR-GROK-06): TPM and RPS are ordered before the generic
-// rate-limit label because they demand different remedies — a TPM hit needs
+// rate-limit label because they demand different remedies â a TPM hit needs
 // the within-xAI model step-down (shorter context), an RPS hit just needs
 // the same-model cooldown. Generic 429s keep the coarse 'rate-limit' label.
 var transientClassRules = []transientClassRule{

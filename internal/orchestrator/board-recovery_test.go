@@ -745,10 +745,7 @@ func TestBoardRecoveryPrune(t *testing.T) {
 		}
 		// Newest two: the fresh archive plus 20260103; the two older ones pruned.
 		want := "board-20260103-000000.json,board-20260907-010203.json"
-		var kept []string
-		for _, f := range brArchiveFiles(t, repo, "board-") {
-			kept = append(kept, f)
-		}
+		kept := brArchiveFiles(t, repo, "board-")
 		sortStrings(kept)
 		if strings.Join(kept, ",") != want {
 			t.Errorf("kept = %v, want [%s]", kept, want)

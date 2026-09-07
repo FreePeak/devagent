@@ -6,6 +6,7 @@
 // detection via OMPStartupWedgePattern, and the shared once-per-episode
 // pager. The single probe function already landed here with FR-GO-02
 // (preflight.go, untouched by this port).
+
 package resilience
 
 import (
