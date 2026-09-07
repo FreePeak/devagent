@@ -323,7 +323,7 @@ func (d *driver) runSyncDocs(n int, logF io.Writer) outcome {
 		// Sync already up to date prints "already at origin"; a pulled or
 		// rebased sync prints its own one-liner — show it unless stale-noop.
 		if !strings.Contains(out, "already at origin") && strings.TrimSpace(out) != "" {
-			fmt.Fprintf(logF, "[sync-docs] %s\n", strings.TrimRight(out, "\n"))
+			_, _ = fmt.Fprintf(logF, "[sync-docs] %s\n", strings.TrimRight(out, "\n"))
 		}
 		return outcomeNext
 	}
@@ -391,7 +391,7 @@ func (d *driver) runPOPhase(n int, logF io.Writer, prevTail, lessonsCtx, gradien
 	}
 	if _, err := os.Stat(donePath); err != nil {
 		if rc := d.directDispatch(d.cfg.POBin, prompt, rawPath, d.cfg.ClaudeTimeout); rc != 0 {
-			fmt.Fprintf(logF, "[po] direct dispatch failed (rc=%d) — attempting partial extraction\n", rc)
+			_, _ = fmt.Fprintf(logF, "[po] direct dispatch failed (rc=%d) — attempting partial extraction\n", rc)
 		}
 	}
 	_ = os.Remove(donePath)
