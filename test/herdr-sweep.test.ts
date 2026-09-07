@@ -1,8 +1,9 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { spawn } from 'node:child_process';
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { findStalePanes, sweepStalePanes, sweepDenyReason, SWEEP_REASON_OPERATOR_ATTACHED } from '../src/integrations/herdr.js';
+import { findOrphanBrokerPids, findStalePanes, reapOrphanBrokers, sweepStalePanes, sweepDenyReason, SWEEP_REASON_OPERATOR_ATTACHED } from '../src/integrations/herdr.js';
 import { herdrSweepConfig, loadConfig } from '../src/config.js';
 
 // Sweep-safety stub (2026-09-05 regression: the loop's herdr-sweep closed an
@@ -392,4 +393,70 @@ describe('herdr.sweep config (FR-VIS-10)', () => {
       rmSync(repo, { recursive: true, force: true });
     }
   });
+});
+
+// 2026-09-08 memory-pressure diagnosis: four orphaned omp daemon_broker
+// processes (ppid 1, etime 13h..8d) pinned an lsp_mux and a gopls fleet
+// (~1.3 GiB) after their sessions died. The pane sweep cannot see them — they
+// are not panes — so the sweep grew a process-scoped class of its own.
+describe('orphaned daemon_broker reap (2026-09-08 memory-pressure class)', () => {
+  const BROKER_CMD = 'node /Users/op/node_modules/@oh-my-pi/pi-coding-agent/dist/cli.js __omp_worker_daemon_broker';
+
+  it('reports a broker reparented to launchd (ancestry is only itself)', async () => {
+    process.env.DEVAGENT_SWEEP_OWNER_PIDS = '47537\n';
+    process.env.DEVAGENT_SWEEP_ANCESTRY_JSON = JSON.stringify({ 47537: [BROKER_CMD] });
+    expect(await findOrphanBrokerPids()).toEqual([{ pid: 47537, command: BROKER_CMD }]);
+  });
+
+  it('spares a broker that still has its omp session above it', async () => {
+    process.env.DEVAGENT_SWEEP_OWNER_PIDS = '14727\n';
+    process.env.DEVAGENT_SWEEP_ANCESTRY_JSON = JSON.stringify({
+      14727: [BROKER_CMD, 'omp', '-zsh', '/Users/op/.local/bin/herdr server'],
+    });
+    expect(await findOrphanBrokerPids()).toEqual([]);
+  });
+
+  it('ignores a pgrep hit that is not a broker', async () => {
+    process.env.DEVAGENT_SWEEP_OWNER_PIDS = '99\n';
+    process.env.DEVAGENT_SWEEP_ANCESTRY_JSON = JSON.stringify({ 99: ['grep daemon_broker'] });
+    expect(await findOrphanBrokerPids()).toEqual([]);
+  });
+
+  it('dry-run lists orphans without signalling them', async () => {
+    process.env.DEVAGENT_SWEEP_OWNER_PIDS = '47537\n';
+    process.env.DEVAGENT_SWEEP_ANCESTRY_JSON = JSON.stringify({ 47537: [BROKER_CMD] });
+    const { orphans, killed } = await reapOrphanBrokers({ dryRun: true });
+    expect(orphans.map((o) => o.pid)).toEqual([47537]);
+    expect(killed).toEqual([]);
+  });
+
+  it('escalates to SIGKILL for an orphan that ignores SIGTERM', async () => {
+    // A real process is the only honest proof of the escalation path: this one
+    // traps SIGTERM, exactly like the 13476 orphan that shrugged it off.
+    // Real-clock exception (ts-no-test-timers): the reap's SIGTERM grace period
+    // IS the behavior under test, and the signal must actually reach the child
+    // before the escalation check runs. Fake timers would fire the check first,
+    // so the test would pass without proving escalation.
+    const child = spawn(process.execPath, ['-e', "process.on('SIGTERM', () => {}); process.send?.('trapped'); setInterval(() => {}, 1000);"], { stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });
+    // Await the trap, not 'spawn': 'spawn' only means a pid exists, and a
+    // signal delivered before the child's script installs the handler takes the
+    // default action (the first version of this test killed it with SIGTERM).
+    const { promise: trapped, resolve: onTrapped } = Promise.withResolvers<void>();
+    child.once('message', onTrapped);
+    await trapped;
+    try {
+      process.env.DEVAGENT_SWEEP_OWNER_PIDS = `${child.pid}\n`;
+      process.env.DEVAGENT_SWEEP_ANCESTRY_JSON = JSON.stringify({ [child.pid]: [BROKER_CMD] });
+      const { killed } = await reapOrphanBrokers({});
+      expect(killed).toEqual([child.pid]);
+      if (child.signalCode === null) {
+        const { promise: exited, resolve: onExit } = Promise.withResolvers<void>();
+        child.once('exit', onExit);
+        await exited;
+      }
+      expect(child.signalCode).toBe('SIGKILL');
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+    }
+  }, 20_000);
 });

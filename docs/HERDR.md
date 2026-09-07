@@ -118,6 +118,29 @@ operator-side bounds sit on top of the per-pane checks:
 `devagent herdr-sweep --dry-run` prints the same report without closing
 anything, and states the bound when the sweep is disabled or denied.
 
+### Orphaned worker-helper class (`--orphan-brokers`)
+
+The per-pane guards above cannot see a different leak class: omp's
+`__omp_worker_daemon_broker` worker outliving its session. When an omp process
+dies without taking its broker down, the broker reparents to launchd (ppid 1)
+and keeps an `lsp_mux` and a `gopls serve` fleet alive underneath it — four such
+brokers (etime 13 h to 8 days) pinned ~1.3 GiB in the 2026-09-08 memory-pressure
+diagnosis, entirely invisible to a pane-scoped sweep.
+
+`devagent herdr-sweep --orphan-brokers` reaps them. Detection is process-scoped
+and evidence-only: the same bounded `ps` ppid walk `--orphans` uses must return a
+length-1 ancestry (direct child of launchd) whose command still names
+`__omp_worker_daemon_broker`. A live session's broker always has its `omp` (and
+the pane's shell / herdr server) above it, so it never matches — verified against
+four live brokers while reaping a real orphan. `pgrep`/`ps` failure yields no
+candidates, and without the flag the class is inert.
+
+**Why the loop driver does not pass it:** a broker's children die or reparent
+with it, and a `devagent daemon` started from inside that session tree is one of
+those children — killing the orphan took the daemon down on 2026-09-08. This
+class is operator-invoked (or scripted with a `:7788/status` check afterwards),
+not automatic.
+
 ## Tests
 
 `test/herdr.test.ts` exercises the full protocol against a functional stub CLI
@@ -125,4 +148,6 @@ anything, and states the bound when the sweep is disabled or denied.
 env injection without leakage, timeout teardown, keep-panes mode, fallback behavior,
 and config validation. `test/herdr-sweep.test.ts` covers the sweep guards above —
 FR-VIS-07 per-pane checks, the FR-VIS-10 deny toggle, and the operator-attach
-exemption — plus `herdr.sweep` parsing, validation, and env precedence.
+exemption — plus `herdr.sweep` parsing, validation, and env precedence. The
+orphaned-broker class is tested against a real child process that traps SIGTERM,
+so the SIGTERM→SIGKILL escalation is proven rather than stubbed.
