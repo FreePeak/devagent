@@ -126,7 +126,7 @@ func RunLoop(cfg LoopConfig) int {
 		// restart=on-failure would resurrect the halt every backoff interval
 		// (2026-09-06: 58 hollow loop-106 starts).
 		if d.starved() {
-			fmt.Fprintf(logF, "[starvation] %d consecutive non-productive iterations — halting loop\n", cfg.StarvationLimit)
+			_, _ = fmt.Fprintf(logF, "[starvation] %d consecutive non-productive iterations — halting loop\n", cfg.StarvationLimit)
 			_ = logF.Close()
 			return 0
 		}
@@ -143,7 +143,7 @@ func RunLoop(cfg LoopConfig) int {
 		case outcomeNextReset, outcomeFallThrough:
 			fails = 0
 			if out == outcomeFallThrough {
-				fmt.Fprintf(logF, "=== self-build loop %d end %s ===\n", n, rowTimestamp(cfg.Now))
+				_, _ = fmt.Fprintf(logF, "=== self-build loop %d end %s ===\n", n, rowTimestamp(cfg.Now))
 				tailFile(cfg.Stdout, logPath, 5)
 			}
 		case outcomeExit1:
@@ -165,7 +165,7 @@ func (d *driver) runIteration(n int, logF io.Writer, gradient, clusters string) 
 	if !cfg.DryRun {
 		d.phase(n, "preflight", "role=selfbuild")
 		if !d.preflight("selfbuild") {
-			fmt.Fprintf(logF, "[preflight] provider degraded - skipping iteration %d (ledger row written)\n", n)
+			_, _ = fmt.Fprintf(logF, "[preflight] provider degraded - skipping iteration %d (ledger row written)\n", n)
 			d.record(logF, n, "provider-degraded", "preflight: provider probe failed")
 			*d.fails++
 			if d.breakerTripped(logF) {
