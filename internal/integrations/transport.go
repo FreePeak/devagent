@@ -1,6 +1,7 @@
 // Shared transport and runner seams for the integrations package: every
 // HTTP call goes through Doer (tests inject recorded responses — zero
 // network) and every CLI call through CliRunner (tests inject fakes).
+
 package integrations
 
 import (
@@ -224,19 +225,4 @@ func lookupPath(v any, path ...string) map[string]any {
 		m = next
 	}
 	return m
-}
-
-// stringAt returns the string at a nested JSON path, "" when absent or
-// not a string.
-func stringAt(v any, path ...string) string {
-	cur := v
-	for _, p := range path {
-		m, ok := cur.(map[string]any)
-		if !ok {
-			return ""
-		}
-		cur = m[p]
-	}
-	s, _ := cur.(string)
-	return s
 }

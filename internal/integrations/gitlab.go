@@ -5,6 +5,7 @@
 // gate. Closed-loop support: PostMrNote attaches validation evidence to an
 // MR (trust per PR), WaitForMrPipeline polls CI until a terminal state so
 // callers can refuse to hand off unverified changes.
+
 package integrations
 
 import (
@@ -122,17 +123,15 @@ func CreateMergeRequest(ctx context.Context, creds GitlabCredentials, opts Creat
 	if doer == nil {
 		doer = DefaultDoer
 	}
-	body := marshalJSON(gitlabCreateMrBody{
-		SourceBranch: opts.SourceBranch,
-		TargetBranch: opts.TargetBranch,
-		Title:        opts.Title,
-		Description:  opts.Description,
-	})
+	// S1017/S1016: CreateMrOptions and gitlabCreateMrBody share the exact
+	// field set, so the options convert directly — preserving the TS
+	// JSON.stringify field order for byte-equal payloads.
+	body := marshalJSON(gitlabCreateMrBody(opts))
 	res, err := doGitlabRequest(ctx, doer, http.MethodPost, projectAPIRoot(creds)+"/merge_requests", creds.Token, body)
 	if err != nil {
 		return "", err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }() // errcheck: close is best-effort after the body is consumed
 
 	if !isOK(res.StatusCode) {
 		detail := apiErrorDetail(res)
@@ -173,7 +172,7 @@ func PostMrNote(ctx context.Context, creds GitlabCredentials, mrIid int, body st
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }() // errcheck: close is best-effort after the body is consumed
 
 	if !isOK(res.StatusCode) {
 		detail := apiErrorDetail(res)
@@ -272,7 +271,7 @@ func WaitForMrPipeline(ctx context.Context, creds GitlabCredentials, mrIid int, 
 			return false, err
 		}
 		raw, err := io.ReadAll(res.Body)
-		_ = res.Body.Close()
+		defer func() { _ = res.Body.Close() }() // errcheck: close is best-effort after the body is consumed
 		if err != nil {
 			return false, err
 		}

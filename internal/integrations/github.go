@@ -1,8 +1,16 @@
-// GitHub publisher: the Go port of src/integrations/github.ts. Runs the
-// git/gh CLI with the hardened spawn env so publish stages never die with
-// "spawn git ENOENT" under launchd/scrubbed contexts. Rate limiting: retry
-// once after a fixed 60s pause when gh/git signal a (secondary) rate limit
-// in stderr text.
+// Package integrations is the Go port of src/integrations/* and the
+// transport-agnostic core of src/server/webhook.ts (FR-GO-09): the Linear
+// GraphQL thin client, the Jira REST v3 adapter, the GitHub gh/git
+// publisher (hardened spawn env so publish stages never die with "spawn
+// git ENOENT" under launchd/scrubbed contexts; a stderr rate-limit signal
+// retries once after a fixed 60s pause), the GitLab REST publisher, the
+// GitHub Issues adapter, the Orca workspace helpers, and the HMAC-SHA256
+// webhook receiver with delivery-ID dedup.
+//
+// Byte-parity contract (PRD §22): error strings, JSON field names, and
+// request payload shapes match the TypeScript originals exactly. All HTTP
+// is seamed through the Doer interface so tests inject recorded responses
+// — zero network in tests.
 package integrations
 
 import (
@@ -37,14 +45,6 @@ func (o GitHubOptions) runner() GitHubRunner {
 	return func(cmd string, args []string, opts spawn.Options) spawn.Result {
 		return spawn.RunCli(cmd, args, opts)
 	}
-}
-
-func (o GitHubOptions) sleep(ms int) {
-	if o.Sleep != nil {
-		o.Sleep(ms)
-		return
-	}
-	time.Sleep(time.Duration(ms) * time.Millisecond)
 }
 
 // CliError carries spawn output on failure so callers can re-describe the

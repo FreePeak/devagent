@@ -3,6 +3,7 @@
 // hand-rolled against the recorded shapes and contract-tested from fixtures.
 // Rate limiting: honor Retry-After on 429 with jittered backoff (max 3
 // retries — the shared fetchWithRetry default).
+
 package integrations
 
 import (
@@ -71,16 +72,6 @@ type linearGraphQLResponse struct {
 	Errors []struct {
 		Message any `json:"message"`
 	} `json:"errors"`
-}
-
-// decodeLinearResponse parses a GraphQL envelope; a null/absent data.issue
-// leaves Issue nil.
-func decodeLinearResponse(body []byte) (*linearGraphQLResponse, error) {
-	var out linearGraphQLResponse
-	if err := json.Unmarshal(body, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
 }
 
 var (
@@ -226,7 +217,7 @@ func LinearFetchTicket(id, apiKey string, opts FetchOptions) (TicketSpec, error)
 	if err != nil {
 		return TicketSpec{}, err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }() // errcheck: close is best-effort after the body is consumed
 	raw, err := io.ReadAll(res.Body)
 	if err != nil {
 		return TicketSpec{}, err
@@ -271,7 +262,7 @@ func LinearPostTicketComment(issueID, body, apiKey string, opts FetchOptions) er
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }() // errcheck: close is best-effort after the body is consumed
 	raw, err := io.ReadAll(res.Body)
 	if err != nil {
 		return err

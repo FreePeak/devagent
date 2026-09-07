@@ -2,6 +2,7 @@
 // test/webhook.test.ts. HMAC-SHA256 verification, delivery-ID dedup,
 // timing-safe comparison, and the two event parsers — plus a live
 // net/http smoke of the respond-fast/process-late adapter.
+
 package integrations
 
 import (

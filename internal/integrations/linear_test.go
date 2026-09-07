@@ -1,6 +1,7 @@
 // Contract tests for the Linear thin client, ported from
 // test/integrations.test.ts (describe('linear')) with the recorded fixtures
 // in testdata/. All HTTP is seamed through Doer — zero network.
+
 package integrations
 
 import (

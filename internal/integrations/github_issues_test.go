@@ -3,6 +3,7 @@
 // through Doer — zero network. (The buildDeps routing describe block is the
 // deps-builder's contract — its fetchTicket routing lands with the
 // deps/executor port; the adapter-level contract is fully covered here.)
+
 package integrations
 
 import (

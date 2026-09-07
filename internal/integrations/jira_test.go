@@ -1,5 +1,6 @@
 // Contract tests for the Jira adapter, ported from test/jira.test.ts with
 // recorded fixtures. All HTTP is seamed through Doer — zero network.
+
 package integrations
 
 import (

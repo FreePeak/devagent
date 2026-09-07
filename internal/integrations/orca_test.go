@@ -1,6 +1,7 @@
 // Contract tests for the Orca workspace helpers, ported from
 // test/cleanup.test.ts (describe('orca workspace integration')). The orca
 // CLI is seamed — no real binary runs.
+
 package integrations
 
 import (

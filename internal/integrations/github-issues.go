@@ -4,6 +4,7 @@
 // auth is a PAT passed as Bearer — use a fine-grained token with read-only
 // access to the target repos. Rate limits: 429 too-many-requests and 403
 // secondary rate limit both retry with Retry-After-aware backoff.
+
 package integrations
 
 import (
@@ -95,7 +96,7 @@ func FetchGitHubTicket(issueRef, token string, opts FetchOptions) (TicketSpec, e
 	if err != nil {
 		return TicketSpec{}, err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }() // errcheck: close is best-effort after the body is consumed
 	raw, err := io.ReadAll(res.Body)
 	if err != nil {
 		return TicketSpec{}, err

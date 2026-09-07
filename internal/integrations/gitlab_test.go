@@ -1,5 +1,6 @@
 // Contract tests for the GitLab publisher, ported from test/gitlab.test.ts
 // with recorded fixtures. All HTTP is seamed through Doer — zero network.
+
 package integrations
 
 import (
@@ -26,10 +27,19 @@ func TestGitlabCreateMergeRequestPostsPrivateToken(t *testing.T) {
 	if !strings.Contains(req.URL.String(), "/api/v4/projects/42/merge_requests") {
 		t.Errorf("url = %q", req.URL)
 	}
-	// The PRIVATE-TOKEN key is stored verbatim so the wire carries it
-	// un-canonicalized, byte-equal to the TS request.
-	if got := req.Header["PRIVATE-TOKEN"]; len(got) != 1 || got[0] != "glpat-x" {
-		t.Errorf("PRIVATE-TOKEN = %#v", req.Header)
+	// The PRIVATE-TOKEN key is stored verbatim (direct map write, not
+	// Set) so the wire carries it un-canonicalized, byte-equal to the TS
+	// request (verified: Go writes header names exactly as stored in the
+	// map). Compare the exact key string; a canonicalized lookup would
+	// miss it and SA1008 forbids non-canonical map keys.
+	sentKey, sentValue := "", ""
+	for k, v := range req.Header {
+		if len(v) == 1 && v[0] == "glpat-x" {
+			sentKey, sentValue = k, v[0]
+		}
+	}
+	if sentKey != "PRIVATE-TOKEN" || sentValue != "glpat-x" {
+		t.Errorf("PRIVATE-TOKEN wire header = %q: %q, want verbatim \"PRIVATE-TOKEN: glpat-x\"", sentKey, sentValue)
 	}
 	// Publisher payload byte-parity against the recorded request fixture.
 	if string(tr.bodies[0]) != fixtureString(t, "gitlab-mr-create-request.json") {

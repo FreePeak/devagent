@@ -1,5 +1,6 @@
 // Test seams shared by the integrations contract tests: recorded-response
 // transports (zero network) and fixture helpers.
+
 package integrations
 
 import (

@@ -3,6 +3,7 @@
 // Mirrors the Linear adapter shape. Auth: `email:apiToken` base64 — the
 // token inherits the user's permissions, so use a dedicated service account
 // with minimal project scope.
+
 package integrations
 
 import (
@@ -142,7 +143,7 @@ func FetchJiraTicket(issueKey string, creds JiraCredentials, opts FetchOptions) 
 	if err != nil {
 		return TicketSpec{}, err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }() // errcheck: close is best-effort after the body is consumed
 	raw, err := io.ReadAll(res.Body)
 	if err != nil {
 		return TicketSpec{}, err

@@ -3,6 +3,7 @@
 // signature verification, and delivery-ID dedup. Responds 2xx within the
 // provider deadline (Linear: 5s) — handlers run async (respond-fast /
 // process-late).
+
 package integrations
 
 import (
@@ -192,23 +193,23 @@ func HandleWebhook(w http.ResponseWriter, r *http.Request, opts WebhookOptions) 
 		var se *SignatureError
 		if ok := asSignatureError(err, &se); ok {
 			w.WriteHeader(http.StatusUnauthorized)
-			fmt.Fprint(w, se.Message)
+			_, _ = fmt.Fprint(w, se.Message)
 		} else {
 			w.WriteHeader(http.StatusBadRequest)
-			fmt.Fprint(w, err.Error())
+			_, _ = fmt.Fprint(w, err.Error())
 		}
 		return
 	}
 
 	if verified.DeliveryID == "" || (opts.Dedup != nil && !opts.Dedup.IsFirst(verified.DeliveryID)) {
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, "duplicate")
+		_, _ = fmt.Fprint(w, "duplicate")
 		return
 	}
 
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprint(w, "accepted") // respond inside the provider deadline...
-	go opts.OnEvent(verified) // ...then process async
+	_, _ = fmt.Fprint(w, "accepted") // respond inside the provider deadline...
+	go opts.OnEvent(verified)        // ...then process async
 }
 
 // asSignatureError is errors.As without importing errors here twice.

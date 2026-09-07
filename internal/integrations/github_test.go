@@ -1,6 +1,7 @@
 // Contract tests for the gh/git publisher, ported from
 // test/integrations.test.ts (describe('github')). The CLI is seamed — no
 // real gh/git runs.
+
 package integrations
 
 import (
