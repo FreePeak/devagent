@@ -15,7 +15,20 @@ func okProbe(string, []string, string) resilience.Probe {
 	return resilience.Probe{OK: true}
 }
 
+// fakeWorkerBin writes a no-op `omp` onto a fresh PATH dir so the worker
+// required-check passes on CI runners without the real CLI.
+func fakeWorkerBin(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "omp"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return dir
+}
+
 func TestRunInitFreshRepo(t *testing.T) {
+	fakeWorkerBin(t)
 	repo := t.TempDir()
 	res, err := RunInit(InitOptions{RepoPath: repo, Probe: okProbe})
 	if err != nil {
@@ -49,6 +62,7 @@ func TestRunInitFreshRepo(t *testing.T) {
 }
 
 func TestRunInitIdempotentMerge(t *testing.T) {
+	fakeWorkerBin(t)
 	repo := t.TempDir()
 	os.WriteFile(filepath.Join(repo, "devagent.json"), []byte("{\"worker\": \"pi\", \"maxLoops\": 9}\n"), 0o644)
 	res, err := RunInit(InitOptions{RepoPath: repo, Probe: okProbe})
@@ -68,6 +82,7 @@ func TestRunInitIdempotentMerge(t *testing.T) {
 }
 
 func TestRunInitBrokenConfigReplaced(t *testing.T) {
+	fakeWorkerBin(t)
 	repo := t.TempDir()
 	os.WriteFile(filepath.Join(repo, "devagent.json"), []byte("{broken"), 0o644)
 	res, err := RunInit(InitOptions{RepoPath: repo, Probe: okProbe})
@@ -84,6 +99,7 @@ func TestRunInitBrokenConfigReplaced(t *testing.T) {
 }
 
 func TestRunInitSmoke(t *testing.T) {
+	fakeWorkerBin(t)
 	repo := t.TempDir()
 	res, err := RunInit(InitOptions{RepoPath: repo, Smoke: true, Probe: okProbe})
 	if err != nil {
@@ -98,6 +114,7 @@ func TestRunInitSmoke(t *testing.T) {
 }
 
 func TestRenderInitReportShape(t *testing.T) {
+	fakeWorkerBin(t)
 	var buf bytes.Buffer
 	res, err := RunInit(InitOptions{RepoPath: t.TempDir(), Probe: okProbe})
 	if err != nil {
