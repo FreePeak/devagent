@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"github.com/FreePeak/devagent/internal/commands"
@@ -29,14 +28,6 @@ var commandExitCode *int
 
 // setExitCode records the process exit code for this invocation.
 func setExitCode(code int) { commandExitCode = &code }
-
-// jsFtoa formats a float64 the way JS String() does for these ranges.
-func jsFtoa(f float64) string {
-	if f == float64(int64(f)) {
-		return strconv.FormatInt(int64(f), 10)
-	}
-	return strconv.FormatFloat(f, 'g', -1, 64)
-}
 
 // ---------------------------------------------------------------------------
 // selfbuild-gate
