@@ -122,3 +122,4 @@
 {"loop":161,"ts":"2026-09-07T08:12:33Z","status":"invalid","goal":"[extract-aborted] no assistant text in 1597 NDJSON events (raw kept at /Users/linh.doan/work/harvey/freepeak/devagent/.selfbuild/goals/last.aborted.ndjson)"}
 {"loop":162,"ts":"2026-09-07T08:15:27Z","status":"provider-degraded","goal":"doc-sync failed: [sync-docs] git fetch failed: Command failed: git fetch origin main"}
 {"loop":163,"ts":"2026-09-07T08:20:00Z","status":"provider-degraded","goal":"doc-sync failed: [sync-docs] git fetch failed: Command failed: git fetch origin main"}
+{"loop":164,"ts":"2026-09-07T08:48:03Z","status":"invalid","goal":"Loop 160 died mid-verification of #144 remainder + #179 state. Resolving that now against code."}
