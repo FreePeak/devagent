@@ -21,6 +21,7 @@ import { checkBacklogPick, listMergedPrTitles, strikeBacklogItems } from './task
 import { alreadyShipped, evaluateStarvation, productiveGoals, readLedgerLines } from './orchestrator/selfbuild-gate.js';
 import { formatVerdict, runBoardRecovery } from './orchestrator/board-recovery.js';
 import { buildAdjacentCategoryScanText } from './research/scan-text.js';
+import { auditPrdCoverage } from './curator/audit.js';
 
 function parseConcurrency(v: string): number | 'auto' {
   if (v === 'auto' || v.toLowerCase() === 'auto') return 'auto';
@@ -153,6 +154,25 @@ program
       console.error(`board-recovery: ${(err as Error).message}`);
       process.exitCode = 2;
     }
+  });
+
+program
+  .command('prd-audit')
+  .description(
+    'Advisory-only curator PRD-coverage audit (PRD:912 Q15): scan <repo>/docs/prds/*.md against the queue (src/queue.ts listTasks) and warn about PRDs no task covers (unqueued) and PRDs whose covering task is still open past the mtime threshold (stale). Q15 resolved advisory-only: the curator never writes the queue, so it stays decoupled from the queue schema and the next scout cycle acts on the warning. Warnings go to stderr; the exit code is ALWAYS 0 — a finding is information, not a cycle failure, and scripts/prd-curator.sh depends on that when it pipes this into the curation log.',
+  )
+  .option('--repo <path>', 'target repository', process.cwd())
+  .option('--json', 'emit the audit report as JSON instead of warning lines', false)
+  .action((opts) => {
+    const report = auditPrdCoverage(opts.repo as string);
+    if (opts.json) {
+      console.log(JSON.stringify(report, null, 2));
+      return;
+    }
+    console.log(
+      `[prd-audit] scanned ${report.scanned} PRD(s) in ${report.prdsDir} against ${report.tasks} queue task(s) — ${report.findings.length} warning(s), advisory only (Q15: no enqueue)`,
+    );
+    for (const f of report.findings) console.error(`[prd-audit] warn ${f.kind} ${f.warning}`);
   });
 
 program
