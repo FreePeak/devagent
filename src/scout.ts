@@ -171,6 +171,7 @@ export function buildScoutPrompt(
   const knowledge = buildKnowledgeContext(repoPath, {
     ...(config.lessonsMaxChars !== undefined ? { maxChars: config.lessonsMaxChars } : {}),
     ...(config.context?.kg !== undefined ? { kg: config.context.kg } : {}),
+    ...(config.context?.agentsMd !== undefined ? { agentsMd: config.context.agentsMd } : {}),
     ...(kgProvider ? { kgProvider } : {}),
   });
   return spliceCompactContext(prompt, undefined, repoPath, { knowledge });

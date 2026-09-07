@@ -23,6 +23,7 @@ import { alreadyShipped, evaluateStarvation, productiveGoals, readLedgerLines } 
 import { formatVerdict, runBoardRecovery } from './orchestrator/board-recovery.js';
 import { buildAdjacentCategoryScanText } from './research/scan-text.js';
 import { auditPrdCoverage } from './curator/audit.js';
+import { trustAgentsMd, AGENTS_MD_FILE } from './prompt.js';
 
 function parseConcurrency(v: string): number | 'auto' {
   if (v === 'auto' || v.toLowerCase() === 'auto') return 'auto';
@@ -1984,6 +1985,29 @@ lessonsCmd
         `${hash.padEnd(16)} ${s.score.toFixed(3).padStart(6)}  ${s.acceptRate.toFixed(3).padStart(6)}    ${s.delta.toFixed(3).padStart(6)}  ${String(s.evalCount).padStart(5)}  ${s.lessonLoopFailureRate.toFixed(3)}`,
       );
     }
+  });
+
+program
+  .command('trust')
+  .description('One-time per-repo trust confirms (PRD §18 Q11)')
+  .action(() => {
+    // subcommands handle dispatch; bare `trust` prints help
+    program.commands.find((c) => c.name() === 'trust')!.outputHelp();
+  });
+
+const trustCmd = program.commands.find((c) => c.name() === 'trust')!;
+trustCmd
+  .command('agents-md')
+  .description(
+    'Confirm auto-loading <repo>/.devagent/AGENTS.md once (the `ask` default of config `context.agentsMd`, PRD §18 Q11): writes the approval to <repo>/.devagent/trust.json; until this confirm the file is never injected into worker/planner prompts. `on` bypasses the gate; `off` disables loading.',
+  )
+  .option('--repo <path>', 'repository to trust', process.cwd())
+  .action((opts) => {
+    const written = trustAgentsMd(opts.repo as string);
+    const present = existsSync(join(opts.repo as string, AGENTS_MD_FILE));
+    console.log(
+      `Trusted ${AGENTS_MD_FILE} for ${opts.repo}${present ? '' : ' (file not present yet; it will load once written)'}. Trust record: ${written}`,
+    );
   });
 
 program

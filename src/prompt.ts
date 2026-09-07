@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { TicketSpec } from './types.js';
 import type { ImplementationPlan } from './planner.js';
@@ -31,6 +31,14 @@ export const KNOWLEDGE_CONTEXT_HEADER = '## Knowledge Context';
 export const KG_CONTEXT_SUBHEADER = '### Structural memory (leankg)';
 /** KG layer modes for config `context.kg` (FR-CTX-03); default `off`. */
 export type KgMode = 'leankg' | 'off';
+/** Repo-relative agent-instructions file auto-loaded behind the Q11 trust gate. */
+export const AGENTS_MD_FILE = '.devagent/AGENTS.md';
+/** Sub-header marking the AGENTS.md layer inside the knowledge digest (Q11). */
+export const AGENTS_MD_SUBHEADER = '### Repo instructions (.devagent/AGENTS.md)';
+/** Repo-relative one-time trust record written by `devagent trust agents-md`. */
+export const TRUST_FILE = '.devagent/trust.json';
+/** Trust-gate modes for config `context.agentsMd` (PRD §18 Q11); default `ask`. */
+export type AgentsMdMode = 'ask' | 'on' | 'off';
 
 function trailFile(cwd: string, loopId: string, taskId: string): string {
   return join(cwd, TRAILS_ROOT, loopId, `${taskId}.jsonl`);
@@ -354,8 +362,60 @@ function listKnowledgeFiles(repoPath: string): string[] {
 }
 
 /**
+ * Whether the operator approved auto-loading `<repo>/.devagent/AGENTS.md`
+ * (PRD §18 Q11 one-time per-repo confirm). The record is written by
+ * `trustAgentsMd` (`devagent trust agents-md`); absent or malformed = untrusted.
+ */
+export function isAgentsMdTrusted(repoPath: string): boolean {
+  try {
+    const rec = JSON.parse(readFileSync(join(repoPath, TRUST_FILE), 'utf8'));
+    return typeof rec === 'object' && rec !== null && (rec as Record<string, unknown>).agentsMd === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Record the one-time per-repo approval of `.devagent/AGENTS.md` auto-load
+ * (PRD §18 Q11) into `<repo>/.devagent/trust.json`, preserving any other
+ * trust keys already present. Returns the trust-file path written.
+ */
+export function trustAgentsMd(repoPath: string): string {
+  const p = join(repoPath, TRUST_FILE);
+  let rec: Record<string, unknown> = {};
+  try {
+    const existing = JSON.parse(readFileSync(p, 'utf8'));
+    if (existing && typeof existing === 'object') rec = existing as Record<string, unknown>;
+  } catch {
+    /* first trust write: fresh record */
+  }
+  rec.agentsMd = true;
+  rec.agentsMdTrustedAt = new Date().toISOString();
+  mkdirSync(dirname(p), { recursive: true });
+  writeFileSync(p, `${JSON.stringify(rec, null, 2)}\n`);
+  return p;
+}
+
+/**
+ * Load `<repo>/.devagent/AGENTS.md` behind the Q11 trust gate: `off` never
+ * reads the file; `on` always injects; `ask` (the default) injects nothing
+ * until the operator confirms once via `devagent trust agents-md`. A missing
+ * or unreadable file degrades to '' so prompts stay byte-identical.
+ */
+export function loadAgentsMd(repoPath: string, mode: AgentsMdMode = 'ask'): string {
+  if (mode === 'off') return '';
+  if (mode === 'ask' && !isAgentsMdTrusted(repoPath)) return '';
+  try {
+    return readFileSync(join(repoPath, AGENTS_MD_FILE), 'utf8').trim();
+  } catch {
+    return '';
+  }
+}
+
+/**
  * Build the layered knowledge-context digest (FR-CTX-01/02/03): the always-on
- * markdown baseline from `.devagent/context/*.md` plus the opt-in KG layer
+ * markdown baseline from `.devagent/context/*.md`, the trust-gated
+ * `.devagent/AGENTS.md` layer (PRD §18 Q11), plus the opt-in KG layer
  * when `kg` is `"leankg"` and the provider yields content. The combined entry
  * stream is ratchet-capped through the shared `ratchetToBudget` machinery at
  * the same character budget as `lessonsMaxChars` (default 4000): oldest
@@ -369,7 +429,7 @@ function listKnowledgeFiles(repoPath: string): string[] {
  */
 export function buildKnowledgeContext(
   repoPath: string,
-  opts: { maxChars?: number; kg?: KgMode; kgProvider?: () => string } = {},
+  opts: { maxChars?: number; kg?: KgMode; kgProvider?: () => string; agentsMd?: AgentsMdMode } = {},
 ): string {
   const budget = opts.maxChars ?? LESSONS_MAX_CHARS;
   const lines: string[] = [];
@@ -384,6 +444,10 @@ export function buildKnowledgeContext(
       const trimmed = line.trimEnd();
       if (trimmed) lines.push(trimmed);
     }
+  }
+  const agents = loadAgentsMd(repoPath, opts.agentsMd ?? 'ask');
+  if (agents) {
+    lines.push(AGENTS_MD_SUBHEADER, ...agents.split('\n').map((l) => l.trimEnd()).filter(Boolean));
   }
   if (opts.kg === 'leankg' && opts.kgProvider) {
     try {
@@ -460,6 +524,8 @@ export function buildPlannerPrompt(
     taskId?: string;
     priorTaskIds?: string[];
     kg?: KgMode;
+    /** AGENTS.md trust-gate mode (PRD §18 Q11); default `ask`. */
+    agentsMd?: AgentsMdMode;
     knowledgeMaxChars?: number;
     /** KG provider override (tests inject a stub); default: real leankg client. */
     kgProvider?: () => string;
@@ -478,6 +544,7 @@ export function buildPlannerPrompt(
   const knowledge = buildKnowledgeContext(repoPath, {
     ...(opts.knowledgeMaxChars !== undefined ? { maxChars: opts.knowledgeMaxChars } : {}),
     ...(opts.kg !== undefined ? { kg: opts.kg } : {}),
+    ...(opts.agentsMd !== undefined ? { agentsMd: opts.agentsMd } : {}),
     ...(kgProvider ? { kgProvider } : {}),
   });
   return spliceCompactContext(
