@@ -132,7 +132,8 @@ func AttemptSuffix(attempts int, recoveries int) string {
 
 // ProjectBoardRoles mirrors the TS roles object.
 type ProjectBoardRoles struct {
-	Planner WorkerName `json:"planner"`
+	Planner  WorkerName `json:"planner"`
+	Executor WorkerName `json:"executor"`
 	// Independent auditor role; absent boards predate evidence gating.
 	Auditor WorkerName `json:"auditor,omitempty"`
 }
