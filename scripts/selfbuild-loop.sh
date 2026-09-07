@@ -219,10 +219,15 @@ while :; do
 
     # Herdr hygiene: close idle/agentless panes the previous iteration left in
     # the devagent session (killed tasks, stalled workers, crashed dispatches).
-    # Same session-scoped trust boundary as orchestrate-loop's sweep; the
-    # session name only ever holds automation-spawned panes. Non-fatal when
-    # herdr is down.
-    HERDR_SWEEP_OUT="$(${DEVAGENT[@]} herdr-sweep 2>&1)" || true
+    # --orphans also closes LIVE worktree panes whose pane-run owner CLI
+    # detached from any live selfbuild-loop.sh driver — at an iteration head
+    # this driver is synchronous, so a worker it does not own belongs to a
+    # dead predecessor (2026-09-07: v11 OOM-killed mid-task orphaned pane w68
+    # + omp 45472; the sweep's idle-only guard missed it for hours). Same
+    # session-scoped trust boundary as orchestrate-loop's sweep; the session
+    # name only ever holds automation-spawned panes. Non-fatal when herdr is
+    # down.
+    HERDR_SWEEP_OUT="$(${DEVAGENT[@]} herdr-sweep --orphans 2>&1)" || true
     [ -n "$HERDR_SWEEP_OUT" ] && printf '%s\n' "$HERDR_SWEEP_OUT" | tail -3
 
     # Operator preflight (Q40): probe the provider before spending the

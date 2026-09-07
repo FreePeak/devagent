@@ -408,7 +408,10 @@ export interface StalePane {
 /** Agent statuses that mean "not doing work right now". */
 const IDLE_STATUSES = new Set(['idle', 'unknown', 'done']);
 
-export async function findStalePanes(session: string): Promise<StalePane[]> {
+export async function findStalePanes(
+  session: string,
+  opts: { orphans?: boolean } = {},
+): Promise<StalePane[]> {
   const res = await herdrCli(['--session', session, 'pane', 'list'], { timeoutMs: 10_000 });
   if (res.code !== 0) return [];
   let panes: Array<{
@@ -437,7 +440,28 @@ export async function findStalePanes(session: string): Promise<StalePane[]> {
     const status = p.agent_status ?? 'unknown';
     const cwd = p.cwd ?? '';
     if (!cwd.includes('.devagent-worktrees')) continue;
-    if (await paneForegroundWorker(p.pane_id ?? '')) continue;
+    if (await paneForegroundWorker(p.pane_id ?? '')) {
+      // 2026-09-07: a live foreground worker is normally "leave it alone" —
+      // but when its OWNER (the `herdr pane run` CLI the dispatching
+      // `devagent task` spawned) is gone or detached from the loop driver,
+      // nobody polls the run or closes the pane: the driver died mid-task
+      // (2026-09-07 v11 OOM-kill orphaned pane w68 + omp 45472 for hours,
+      // burning tokens with no collector). Only the loop driver may assert
+      // orphanhood (opts.orphans) — at an iteration head the driver is
+      // synchronous, so a live worker it does not own is definitionally a
+      // dead driver's leftover. Operator manual tasks keep their shell in
+      // the ancestry and are spared.
+      if (opts.orphans && (await paneRunOwnerOrphaned(p.pane_id ?? ''))) {
+        stale.push({
+          workspaceId: p.workspace_id ?? '',
+          paneId: p.pane_id ?? '',
+          label: p.label ?? '(no label)',
+          agentStatus: status,
+          reason: 'orphaned-driver',
+        });
+      }
+      continue;
+    }
     // No agent at all (bare shell in a worktree) => leftover; known agent =>
     // only idle ones.
     if (p.agent_status === undefined) {
@@ -495,12 +519,105 @@ export async function paneForegroundWorker(paneId: string): Promise<boolean> {
   });
 }
 
+/**
+ * True when no ancestor command of `pid` names the live selfbuild loop
+ * driver. The dispatch chain for a driver-owned task is
+ * selfbuild-loop.sh -> timeout -> npm -> tsx -> cli.ts task -> herdr pane
+ * run; after a driver OOM-kill the whole chain reparents to launchd (ppid 1)
+ * and the loop driver disappears from it — the 2026-09-07 orphan class.
+ * Bounded walk: init(1) terminates it.
+ */
+export function hasLoopDriverAncestor(ancestryCommands: readonly string[]): boolean {
+  return ancestryCommands.some((cmd) => cmd.includes('selfbuild-loop.sh'));
+}
+
+/**
+ * Orphan check for one pane's live worker: find the `herdr pane run
+ * <paneId>` owner CLI process (spawned by the dispatching `devagent task`),
+ * walk its ppid ancestry via ps, and require a live selfbuild-loop.sh
+ * driver somewhere in it. Missing owner CLI = the poller died = orphaned.
+ * ps failures are conservative: without evidence the pane is left alone.
+ */
+export async function paneRunOwnerOrphaned(paneId: string): Promise<boolean> {
+  if (!paneId) return false;
+  const pids = await psPidsMatching(`herdr.*pane run .*${paneId}`);
+  if (pids.length === 0) return true; // no owner CLI at all -> nothing polls this run
+  for (const pid of pids) {
+    const ancestry = await pidAncestryCommands(pid);
+    if (hasLoopDriverAncestor(ancestry)) return false; // live driver owns it
+  }
+  return true; // owner exists but detached from any live driver
+}
+
+/** pgrep -f for the pane-run owner CLI; empty on pgrep absence/failure. */
+async function psPidsMatching(pattern: string): Promise<number[]> {
+  // Test seam: herdr-sweep tests stub the process table via
+  // DEVAGENT_SWEEP_OWNER_PIDS (pgrep output format, one pid per line) so the
+  // orphan path is deterministic without spawning real pane-run CLIs.
+  const stubPids = process.env.DEVAGENT_SWEEP_OWNER_PIDS;
+  if (stubPids !== undefined) {
+    return stubPids
+      .split('\n')
+      .map((l) => Number.parseInt(l.trim(), 10))
+      .filter((n) => Number.isFinite(n) && n > 1);
+  }
+  const r = await new Promise<{ code: number; stdout: string }>((resolve) => {
+    execFile('pgrep', ['-f', pattern], { timeout: 5_000, encoding: 'utf8' }, (error, stdout) => {
+      // pgrep exits 1 on "no match" — that is an answer, not a failure.
+      const rawCode = error === null ? 0 : (error as NodeJS.ErrnoException).code;
+      resolve({
+        code: error === null ? 0 : typeof rawCode === 'number' ? rawCode : -1,
+        stdout: String(stdout ?? ''),
+      });
+    });
+  });
+  if (r.code !== 0 && r.stdout.trim() === '') return [];
+  return r.stdout
+    .split('\n')
+    .map((l) => Number.parseInt(l.trim(), 10))
+    .filter((n) => Number.isFinite(n) && n > 1);
+}
+
+/**
+ * Walk the ppid chain from `pid` toward init, collecting each ancestor's
+ * command line. Depth-capped; ps failure yields [] (callers treat that as
+ * "no evidence" and stay conservative).
+ */
+async function pidAncestryCommands(pid: number): Promise<string[]> {
+  // Test seam: DEVAGENT_SWEEP_ANCESTRY_JSON = { "<pid>": ["cmd", ...] } — the
+  // stubbed ppid walk for orphan tests (no real ps in CI).
+  const stubAncestry = process.env.DEVAGENT_SWEEP_ANCESTRY_JSON;
+  if (stubAncestry !== undefined) {
+    const map = JSON.parse(stubAncestry) as Record<string, string[]>;
+    return map[String(pid)] ?? [];
+  }
+  const commands: string[] = [];
+  let current = pid;
+  for (let depth = 0; depth < 24; depth++) {
+    const r = await new Promise<{ ppid: number; command: string } | null>((resolve) => {
+      execFile('ps', ['-o', 'ppid=,command=', '-p', String(current)], { timeout: 5_000, encoding: 'utf8' }, (error, stdout) => {
+        if (error !== null) return resolve(null);
+        const line = String(stdout ?? '').trim();
+        if (!line) return resolve(null);
+        const sep = line.indexOf(' ');
+        if (sep <= 0) return resolve(null);
+        resolve({ ppid: Number.parseInt(line.slice(0, sep).trim(), 10), command: line.slice(sep + 1).trim() });
+      });
+    });
+    if (r === null) break;
+    commands.push(r.command);
+    if (!Number.isFinite(r.ppid) || r.ppid <= 1) break;
+    current = r.ppid;
+  }
+  return commands;
+}
+
 /** Close every stale pane workspace in `session`. Returns what was closed. */
 export async function sweepStalePanes(
   session: string,
-  opts: { dryRun?: boolean } = {},
+  opts: { dryRun?: boolean; orphans?: boolean } = {},
 ): Promise<StalePane[]> {
-  const stale = await findStalePanes(session);
+  const stale = await findStalePanes(session, { orphans: opts.orphans });
   if (opts.dryRun) return stale;
   for (const s of stale) {
     if (!s.workspaceId) continue;

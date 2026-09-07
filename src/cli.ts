@@ -1573,10 +1573,11 @@ program
   .description('Close idle/agentless stale panes in the devagent herdr session (session-scoped; never touches other sessions or non-herdr processes)')
   .option('--session <name>', 'herdr session to sweep (default DEVAGENT_HERDR_SESSION or "devagent")')
   .option('--dry-run', 'list stale panes without closing', false)
+  .option('--orphans', 'also close LIVE panes whose pane-run owner CLI detached from any live selfbuild-loop.sh driver (loop-driver use only; spares operator-attached tasks)', false)
   .action(async (opts) => {
     const { resolveSession, sweepStalePanes } = await import('./integrations/herdr.js');
     const session = resolveSession(opts.session);
-    const stale = await sweepStalePanes(session, { dryRun: opts.dryRun });
+    const stale = await sweepStalePanes(session, { dryRun: opts.dryRun, orphans: Boolean(opts.orphans) });
     if (stale.length === 0) {
       console.log(`[${session}] no stale panes`);
       return;

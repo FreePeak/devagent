@@ -124,4 +124,66 @@ describe('sweep safety (FR-VIS-07)', () => {
     const stale = await findStalePanes('devagent');
     expect(stale.map((s) => s.reason)).toEqual(['no-agent']);
   });
-});
+
+  describe('orphaned-driver sweep (2026-09-07: v11 OOM left live omp pane uncollected)', () => {
+    afterEach(() => {
+      delete process.env.DEVAGENT_SWEEP_OWNER_PIDS;
+      delete process.env.DEVAGENT_SWEEP_ANCESTRY_JSON;
+    });
+
+    const liveWorkerPane = {
+      pane_id: 'wX:p1',
+      workspace_id: 'wX',
+      label: 'TASK-orphan-a1',
+      agent_status: 'idle',
+      cwd: '/repo/.devagent-worktrees/TASK-orphan-a1',
+    };
+    const liveProcs = { 'wX:p1': [{ name: 'omp', argv0: 'omp', pid: 42 }] };
+
+    it('default sweep still leaves a live worker pane alone (no --orphans)', async () => {
+      process.env.STUB_PANES = JSON.stringify([liveWorkerPane]);
+      process.env.STUB_PROCS = JSON.stringify(liveProcs);
+      process.env.DEVAGENT_SWEEP_OWNER_PIDS = '4242\n'; // owner exists, ancestry unknown
+      process.env.DEVAGENT_SWEEP_ANCESTRY_JSON = JSON.stringify({
+        4242: ['timeout 7200 npx tsx src/cli.ts task'],
+      });
+      const stale = await findStalePanes('devagent');
+      expect(stale).toEqual([]);
+    });
+
+    it('closes a live worker pane whose owner CLI detached from any loop driver', async () => {
+      process.env.STUB_PANES = JSON.stringify([liveWorkerPane]);
+      process.env.STUB_PROCS = JSON.stringify(liveProcs);
+      // Owner CLI alive but its ancestry has no selfbuild-loop.sh (driver died).
+      process.env.DEVAGENT_SWEEP_OWNER_PIDS = '4242\n';
+      process.env.DEVAGENT_SWEEP_ANCESTRY_JSON = JSON.stringify({
+        4242: ['timeout 7200 npx tsx src/cli.ts task', 'launchd'],
+      });
+      const stale = await findStalePanes('devagent', { orphans: true });
+      expect(stale.map((s) => s.reason)).toEqual(['orphaned-driver']);
+      expect(stale[0]!.paneId).toBe('wX:p1');
+    });
+
+    it('spares a live worker pane whose ancestry still carries the loop driver', async () => {
+      process.env.STUB_PANES = JSON.stringify([liveWorkerPane]);
+      process.env.STUB_PROCS = JSON.stringify(liveProcs);
+      process.env.DEVAGENT_SWEEP_OWNER_PIDS = '4242\n';
+      process.env.DEVAGENT_SWEEP_ANCESTRY_JSON = JSON.stringify({
+        4242: [
+          'bash /repo/scripts/selfbuild-loop.sh',
+          'timeout 7200 npx tsx src/cli.ts task',
+        ],
+      });
+      const stale = await findStalePanes('devagent', { orphans: true });
+      expect(stale).toEqual([]);
+    });
+
+    it('closes a live worker pane with NO pane-run owner CLI at all (poller died)', async () => {
+      process.env.STUB_PANES = JSON.stringify([liveWorkerPane]);
+      process.env.STUB_PROCS = JSON.stringify(liveProcs);
+      process.env.DEVAGENT_SWEEP_OWNER_PIDS = '';
+      const stale = await findStalePanes('devagent', { orphans: true });
+      expect(stale.map((s) => s.reason)).toEqual(['orphaned-driver']);
+    });
+  });
+ });
