@@ -25,7 +25,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/FreePeak/devagent/internal/spawn"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -34,6 +33,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/FreePeak/devagent/internal/ledger"
+	"github.com/FreePeak/devagent/internal/spawn"
 )
 
 // pollInterval mirrors POLL_MS: the captured-file poll cadence of a pane run.
@@ -374,7 +376,10 @@ func RunCommandInHerdrPane(cli CliRunner, cmd string, args []string, opts PaneRu
 	noProgressMs := opts.NoProgressTimeoutMs
 	coldStartMs := opts.ColdStartTimeoutMs
 	start := time.Now()
-	lastBytes := -1
+	// lastBytes is seeded below, before the poll loop (the TS `= -1`
+	// initializer is immediately overwritten by the seed — dead store, no
+	// observable difference).
+	var lastBytes int
 	lastProgressAt := time.Now()
 	timedOut := false
 	watchdogFired := false
@@ -450,24 +455,28 @@ func RunCommandInHerdrPane(cli CliRunner, cmd string, args []string, opts PaneRu
 	// Q34: exactly one watchdog-health row per pane launch with a clock armed.
 	if opts.Watchdog != nil && (noProgressMs > 0 || coldStartMs > 0) {
 		ctx := opts.Watchdog
-		AppendWatchdogHealthRecord(ctx.RepoPath, WatchdogHealthRow{
-			Ts:                  ledgerNow(),
+		runtime := "herdr-pane"
+		visible := true
+		visibility := "herdr-pane"
+		ledger.AppendWatchdogHealthRecord(ctx.RepoPath, ledger.WatchdogHealthRecord{
+			TS:                  ledger.NowISO(),
 			Kind:                "event",
-			Event:               "watchdog-health",
 			TaskID:              ctx.TaskID,
 			Attempt:             ctx.Attempt,
-			Worker:              ctx.Worker,
+			Event:               "watchdog-health",
 			Site:                "herdr-pane",
-			Runtime:             "herdr-pane",
-			Visible:             true,
-			Visibility:          "herdr-pane",
-			NoProgressTimeoutMs: noProgressMs,
+			Worker:              ctx.Worker,
+			NoProgressTimeoutMs: int64(noProgressMs),
 			WatchdogFired:       watchdogFired,
 			ColdStartFired:      coldStartFired,
-			WallClockMs:         int(time.Since(start).Milliseconds()),
+			WallClockMs:         time.Since(start).Milliseconds(),
 			ClockResets:         clockResets,
-			MeaningfulBytes:     lastBytes,
-			IdleMs:              int(time.Since(lastProgressAt).Milliseconds()),
+			MeaningfulBytes:     int64(lastBytes),
+			IdleMs:              time.Since(lastProgressAt).Milliseconds(),
+			// FR-VIS: pane launches are operator-visible by definition.
+			Runtime:    &runtime,
+			Visible:    &visible,
+			Visibility: &visibility,
 		})
 	}
 	if timedOut {

@@ -96,16 +96,6 @@ func (f *fakeCli) HerdrCli(args []string, timeoutMs int) CliResult {
 	}
 }
 
-func (f *fakeCli) called(arg ...string) bool {
-	want := strings.Join(arg, " ")
-	for _, c := range f.calls {
-		if strings.Contains(c, want) {
-			return true
-		}
-	}
-	return false
-}
-
 // sweepEnabled is the default HerdrSweepSettings (TS { enabled: true,
 // denySessions: [] }).
 func sweepEnabled() *config.HerdrSweepSettings {
@@ -126,22 +116,6 @@ func orphanSeams(t *testing.T, ownerPids string, ancestry map[string][]string) {
 		}
 		t.Setenv("DEVAGENT_SWEEP_ANCESTRY_JSON", string(data))
 	}
-}
-
-func reasons(panes []StalePane) []string {
-	out := make([]string, 0, len(panes))
-	for _, p := range panes {
-		out = append(out, p.Reason)
-	}
-	return out
-}
-
-func paneIDs(panes []StalePane) []string {
-	out := make([]string, 0, len(panes))
-	for _, p := range panes {
-		out = append(out, p.PaneID)
-	}
-	return out
 }
 
 // ---------- Sweep safety (FR-VIS-07) ----------

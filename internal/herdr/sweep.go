@@ -1,20 +1,3 @@
-// Session-scoped stale-pane sweep (src/integrations/herdr.ts).
-//
-// The named session is the trust boundary: everything in it was spawned by
-// this automation, so idle/unknown agents are leftovers the per-run teardown
-// missed (e.g. orchestrator died mid-run) and are safe to close. Panes with no
-// agent (bare shells) count as stale too. Sessions other than the devagent one
-// are never listed, let alone closed, and the reaper path is untouched —
-// interactive user sessions outside herdr remain out of reach by construction.
-//
-// Two further bounds on the blast radius (PRD §18 Q23, FR-VIS-10), because the
-// session name alone is not a safety property:
-//   - the managed deny toggle (`herdr.sweep.enabled` /
-//     `DEVAGENT_HERDR_SWEEP=0`, `herdr.sweep.denySessions`) stops the sweep
-//     before it lists anything;
-//   - a pane the FR-VIS-02 roster reports as live, or an operator-attached
-//     environment, is reported with reason `operator-attached` and never closed
-//     — the user-attached interactive pane of the 2026-08-26 mass-kill class.
 package herdr
 
 import (

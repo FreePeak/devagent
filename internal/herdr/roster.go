@@ -1,5 +1,3 @@
-// Operator visibility: pane roster + attach (FR-VIS-02/03), ported from
-// src/integrations/herdr.ts.
 package herdr
 
 import (

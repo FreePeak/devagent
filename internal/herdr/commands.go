@@ -1,12 +1,9 @@
-// Operator-facing command surfaces ported from src/cli.ts herdr-sweep /
-// pane-run and src/commands/sessions.ts: the exact stdout lines the loop
-// driver and the operator parse. Command wiring (cobra) stays with the parent
-// (internal/cli/root.go); these Run* functions are "ready to wire".
 package herdr
 
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/FreePeak/devagent/internal/ledger"
 	"os"
 	"os/exec"
 	"strings"
@@ -149,12 +146,12 @@ func RunAttach(cli CliRunner, repoPath, taskID string, execMode bool) int {
 		return 1
 	}
 	fmt.Println(cmd)
-	AppendOperatorAttachRecord(repoPath, OperatorAttachRecord{
-		Ts:      ledgerNow(),
+	ledger.AppendOperatorAttachRecord(repoPath, ledger.OperatorAttachRecord{
+		TS:      ledger.NowISO(),
 		Kind:    "event",
-		Event:   "operator-attached",
 		TaskID:  taskID,
 		Attempt: 1,
+		Event:   "operator-attached",
 		PaneID:  pane.PaneID,
 		Session: session,
 	})

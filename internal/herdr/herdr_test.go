@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/FreePeak/devagent/internal/ledger"
 )
 
 // scriptRunnerCli is a CliRunner that actually executes `pane run` scripts
@@ -425,27 +427,31 @@ func TestParseCliJSONJunk(t *testing.T) {
 
 func TestLedgerRowFieldOrder(t *testing.T) {
 	repo := t.TempDir()
-	AppendWatchdogHealthRecord(repo, WatchdogHealthRow{
-		Ts: "2026-09-07T00:00:00.000Z", Kind: "event", Event: "watchdog-health",
-		TaskID: "T1", Attempt: 1, Worker: "omp", Site: "herdr-pane",
-		Runtime: "herdr-pane", Visible: true, Visibility: "herdr-pane",
+	runtime := "herdr-pane"
+	visible := true
+	visibility := "herdr-pane"
+	ledger.AppendWatchdogHealthRecord(repo, ledger.WatchdogHealthRecord{
+		TS: "2026-09-07T00:00:00.000Z", Kind: "event", TaskID: "T1", Attempt: 1,
+		Event: "watchdog-health", Site: "herdr-pane", Worker: "omp",
 		NoProgressTimeoutMs: 1000, WallClockMs: 5, ClockResets: 2,
 		MeaningfulBytes: 30, IdleMs: 3,
+		Runtime: &runtime, Visible: &visible, Visibility: &visibility,
 	})
 	data, err := os.ReadFile(filepath.Join(repo, ".devagent", "runs", "orchestration", "events.jsonl"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	line := strings.TrimSpace(string(data))
-	// JSON.stringify order = struct field order; pin the prefix.
-	want := `{"ts":"2026-09-07T00:00:00.000Z","kind":"event","event":"watchdog-health","taskId":"T1","attempt":1,"worker":"omp","site":"herdr-pane","runtime":"herdr-pane","visible":true,"visibility":"herdr-pane","noProgressTimeoutMs":1000,"watchdogFired":false,"coldStartFired":false,"wallClockMs":5,"clockResets":2,"meaningfulBytes":30,"idleMs":3}`
+	// Struct field order of ledger.WatchdogHealthRecord is the JSONL contract
+	// (internal/ledger owns it; pinned here so a herdr-pane row never drifts).
+	want := `{"ts":"2026-09-07T00:00:00.000Z","kind":"event","taskId":"T1","attempt":1,"event":"watchdog-health","site":"herdr-pane","worker":"omp","noProgressTimeoutMs":1000,"watchdogFired":false,"coldStartFired":false,"wallClockMs":5,"clockResets":2,"meaningfulBytes":30,"idleMs":3,"runtime":"herdr-pane","visible":true,"visibility":"herdr-pane"}`
 	if line != want {
 		t.Fatalf("row = %s\nwant = %s", line, want)
 	}
 }
 
 func TestLedgerNowShape(t *testing.T) {
-	ts := ledgerNow()
+	ts := ledger.NowISO()
 	if !regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$`).MatchString(ts) {
 		t.Fatalf("ts = %q, want ISO with millis + Z", ts)
 	}

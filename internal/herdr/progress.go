@@ -1,15 +1,3 @@
-// Shared progress-classifier helpers for worker adapters (PRD Q33).
-//
-// The no-progress watchdog must not treat model deliberation as progress:
-// glm-style providers stream tens of MB of `thinking_delta` while making
-// zero tool calls (2026-08-31 evidence: 60k+ deltas over a full hour), and
-// pi does the same on hard goals (2026-09-01: 25MB thinking-only, 13+ min).
-// A stream line counts as progress when it carries *new work* — a tool call
-// starting/ending, or assistant text (the answer) — never bare thinking.
-//
-// TODO(FR-GO-10 #201): replace with the sibling progress-classifier port
-// (src/workers/progress.ts) once that package lands; keep the semantics pinned
-// by the tests here until then.
 package herdr
 
 import "strings"

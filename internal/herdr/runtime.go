@@ -1,8 +1,3 @@
-// Worker launch routing (src/workers/herdr-runtime.ts): execute a worker CLI
-// launch either inside a herdr pane or as a direct child process. When herdr
-// is unavailable or misbehaves, falls back to direct execution — workers must
-// keep running; the runtime is a visibility enhancement, never a hard
-// dependency. Every fallback is loud, once per spawn site.
 package herdr
 
 import (
