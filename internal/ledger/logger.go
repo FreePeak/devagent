@@ -170,7 +170,7 @@ func (l *RunLogger) Log(stage RunStage, level LogLevel, message string, data []K
 	if err != nil {
 		return
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	_, _ = f.Write(line)
 }
 

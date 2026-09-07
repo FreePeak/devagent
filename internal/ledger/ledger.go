@@ -1,3 +1,9 @@
+// Package ledger is the Go port of DevAgent's run ledger and run
+// observability core (FR-GO-04): the append-only orchestration ledger from
+// src/orchestrator/ledger.ts (JSONL schema byte-compatible with the Node
+// writer in both directions), the structured run logger from src/logger.ts,
+// and the run lock registry from src/runregistry.ts, plus the
+// `devagent ledger --clusters` analytics/renderer.
 package ledger
 
 import (
@@ -45,7 +51,7 @@ func appendRecord(repoPath string, v any) {
 	if err != nil {
 		return
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	_, _ = f.Write(line)
 }
 

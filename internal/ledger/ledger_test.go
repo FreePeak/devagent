@@ -178,7 +178,7 @@ func TestCorruptLinesAndMissingFile(t *testing.T) {
 	if _, err := f.WriteString("{broken json\n"); err != nil {
 		t.Fatal(err)
 	}
-	f.Close()
+	_ = f.Close()
 	all := ReadLedger(repo, "")
 	if len(all) != 1 { // corrupt line skipped, good record kept
 		t.Fatalf("expected 1 record after corruption, got %d", len(all))
