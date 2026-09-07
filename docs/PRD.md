@@ -926,15 +926,16 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 > PRD curator files and re-prioritizes new issues instead of maintaining this
 > list, and every PR must land with its `docs/PRD.md` state update
 > (PRD-per-PR policy; `docs/SELF-BUILD-LOOP.md` "Tracker + PRD policy").
+> Filed at migration: #144–#148 (existing operator items) and #179 daemon
+> control API (P1), #180 network sandbox allowlist (P2), #181 desktop control
+> app (P2). Struck lines below are the shipped history.
+>
 > **Go migration (2026-09-07, operator decision):** the core (CLI, daemon,
 > orchestrator, loop drivers, TUI) migrates from TypeScript/Node to a single
 > Go binary — PRD §22, master tracker issue #207, phases G0/G1/G2/G3 filed
 > as #190–#206. The selfbuild loop keeps running on Node throughout the
 > migration; Node source is deleted only at FR-GO-16 (#205) after the
 > cutover soak gate (FR-GO-15, #204).
-> Filed at migration: #144–#148 (existing operator items) and #179 daemon
-> control API (P1), #180 network sandbox allowlist (P2), #181 desktop control
-> app (P2). Struck lines below are the shipped history.
 
 ~~- **Cross-board retry memory beyond the SHA guard** — commit 60638d3 stops re-issuing shipped goals, but re-queued failures still get a fresh attempt budget; carry the prior board's failure class onto the re-bridged goal so the scout deprioritizes until the root-cause fix lands (Q27).~~
 ~~- **Regression oracle before board merge** — gates judge single PRs and PR #108's committed STRIDE allowlist widens suppression paths; add a board-level "is the system at least as good?" check (full suite on the merged result) ahead of `autoMerge`, per the Kitchen Loop zero-regression rule.~~

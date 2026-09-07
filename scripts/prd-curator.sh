@@ -94,8 +94,13 @@ Then do THREE things, in this order:
    - Section 18: drop questions that recent commits answered; you may add at
      most 2 new questions with owner and needed-by phase.
    - Update the '*Last updated:*' footer to today with a one-line summary.
-Keep the existing voice and formatting. Total docs/PRD.md diff must stay under 60 lines.
-
+Keep the existing voice and formatting. Total docs/PRD.md diff must stay
+   under 60 lines, EXCEPT the operator-owned migration scope: docs/PRD.md
+   section 22 (Go migration addendum) and its issues #190-#207 are a decision
+   record the operator owns — never compress, strike, reword, or
+   re-prioritize them; go-migration-labeled issues are deliberately NOT
+   selfbuild-labeled and are out of reconciliation scope (do not close,
+   relabel, or comment on them).
 Do NOT touch any other file. Do NOT commit, stage, push, or open a PR - leave
 docs/PRD.md edits in the working tree (the script publishes them).
 Finish by printing exactly one first line: either 'CURATION: changed' or
