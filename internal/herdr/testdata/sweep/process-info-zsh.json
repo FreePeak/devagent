@@ -1,0 +1,11 @@
+{
+  "id": "x",
+  "result": {
+    "type": "pane_process_info",
+    "process_info": {
+      "foreground_processes": [
+        { "name": "zsh", "argv0": "zsh", "pid": 42 }
+      ]
+    }
+  }
+}
