@@ -50,9 +50,9 @@ Adoption (surface: selfbuild):
 
 ## Self-Refine: feedback quality is the multiplier (arXiv:2303.17651)
 
-Same LLM alternates FEEDBACK and REFINE on its own output until a stop condition. Evidence: 5–40% absolute gains across 7 tasks; the analysis section is the useful part — **generic feedback ≈ no feedback** (Sentiment Reversal 43.2 → 31.2 generic → 0 without), and on Math Reasoning gains were near zero because the model could not localize its own errors (\\\"everything looks good\\\" on 94% of instances).
+Same LLM alternates FEEDBACK and REFINE on its own output until a stop condition. Evidence: 5–40% absolute gains across 7 tasks; the analysis section is the useful part — **generic feedback ≈ no feedback** (Sentiment Reversal 43.2 → 31.2 generic → 0 without), and on Math Reasoning gains were near zero because the model could not localize its own errors ("everything looks good" on 94% of instances).
 
-Adoption (surface: lessons): the lessons evaluate-step suite run is a FEEDBACK signal, but a green suite does not localize *why* the lesson was good. Require a candidate lesson to carry a `predictedImpact` mechanism claim (\\\"prevents X by Y\\\") that the accept-path records with the suite result — mirroring Self-Refine's finding that actionable beats generic. guard.ts already stores predictedImpact; make its presence meaningful (grade it) rather than a string field.
+Adoption (surface: lessons): the lessons evaluate-step suite run is a FEEDBACK signal, but a green suite does not localize *why* the lesson was good. Require a candidate lesson to carry a `predictedImpact` mechanism claim ("prevents X by Y") that the accept-path records with the suite result — mirroring Self-Refine's finding that actionable beats generic. guard.ts already stores predictedImpact; make its presence meaningful (grade it) rather than a string field.
 
 ## AlphaEvolve and OpenEvolve: evolutionary databases of programs (DeepMind blog; openevolve)
 
@@ -77,7 +77,7 @@ Adoption (surface: lessons, context):
 
 **Skills** (claude.com/blog/skills): folders with a SKILL.md plus scripts and resources, scanned for relevance and loaded on demand (progressive disclosure); composable, portable across Claude apps / Claude Code / API; published as an open standard (agentskills.io, Dec 18 2025) with org-wide management and a `/v1/skills` API for versioning.
 
-**Effective harnesses for long-running agents** (Nov 26, 2025): for work spanning many context windows, a plain agent loop fails in two predictable ways — one-shotting too much and declaring done prematurely. Fixes that worked: an **initializer agent** writing an environment scaffold + a **feature-list JSON** with a `passes` field per feature (JSON chosen because models are less likely to overwrite it than Markdown; strongly-worded rules like \\\"it is unacceptable to remove or edit tests\\\"); subsequent sessions make **incremental progress on one feature** and must commit + update a progress file; end-to-end testing via browser automation tools dramatically improved verification.
+**Effective harnesses for long-running agents** (Nov 26, 2025): for work spanning many context windows, a plain agent loop fails in two predictable ways — one-shotting too much and declaring done prematurely. Fixes that worked: an **initializer agent** writing an environment scaffold + a **feature-list JSON** with a `passes` field per feature (JSON chosen because models are less likely to overwrite it than Markdown; strongly-worded rules like "it is unacceptable to remove or edit tests"); subsequent sessions make **incremental progress on one feature** and must commit + update a progress file; end-to-end testing via browser automation tools dramatically improved verification.
 
 Adoption (surface: orchestrator, lessons, product):
 
