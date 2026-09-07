@@ -21,7 +21,7 @@ func intPtr(n int) *int { return &n }
 
 func TestResolveNoProgressTimeoutMs_DeclaredDefault(t *testing.T) {
 	t.Setenv("DEVAGENT_NO_PROGRESS_TIMEOUT_MS", "")
-	os.Unsetenv("DEVAGENT_NO_PROGRESS_TIMEOUT_MS")
+	_ = os.Unsetenv("DEVAGENT_NO_PROGRESS_TIMEOUT_MS")
 	if got := ResolveNoProgressTimeoutMs(nil, armedCaps()); got != tenMinutesMs {
 		t.Fatalf("armed default = %d, want %d", got, tenMinutesMs)
 	}
@@ -58,7 +58,7 @@ func TestResolveNoProgressTimeoutMs_IgnoresBadEnv(t *testing.T) {
 func TestResolveNoProgressTimeoutMs_ExplicitOverride(t *testing.T) {
 	t.Setenv("DEVAGENT_NO_PROGRESS_TIMEOUT_MS", "120000")
 	// A nonzero declaration is a floor for adapters that must stay watched.
-	os.Unsetenv("DEVAGENT_NO_PROGRESS_TIMEOUT_MS")
+	_ = os.Unsetenv("DEVAGENT_NO_PROGRESS_TIMEOUT_MS")
 	if got := ResolveNoProgressTimeoutMs(intPtr(0), armedCaps()); got != tenMinutesMs {
 		t.Fatalf("explicit 0 vs armed = %d, want %d", got, tenMinutesMs)
 	}

@@ -6,7 +6,7 @@
 //
 // Byte-parity: error strings and stream-shape semantics mirror the
 // TypeScript originals; tests pin them.
-
+//
 // Shared adapter plumbing: injectable hooks (clock, sleep, prepare, run)
 // mirroring the TS constructor-injected sleep + test seams, plus small
 // parsing helpers used by the interpreter ports.
