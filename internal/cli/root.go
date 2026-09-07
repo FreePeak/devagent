@@ -1,10 +1,13 @@
 // Package cli is the Go port of the commander tree in src/cli.ts (FR-GO-02,
-// issue #193). Implemented commands: scan-text, config, init, trust
-// agents-md. Every other command is registered with its full flag surface
-// (from the frozen parity fixture) but returns exit 3 with a clear
-// not-ported message — its behavior lands with its owning FR-GO issue, and
-// the Node CLI remains the production entrypoint until the FR-GO-15 cutover
-// soak gate passes.
+// issue #193, wave-2 wiring follow-through on tracker #207). Implemented
+// commands: scan-text, config, init, trust agents-md, ledger, log,
+// record release, status, dashboard, validate, clean, rebase-stack,
+// herdr-sweep, sessions, attach, pane-run, sync-docs, scout (read-only
+// --replay), scout-status, track, serve. Every other command is registered
+// with its full flag surface (from the frozen parity fixture) but returns
+// exit 3 with a clear not-ported message — its behavior lands with its
+// owning FR-GO issue, and the Node CLI remains the production entrypoint
+// until the FR-GO-15 cutover soak gate passes.
 package cli
 
 import (
@@ -27,29 +30,27 @@ import (
 // port, so the exit-3 message points at the tracker instead of dead-ending.
 var notPortedIssue = map[string]string{
 	"backlog-check": "#193", "selfbuild-gate": "#194", "board-recovery": "#194",
-	"prd-audit": "#202", "run": "#194", "fleet": "#194", "serve": "#199",
-	"validate": "#196", "log": "#194", "status": "#198", "dashboard": "#198",
-	"task": "#194", "orchestrate": "#194", "project": "#194", "ledger": "#197",
+	"prd-audit": "#202", "run": "#194", "fleet": "#194",
+	"task": "#194", "orchestrate": "#194", "project": "#194",
 	"mcp": "#200", "preflight": "#194", "page-degrade-breach": "#194",
-	"clean": "#195", "guard": "#190", "guard-status": "#190",
+	"guard": "#190", "guard-status": "#190",
 	"automerge": "#194", "autosweep": "#194", "pr-hygiene": "#194",
-	"rebase-stack": "#195", "herdr-sweep": "#201", "pane-run": "#201",
-	"sessions": "#201", "attach": "#201", "sync-docs": "#195",
-	"daemon": "#200", "tui": "#198", "scout": "#192", "scout-status": "#192",
-	"track": "#202", "create": "#202", "lessons": "#194", "queue list": "#194",
+	"pane-run": "#201",
+	"daemon":   "#200", "tui": "#198",
+	"create": "#202", "lessons": "#194", "queue list": "#194",
 	"queue show": "#194", "queue bridge": "#194", "consume": "#194",
-	"reap-stale": "#190", "record release": "#197",
+	"reap-stale": "#190",
 }
 
 // requiredFlags: flags the Node CLI declares with .requiredOption — the
 // cobra tree must reject their absence with exit 1 exactly like commander.
 var requiredFlags = map[string]map[string]bool{
-	"run":            {"--ticket": true},
-	"fleet":          {"--ticket": true, "--repo": true},
-	"orchestrate":    {"--goal": true},
-	"pane-run":       {"--cwd": true, "--timeout": true},
-	"create":         {"--repo": true},
-	"record release": {"--tag": true, "--sha": true},
+	"run":         {"--ticket": true},
+	"fleet":       {"--ticket": true, "--repo": true},
+	"orchestrate": {"--goal": true},
+	"create":      {"--repo": true},
+	"pane-run":    {"--cwd": true, "--timeout": true, "--out": true, "--err": true, "--done": true},
+	"log":         {"--run": true},
 }
 
 // notPortedError carries the exit-3 stub message through cobra.
@@ -69,11 +70,24 @@ func stubRun(dotted string) func(*cobra.Command, []string) error {
 
 // addFlags registers the fixture's long flags. Stubs keep every flag as a
 // plain string (or bool where the flag is a switch) so the parsing surface
-// matches; typed flags land with each command's real port.
+// matches; typed flags land with each command's real port. Commands wired to
+// real behavior (wiredTypedFlags) get the exact TS types: commander's
+// Number-parsing flags become ints, switches stay bool.
 func addFlags(cmd *cobra.Command, flags []string, required map[string]bool) {
+	typed, isTyped := wiredTypedFlags[strings.Join(append(parentNames(cmd), cmd.Name()), " ")]
 	for _, f := range flags {
 		if cmd.Flags().Lookup(f[2:]) != nil {
 			continue
+		}
+		if isTyped {
+			switch typed[f[2:]] {
+			case flagInt:
+				cmd.Flags().Int(f[2:], 0, "")
+				continue
+			case flagBool:
+				cmd.Flags().Bool(f[2:], false, "")
+				continue
+			}
 		}
 		switch f {
 		case "--dry-run", "--smoke", "--auto-pr", "--interactive", "--auto-merge",
@@ -89,6 +103,83 @@ func addFlags(cmd *cobra.Command, flags []string, required map[string]bool) {
 			_ = cmd.MarkFlagRequired(f[2:])
 		}
 	}
+}
+
+// flagKind is the TS-parsing type of one wired flag.
+type flagKind int
+
+const (
+	flagString flagKind = iota
+	flagInt
+	flagBool
+)
+
+// wiredTypedFlags pins the exact commander option types for wired commands,
+// keyed by dotted command path. Number-parsing flags (`.option('<n>', ...,
+// Number, ...)`) are Int here; boolean switches are Bool; everything else is
+// String. The `--clusters [n]` variadic-optional pattern stays a String flag
+// (TS receives it as string|boolean) and re-parses in the action.
+var wiredTypedFlags = map[string]map[string]flagKind{
+	"ledger": {
+		"json": flagBool, "summary": flagBool, "clusters": flagString, "repo": flagString, "task": flagString,
+	},
+	"log": {
+		"run": flagString,
+	},
+	"status": {
+		"limit": flagInt, "repo": flagString, "providers": flagBool,
+		"degrade-threshold": flagInt, "json": flagBool,
+	},
+	"validate": {
+		"worktree": flagString, "json": flagBool,
+	},
+	"clean": {
+		"repo": flagString, "older-than": flagInt,
+	},
+	"rebase-stack": {
+		"repo": flagString, "onto": flagString, "push": flagBool,
+	},
+	"herdr-sweep": {
+		"session": flagString, "dry-run": flagBool, "orphans": flagBool,
+	},
+	"sessions": {
+		"json": flagBool, "repo": flagString,
+	},
+	"attach": {
+		"exec": flagBool, "repo": flagString,
+	},
+	"sync-docs": {
+		"json": flagBool, "repo": flagString, "branch": flagString,
+	},
+	"scout": {
+		"repo": flagString, "worker": flagString, "interval": flagInt,
+		"timeout": flagInt, "once": flagBool, "dry-run": flagBool, "replay": flagBool,
+	},
+	"scout-status": {
+		"repo": flagString, "json": flagBool,
+	},
+	"track": {
+		"repo": flagString, "interval": flagInt, "json": flagBool,
+	},
+	"serve": {
+		"port": flagInt, "repo": flagString,
+	},
+	"record release": {
+		"tag": flagString, "sha": flagString, "repo": flagString, "source": flagString,
+	},
+	"dashboard": {},
+}
+
+// parentNames walks a command's ancestor chain (root first, immediate parent
+// last) so a subcommand can key its typed flags by dotted path.
+func parentNames(cmd *cobra.Command) []string {
+	var names []string
+	for p := cmd.Parent(); p != nil; p = p.Parent() {
+		if p.Name() != "devagent" {
+			names = append([]string{p.Name()}, names...)
+		}
+	}
+	return names
 }
 
 // NewRoot builds the full cobra tree.
@@ -188,9 +279,6 @@ func registerImplemented(root *cobra.Command) {
 	trustCmd := &cobra.Command{
 		Use:   "trust",
 		Short: "One-time per-repo trust confirms (PRD §18 Q11)",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return cmd.Help()
-		},
 	}
 	trustAgentsMd := &cobra.Command{
 		Use:   "agents-md",
@@ -215,6 +303,94 @@ func registerImplemented(root *cobra.Command) {
 	trustAgentsMd.Flags().String("repo", "", "repository to trust")
 	trustCmd.AddCommand(trustAgentsMd)
 	root.AddCommand(trustCmd)
+
+	// Wave-1-backed commands (FR-GO-02 follow-through): register each wired
+	// command body, then apply the frozen flag surface with the exact TS
+	// option types and defaults. Flag factories set nothing themselves so
+	// the surface stays driven by the fixture.
+	wired := wiredCommands()
+	dotted := make([]string, 0, len(wired))
+	for name := range wired {
+		dotted = append(dotted, name)
+	}
+	sort.Slice(dotted, func(i, j int) bool {
+		return strings.Count(dotted[i], " ") < strings.Count(dotted[j], " ")
+	})
+	for _, name := range dotted {
+		wiredCmd := wired[name]
+		parent := root
+		if i := strings.LastIndex(name, " "); i >= 0 {
+			parent = findImplemented(root, name[:i])
+		}
+		already := false
+		for _, existing := range parent.Commands() {
+			if existing == wiredCmd {
+				already = true // subcommand registered with its parent factory
+				break
+			}
+		}
+		if !already {
+			parent.AddCommand(wiredCmd)
+		}
+		addFlags(wiredCmd, frozenSurface[name].Flags, requiredFlags[name])
+		if name == "ledger" {
+			// commander `.option('--clusters [n]')`: a bare flag yields
+			// boolean true; pflag models that with a NoOptDefVal sentinel.
+			// Set here because addFlags registers the flags after the
+			// factory ran.
+			if f := wiredCmd.Flags().Lookup("clusters"); f != nil {
+				f.NoOptDefVal = "true"
+			}
+		}
+		for flagName, def := range wiredFlagDefaults[name] {
+			if f := wiredCmd.Flags().Lookup(flagName); f != nil {
+				_ = f.Value.Set(def)
+				f.DefValue = def
+			}
+		}
+	}
+}
+
+// wiredCommands returns the wave-1-backed command bodies by dotted path.
+// Factories live in actions_*.go; flag registration happens here so the
+// frozen surface (types, defaults, required marks) is applied in one place.
+func wiredCommands() map[string]*cobra.Command {
+	wired := map[string]*cobra.Command{
+		"ledger":       ledgerCommand(),
+		"log":          logCommand(),
+		"status":       statusCommand(),
+		"dashboard":    dashboardCommand(),
+		"validate":     validateCommand(),
+		"clean":        cleanCommand(),
+		"rebase-stack": rebaseStackCommand(),
+		"herdr-sweep":  herdrSweepCommand(),
+		"sessions":     sessionsCommand(),
+		"attach":       attachCommand(),
+		"pane-run":     paneRunCommand(),
+		"sync-docs":    syncDocsCommand(),
+		"scout":        scoutCommand(),
+		"scout-status": scoutStatusCommand(),
+		"track":        trackCommand(),
+		"serve":        serveCommand(),
+		"record":       recordCommand(),
+	}
+	for _, sub := range wired["record"].Commands() {
+		if sub.Name() == "release" {
+			wired["record release"] = sub
+		}
+	}
+	return wired
+}
+
+// wiredFlagDefaults pins the TS option defaults for wired commands (the
+// typed registration starts everything at zero values).
+var wiredFlagDefaults = map[string]map[string]string{
+	"clean":          {"older-than": "7"},
+	"serve":          {"port": "8080"},
+	"status":         {"limit": "10", "degrade-threshold": "3"},
+	"rebase-stack":   {"onto": "main"},
+	"sync-docs":      {"branch": "main"},
+	"record release": {"source": "cli"},
 }
 
 // registerStubs registers every remaining command from the frozen surface
@@ -274,7 +450,11 @@ func stubRuns(dotted string) bool {
 // handled lists the dotted names implemented in registerImplemented.
 func handled(dotted string) bool {
 	switch dotted {
-	case "scan-text", "config", "init", "trust", "trust agents-md":
+	case "scan-text", "config", "init", "trust", "trust agents-md",
+		"ledger", "log", "record release", "status", "dashboard",
+		"validate", "clean", "rebase-stack", "herdr-sweep", "sessions",
+		"attach", "sync-docs", "scout", "scout-status", "track", "serve",
+		"record", "pane-run":
 		return true
 	}
 	return false

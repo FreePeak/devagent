@@ -173,8 +173,10 @@ func TestExitParityVsNode(t *testing.T) {
 	}
 
 	// Stub contract: an implemented-surface command that is not yet ported
-	// exits 3 in Go (Node runs real behavior — only the Go side is asserted).
-	res := runCLI(t, bin, []string{"ledger"})
+	// (`consume`, FR-GO-04) exits 3 in Go (Node runs real behavior — only the
+	// Go side is asserted). `run`/`fleet`/`orchestrate` carry required flags,
+	// so they fail at parse time (exit 1) before reaching the stub body.
+	res := runCLI(t, bin, []string{"consume"})
 	if res.code != 3 {
 		t.Errorf("stub exit = %d, want 3 (stderr: %s)", res.code, res.stderr)
 	}
