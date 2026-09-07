@@ -29,6 +29,7 @@
 19. [Research Appendix](#19-research-appendix)
 20. [Product Direction Addendum: Grok Bot, xAI Integration, Cross-Platform Control App](#20-product-direction-addendum-grok-bot-xai-integration-cross-platform-control-app)
 21. [Product Direction Addendum: Simplicity First (FR-SIMPLE)](#21-product-direction-addendum-simplicity-first-fr-simple)
+22. [Addendum: Full Go Migration (FR-GO)](#22-addendum-full-go-migration-fr-go)
 
 ---
 
@@ -557,6 +558,9 @@ Project access tokens (bot user, 365-day cap, rotation endpoint) with scopes `ap
 | R5 | Prompt injection via ticket content (attacker files a ticket instructing the agent) | Treat ticket fields as untrusted data; workers receive sanitized plan, not raw instructions; no credential-bearing commands in prompts |
 | R6 | Sandbox escape via worker tool use | Workers confined to worktree cwd; Docker network isolation; no host Docker socket exposure to worker processes |
 | R7 | Dependency on fast-moving external projects (Orca, dsh) if reused | Reuse interface designs, not binaries; keep adapters thin so any piece can be replaced |
+| R8 | Go port regression in the loop long tail (model-id predicates, watchdog semantics, NDJSON parsing edge cases) | Port golden fixtures first; soak gate compares ledger rows between implementations before any cutover (FR-GO-15); Node stays the fallback until FR-GO-16 |
+| R9 | No official Go SDK for Linear/Jira | Thin GraphQL/REST clients against the documented APIs; contract tests recorded from the Node implementations before they are removed |
+| R10 | Migration stalls mid-way, leaving two half-maintained implementations | Single plan of record: issue #207 master tracker; every Phase G1 issue is independently mergeable; FR-GO-16 is the only deletion step and is gated on the soak gate |
 
 ## 17. Roadmap
 
@@ -922,6 +926,12 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 > PRD curator files and re-prioritizes new issues instead of maintaining this
 > list, and every PR must land with its `docs/PRD.md` state update
 > (PRD-per-PR policy; `docs/SELF-BUILD-LOOP.md` "Tracker + PRD policy").
+> **Go migration (2026-09-07, operator decision):** the core (CLI, daemon,
+> orchestrator, loop drivers, TUI) migrates from TypeScript/Node to a single
+> Go binary — PRD §22, master tracker issue #207, phases G0/G1/G2/G3 filed
+> as #190–#206. The selfbuild loop keeps running on Node throughout the
+> migration; Node source is deleted only at FR-GO-16 (#205) after the
+> cutover soak gate (FR-GO-15, #204).
 > Filed at migration: #144–#148 (existing operator items) and #179 daemon
 > control API (P1), #180 network sandbox allowlist (P2), #181 desktop control
 > app (P2). Struck lines below are the shipped history.
@@ -1328,6 +1338,90 @@ new runtime subsystem and does not change the pipeline contract (§8, §10–11)
 **Boundary:** simplicity is the default presentation, not a restriction — everything
 stays scriptable over FR-CTRL and flags; automation is unaffected.
 
+## 22. Addendum: Full Go Migration (FR-GO)
+
+> Added 2026-09-07 (operator decision): DevAgent's core — CLI, daemon,
+> orchestrator, loop drivers, TUI — migrates from TypeScript/Node to a
+> **single Go binary**. Full plan of record: master tracker issue
+> [#207](https://github.com/FreePeak/devagent/issues/207).
+
+### 22.1 Decision and rationale
+
+The Node implementation was chosen at v0.1.0 (§1 note: PRD:131 left
+"Go or TypeScript/Node" open). The migration reverses that choice for the
+core runtime:
+
+1. **Memory footprint.** The daemon, TUI, and 24/7 loop drivers are permanent
+   residents; Node pays its heap cost around the clock. The worker fleet
+   (external agent CLIs) dominates peak memory and is unaffected by the host
+   language — but the always-on orchestration surface is pure overhead Node
+   pays and Go does not. Baseline recorded at FR-GO-01; target: idle daemon
+   RSS ≤ 50 MB.
+2. **Deployment simplicity.** One static binary replaces the npm-link +
+   `tsc` dist flow, which has a documented failure class (stale `dist/`
+   after pulls, driver scripts baked at exec). Install becomes: download
+   release artifact, run.
+3. **Cold-start latency.** Dispatch-path cold starts drop from Node's
+   process+heap warmup to a static binary's, tightening the §15 loop-closure
+   metric.
+4. **Operator alignment.** The surrounding polyrepo is Go-heavy (CLIs, MCP
+   servers); one language for the agent harness itself.
+
+### 22.2 Boundary
+
+- **In scope:** `src/**` (CLI, orchestrator, workers, integrations, gates,
+  TUI, daemon), the `selfbuild-*` script helpers, the install path
+  (`~/.local/bin/devagent` becomes the Go binary at FR-GO-16).
+- **Unchanged:** worker CLIs (claude, opencode, omp, pi, grok — external
+  processes behind the WorkerAdapter contract, §9); herdr (already Go);
+  Docker sandboxing; the ledger/run-log JSONL schemas (the migration
+  contract — byte-compatible both directions).
+- **Tauri 2 control app (§20.4, #181):** out of scope — its core is already
+  Rust. Whether its webview UI moves from TS to a Go/Wails stack is a
+  deferred decision gate, recorded in #207; the app is a thin FR-CTRL client
+  and unaffected by the core migration.
+- **The selfbuild loop never stops:** Node remains the production entrypoint
+  until the cutover soak gate passes; Node source is deleted only in the
+  final step.
+
+### 22.3 Strategy: strangler-fig, gated by parity
+
+Phases G0 → G1 → G2 → G3. Each G1 issue is independently mergeable behind
+the existing CLI surface. Parity is defined by three gates:
+
+1. **Golden fixtures** — the 99-file vitest suite's fixtures (scout replay,
+   adapter streams, config matrices, ledger round-trips) are ported and must
+   pass in Go (scoreboard: #206).
+2. **Ledger contract** — both implementations read and write
+   `.selfbuild/ledger.jsonl` and the run-log JSONL byte-compatibly (FR-GO-04).
+3. **Soak** — the selfbuild loop runs N consecutive green iterations
+   self-hosting on the Go binary with the Node path as fallback; a ledger-row
+   diff between the two is the merge gate for cutover (FR-GO-15).
+
+### 22.4 Requirements
+
+| ID | Requirement | Pri | Issue |
+|---|---|---|---|
+| FR-GO-01 | Go module scaffold, CI-go workflow (test + golangci-lint, macOS/Linux), baseline RSS/cold-start measurement with a recorded target | M | [#191](https://github.com/FreePeak/devagent/issues/191) |
+| FR-GO-02 | Full CLI command-surface parity (cobra) + config/credentials/trust loading, verified by a checked-in parity matrix | M | [#193](https://github.com/FreePeak/devagent/issues/193) |
+| FR-GO-03 | Git layer parity: worktrees + clean-main guard, state branch (bounded network ops), rebase-stack, doc-sync | M | [#195](https://github.com/FreePeak/devagent/issues/195) |
+| FR-GO-04 | Run logger + JSONL ledger + analytics, byte-compatible schema both directions | M | [#197](https://github.com/FreePeak/devagent/issues/197) |
+| FR-GO-05 | Worker adapters (claude/opencode/omp/pi/grok) + model-id registry + env scrub/sandbox + no-progress watchdog semantics | M | [#190](https://github.com/FreePeak/devagent/issues/190) |
+| FR-GO-06 | Scout + `--replay` golden suite + research extractor (abort/empty paths) + prompts/planner | M | [#192](https://github.com/FreePeak/devagent/issues/192) |
+| FR-GO-07 | Orchestrator: scheduler, executor, queue + bridge, board recovery, merge, autopr + CI-fixer, resilience, lessons | M | [#194](https://github.com/FreePeak/devagent/issues/194) |
+| FR-GO-08 | Gates G0–G5 incl. STRIDE allowlist + blocking, regression oracle | M | [#196](https://github.com/FreePeak/devagent/issues/196) |
+| FR-GO-09 | Integrations: Linear (thin GraphQL client), Jira, GitHub/GitLab, webhooks (HMAC, dedup), rate limits | M | [#199](https://github.com/FreePeak/devagent/issues/199) |
+| FR-GO-10 | herdr integration: panes, sessions/attach, orphan-aware sweep with test seams | M | [#201](https://github.com/FreePeak/devagent/issues/201) |
+| FR-GO-11 | TUI (bubbletea) + dashboard HTML + card/chip language at the #146 polish bar | M | [#198](https://github.com/FreePeak/devagent/issues/198) |
+| FR-GO-12 | Control API + SSE in Go (supersedes the Node implementation half of #179) | M | [#200](https://github.com/FreePeak/devagent/issues/200) |
+| FR-GO-13 | Loop driver port (selfbuild-loop + state/queue helpers) with a recorded bash-vs-Go decision gate | M | [#202](https://github.com/FreePeak/devagent/issues/202) |
+| FR-GO-14 | Windows path: cross-compile, Task Scheduler automation, named-pipe UDS equivalent (NFR-05) | C | [#203](https://github.com/FreePeak/devagent/issues/203) |
+| FR-GO-15 | Cutover: production entrypoint flips to Go, release artifacts, self-hosting soak gate | M | [#204](https://github.com/FreePeak/devagent/issues/204) |
+| FR-GO-16 | Node retirement: delete src/test/dist/package.json, docs rewritten, single-language CI | C | [#205](https://github.com/FreePeak/devagent/issues/205) |
+
+Test-parity scoreboard across all of the above: [#206](https://github.com/FreePeak/devagent/issues/206).
+Master tracker with definition of done: [#207](https://github.com/FreePeak/devagent/issues/207).
+
 ---
 
-*Last updated: 2026-09-07 (PRD §18 Q11 resolved: `.devagent/AGENTS.md` auto-load ships with the one-time per-repo trust confirm — `context.agentsMd` config, `loadAgentsMd` loader, `devagent trust agents-md` CLI; earlier same day: task tracker moved from the static §17 Phase 4 backlog to priority-labeled GitHub issues — selfbuild loop is issue-first, prd-curator reconciles the tracker, every PR lands with its PRD state update per the PRD-per-PR policy; see docs/SELF-BUILD-LOOP.md "Tracker + PRD policy")*
+*Last updated: 2026-09-07 (§22 added: full Go migration of the core — operator decision, FR-GO-01..16, phases G0/G1/G2/G3 tracked via master issue #207 + #190–#206; risks R8–R10 added; §17 roadmap carries the migration note; earlier same day: PRD §18 Q11 resolved — `.devagent/AGENTS.md` auto-load ships with the one-time per-repo trust confirm — `context.agentsMd` config, `loadAgentsMd` loader, `devagent trust agents-md` CLI; task tracker moved from the static §17 Phase 4 backlog to priority-labeled GitHub issues — selfbuild loop is issue-first, prd-curator reconciles the tracker, every PR lands with its PRD state update per the PRD-per-PR policy; see docs/SELF-BUILD-LOOP.md "Tracker + PRD policy")*
