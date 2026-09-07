@@ -101,6 +101,44 @@ describe('ResourceGovernor core (AC-1, AC-3)', () => {
     expect(line).toContain('mem');
     expect(line).toContain('est');
   });
+
+  it('formatStatus reports sample age from cachedAt and calibration count (Q14)', () => {
+    vi.useFakeTimers();
+    try {
+      const gov = new ResourceGovernor({ estMemPerWorkerBytes: 1_000_000_000 });
+      const snap = { totalMem: 16 * 1024 * 1024 * 1024, freeMem: 8 * 1024 * 1024 * 1024, cpus: 8 };
+      gov.injectSnapshot(snap);
+      gov.recordRss(1_500_000_000);
+      gov.recordRss(1_600_000_000);
+      let line = gov.formatStatus('auto', 2, snap);
+      expect(line).toContain('sample 0.0s');
+      expect(line).toContain('cal 2');
+      // age grows with cachedAt distance
+      vi.advanceTimersByTime(2_500);
+      line = gov.formatStatus('auto', 2, snap);
+      expect(line).toContain('sample 2.5s');
+      // numeric input keeps the same one-line shape
+      line = gov.formatStatus(4, 3, snap);
+      expect(line).toContain('workers 3/4');
+      expect(line).toContain('sample 2.5s, cal 2');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('formatStatus marks age n/a for uncached snapshots and cal 0 before calibration', () => {
+    const gov = new ResourceGovernor({ estMemPerWorkerBytes: 1_000_000_000 });
+    const external = { totalMem: 16_000_000_000, freeMem: 8_000_000_000, cpus: 8 };
+    const line = gov.formatStatus('auto', 2, external);
+    expect(line).toContain('sample n/a');
+    expect(line).toContain('cal 0');
+    // resetCalibration drops the count back to 0 (aggregate only, no per-pid data)
+    gov.injectSnapshot(external);
+    gov.recordRss(2_000_000_000);
+    expect(gov.formatStatus('auto', 2, external)).toContain('cal 1');
+    gov.resetCalibration();
+    expect(gov.formatStatus('auto', 2, external)).toContain('cal 0');
+  });
 });
 
 describe('sampleWorkerRss (AC-2)', () => {

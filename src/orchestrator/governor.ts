@@ -176,11 +176,18 @@ export class ResourceGovernor {
     const freeGb = (snap.freeMem / (1024 * 1024 * 1024)).toFixed(1);
     const totalGb = (snap.totalMem / (1024 * 1024 * 1024)).toFixed(1);
     const estGb = (this.estMemPerWorkerBytes / (1024 * 1024 * 1024)).toFixed(1);
+    // Sample freshness: only meaningful for the governor's own cached snapshot.
+    const ageStr = this.cachedSnapshot && snap === this.cachedSnapshot
+      ? `${((Date.now() - this.cachedAt) / 1000).toFixed(1)}s`
+      : 'n/a';
+    // Calibration state: aggregate count only, never per-pid RSS.
+    const cal = this.getObservedCount();
+    const tail = `sample ${ageStr}, cal ${cal}`;
     const inputStr = String(concurrencyInput);
     if (inputStr === 'auto') {
-      return `workers auto->${effective} (mem ${freeGb} GB free of ${totalGb}, est ${estGb} GB/worker, cpus ${snap.cpus})`;
+      return `workers auto->${effective} (mem ${freeGb} GB free of ${totalGb}, est ${estGb} GB/worker, cpus ${snap.cpus}, ${tail})`;
     }
-    return `workers ${effective}/${inputStr} (mem ${freeGb} GB free of ${totalGb}, est ${estGb} GB/worker, cpus ${snap.cpus})`;
+    return `workers ${effective}/${inputStr} (mem ${freeGb} GB free of ${totalGb}, est ${estGb} GB/worker, cpus ${snap.cpus}, ${tail})`;
   }
 
   /** For tests: inject a fake snapshot and bypass cache */
