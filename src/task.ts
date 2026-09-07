@@ -127,11 +127,27 @@ export async function publishTaskBranch(
   }
 
   await io.pushBranch(opts.repoPath, branch);
+  // PRD-per-PR policy (2026-09-07): docs/PRD.md is the living state record of
+  // the repo, so every automated PR lands with its state update. The section
+  // rides in the PR body (reviewer-facing), while the dispatch prompt carries
+  // the same requirement worker-facing. 'Fixes #NNN' anywhere in the prompt
+  // closes the tracker issue on merge (issue-first selection,
+  // docs/SELF-BUILD-LOOP.md "Tracker + PRD policy").
+  const body = [
+    'Automated task via `devagent task`.',
+    '',
+    '## Prompt',
+    opts.prompt,
+    '',
+    '## PRD state update (repo policy)',
+    '- [ ] docs/PRD.md sections touched by this change are updated to the post-PR state',
+    '- [ ] the *Last updated* footer reflects this change',
+  ].join('\n');
   return io.createPr({
     repoPath: opts.repoPath,
     branch,
     title,
-    body: `Automated task via \`devagent task\`.\n\n## Prompt\n${opts.prompt}`,
+    body,
   });
 }
 

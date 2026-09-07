@@ -1,6 +1,7 @@
 /**
- * GRADIENT — adjacent-category scan text (docs/PRD.md Phase 4 backlog,
- * "GRADIENT — structural gradient sensor").
+ * GRADIENT — adjacent-category scan text ("GRADIENT — structural gradient
+ * sensor", shipped 2026-09; scan prior now rides the issue-first research
+ * prompts per docs/SELF-BUILD-LOOP.md "Tracker + PRD policy").
  *
  * Canonical source of the scan text embedded in the scout prompt
  * (`buildScoutPrompt`) and the selfbuild loop's RESEARCH_PROMPT / PO_PROMPT.

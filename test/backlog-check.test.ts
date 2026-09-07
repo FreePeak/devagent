@@ -118,32 +118,30 @@ describe('backlog-check CLI (PRD:889 driver pick guard)', () => {
   });
 });
 
-describe('selfbuild-loop.sh wiring (PRD:889)', () => {
+describe('selfbuild-loop.sh wiring (2026-09-07 issue-first tracker)', () => {
   const script = readFileSync(join(repoRoot, 'scripts', 'selfbuild-loop.sh'), 'utf8');
 
-  it('dispatches backlog-check with --strike on the goal subject id before phases 4-7', () => {
-    // Subject extraction mirrors already_shipped: text before the first "(",
-    // capped at 80 chars, first PRD:<line> ref or Q-token — goals naming a
-    // bullet by its docs/PRD.md line ("PRD:889") must fire the guard too.
-    expect(script).toContain("BACKLOG_PICK=$(printf '%s' \"${GOAL%%(*}\" | cut -c1-80 | grep -oE 'PRD:[0-9]+|Q[0-9]+' | head -1 || true)");
-    expect(script).toContain('BC_ARGS=(backlog-check "$BACKLOG_PICK" --repo "$REPO")');
-    // Dry-run must never write the PRD.
-    expect(script).toContain('[ "$DRY_RUN" != 1 ] && BC_ARGS+=(--strike)');
-    // rc 1 skips the iteration before dispatch as a ledger-visible skip —
-    // but only with the CLI's verdict line present: a crashed check also
-    // exits 1 and must fall through to the ledger guard, not false-skip.
-    expect(script).toContain('if [ "$BC_RC" -eq 1 ] && [[ "$BC_OUT" == *"already shipped"* ]]; then');
-    expect(script).toContain('record "$N" skipped "$GOAL"');
-    expect(script).toContain('already shipped — skipping before dispatch (PRD:889 pick reconciliation)');
+  it('claims the highest-priority selfbuild issue deterministically before LLM selection', () => {
+    expect(script).toContain('pick_issue()');
+    expect(script).toContain("gh issue list --repo \"$GH_REPO\" --state open --label \"$ISSUE_LABEL\"");
+    // Deterministic order: priority rank, then oldest issue number.
+    expect(script).toContain('items.sort((a, b) => rank(a.labels) - rank(b.labels) || a.number - b.number)');
+    // The claim outranks the LLM selection path: PO runs only when the
+    // tracker AND the queue are empty.
+    expect(script).toContain('if [ -z "${QUEUED_TASK_ID:-}" ] && [ -z "${ISSUE_NUM:-}" ]; then');
+    expect(script).toContain('[issue] no open selfbuild issue found — falling back to LLM selection');
   });
 
-  it('supersedes already_shipped only when the check resolved the id', () => {
-    expect(script).toContain('[ "$BC_RC" -eq 0 ] && GUARD_RESOLVED=1');
-    expect(script).toContain('if [ "$GUARD_RESOLVED" != 1 ] && already_shipped "$GOAL"; then');
+  it('closes the claimed issue when the iteration ships or the guard skips it', () => {
+    expect(script).toContain('close_issue "$ISSUE_NUM" "self-build loop $N shipped this issue: $GOAL" || true');
+    expect(script).toContain('[ -n "${ISSUE_NUM:-}" ] && close_issue "$ISSUE_NUM" "self-build loop $N: goal already shipped (Q27 no re-burn guard) — closing as done" || true');
   });
 
-  it('commits a written strike locally so the next sync-docs does not refuse on a dirty PRD', () => {
-    expect(script).toContain('git commit -m "self-build loop $N: strike confirmed-shipped backlog items (PRD:889 pick reconciliation)"');
+  it('keeps docs/PRD.md as a state document: dirty PRD pauses the loop, PRD-per-PR rides the dispatch', () => {
+    expect(script).toContain('if [ "$DRY_RUN" != 1 ] && ! git diff --quiet -- docs/PRD.md; then');
+    expect(script).toContain('record "$N" operator-degraded "PRD dirty: operator mid-edit, state doc must land clean"');
+    expect(script).toContain('PRD-per-PR policy (2026-09-07): every PR ships with its state update.');
+    expect(script).toContain('TASK_ARGS=(task --prompt "${GOAL}');
   });
 });
 

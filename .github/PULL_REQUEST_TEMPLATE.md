@@ -11,6 +11,7 @@
 - [ ] `npm test` passes locally
 - [ ] New behavior is covered by tests
 - [ ] Docs updated if user-facing
+- [ ] `docs/PRD.md` reflects the post-PR repo state (affected sections + *Last updated* footer)
 
 ## Notes for reviewers
 

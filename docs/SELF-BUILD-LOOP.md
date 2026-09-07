@@ -42,15 +42,12 @@ a ratchet-only union. `selfbuild-loop.sh` calls both automatically; hand-run ite
 
 ## Phases
 
-1. **Research** — Headless agent scans competitor landscape (Devin, Copilot coding agent,
-   OpenHands, Factory Droid, Jules, Codex) for moves not yet reflected in `docs/PRD.md`
-   section 4, plus self-build-loop architecture patterns from other projects. Output:
-   findings + ranked recommendation from the Phase 4 backlog.
-2. **Ideas** — Select ONE backlog item (PRD section 17 roadmap / Phase 4) informed by the
-   newest research and the ledger's recent failures/gaps.
-3. **Validate** — Goal must pass three checks: maps to a PRD backlog item; scoped to a
-   single iteration (implementable + testable in one pass); no open dependency on an
-   earlier failed loop. Written to `.selfbuild/goals/loop-N.md`.
+2. **Ideas** — Select ONE work item informed by the newest research and the ledger's recent failures/gaps. Selection is **issue-first (2026-09-07 operator policy)**: the task tracker is the GitHub issue queue (open issues labeled `selfbuild`, ordered `priority:P0` > `priority:P1` > `priority:P2`, oldest first within a tier), never a static PRD backlog section. Only when the tracker is empty does the LLM selection path run, deriving one goal from research + ledger + lessons.
+3. **Validate** — Goal must pass three checks: it implements an open tracker
+   issue (or, empty-tracker fallback, a research-derived goal that nothing in
+   the ledger says shipped); scoped to a single iteration (implementable +
+   testable in one pass); no open dependency on an earlier failed loop. Written
+   to `.selfbuild/goals/loop-N.md`.
 4. **Plan** — `devagent task --prompt "<goal>"` plans via the built-in planner.
 5. **Implement** — same `devagent task` invocation drives worker CLIs (claude-code /
    opencode) in isolated worktrees through its internal plan-implement-test loops.
@@ -60,7 +57,11 @@ a ratchet-only union. `selfbuild-loop.sh` calls both automatically; hand-run ite
 7. **Push** — `--auto-pr` pushes the branch and opens a PR. **Policy (locked 2026-08-24):
    product code always ships as a PR, never direct to origin/main**; direct main is
    reserved for docs and `.selfbuild` protocol chores. `SELFBUILD_PUSH_MODE=main`
-   remains available but is not the operating default.
+   remains available but is not the operating default. **PRD-per-PR policy (2026-09-07):
+   every PR lands with its `docs/PRD.md` state update** — the sections the change
+   affects plus the *Last updated* footer, applied in the same branch via the
+   dispatch-prompt policy rider. The shipped iteration closes its tracker issue
+   (merge-side auto-close also works when the goal carries an issue reference).
 
 ## Running
 
@@ -79,9 +80,35 @@ Environment knobs (all optional):
 | `SELFBUILD_WORKER` | `omp` | Worker CLI passed to `devagent task` |
 | `SELFBUILD_PUSH_MODE` | `pr` | `pr` (branch + PR via auto-pr) or `main` (direct commit) |
 | `SELFBUILD_CLAUDE` | `omp … --model router/dev` | Research/PO headless invocation (research + PO both use pane-run via herdr with this binary as fallback) |
-| `SELFBUILD_STARVATION_LIMIT` | `5` | Halt (exit 0 — intentional stop, supervisor must not resurrect) when the last N ledger entries are all non-`ok` (cross-run thrash guard); degraded rows don't count |
-| `SELFBUILD_CLEANUP_DELAY_SECS` | `1800` | Grace period before a pr-mode iteration's worktree + branch (`devagent/TASK`) are removed; deletion only happens once the branch tip is verified on origin |
+| `SELFBUILD_WORKER` | `omp` | Worker CLI passed to `devagent task` |
+| `SELFBUILD_ISSUE_LABEL` | `selfbuild` | Issue label defining the loop's tracker queue |
+| `SELFBUILD_ISSUE_MAX` | `50` | Max issues fetched per pick (deterministic sort: priority rank, then issue number) |
+| `SELFBUILD_GH_REPO` | derived from `git remote get-url origin` | Target repo for the tracker pick (`gh issue`) |
 | `SELFBUILD_DRY_RUN` | `0` | `1` executes all phases without side effects (stub outputs, no claude/task/push) |
+
+
+## Tracker + PRD policy (2026-09-07 operator decision)
+
+- **The task tracker is GitHub issues, not a document.** The driver claims the
+  highest-priority open `selfbuild` issue each iteration (deterministic: priority
+  rank, then oldest issue number), builds it, and closes it with evidence. The
+  LLM selection path exists only as the empty-tracker fallback; anything it picks
+  still ships against the repo directly.
+- **The PRD is a state document.** `docs/PRD.md` records what the repo IS:
+  status blockquotes, completion notes, architecture, the *Last updated* footer.
+  It must reflect the current repo state at all times — enforced three ways:
+  1. the loop skips an iteration (operator-degraded) when `docs/PRD.md` is locally dirty;
+  2. every dispatch prompt carries the PRD-per-PR policy rider (update affected
+     sections + footer in the same PR);
+  3. the curator strikes shipped backlog lines and refreshes state claims daily.
+- **Priorities:** `priority:P0` (do next) > `priority:P1` > `priority:P2` (backlog).
+  Unlabeled selfbuild issues sort as P2. The curator re-prioritizes and files new
+  issues (max 3/pass) from recent delivery history; the Q27 re-burn guard still
+  skips any goal that already shipped.
+- **Curation** (`scripts/prd-curator.sh`) now reconciles the tracker: closes
+  shipped issues with evidence, files + re-prioritizes open ones, strikes shipped
+  PRD lines, and publishes the PRD state diff as a docs PR. Tracker mutations are
+  live on GitHub immediately; only the PRD diff ships as a PR.
 
 ## Guardrails (Kitchen Loop lineage)
 
@@ -113,18 +140,20 @@ orca automations create \
   --repo name:devagent \
   --workspace-mode new-per-run \
   --base-branch main \
-  --prompt "Execute exactly ONE iteration of the DevAgent self-build loop per docs/SELF-BUILD-LOOP.md. FIRST run scripts/selfbuild-state.sh pull, then read .selfbuild/ledger.jsonl for the next loop number (ledger lines + 1), then run phases 1-7 end to end. Pick ONE item from docs/PRD.md section 17 Phase 4 backlog (kept fresh by the prd-curator automation). After recording the iteration outcome in the ledger, run scripts/selfbuild-state.sh push. PUSH CODE AS A PULL REQUEST; never direct to origin/main for product code. Do not start a second iteration." \
+  --prompt "Execute exactly ONE iteration of the DevAgent self-build loop per docs/SELF-BUILD-LOOP.md. FIRST run scripts/selfbuild-state.sh pull, then read .selfbuild/ledger.jsonl for the next loop number (ledger lines + 1), then run phases 1-7 end to end. Pick the highest-priority open GitHub issue labeled selfbuild (priority:P0 > P1 > P2; the tracker is refilled by the prd-curator automation). After recording the iteration outcome in the ledger, run scripts/selfbuild-state.sh push. PUSH CODE AS A PULL REQUEST; never direct to origin/main for product code. Do not start a second iteration." \
   --enabled --json
 ```
 
 Manage with `orca automations list|show|runs|remove`.
 
-**PRD curation loop.** The build loop consumes `docs/PRD.md` section 17 as its goal
-backlog, so that backlog must stay current or iterations starve/repeat.
+**Tracker curation loop.** The build loop consumes the GitHub issue queue as its
+goal backlog, so the tracker must stay current or iterations starve/repeat.
 `scripts/prd-curator.sh` runs ONE curation pass: research what shipped (recent merged
 PRs, ledger failures, lessons), verify claimed capabilities against the repo, then
-refresh section 17 (mark shipped items, re-rank/add backlog items) and section 18
-(retire answered questions). The diff ships as a docs PR:
+reconcile the tracker (close shipped issues with evidence, file + re-prioritize)
+and refresh docs/PRD.md as a state document (strike shipped backlog lines, update
+section 18). Tracker mutations are live on GitHub immediately; the PRD state diff
+ships as a docs PR:
 
 ```sh
 npm run prdcurate                 # one pass, opens a PR when the PRD changes
@@ -139,14 +168,14 @@ orca automations create \
   --trigger '47 6 * * *' \
   --provider claude \
   --repo name:devagent \
-  --workspace-mode new-per-run \
+  --prompt "Run bash scripts/prd-curator.sh once. It researches recent delivery history, reconciles the GitHub issue tracker (closes shipped selfbuild issues with evidence, files and re-prioritizes new ones), and updates docs/PRD.md as a state document, then pushes a branch and opens a PR with the PRD diff. Do not merge it yourself unless repo tests are green." \
   --base-branch main \
-  --prompt "Run bash scripts/prd-curator.sh once. It researches recent delivery history and updates docs/PRD.md sections 17-18, then pushes a branch and opens a PR. Do not merge it yourself unless repo tests are green." \
   --enabled --json
 ```
 
-The two loops are loosely coupled through the PRD: curator writes goals, build loop
-consumes them. Neither depends on the other's schedule.
+The two loops are loosely coupled through the tracker: curator files and
+prioritizes issues, build loop consumes them. Neither depends on the other's
+schedule.
 
 **Spawned-session auto-cleanup.** Mode A leaves one Orca workspace
 (`auto-devagent-selfbuild-run-N-<ts>`) plus a live terminal behind per run, forever.
