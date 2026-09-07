@@ -1,5 +1,6 @@
-// Code generated from internal/cli/testdata/commands.json (the live Node CLI
-// surface, frozen 2026-09-07 for FR-GO-02). Do not hand-edit; regenerate with
+// Package cli carries the frozen command-surface table generated from
+// internal/cli/testdata/commands.json (the live Node CLI surface, frozen
+// 2026-09-07 for FR-GO-02). Do not hand-edit; regenerate with
 // scripts/go/extract-commands.mjs and `npm run build` first.
 package cli
 

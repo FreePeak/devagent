@@ -289,7 +289,7 @@ func TestResolversDefaultsAndEnv(t *testing.T) {
 	if HerdrEnabled(cfg) {
 		t.Error("DEVAGENT_HERDR=0 override ignored")
 	}
-	os.Unsetenv("DEVAGENT_HERDR")
+	_ = os.Unsetenv("DEVAGENT_HERDR")
 
 	if SpawnVisibility(cfg) != "visible" {
 		t.Error("default visibility should be visible")
@@ -298,7 +298,7 @@ func TestResolversDefaultsAndEnv(t *testing.T) {
 	if SpawnVisibility(cfg) != "headless" {
 		t.Error("env visibility ignored")
 	}
-	os.Unsetenv("DEVAGENT_VISIBILITY")
+	_ = os.Unsetenv("DEVAGENT_VISIBILITY")
 
 	if HerdrSessionName(cfg) != "devagent" {
 		t.Error("default session should be devagent")
@@ -307,7 +307,7 @@ func TestResolversDefaultsAndEnv(t *testing.T) {
 	if HerdrSessionName(cfg) != "other" {
 		t.Error("env session ignored")
 	}
-	os.Unsetenv("DEVAGENT_HERDR_SESSION")
+	_ = os.Unsetenv("DEVAGENT_HERDR_SESSION")
 
 	sweep := ResolveHerdrSweep(cfg)
 	if !sweep.Enabled || sweep.Orphans != nil || sweep.DenySessions != nil {
