@@ -1,14 +1,15 @@
-import type { DegradeBreachAlert } from './preflight.js';
+import type { DegradeBreachAlert } from './degrade-pager.js';
 
 /**
  * Operator paging transport (PRD:913 Q16).
  *
  * Q41 shipped the only outbound signal the factory had: a single JSON POST
  * to `resilience.degradeWebhookUrl` when the provider-degraded streak first
- * breached (see `DegradeBreachAlert` in preflight.ts). Q16 generalizes that
- * one-off transport into a typed operator-alert seam so any subsystem that
- * needs to page a human posts through the same best-effort path — today the
- * board-recovery gate, which archives a stalled board with zero outbound
+ * breached (see `DegradeBreachAlert` in degrade-pager.ts, the shared pager
+ * preflight and `devagent page-degrade-breach` both call). Q16 generalizes
+ * that one-off transport into a typed operator-alert seam so any subsystem
+ * that needs to page a human posts through the same best-effort path — today
+ * the board-recovery gate, which archives a stalled board with zero outbound
  * signal (the 2026-08-29 factory sat archived for 6h unnoticed).
  *
  * An `OperatorAlert` is a discriminated union keyed on `event`, so a receiver
