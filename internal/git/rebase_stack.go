@@ -163,7 +163,7 @@ func rebaseOneBranch(repoPath, branch, parent, tipBefore string, push bool, resu
 	if err == nil {
 		// Rebase in a throwaway detached worktree so no live checkout moves.
 		defer func() {
-			os.RemoveAll(tmp)
+			_ = os.RemoveAll(tmp)
 			gitOut([]string{"worktree", "prune"}, repoPath, 60_000)
 		}()
 		add := gitOut([]string{"worktree", "add", "--detach", tmp, branch}, repoPath, 60_000)

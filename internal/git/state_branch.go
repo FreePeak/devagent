@@ -85,7 +85,7 @@ func EnsureStateBranch(repoPath string, opts *EnsureStateBranchOpts) (EnsureStat
 	if err != nil {
 		return EnsureStateBranchResult{}, err
 	}
-	defer os.RemoveAll(tmp)
+	defer func() { _ = os.RemoveAll(tmp) }()
 	indexFile := filepath.Join(tmp, "index")
 
 	if _, _, err := runEnv([]string{"read-tree", "--empty"}, repoPath, 30_000, map[string]string{"GIT_INDEX_FILE": indexFile}); err != nil {

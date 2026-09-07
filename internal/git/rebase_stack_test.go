@@ -14,7 +14,9 @@ import (
 func initStackedRepo(t *testing.T) (repo string, branches []string) {
 	t.Helper()
 	repo = t.TempDir() + "/repo"
-	os.MkdirAll(repo, 0o755)
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	runGit(t, repo, "init", "-b", "main")
 	runGit(t, repo, "config", "user.email", "test@example.com")
 	runGit(t, repo, "config", "user.name", "test")
@@ -77,7 +79,9 @@ func TestRebaseStackReportsUpToDateWhenNothingDrifted(t *testing.T) {
 
 func TestRebaseStackStopsAtConflictChildrenUntouched(t *testing.T) {
 	repo := t.TempDir() + "/repo"
-	os.MkdirAll(repo, 0o755)
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	runGit(t, repo, "init", "-b", "main")
 	runGit(t, repo, "config", "user.email", "test@example.com")
 	runGit(t, repo, "config", "user.name", "test")
