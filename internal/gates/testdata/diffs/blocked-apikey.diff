@@ -1,0 +1,7 @@
+diff --git a/src/key.ts b/src/key.ts
+--- a/src/key.ts
++++ b/src/key.ts
+@@ -1,2 +1,2 @@
+ context line
+-const old = 1;
++const api_key = process.env.API_KEY;

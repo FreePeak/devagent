@@ -1,0 +1,6 @@
+diff --git a/src/handler.ts b/src/handler.ts
+--- a/src/handler.ts
++++ b/src/handler.ts
+@@ -1,1 +1,2 @@
+ context line
++console.log("debug:", password);

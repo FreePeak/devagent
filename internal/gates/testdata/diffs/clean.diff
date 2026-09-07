@@ -1,0 +1,6 @@
+diff --git a/src/util.ts b/src/util.ts
+--- a/src/util.ts
++++ b/src/util.ts
+@@ -1,1 +1,2 @@
+ context line
++export const add = (a, b) => a + b;
