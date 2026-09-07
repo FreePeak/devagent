@@ -44,12 +44,12 @@ func acquireLock(cfg LoopConfig, d *driver) (func(), bool) {
 		}
 		if attempt == 0 {
 			if holder != "" && holder != "?" {
-				fmt.Fprintf(cfg.Stdout, "[lock] stale holder pid %s is gone — clearing lock and retrying\n", holder)
+				_, _ = fmt.Fprintf(cfg.Stdout, "[lock] stale holder pid %s is gone — clearing lock and retrying\n", holder)
 			}
 			_ = os.RemoveAll(lockDir)
 			continue
 		}
-		fmt.Fprintf(cfg.Stdout, "[lock] another driver still holds %s — exiting\n", lockDir)
+		_, _ = fmt.Fprintf(cfg.Stdout, "[lock] another driver still holds %s — exiting\n", lockDir)
 		return nil, false
 	}
 }

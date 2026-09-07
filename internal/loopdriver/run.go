@@ -115,7 +115,7 @@ func RunLoop(cfg LoopConfig) int {
 		logPath := filepath.Join(d.stateDir, "logs", fmt.Sprintf("loop-%d.log", n))
 		logF, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 		if err != nil {
-			fmt.Fprintf(cfg.Stderr, "[loop] cannot open %s: %v\n", logPath, err)
+			_, _ = fmt.Fprintf(cfg.Stderr, "[loop] cannot open %s: %v\n", logPath, err)
 			return 1
 		}
 
