@@ -6,6 +6,7 @@
 // Routing is a single HandlerFunc, NOT http.ServeMux: the TS checks
 // `req.url?.startsWith(...)` on the raw URL, and ServeMux would normalize
 // paths and redirect — a behavioral divergence.
+
 package cli
 
 import (

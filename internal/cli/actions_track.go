@@ -6,6 +6,7 @@
 // byte-identical to the TypeScript original — stdout strings, JSON key
 // order, 2-space indent, and exit codes included (FR-GO-02, issue #193;
 // tracker wiring #207).
+
 package cli
 
 import (
@@ -320,20 +321,6 @@ func collectProgressAsync(repoPath string, limit int) trackerSnapshot {
 // trackerHeartbeatPath mirrors tracker.ts heartbeatPath().
 func trackerHeartbeatPath(repoPath string) string {
 	return filepath.Join(repoPath, ".devagent", "tracker.heartbeat.json")
-}
-
-// readTrackerHeartbeat mirrors readTrackerHeartbeat() (tracker.ts:185-193):
-// nil when the file is missing or corrupt.
-func readTrackerHeartbeat(repoPath string) *trackerHeartbeat {
-	raw, err := os.ReadFile(trackerHeartbeatPath(repoPath))
-	if err != nil {
-		return nil
-	}
-	var hb trackerHeartbeat
-	if json.Unmarshal(raw, &hb) != nil {
-		return nil
-	}
-	return &hb
 }
 
 // writeTrackerHeartbeat mirrors writeTrackerHeartbeat() (tracker.ts:195-198):

@@ -4,6 +4,7 @@
 // src/resilience/degradation.ts (degradationStreak / readEvents). Every
 // output literal is byte-identical to the TypeScript original — stdout
 // strings, blank lines, and exit codes included (FR-GO-02, issue #193).
+
 package cli
 
 import (
