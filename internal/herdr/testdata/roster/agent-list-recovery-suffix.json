@@ -1,0 +1,14 @@
+{
+  "id": "x",
+  "result": {
+    "type": "agent_list",
+    "agents": [
+      {
+        "label": "TASK-x-a2r1",
+        "pane_id": "p",
+        "agent_status": "working",
+        "cwd": "/repo/.devagent-worktrees/TASK-x-a2r1"
+      }
+    ]
+  }
+}

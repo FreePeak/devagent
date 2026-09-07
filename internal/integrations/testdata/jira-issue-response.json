@@ -1,0 +1,13 @@
+{
+  "key": "PROJ-7",
+  "fields": {
+    "summary": "Ship the thing",
+    "description": {
+      "type": "doc",
+      "content": [
+        { "type": "paragraph", "content": [{ "type": "text", "text": "- [ ] works" }] }
+      ]
+    },
+    "labels": ["backend"]
+  }
+}

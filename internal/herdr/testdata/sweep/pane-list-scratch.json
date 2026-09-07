@@ -1,0 +1,21 @@
+{
+  "id": "x",
+  "result": {
+    "type": "pane_list",
+    "panes": [
+      {
+        "pane_id": "wV:p1",
+        "workspace_id": "wV",
+        "agent_status": "unknown",
+        "cwd": "/Users/op"
+      },
+      {
+        "pane_id": "wV:p2",
+        "workspace_id": "wV",
+        "label": "scratch",
+        "agent_status": "idle",
+        "cwd": "/tmp/somewhere-else"
+      }
+    ]
+  }
+}

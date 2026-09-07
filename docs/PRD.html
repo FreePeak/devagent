@@ -238,124 +238,6 @@
     code span.vs { color: #4070a0; } /* VerbatimString */
     code span.wa { color: #60a0b0; font-weight: bold; font-style: italic; } /* Warning */
   </style>
-  <!-- DevAgent PRD custom style: include for regenerating docs/PRD.html from docs/PRD.md. Command: pandoc docs/PRD.md -f gfm -t html5 -s --toc --toc-depth=2 --metadata title="DevAgent - Product Requirements Document" -H docs/prd-style.html -o docs/PRD.html (pandoc 3.10.x). -->
-      <style>
-      /* DevAgent PRD styling */
-      :root {
-        --bg: #ffffff;
-        --fg: #1a1a2e;
-        --muted: #5a6478;
-        --accent: #2456c7;
-        --border: #dde3ee;
-        --code-bg: #f4f6fa;
-        --quote-bg: #f0f4ff;
-      }
-
-      * { box-sizing: border-box; }
-
-      body {
-        margin: 0 auto;
-        padding: 2.5rem 1.25rem 5rem;
-        max-width: 56rem;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-        line-height: 1.65;
-        color: var(--fg);
-        background: var(--bg);
-      }
-
-      header#title-block-header h1.title {
-        font-size: 2rem;
-        border-bottom: 3px solid var(--accent);
-        padding-bottom: 0.5rem;
-      }
-
-      h1, h2, h3, h4 { line-height: 1.25; margin-top: 2rem; }
-
-      h2 {
-        font-size: 1.4rem;
-        border-bottom: 1px solid var(--border);
-        padding-bottom: 0.3rem;
-        scroll-margin-top: 1rem;
-      }
-
-      a { color: var(--accent); text-decoration: none; }
-      a:hover { text-decoration: underline; }
-
-      code {
-        background: var(--code-bg);
-        border-radius: 4px;
-        padding: 0.15em 0.35em;
-        font-size: 0.9em;
-        font-family: "SF Mono", Menlo, Consolas, monospace;
-      }
-
-      pre {
-        background: var(--code-bg);
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        padding: 1rem;
-        overflow-x: auto;
-      }
-
-      pre code { background: none; padding: 0; }
-
-      blockquote {
-        margin: 1rem 0;
-        padding: 0.75rem 1.25rem;
-        border-left: 4px solid var(--accent);
-        background: var(--quote-bg);
-        color: var(--muted);
-      }
-
-      table {
-        border-collapse: collapse;
-        width: 100%;
-        margin: 1.25rem 0;
-        font-size: 0.92em;
-      }
-
-      th, td {
-        border: 1px solid var(--border);
-        padding: 0.45rem 0.7rem;
-        text-align: left;
-        vertical-align: top;
-      }
-
-      th { background: var(--code-bg); }
-
-      /* pandoc TOC */
-      nav#TOC {
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        padding: 1rem 1.5rem;
-        margin-bottom: 2rem;
-        background: #fafbfe;
-        font-size: 0.95em;
-      }
-
-      nav#TOC > ul { padding-left: 1.2rem; }
-      nav#TOC ul { list-style-type: none; }
-      nav#TOC li { margin: 0.25rem 0; }
-      nav#TOC::before {
-        content: "Contents";
-        display: block;
-        font-weight: 700;
-        margin-bottom: 0.5rem;
-      }
-
-      @media (prefers-color-scheme: dark) {
-        :root {
-          --bg: #12141c;
-          --fg: #e4e7f0;
-          --muted: #9aa4bb;
-          --accent: #7ea4f5;
-          --border: #2b3044;
-          --code-bg: #1c2030;
-          --quote-bg: #1a2138;
-        }
-        th { background: #1c2030; }
-      }
-      </style>
 </head>
 <body>
 <header id="title-block-header">
@@ -363,68 +245,243 @@
 </header>
 <nav id="TOC" role="doc-toc">
 <ul>
-<li><a href="#devagent--product-requirements-document"
-id="toc-devagent--product-requirements-document">DevAgent — Product
+<li><a href="#devagent-product-requirements-document"
+id="toc-devagent-product-requirements-document">DevAgent — Product
 Requirements Document</a>
 <ul>
 <li><a href="#table-of-contents" id="toc-table-of-contents">Table of
 Contents</a></li>
-<li><a href="#1-executive-summary" id="toc-1-executive-summary">1.
-Executive Summary</a></li>
-<li><a href="#2-problem-statement" id="toc-2-problem-statement">2.
-Problem Statement</a></li>
-<li><a href="#3-product-vision-and-positioning"
-id="toc-3-product-vision-and-positioning">3. Product Vision and
-Positioning</a></li>
-<li><a href="#4-competitive-landscape"
-id="toc-4-competitive-landscape">4. Competitive Landscape</a></li>
-<li><a href="#5-target-users-and-personas"
-id="toc-5-target-users-and-personas">5. Target Users and
-Personas</a></li>
-<li><a href="#6-scope" id="toc-6-scope">6. Scope</a></li>
-<li><a href="#7-functional-requirements"
-id="toc-7-functional-requirements">7. Functional Requirements</a></li>
-<li><a href="#8-system-architecture" id="toc-8-system-architecture">8.
-System Architecture</a></li>
-<li><a href="#9-worker-adapter-layer" id="toc-9-worker-adapter-layer">9.
+<li><a href="#executive-summary" id="toc-executive-summary">1. Executive
+Summary</a></li>
+<li><a href="#problem-statement" id="toc-problem-statement">2. Problem
+Statement</a></li>
+<li><a href="#product-vision-and-positioning"
+id="toc-product-vision-and-positioning">3. Product Vision and
+Positioning</a>
+<ul>
+<li><a href="#positioning-statement" id="toc-positioning-statement">3.1
+Positioning statement</a></li>
+<li><a href="#key-differentiators" id="toc-key-differentiators">3.2 Key
+differentiators</a></li>
+<li><a href="#what-devagent-is-not" id="toc-what-devagent-is-not">3.3
+What DevAgent is not</a></li>
+</ul></li>
+<li><a href="#competitive-landscape" id="toc-competitive-landscape">4.
+Competitive Landscape</a>
+<ul>
+<li><a href="#overview" id="toc-overview">4.1 Overview</a></li>
+<li><a href="#the-white-space-devagent-occupies"
+id="toc-the-white-space-devagent-occupies">4.2 The white space DevAgent
+occupies</a></li>
+</ul></li>
+<li><a href="#target-users-and-personas"
+id="toc-target-users-and-personas">5. Target Users and Personas</a>
+<ul>
+<li><a href="#p1-backend-engineer-mai-primary"
+id="toc-p1-backend-engineer-mai-primary">P1 — Backend Engineer “Mai”
+(primary)</a></li>
+<li><a href="#p2-tech-lead-em-duc-buyer"
+id="toc-p2-tech-lead-em-duc-buyer">P2 — Tech Lead / EM “Duc”
+(buyer)</a></li>
+<li><a href="#p3-frontend-engineer-khanh-beneficiary"
+id="toc-p3-frontend-engineer-khanh-beneficiary">P3 — Frontend Engineer
+“Khanh” (beneficiary)</a></li>
+<li><a href="#p4-platformdevops-tuan-operator"
+id="toc-p4-platformdevops-tuan-operator">P4 — Platform/DevOps “Tuan”
+(operator)</a></li>
+</ul></li>
+<li><a href="#scope" id="toc-scope">6. Scope</a>
+<ul>
+<li><a href="#in-scope-v1" id="toc-in-scope-v1">6.1 In scope
+(v1)</a></li>
+<li><a href="#out-of-scope-v1" id="toc-out-of-scope-v1">6.2 Out of scope
+(v1)</a></li>
+</ul></li>
+<li><a href="#functional-requirements"
+id="toc-functional-requirements">7. Functional Requirements</a>
+<ul>
+<li><a href="#ticket-ingestion-area-ticket"
+id="toc-ticket-ingestion-area-ticket">7.1 Ticket ingestion (area:
+TICKET)</a></li>
+<li><a href="#planning-area-plan" id="toc-planning-area-plan">7.2
+Planning (area: PLAN)</a></li>
+<li><a href="#implementation-area-impl"
+id="toc-implementation-area-impl">7.3 Implementation (area:
+IMPL)</a></li>
+<li><a href="#validation-gates-area-valid"
+id="toc-validation-gates-area-valid">7.4 Validation gates (area:
+VALID)</a></li>
+<li><a href="#delivery-area-deliver" id="toc-delivery-area-deliver">7.5
+Delivery (area: DELIVER)</a></li>
+<li><a href="#operations-area-ops" id="toc-operations-area-ops">7.6
+Operations (area: OPS)</a></li>
+<li><a href="#context-area-ctx" id="toc-context-area-ctx">7.7 Context
+(area: CTX)</a></li>
+</ul></li>
+<li><a href="#system-architecture" id="toc-system-architecture">8.
+System Architecture</a>
+<ul>
+<li><a href="#component-responsibilities"
+id="toc-component-responsibilities">8.1 Component
+responsibilities</a></li>
+<li><a href="#key-design-rules" id="toc-key-design-rules">8.2 Key design
+rules</a></li>
+</ul></li>
+<li><a href="#worker-adapter-layer" id="toc-worker-adapter-layer">9.
 Worker Adapter Layer</a></li>
-<li><a href="#10-delivery-pipeline" id="toc-10-delivery-pipeline">10.
-Delivery Pipeline</a></li>
-<li><a href="#11-validation-gates-domain-intelligence"
-id="toc-11-validation-gates-domain-intelligence">11. Validation Gates
-(Domain Intelligence)</a></li>
-<li><a href="#12-cli-specification" id="toc-12-cli-specification">12.
-CLI Specification</a></li>
-<li><a href="#13-integrations" id="toc-13-integrations">13.
-Integrations</a></li>
-<li><a href="#14-non-functional-requirements"
-id="toc-14-non-functional-requirements">14. Non-Functional
+<li><a href="#delivery-pipeline" id="toc-delivery-pipeline">10. Delivery
+Pipeline</a></li>
+<li><a href="#validation-gates-domain-intelligence"
+id="toc-validation-gates-domain-intelligence">11. Validation Gates
+(Domain Intelligence)</a>
+<ul>
+<li><a href="#gate-g1-test-execution"
+id="toc-gate-g1-test-execution">Gate G1 — Test execution</a></li>
+<li><a href="#gate-g2-migration-application"
+id="toc-gate-g2-migration-application">Gate G2 — Migration
+application</a></li>
+<li><a href="#gate-g3-static-migration-analysis"
+id="toc-gate-g3-static-migration-analysis">Gate G3 — Static migration
+analysis</a></li>
+<li><a href="#gate-g4-asyncrace-condition-review"
+id="toc-gate-g4-asyncrace-condition-review">Gate G4 —
+Async/race-condition review</a></li>
+<li><a href="#gate-g0-issue-readiness-pre-dispatch"
+id="toc-gate-g0-issue-readiness-pre-dispatch">Gate G0 — Issue readiness
+(pre-dispatch)</a></li>
+<li><a href="#g5-stride-merge-gate" id="toc-g5-stride-merge-gate">G5:
+STRIDE merge gate</a></li>
+</ul></li>
+<li><a href="#cli-specification" id="toc-cli-specification">12. CLI
+Specification</a>
+<ul>
+<li><a href="#commands" id="toc-commands">Commands</a></li>
+<li><a href="#flags-run" id="toc-flags-run">Flags
+(<code>run</code>)</a></li>
+<li><a href="#environment-variables-credentials-only-fr-ops-02"
+id="toc-environment-variables-credentials-only-fr-ops-02">Environment
+variables (credentials only — FR-OPS-02)</a></li>
+</ul></li>
+<li><a href="#integrations" id="toc-integrations">13. Integrations</a>
+<ul>
+<li><a href="#linear-v1-tracker" id="toc-linear-v1-tracker">13.1 Linear
+(v1 tracker)</a></li>
+<li><a href="#jira-cloud-v2" id="toc-jira-cloud-v2">13.2 Jira Cloud
+(v2)</a></li>
+<li><a href="#github-v1-git-host" id="toc-github-v1-git-host">13.3
+GitHub (v1 git host)</a></li>
+<li><a href="#gitlab-v2" id="toc-gitlab-v2">13.4 GitLab (v2)</a></li>
+<li><a href="#cross-cutting-integration-requirements"
+id="toc-cross-cutting-integration-requirements">13.5 Cross-cutting
+integration requirements</a></li>
+</ul></li>
+<li><a href="#non-functional-requirements"
+id="toc-non-functional-requirements">14. Non-Functional
 Requirements</a></li>
-<li><a href="#15-metrics-and-success-criteria"
-id="toc-15-metrics-and-success-criteria">15. Metrics and Success
+<li><a href="#metrics-and-success-criteria"
+id="toc-metrics-and-success-criteria">15. Metrics and Success
 Criteria</a></li>
-<li><a href="#16-risks-and-mitigations"
-id="toc-16-risks-and-mitigations">16. Risks and Mitigations</a></li>
-<li><a href="#17-roadmap" id="toc-17-roadmap">17. Roadmap</a></li>
-<li><a href="#18-open-questions" id="toc-18-open-questions">18. Open
+<li><a href="#risks-and-mitigations" id="toc-risks-and-mitigations">16.
+Risks and Mitigations</a></li>
+<li><a href="#roadmap" id="toc-roadmap">17. Roadmap</a>
+<ul>
+<li><a href="#phase-0-foundations" id="toc-phase-0-foundations">Phase 0
+— Foundations ✅</a></li>
+<li><a href="#phase-1-the-spine" id="toc-phase-1-the-spine">Phase 1 —
+The spine ✅</a></li>
+<li><a href="#phase-2-differentiators"
+id="toc-phase-2-differentiators">Phase 2 — Differentiators ✅</a></li>
+<li><a href="#phase-3-hardening" id="toc-phase-3-hardening">Phase 3 —
+Hardening ✅</a></li>
+<li><a href="#phase-4-expansion-post-v1"
+id="toc-phase-4-expansion-post-v1">Phase 4 — Expansion
+(post-v1)</a></li>
+<li><a href="#phase-5-personal-agent-surface-proposed-post-v1"
+id="toc-phase-5-personal-agent-surface-proposed-post-v1">Phase 5 —
+Personal agent surface (proposed, post-v1)</a></li>
+</ul></li>
+<li><a href="#open-questions" id="toc-open-questions">18. Open
 Questions</a></li>
-<li><a href="#19-research-appendix" id="toc-19-research-appendix">19.
-Research Appendix</a></li>
+<li><a href="#research-appendix" id="toc-research-appendix">19. Research
+Appendix</a>
+<ul>
+<li><a href="#base-layer-analysis-orca-and-deepseek-harness"
+id="toc-base-layer-analysis-orca-and-deepseek-harness">19.1 Base-layer
+analysis: Orca and DeepSeek Harness</a></li>
+<li><a href="#competitive-profiles" id="toc-competitive-profiles">19.2
+Competitive profiles</a></li>
+<li><a href="#headless-cli-orchestration"
+id="toc-headless-cli-orchestration">19.3 Headless CLI
+orchestration</a></li>
+<li><a href="#migration-safety-tooling-and-techniques"
+id="toc-migration-safety-tooling-and-techniques">19.4 Migration-safety
+tooling and techniques</a></li>
+<li><a href="#knowledge-graph-grounded-context"
+id="toc-knowledge-graph-grounded-context">19.5 Knowledge-graph-grounded
+context</a></li>
+<li><a href="#pilot-probe-2026-09-04"
+id="toc-pilot-probe-2026-09-04">19.6 Pilot probe (2026-09-04)</a></li>
+<li><a href="#internet-scout-synthesis-2026-09-07"
+id="toc-internet-scout-synthesis-2026-09-07">19.7 Internet scout
+synthesis (2026-09-07)</a></li>
+</ul></li>
 <li><a
-href="#20-product-direction-addendum-grok-bot-xai-integration-cross-platform-control-app"
-id="toc-20-product-direction-addendum-grok-bot-xai-integration-cross-platform-control-app">20.
+href="#product-direction-addendum-grok-bot-xai-integration-cross-platform-control-app"
+id="toc-product-direction-addendum-grok-bot-xai-integration-cross-platform-control-app">20.
 Product Direction Addendum: Grok Bot, xAI Integration, Cross-Platform
-Control App</a></li>
-<li><a href="#21-product-direction-addendum-simplicity-first-fr-simple"
-id="toc-21-product-direction-addendum-simplicity-first-fr-simple">21.
-Product Direction Addendum: Simplicity First (FR-SIMPLE)</a></li>
-<li><a href="#22-addendum-full-go-migration-fr-go"
-id="toc-22-addendum-full-go-migration-fr-go">22. Addendum: Full Go
-Migration (FR-GO)</a></li>
+Control App</a>
+<ul>
+<li><a href="#the-benchmark-grok-bot-x.aibot"
+id="toc-the-benchmark-grok-bot-x.aibot">20.1 The benchmark: Grok Bot
+(x.ai/bot)</a></li>
+<li><a href="#grokxai-integration-fr-grok"
+id="toc-grokxai-integration-fr-grok">20.2 Grok/xAI integration
+(FR-GROK)</a></li>
+<li><a href="#daemon-control-api-fr-ctrl"
+id="toc-daemon-control-api-fr-ctrl">20.3 Daemon control API
+(FR-CTRL)</a></li>
+<li><a href="#cross-platform-desktop-control-app-fr-ui"
+id="toc-cross-platform-desktop-control-app-fr-ui">20.4 Cross-platform
+desktop control app (FR-UI)</a></li>
+<li><a href="#scope-boundaries" id="toc-scope-boundaries">20.5 Scope
+boundaries</a></li>
+<li><a href="#open-questions-resolved-into-this-addendum"
+id="toc-open-questions-resolved-into-this-addendum">20.6 Open questions
+resolved into this addendum</a></li>
+<li><a href="#research-sources-2026-09-03"
+id="toc-research-sources-2026-09-03">20.7 Research sources
+(2026-09-03)</a></li>
+<li><a href="#visible-worker-sessions-and-terminal-tui-fr-vis-fr-tui"
+id="toc-visible-worker-sessions-and-terminal-tui-fr-vis-fr-tui">20.8
+Visible worker sessions and terminal TUI (FR-VIS, FR-TUI)</a></li>
+</ul></li>
+<li><a href="#product-direction-addendum-simplicity-first-fr-simple"
+id="toc-product-direction-addendum-simplicity-first-fr-simple">21.
+Product Direction Addendum: Simplicity First (FR-SIMPLE)</a>
+<ul>
+<li><a href="#principles-every-surface-every-release"
+id="toc-principles-every-surface-every-release">21.1 Principles (every
+surface, every release)</a></li>
+<li><a href="#requirements" id="toc-requirements">21.2
+Requirements</a></li>
+</ul></li>
+<li><a href="#addendum-full-go-migration-fr-go"
+id="toc-addendum-full-go-migration-fr-go">22. Addendum: Full Go
+Migration (FR-GO)</a>
+<ul>
+<li><a href="#decision-and-rationale"
+id="toc-decision-and-rationale">22.1 Decision and rationale</a></li>
+<li><a href="#boundary" id="toc-boundary">22.2 Boundary</a></li>
+<li><a href="#strategy-strangler-fig-gated-by-parity"
+id="toc-strategy-strangler-fig-gated-by-parity">22.3 Strategy:
+strangler-fig, gated by parity</a></li>
+<li><a href="#requirements-1" id="toc-requirements-1">22.4
+Requirements</a></li>
+</ul></li>
 </ul></li>
 </ul>
 </nav>
-<h1 id="devagent--product-requirements-document">DevAgent — Product
+<h1 id="devagent-product-requirements-document">DevAgent — Product
 Requirements Document</h1>
 <blockquote>
 <p>The Autonomous Backend Delivery Agent for modern engineering
@@ -470,7 +527,7 @@ Direction Addendum: Simplicity First (FR-SIMPLE)</a></li>
 Migration (FR-GO)</a></li>
 </ol>
 <hr />
-<h2 id="1-executive-summary">1. Executive Summary</h2>
+<h2 id="executive-summary">1. Executive Summary</h2>
 <p>DevAgent is a vertical autonomous agent that converts backend tickets
 into tested, reviewed Pull Requests with minimal human involvement. A
 user assigns a ticket to <code>@devagent</code> in Linear or Jira;
@@ -484,7 +541,7 @@ a delivery pipeline product: the value is in the closed loop (ticket →
 plan → code → validate → PR) and in backend-specific domain intelligence
 that general coding agents lack — migration safety validation,
 foreign-key integrity checks, and async/race-condition review.</p>
-<h2 id="2-problem-statement">2. Problem Statement</h2>
+<h2 id="problem-statement">2. Problem Statement</h2>
 <p>Backend ticket delivery has three chronic failure modes:</p>
 <ol type="1">
 <li><strong>Latency</strong>: small-to-medium backend tickets (new
@@ -495,17 +552,22 @@ break database integrity — destructive migrations, missing foreign-key
 constraints, lock-timeout-inducing index builds on large tables — and
 ignore async race conditions because they never execute what they write
 against real data.</li>
-<li><strong>Review burden</strong>: PRs from AI tools often "look right"
+<li><strong>Review burden</strong>: PRs from AI tools often “look right”
 but are unverified, shifting cost onto human reviewers who must mentally
 simulate behavior.</li>
 </ol>
 <p>DevAgent addresses all three by owning delivery end to end and
 refusing to submit anything it has not proven green in an isolated
 environment.</p>
-<h2 id="3-product-vision-and-positioning">3. Product Vision and
+<h2 id="product-vision-and-positioning">3. Product Vision and
 Positioning</h2>
-<h3 id="31-positioning-statement">3.1 Positioning statement</h3>
+<h3 id="positioning-statement">3.1 Positioning statement</h3>
 <table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
 <thead>
 <tr>
 <th>Dimension</th>
@@ -541,7 +603,7 @@ Positioning</h2>
 </tr>
 </tbody>
 </table>
-<h3 id="32-key-differentiators">3.2 Key differentiators</h3>
+<h3 id="key-differentiators">3.2 Key differentiators</h3>
 <ol type="1">
 <li><strong>Set-and-forget backend ops</strong> — DevAgent behaves as a
 virtual team member, not an IDE extension.</li>
@@ -554,16 +616,22 @@ passes inside a sandboxed container against real migrations.</li>
 through multiple coding-agent CLIs in parallel isolated worktrees;
 DevAgent cross-checks both diffs and delivers the winner.</li>
 </ol>
-<h3 id="33-what-devagent-is-not">3.3 What DevAgent is not</h3>
+<h3 id="what-devagent-is-not">3.3 What DevAgent is not</h3>
 <ul>
 <li>Not a model provider — it orchestrates existing agent CLIs.</li>
 <li>Not an IDE plugin or pair-programmer.</li>
 <li>Not autonomous infrastructure ops (no deployments to
 production).</li>
 </ul>
-<h2 id="4-competitive-landscape">4. Competitive Landscape</h2>
-<h3 id="41-overview">4.1 Overview</h3>
+<h2 id="competitive-landscape">4. Competitive Landscape</h2>
+<h3 id="overview">4.1 Overview</h3>
 <table>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
 <thead>
 <tr>
 <th>Product</th>
@@ -583,7 +651,8 @@ min)</td>
 </tr>
 <tr>
 <td>GitHub Copilot coding agent</td>
-<td>Issue assignment, @copilot comment</td>
+<td>Issue assignment, <span class="citation"
+data-cites="copilot">@copilot</span> comment</td>
 <td>Reuses repo CI on ephemeral Actions runners; iterates on CI
 failures; human review mandatory</td>
 <td>Bundled in Copilot Pro/Business/Enterprise seats</td>
@@ -616,21 +685,22 @@ Enterprise</td>
 </tr>
 <tr>
 <td>Claude Code GitHub Actions</td>
-<td>@claude mention, any GitHub event</td>
-<td>Auto-fix on CI failures; validation = user's CI</td>
+<td><span class="citation" data-cites="claude">@claude</span> mention,
+any GitHub event</td>
+<td>Auto-fix on CI failures; validation = user’s CI</td>
 <td>Anthropic subscription/API usage</td>
 </tr>
 </tbody>
 </table>
-<h3 id="42-the-white-space-devagent-occupies">4.2 The white space
-DevAgent occupies</h3>
+<h3 id="the-white-space-devagent-occupies">4.2 The white space DevAgent
+occupies</h3>
 <ol type="1">
 <li><strong>Nobody validates database migrations.</strong> Every
-competitor treats "tests pass" as the correctness ceiling. None offer
+competitor treats “tests pass” as the correctness ceiling. None offer
 schema-diff analysis, migration dry-runs against a shadow database,
 rollback verification, or destructive-change detection. This is the core
-of DevAgent's differentiation.</li>
-<li><strong>Validation is outsourced to the target repo's CI.</strong>
+of DevAgent’s differentiation.</li>
+<li><strong>Validation is outsourced to the target repo’s CI.</strong>
 Copilot, Codex, Jules, Droid, and Claude Code Actions all inherit
 whatever the repository already has. Under-tested backends get green-lit
 unvalidated PRs.</li>
@@ -638,7 +708,7 @@ unvalidated PRs.</li>
 contract-level verification (API behavior vs spec, transactional
 integrity, concurrency hazards) as a product feature.</li>
 <li><strong>Cost opacity punishes exactly this workload.</strong> Devin
-ACUs and Codex credits punish long-running backend work; DevAgent's
+ACUs and Codex credits punish long-running backend work; DevAgent’s
 fixed-gate design gives predictable per-task cost.</li>
 <li><strong>Ticket-driven autonomy exists but is shallow</strong> —
 Devin and Droid already do ticket→PR, which validates the workflow;
@@ -648,17 +718,17 @@ their gap is verification depth, not trigger plumbing.</li>
 (validation evidence attached), not on raw generation capability.</p>
 <p><em>(Full profiles with sources: <a
 href="#192-competitive-profiles">appendix 19.2</a>.)</em></p>
-<h2 id="5-target-users-and-personas">5. Target Users and Personas</h2>
-<h3 id="p1--backend-engineer-mai-primary">P1 — Backend Engineer "Mai"
+<h2 id="target-users-and-personas">5. Target Users and Personas</h2>
+<h3 id="p1-backend-engineer-mai-primary">P1 — Backend Engineer “Mai”
 (primary)</h3>
 <p>Mid-level backend developer on a 5–15 person team. Spends a large
 share of each sprint on well-specified CRUD endpoints, schema
 adjustments, and queue consumers. Wants those tickets gone without
-context-switching cost; will review DevAgent PRs like any teammate's,
+context-switching cost; will review DevAgent PRs like any teammate’s,
 but expects tests and migration notes already in place.</p>
 <p><strong>Success for Mai</strong>: assigns ticket before standup,
 reviews a green PR after lunch.</p>
-<h3 id="p2--tech-lead--em-duc-buyer">P2 — Tech Lead / EM "Duc"
+<h3 id="p2-tech-lead-em-duc-buyer">P2 — Tech Lead / EM “Duc”
 (buyer)</h3>
 <p>Owns delivery velocity and production stability. Cautious about
 AI-generated code touching the database. Needs approval gates on
@@ -666,19 +736,23 @@ migrations, audit logs per run, and hard budget caps before rolling out
 team-wide.</p>
 <p><strong>Success for Duc</strong>: zero migration-caused incidents
 attributable to DevAgent; measurable backlog burn-down.</p>
-<h3 id="p3--frontend-engineer-khanh-beneficiary">P3 — Frontend Engineer
-"Khanh" (beneficiary)</h3>
-<p>Blocked on API contracts. Benefits from DevAgent's auto-generated PR
+<h3 id="p3-frontend-engineer-khanh-beneficiary">P3 — Frontend Engineer
+“Khanh” (beneficiary)</h3>
+<p>Blocked on API contracts. Benefits from DevAgent’s auto-generated PR
 documentation: endpoint specs, request/response examples, and migration
 notes attached to every PR.</p>
-<h3 id="p4--platformdevops-tuan-operator">P4 — Platform/DevOps "Tuan"
+<h3 id="p4-platformdevops-tuan-operator">P4 — Platform/DevOps “Tuan”
 (operator)</h3>
 <p>Installs and operates DevAgent: manages credentials (Linear/GitHub
 tokens), Docker sandbox capacity, CLI worker versions, and run budgets.
 Never wants agent credentials with more scope than necessary.</p>
-<h2 id="6-scope">6. Scope</h2>
-<h3 id="61-in-scope-v1">6.1 In scope (v1)</h3>
+<h2 id="scope">6. Scope</h2>
+<h3 id="in-scope-v1">6.1 In scope (v1)</h3>
 <table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
 <thead>
 <tr>
 <th>Area</th>
@@ -721,7 +795,7 @@ consumers</td>
 </tr>
 </tbody>
 </table>
-<h3 id="62-out-of-scope-v1">6.2 Out of scope (v1)</h3>
+<h3 id="out-of-scope-v1">6.2 Out of scope (v1)</h3>
 <ul>
 <li>Frontend/UI code generation</li>
 <li>Deploying or promoting code to production environments</li>
@@ -730,13 +804,18 @@ consumers</td>
 <li>Self-hosted model management (workers bring their own
 auth/subscriptions)</li>
 </ul>
-<h2 id="7-functional-requirements">7. Functional Requirements</h2>
+<h2 id="functional-requirements">7. Functional Requirements</h2>
 <p>Requirements use IDs <code>FR-&lt;area&gt;-NN</code>. Priority:
 <strong>M</strong> = must-have for v1, <strong>S</strong> = should-have,
 <strong>C</strong> = could-have.</p>
-<h3 id="71-ticket-ingestion-area-ticket">7.1 Ticket ingestion (area:
+<h3 id="ticket-ingestion-area-ticket">7.1 Ticket ingestion (area:
 TICKET)</h3>
 <table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
 <thead>
 <tr>
 <th>ID</th>
@@ -777,8 +856,13 @@ clarifying question posted back to the ticket</td>
 </tr>
 </tbody>
 </table>
-<h3 id="72-planning-area-plan">7.2 Planning (area: PLAN)</h3>
+<h3 id="planning-area-plan">7.2 Planning (area: PLAN)</h3>
 <table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
 <thead>
 <tr>
 <th>ID</th>
@@ -807,9 +891,13 @@ consumer-only; route to the appropriate validation gate set</td>
 </tr>
 </tbody>
 </table>
-<h3 id="73-implementation-area-impl">7.3 Implementation (area:
-IMPL)</h3>
+<h3 id="implementation-area-impl">7.3 Implementation (area: IMPL)</h3>
 <table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
 <thead>
 <tr>
 <th>ID</th>
@@ -869,9 +957,14 @@ operator can watch and steer</td>
 </tr>
 </tbody>
 </table>
-<h3 id="74-validation-gates-area-valid">7.4 Validation gates (area:
+<h3 id="validation-gates-area-valid">7.4 Validation gates (area:
 VALID)</h3>
 <table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
 <thead>
 <tr>
 <th>ID</th>
@@ -882,8 +975,8 @@ VALID)</h3>
 <tbody>
 <tr>
 <td>FR-VALID-01</td>
-<td>Bring up the target service's Docker Compose stack (or equivalent
-sandbox definition) inside the run's workspace and execute the test
+<td>Bring up the target service’s Docker Compose stack (or equivalent
+sandbox definition) inside the run’s workspace and execute the test
 suite; capture structured results</td>
 <td>M</td>
 </tr>
@@ -923,8 +1016,13 @@ the failure report to the ticket instead</td>
 </tr>
 </tbody>
 </table>
-<h3 id="75-delivery-area-deliver">7.5 Delivery (area: DELIVER)</h3>
+<h3 id="delivery-area-deliver">7.5 Delivery (area: DELIVER)</h3>
 <table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
 <thead>
 <tr>
 <th>ID</th>
@@ -961,8 +1059,13 @@ PR creation for explicit human approval</td>
 </tr>
 </tbody>
 </table>
-<h3 id="76-operations-area-ops">7.6 Operations (area: OPS)</h3>
+<h3 id="operations-area-ops">7.6 Operations (area: OPS)</h3>
 <table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
 <thead>
 <tr>
 <th>ID</th>
@@ -997,7 +1100,7 @@ without spawning workers or touching remotes</td>
 </tr>
 </tbody>
 </table>
-<h3 id="77-context-area-ctx">7.7 Context (area: CTX)</h3>
+<h3 id="context-area-ctx">7.7 Context (area: CTX)</h3>
 <p>Optional, budget-bounded structural context assembled at the same
 <code>COMPACT_CONTEXT_MARKER</code> as the lessons and childTrails
 digests so G0/G5 read identical content. Two layers: (1) an always-on
@@ -1008,6 +1111,11 @@ href="https://github.com/FreePeak/LeanKG">github.com/FreePeak/LeanKG</a>,
 Postgres-backed knowledge-graph MCP) that adds indexed structural
 context when a server is attached, <code>off</code> otherwise.</p>
 <table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
 <thead>
 <tr>
 <th>ID</th>
@@ -1036,7 +1144,7 @@ degrades nothing</td>
 <tr>
 <td>FR-CTX-03</td>
 <td>The KG layer is opt-in via config
-(<code>devagent.context.kg: "leankg" | "off"</code>, default
+(<code>devagent.context.kg: "leankg" \| "off"</code>, default
 <code>off</code>); when <code>off</code> or the provider is unreachable,
 the digest is baseline-only and the pipeline continues — never
 blocked</td>
@@ -1045,25 +1153,25 @@ blocked</td>
 <tr>
 <td>FR-CTX-04</td>
 <td>Never pass the KG client to a worker adapter; the context digest is
-an orchestrator-side concern only, preserving the "any worker, same
-contract" invariant from section 9</td>
+an orchestrator-side concern only, preserving the “any worker, same
+contract” invariant from section 9</td>
 <td>M</td>
 </tr>
 <tr>
 <td>FR-CTX-05</td>
 <td>Wrap every KG client call in a 1s wall-clock budget; on timeout or
 absence, omit the KG layer and surface the degraded mode in the run log.
-Do not build a query-fallback ladder inside DevAgent: LeanKG's
+Do not build a query-fallback ladder inside DevAgent: LeanKG’s
 single-tool router degrades internally (L3 vectors → L2 fuzzy → L1 exact
 → L0 cold) and stamps every response with
 <code>retrieval: {rung, reason}</code> +
-<code>freshness: fresh | possibly_stale | cold</code> — consume that
+<code>freshness: fresh \| possibly_stale \| cold</code> — consume that
 provenance verbatim in the digest and run log</td>
 <td>S</td>
 </tr>
 </tbody>
 </table>
-<h2 id="8-system-architecture">8. System Architecture</h2>
+<h2 id="system-architecture">8. System Architecture</h2>
 <p>DevAgent is a thin orchestration layer over existing agent CLIs and
 infrastructure. It calls no LLM API directly; all code generation
 happens inside worker agent processes.</p>
@@ -1107,9 +1215,12 @@ happens inside worker agent processes.</p>
     O --&gt; PR --&gt; GH
     PR --&gt; L
     O --&gt; LOG</code></pre>
-<h3 id="81-component-responsibilities">8.1 Component
-responsibilities</h3>
+<h3 id="component-responsibilities">8.1 Component responsibilities</h3>
 <table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
 <thead>
 <tr>
 <th>Component</th>
@@ -1158,7 +1269,7 @@ ticket</td>
 </tr>
 </tbody>
 </table>
-<h3 id="82-key-design-rules">8.2 Key design rules</h3>
+<h3 id="key-design-rules">8.2 Key design rules</h3>
 <ol type="1">
 <li><strong>No direct LLM calls</strong> — model/vendor changes never
 touch DevAgent code; only worker adapters.</li>
@@ -1168,7 +1279,7 @@ a worktree plus Docker volumes, both torn down after the run.</li>
 on the diff/worktree regardless of which worker produced it, enabling
 cross-worker comparison on equal footing.</li>
 </ol>
-<h2 id="9-worker-adapter-layer">9. Worker Adapter Layer</h2>
+<h2 id="worker-adapter-layer">9. Worker Adapter Layer</h2>
 <p>The single abstraction that makes DevAgent worker-agnostic:</p>
 <div class="sourceCode" id="cb2"><pre
 class="sourceCode typescript"><code class="sourceCode typescript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">interface</span> WorkerAdapter {</span>
@@ -1188,6 +1299,11 @@ class="sourceCode typescript"><code class="sourceCode typescript"><span id="cb2-
 <span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>  events<span class="op">:</span> WorkerEvent[]<span class="op">;</span>     <span class="co">// parsed structured output for logging/replay</span></span>
 <span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
 <table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
 <thead>
 <tr>
 <th>Concern</th>
@@ -1229,7 +1345,7 @@ that mode is enabled.</p>
 configuration (FR-OPS-03); adapters translate the stable
 <code>WorkerAdapter</code> contract to whatever the installed CLI
 supports.</p>
-<h2 id="10-delivery-pipeline">10. Delivery Pipeline</h2>
+<h2 id="delivery-pipeline">10. Delivery Pipeline</h2>
 <p>State machine per ticket:</p>
 <pre class="mermaid"><code>stateDiagram-v2
     [*] --&gt; Fetch: run --ticket LINEAR-204
@@ -1255,13 +1371,13 @@ supports.</p>
 parallel legs (one per worker); <code>Validate</code> scores each leg
 (tests passed, gate findings count, diff size) and selects the winning
 leg before <code>MigrationGate</code>.</p>
-<h2 id="11-validation-gates-domain-intelligence">11. Validation Gates
+<h2 id="validation-gates-domain-intelligence">11. Validation Gates
 (Domain Intelligence)</h2>
 <p>This is where DevAgent differs from generic coding agents. Gates run
 identically regardless of which worker produced the diff.</p>
-<h3 id="gate-g1--test-execution">Gate G1 — Test execution</h3>
+<h3 id="gate-g1-test-execution">Gate G1 — Test execution</h3>
 <ul>
-<li>Bring up the repository's sandbox definition (Docker Compose by
+<li>Bring up the repository’s sandbox definition (Docker Compose by
 convention: <code>docker-compose.devagent.yml</code> or repo
 default).</li>
 <li>Run the configured test suite; capture pass/fail counts, failing
@@ -1269,7 +1385,7 @@ test names, and output excerpts.</li>
 <li>On failure: feed structured failure output back to the worker
 (FR-IMPL-04), max N loops.</li>
 </ul>
-<h3 id="gate-g2--migration-application">Gate G2 — Migration
+<h3 id="gate-g2-migration-application">Gate G2 — Migration
 application</h3>
 <p>Applies only to migration-classified tickets (FR-PLAN-03):</p>
 <ol type="1">
@@ -1281,11 +1397,16 @@ the migrated schema.</li>
 <li>Compare table/row shapes before vs after; flag shrinkage as data
 loss (FR-VALID-04).</li>
 </ol>
-<h3 id="gate-g3--static-migration-analysis">Gate G3 — Static migration
+<h3 id="gate-g3-static-migration-analysis">Gate G3 — Static migration
 analysis</h3>
 <p>Linter-style rules over migration files; critical severity blocks
 PR:</p>
 <table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
 <thead>
 <tr>
 <th>Rule</th>
@@ -1333,7 +1454,7 @@ taxonomy. DevAgent integrates these tools where they fit (Squawk for
 Postgres SQL, <code>atlas migrate lint</code> for replay-based analysis)
 rather than reinventing them; the G3 table above is the vendor-neutral
 rule contract.</p>
-<h3 id="gate-g4--asyncrace-condition-review">Gate G4 —
+<h3 id="gate-g4-asyncrace-condition-review">Gate G4 —
 Async/race-condition review</h3>
 <p>A dedicated audit pass (separate worker prompt, not the implementer)
 over the diff targeting concurrency hazards. Research consensus
@@ -1353,7 +1474,7 @@ queue-handler idempotency, transaction boundaries spanning I/O.</li>
 <li>Findings posted as PR review comments (advisory in v1); LLM-only
 findings are labeled as such so reviewers can weight them.</li>
 </ol>
-<h3 id="gate-g0--issue-readiness-pre-dispatch">Gate G0 — Issue readiness
+<h3 id="gate-g0-issue-readiness-pre-dispatch">Gate G0 — Issue readiness
 (pre-dispatch)</h3>
 <p>Type-specific ready-for-dev scoring of the incoming ticket BEFORE any
 worker dispatch, so credits are not burned on under-specified work.
@@ -1382,7 +1503,7 @@ semantics); dry-run plan-only runs surface G0 like
 pre-G0 behavior.</li>
 </ul>
 <h3 id="g5-stride-merge-gate">G5: STRIDE merge gate</h3>
-<p>Static STRIDE-category review over the worker's branch diff, run in
+<p>Static STRIDE-category review over the worker’s branch diff, run in
 the consume/autoMerge path between the G4 validate stage and
 <code>autoMergePr</code>. The rubric lives in
 <code>src/validation/stride-gate.ts</code> (regex rules over parsed
@@ -1420,7 +1541,7 @@ compact findings list.</li>
 <li><code>contextDigest</code> is provenance-only and passed through
 verbatim, treated as opaque (Q12).</li>
 </ul>
-<h2 id="12-cli-specification">12. CLI Specification</h2>
+<h2 id="cli-specification">12. CLI Specification</h2>
 <div class="sourceCode" id="cb4"><pre
 class="sourceCode bash"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Headless: ticket to PR without human touchpoints</span></span>
 <span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="ex">devagent</span> run <span class="at">--ticket</span> LINEAR-204 <span class="at">--repo</span> ./backend-service <span class="at">--auto-pr</span></span>
@@ -1432,6 +1553,10 @@ class="sourceCode bash"><code class="sourceCode bash"><span id="cb4-1"><a href="
 <span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a><span class="ex">devagent</span> run <span class="at">--ticket</span> LINEAR-204 <span class="at">--worker</span> claude-code   <span class="co"># or opencode | both</span></span></code></pre></div>
 <h3 id="commands">Commands</h3>
 <table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
 <thead>
 <tr>
 <th>Command</th>
@@ -1467,38 +1592,46 @@ presence)</td>
 </tbody>
 </table>
 <h3 id="flags-run">Flags (<code>run</code>)</h3>
-<p>| Flag | Default | Meaning | | <code>--auto-pr</code> | off | Skip
-approval gates (headless pipeline mode); does not change how worker
-tools themselves are spawned (that is <code>spawn.visibility</code>,
-FR-IMPL-07) | | <code>--ticket &lt;id&gt;</code> | required | Tracker
-ticket identifier | | <code>--repo &lt;path&gt;</code> | <code>.</code>
-| Target repository | | <code>--worker &lt;name&gt;</code> | config |
-<code>claude-code</code>, <code>opencode</code>, or <code>both</code>
-(fan-out) | | <code>--auto-pr</code> | off | Skip approval gates
-(headless mode) | | <code>--interactive</code> | on when TTY | Pause at
-human gates | | <code>--headless</code> | config
-(<code>spawn.visibility</code>) | Force headless worker spawn for this
-run; <code>--visible</code> forces interactive spawn — default follows
-config and opens workers like normal interactive sessions (FR-IMPL-07) |
-| <code>--max-loops &lt;n&gt;</code> | 3 | Test-failure retry budget | |
-<code>--timeout &lt;dur&gt;</code> | 30m | Wall-clock cap per run | |
-<code>--dry-run</code> | off | Plan only; no workers, no remotes |</p>
-<h3 id="environment-variables-credentials-only--fr-ops-02">Environment
+<div class="line-block">Flag | Default | Meaning |<br />
+<code>--auto-pr</code> | off | Skip approval gates (headless pipeline
+mode); does not change how worker tools themselves are spawned (that is
+<code>spawn.visibility</code>, FR-IMPL-07) |<br />
+<code>--ticket &lt;id&gt;</code> | required | Tracker ticket identifier
+|<br />
+<code>--repo &lt;path&gt;</code> | <code>.</code> | Target repository
+|<br />
+<code>--worker &lt;name&gt;</code> | config | <code>claude-code</code>,
+<code>opencode</code>, or <code>both</code> (fan-out) |<br />
+<code>--auto-pr</code> | off | Skip approval gates (headless mode)
+|<br />
+<code>--interactive</code> | on when TTY | Pause at human gates |<br />
+<code>--headless</code> | config (<code>spawn.visibility</code>) | Force
+headless worker spawn for this run; <code>--visible</code> forces
+interactive spawn — default follows config and opens workers like normal
+interactive sessions (FR-IMPL-07) |<br />
+<code>--max-loops &lt;n&gt;</code> | 3 | Test-failure retry budget
+|<br />
+<code>--timeout &lt;dur&gt;</code> | 30m | Wall-clock cap per run
+|<br />
+<code>--dry-run</code> | off | Plan only; no workers, no remotes |</div>
+<h3 id="environment-variables-credentials-only-fr-ops-02">Environment
 variables (credentials only — FR-OPS-02)</h3>
 <p><code>LINEAR_API_KEY</code>, <code>GITHUB_TOKEN</code> (scoped to
 contents:write + pull-requests:write on target repos),
 <code>DEVAGENT_HOME</code> (run state/logs).</p>
-<h2 id="13-integrations">13. Integrations</h2>
-<h3 id="131-linear-v1-tracker">13.1 Linear (v1 tracker)</h3>
+<h2 id="integrations">13. Integrations</h2>
+<h3 id="linear-v1-tracker">13.1 Linear (v1 tracker)</h3>
 <ul>
 <li><strong>API</strong>: GraphQL at
 <code>https://api.linear.app/graphql</code>; SDK
 <code>@linear/sdk</code> for TypeScript.</li>
 <li><strong>Auth</strong>: OAuth2 application with granular scopes over
-personal API keys. The "assign to @devagent" pattern uses Linear's
+personal API keys. The “assign to <span class="citation"
+data-cites="devagent">@devagent</span>” pattern uses Linear’s
 first-class <strong>Agent</strong> support: OAuth scopes
 <code>app:assignable</code> (issue delegation) and
-<code>app:mentionable</code> (@mentions). Assignment sets the agent as
+<code>app:mentionable</code> (<span class="citation"
+data-cites="mentions">@mentions</span>). Assignment sets the agent as
 <strong>delegate</strong> — humans keep ownership; DevAgent acts on
 their behalf.</li>
 <li><strong>Trigger path</strong>: assigning or mentioning creates an
@@ -1515,7 +1648,7 @@ h / 6 h; persistent failure disables the webhook).</li>
 req/user/hr, OAuth app = 5,000. GraphQL complexity budget applies — keep
 paginated child counts small. Never poll; use webhooks and filters.</li>
 </ul>
-<h3 id="132-jira-cloud-v2">13.2 Jira Cloud (v2)</h3>
+<h3 id="jira-cloud-v2">13.2 Jira Cloud (v2)</h3>
 <ul>
 <li>REST v3, auth via scoped API token + Basic auth (dedicated service
 account) or OAuth 2.0 (3LO) with <code>read:jira-work</code> /
@@ -1527,7 +1660,7 @@ from <code>changelog</code> items where
 quota); watch the CAPTCHA lockout trap on repeated failed basic-auth
 logins.</li>
 </ul>
-<h3 id="133-github-v1-git-host">13.3 GitHub (v1 git host)</h3>
+<h3 id="github-v1-git-host">13.3 GitHub (v1 git host)</h3>
 <ul>
 <li><strong>Auth model</strong>: GitHub App over fine-grained PAT —
 distinct <code>app-name[bot]</code> identity gives clean audit
@@ -1547,13 +1680,13 @@ require signed bot commits where enabled.</li>
 <li><strong>Rate limits</strong>: 5,000 req/hr (App); secondary limit
 ≤100 concurrent requests; handle 403 with <code>Retry-After</code>.</li>
 </ul>
-<h3 id="134-gitlab-v2">13.4 GitLab (v2)</h3>
+<h3 id="gitlab-v2">13.4 GitLab (v2)</h3>
 <p>Project access tokens (bot user, 365-day cap, rotation endpoint) with
 scopes <code>api</code>, <code>read_repository</code>,
 <code>write_repository</code>; Developer role suffices for branch + MR
 creation; bots cannot self-approve MRs (aligns with human-review
 gate).</p>
-<h3 id="135-cross-cutting-integration-requirements">13.5 Cross-cutting
+<h3 id="cross-cutting-integration-requirements">13.5 Cross-cutting
 integration requirements</h3>
 <ol type="1">
 <li>Webhook idempotency via provider delivery IDs on all trackers.</li>
@@ -1565,9 +1698,13 @@ unavoidable (Jira token).</li>
 <li>Ticket fields are untrusted input (prompt-injection defense,
 R5).</li>
 </ol>
-<h2 id="14-non-functional-requirements">14. Non-Functional
+<h2 id="non-functional-requirements">14. Non-Functional
 Requirements</h2>
 <table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
 <thead>
 <tr>
 <th>ID</th>
@@ -1610,9 +1747,14 @@ Scheduler</td>
 </tr>
 </tbody>
 </table>
-<h2 id="15-metrics-and-success-criteria">15. Metrics and Success
+<h2 id="metrics-and-success-criteria">15. Metrics and Success
 Criteria</h2>
 <table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
 <thead>
 <tr>
 <th>Metric</th>
@@ -1644,18 +1786,23 @@ edits</td>
 </tr>
 <tr>
 <td>Retry efficiency</td>
-<td>% of runs succeeding within the retry loop vs. escalating to
+<td>% of runs succeeding within the retry loop vs. escalating to
 fan-out</td>
 <td>track, no target v1</td>
 </tr>
 </tbody>
 </table>
-<p><strong>v1 exit criterion (the spine works):</strong> one real "add a
-GET /health endpoint" ticket flows end-to-end automatically — fetch →
+<p><strong>v1 exit criterion (the spine works):</strong> one real “add a
+GET /health endpoint” ticket flows end-to-end automatically — fetch →
 plan → implement (both workers selectable) → tests green in Docker →
 gates pass → PR opened with evidence.</p>
-<h2 id="16-risks-and-mitigations">16. Risks and Mitigations</h2>
+<h2 id="risks-and-mitigations">16. Risks and Mitigations</h2>
 <table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
 <thead>
 <tr>
 <th>#</th>
@@ -1735,22 +1882,20 @@ is gated on the soak gate</td>
 </tr>
 </tbody>
 </table>
-<h2 id="17-roadmap">17. Roadmap</h2>
+<h2 id="roadmap">17. Roadmap</h2>
 <blockquote>
 <p><strong>Status (2026-08):</strong> Phases 0–3 are implemented and
 CI-protected on <code>main</code> (v0.3.0): spine, G1–G4 gates, worktree
 isolation, retry-with-evidence, fan-out, webhook server + latest-wins
 registry, fleet mode, rate-limit handling, JSONL logs + HTML dashboard,
-127 tests green incl. E2E over real git fixtures.</p>
+127 tests green incl. E2E over real git fixtures.</p>
 </blockquote>
-<h3 id="phase-0--foundations-white_check_mark">Phase 0 — Foundations
-✅</h3>
+<h3 id="phase-0-foundations">Phase 0 — Foundations ✅</h3>
 <p>Repo skeleton, config loading, credential handling, run logger.</p>
-<h3 id="phase-1--the-spine-white_check_mark">Phase 1 — The spine ✅</h3>
+<h3 id="phase-1-the-spine">Phase 1 — The spine ✅</h3>
 <p>Worker dispatch (Claude Code), Linear fetch, worktree + branch, test
 loop with repair-prompt retries, PR open with evidence.</p>
-<h3 id="phase-2--differentiators-white_check_mark">Phase 2 —
-Differentiators ✅</h3>
+<h3 id="phase-2-differentiators">Phase 2 — Differentiators ✅</h3>
 <p>Gates G2/G3/G4, OpenCode adapter + fan-out mode, migration safety
 rules.</p>
 <blockquote>
@@ -1759,7 +1904,7 @@ fan-out winners; second language ecosystem via declarative
 <code>testCommand</code> override + Python/pyproject convention
 detection (PR #15).</p>
 </blockquote>
-<h3 id="phase-3--hardening-white_check_mark">Phase 3 — Hardening ✅</h3>
+<h3 id="phase-3-hardening">Phase 3 — Hardening ✅</h3>
 <p>Webhook-triggered runs with HMAC verification and dedup, run
 dashboard/status commands, end-to-end fixture tests, Linear + GitHub
 rate-limit resilience.</p>
@@ -1775,72 +1920,64 @@ autoMerge CI-status gate — merges now require a green check rollup
 (<code>evaluateChecks</code> blocks on failures, waits out pending runs
 before judging), so Q7 below is resolved as yes.</p>
 </blockquote>
-<h3 id="phase-4--expansion-post-v1">Phase 4 — Expansion (post-v1)</h3>
+<h3 id="phase-4-expansion-post-v1">Phase 4 — Expansion (post-v1)</h3>
 <ul>
 <li>Remote execution — dispatch pipelines to a shared host so worker
-capacity is pooled across repos instead of per-workspace.
-<blockquote>
-<p><strong>Completed post-v0.3 (2026-08-25):</strong>
-<code>devagent task --remote</code> delegates the pipeline to a shared
-host over SSH (preflight probe, bounded timeout, PR URL extraction, PR
-#31). <strong>Concurrency-safe identity (2026-08-25):</strong> task ids
-are per-dispatch — <code>--id</code> / <code>$DEVAGENT_TASK_ID</code>,
-defaulting to a collision-free <code>TASK-&lt;suffix&gt;</code> — and
-forward through remote dispatch, so concurrent runs no longer collide on
-the hardcoded <code>.devagent-worktrees/TASK</code> worktree +
-<code>devagent/TASK</code> branch.</p>
-</blockquote></li>
+capacity is pooled across repos instead of per-workspace. &gt;
+<strong>Completed post-v0.3 (2026-08-25):</strong>
+<code>devagent task --remote</code> delegates the pipeline &gt; to a
+shared host over SSH (preflight probe, bounded timeout, PR URL
+extraction, PR #31). &gt; <strong>Concurrency-safe identity
+(2026-08-25):</strong> task ids are per-dispatch — <code>--id</code> /
+&gt; <code>$DEVAGENT_TASK_ID</code>, defaulting to a collision-free
+<code>TASK-&lt;suffix&gt;</code> — and forward through &gt; remote
+dispatch, so concurrent runs no longer collide on the hardcoded &gt;
+<code>.devagent-worktrees/TASK</code> worktree +
+<code>devagent/TASK</code> branch.</li>
 <li>Deeper sandbox isolation — network and filesystem allowlists for
-workers before any untrusted-repo run.
-<blockquote>
-<p><strong>Completed post-v0.3 (2026-08-24):</strong> credential-shaped
-env vars are stripped from all agent-CLI worker spawns by default
-(<code>src/workers/sandbox.ts</code>, override via
+workers before any untrusted-repo run. &gt; <strong>Completed post-v0.3
+(2026-08-24):</strong> credential-shaped env vars are stripped from &gt;
+all agent-CLI worker spawns by default
+(<code>src/workers/sandbox.ts</code>, override via &gt;
 <code>DEVAGENT_WORKER_ENV_ALLOWLIST</code>); opt-in macOS seatbelt
-confinement (<code>DEVAGENT_SANDBOX=seatbelt</code>) denies worker
-writes outside the worktree and temp dirs, with network left
-default-allow as a named policy knob for future tightening.
+confinement &gt; (<code>DEVAGENT_SANDBOX=seatbelt</code>) denies worker
+writes outside the worktree and temp &gt; dirs, with network left
+default-allow as a named policy knob for future tightening. &gt;
 Git/docker/gh/test-runner spawns keep the full parent env — they need
-credentials.</p>
-</blockquote></li>
+credentials.</li>
 <li>Lessons feedback loop — <code>selfbuild-state.sh</code> mirrors
 <code>lessons.md</code> to the state branch (PR #19) but nothing reads
 it back; inject curated lessons into worker repair and planning prompts
 so past failures stop repeating.</li>
 <li>Flaky-test guard for fan-out judging — winner selection assumes
 deterministic tests; add quarantine/rerun handling for nondeterministic
-suites.
-<blockquote>
-<p><strong>Completed post-v0.3 (2026-08-28):</strong> one flaky rerun
-before condemning a candidate, and a clean pass outranks a flaky rescue
-in winner ranking (<code>src/workers/fanout.ts:74-95</code>); closes Q8
-below.</p>
-</blockquote></li>
+suites. &gt; <strong>Completed post-v0.3 (2026-08-28):</strong> one
+flaky rerun before condemning a &gt; candidate, and a clean pass
+outranks a flaky rescue in winner ranking &gt;
+(<code>src/workers/fanout.ts:74-95</code>); closes Q8 below.</li>
 <li><del>Failure-cluster reporting on ledger analytics — recurring gap
 categories in the ledger should surface as actionable periodic reports,
-not just queryable rows.</del>
-<blockquote>
-<p><strong>Completed post-v0.3 (2026-09-07):</strong> both halves of the
-cluster view ship. Criteria half — <code>clusterFailures</code> ranks
-recurring unmet acceptance criteria across failed audits, surfaced by
-<code>devagent ledger --clusters</code>. failureClass half —
+not just queryable rows.</del> &gt; <strong>Completed post-v0.3
+(2026-09-07):</strong> both halves of the cluster view &gt; ship.
+Criteria half — <code>clusterFailures</code> ranks recurring unmet
+acceptance &gt; criteria across failed audits, surfaced by
+<code>devagent ledger --clusters</code>. &gt; failureClass half —
 <code>clusterFailureClasses</code>
-(<code>src/orchestrator/ledger.ts</code>) groups
-<code>taskInterrupt</code> event rows (which <code>readLedger</code>'s
-audit filter never returned, so <code>clusterFailures</code> was
-criteria-only by construction) by executor failure class — occurrences,
-distinct tasks, first-seen gate excerpt — printed as a second section
-under <code>--clusters</code> (text and <code>--json</code>);
-<code>scripts/selfbuild-loop.sh</code> captures the report each
-iteration and echoes it into the research/PO prompts, so recurring
-executor deaths steer goal selection instead of staying queryable
-rows.</p>
-</blockquote></li>
+(<code>src/orchestrator/ledger.ts</code>) &gt; groups
+<code>taskInterrupt</code> event rows (which <code>readLedger</code>’s
+audit filter never &gt; returned, so <code>clusterFailures</code> was
+criteria-only by construction) by &gt; executor failure class —
+occurrences, distinct tasks, first-seen gate &gt; excerpt — printed as a
+second section under <code>--clusters</code> (text and &gt;
+<code>--json</code>); <code>scripts/selfbuild-loop.sh</code> captures
+the report each iteration &gt; and echoes it into the research/PO
+prompts, so recurring executor deaths &gt; steer goal selection instead
+of staying queryable rows.</li>
 <li>Knowledge-grounded context — two-layer digest at the existing
 <code>COMPACT_CONTEXT_MARKER</code>: an always-on local markdown
 baseline (<code>.devagent/context/*.md</code>, zero dependencies) plus
 opt-in structural memory from the local <code>leankg</code> MCP,
-consumed as the degradation boundary (LeanKG's single-tool ladder
+consumed as the degradation boundary (LeanKG’s single-tool ladder
 degrades internally and stamps
 <code>retrieval</code>/<code>freshness</code> provenance; no hand-rolled
 fallback in DevAgent), ratchet-capped at the same 4000-char budget as
@@ -1869,8 +2006,8 @@ planner prompt at <code>COMPACT_CONTEXT_MARKER</code>; G0 and G5:STRIDE
 read the same digest at the same assembly point
 (<code>src/prompt.ts:303-317</code>), so the industry-baseline plumbing
 lights up automatically for every subsequent gate. Closes the iter
-50/52/53/54 convergence lesson, closes Q10 as "fixed-size ratchet-capped
-excerpt."</p>
+50/52/53/54 convergence lesson, closes Q10 as “fixed-size ratchet-capped
+excerpt.”</p>
 </blockquote>
 <blockquote>
 <p><strong>Completed post-v0.3 (2026-08-28):</strong> Scout output-shape
@@ -1883,8 +2020,8 @@ opt-out <code>ORCHESTRATOR_MODEL_PROBE=0</code>) and
 <code>isTransientProviderError</code> now matches
 <code>unrecognized_model</code>, <code>empty stream</code>,
 <code>empty response</code> (PR #60,
-<code>test/classify.test.ts</code>); together they end the "loop stuck,
-not shipping PRs" pattern during omniroute rate-limit windows.</p>
+<code>test/classify.test.ts</code>); together they end the “loop stuck,
+not shipping PRs” pattern during omniroute rate-limit windows.</p>
 <p><strong>Completed post-v0.3 (2026-08-28, defect cluster):</strong>
 PRD-curator self-checkout race (PR #55 —
 <code>scripts/prd-curator.sh</code> was leaving HEAD on the
@@ -1893,12 +2030,12 @@ branch-race hazard in [[selfbuild-checkout-branch-races]]). Herdr pane
 env-file scrub (commit 443dee8 — <code>src/integrations/herdr.ts</code>
 <code>renderEnvFile</code> filters to
 <code>/^[A-Za-z_][A-Za-z0-9_]*$/</code>; non-identifier keys like
-<code>npm_config_node_pre_gyp:cache</code> were aborting the pane's
-<code>source</code> with zsh "not valid in this context", so no
+<code>npm_config_node_pre_gyp:cache</code> were aborting the pane’s
+<code>source</code> with zsh “not valid in this context”, so no
 PATH/HOME ever reached the worker). Uniform spawn-helper PATH fallback
 (commit 5149887 — all child-process spawns now route through
 <code>runCli</code>/<code>syncCli</code>/ <code>spawnChild</code>, so
-the next worker added can't bypass the PATH fallback). Herdr watchdog
+the next worker added can’t bypass the PATH fallback). Herdr watchdog
 grace + resilient reaper scope + model forwarding to workers (commits
 3c67178). Reaper unblocks dependency-blocked tasks (commit 2446a38).
 Worker wall-clock raised to 60 min, no-progress to 15 min (commit
@@ -1933,7 +2070,7 @@ per-task PR publish (PR #71 — <code>publishTaskPr</code> dep on
 <code>done</code>, the scheduler best-effort pushes its attempt branch
 and opens a PR instead of leaving published branches stranded behind the
 all-done <code>mergeProjectBranches</code> gate — the loop-69 root cause
-where one failing gate task (T1) blocked every other task's PR from ever
+where one failing gate task (T1) blocked every other task’s PR from ever
 existing.</p>
 <p><strong>Completed post-v0.3 (2026-08-29, curation run 11):</strong>
 auto release engineering (PR #75 —
@@ -2003,7 +2140,7 @@ model-id hardening — headless argv emits
 78–487s (worst: stuck in <code>discoverAndLoadMCPTools</code>) to
 ~17–21s (PR #91), and provider-unqualified model aliases are dropped so
 omp falls back to its configured <code>modelRoles.default</code> (PR
-#92); loop 58's exit-1-in-12s class now dies at the adapter boundary,
+#92); loop 58’s exit-1-in-12s class now dies at the adapter boundary,
 not mid-board. Watchdog tuning needs no code edit —
 <code>resilience.noProgressTimeoutMs</code> threads from config through
 the executor to adapter opts
@@ -2026,8 +2163,8 @@ in the Q24 error taxonomy (<code>src/integrations/autopr.ts:363</code>),
 with failed-then-green, still-red, and no-fixer unit tests. PR #96
 landed the pure decision function, PR #97 the dispatch loop. Zombie-PR
 hygiene (auto-close red-across-grace-window or superseded-base PRs) is
-the surviving half and stays on the backlog; the completed "Scout replay
-in CI" bullet (PR #86) is retired below.</p>
+the surviving half and stays on the backlog; the completed “Scout replay
+in CI” bullet (PR #86) is retired below.</p>
 <p><strong>Completed post-v0.3 (2026-09-01, curation run 21):</strong>
 CI-Fixer ledger rows — PR #100 writes one dispatch + one outcome row per
 <code>TASK-fix-&lt;pr&gt;</code>, closing Q35 with round-trip regression
@@ -2040,7 +2177,7 @@ Scout deterministic fallback + maxQueued guard — commit aefc6bf resolves
 empty/idless scout payloads to a stable task id so the scout queue
 cannot silently grow unbounded. Commits 20ce8fd adds pi to the worker
 registry and 34cf3d9 makes task-path dispatch honor
-<code>herdr.enabled</code>, unblocking the selfbuild loop when omp's
+<code>herdr.enabled</code>, unblocking the selfbuild loop when omp’s
 model alias path is unavailable.</p>
 <p><strong>Queue sweep (2026-08-31, operator):</strong> 25 queue rows
 resolved without new code — 17 marked done citing shipped PRs (#84
@@ -2090,7 +2227,7 @@ idempotent tag (9c7132a), CI-Fixer local dispatch fallback
 <blockquote>
 <p><strong>Completed post-v0.3 (2026-09-02, curation run 23):</strong>
 Provider model-id validation at dispatch (Q32) —
-<code>validateModelId</code> declares each adapter's accepted id shape
+<code>validateModelId</code> declares each adapter’s accepted id shape
 (<code>src/workers/model-id.ts:62</code>) and preflight rejects
 unsupported ids before worker spend (<code>src/deps.ts:206</code>,
 <code>src/orchestrator/executor.ts:199</code>), surfaced in
@@ -2120,7 +2257,7 @@ curator/reviewer/selfbuild/warroom loops (PR #119), default-on with
 <code>OPERATOR_PROBE_DISABLED=1</code> opt-out (PR #122). Same-day
 defect cluster (PR #120): probe stdin closed (22 overnight stalls, 25
 DEGRADED cycles, 2 breaker trips), success-path circuit advance so a
-recovered provider isn't stuck open, PO-dispatch timeout guard,
+recovered provider isn’t stuck open, PO-dispatch timeout guard,
 research/PO dispatches get <code>/dev/null</code> stdin (omp
 <code>readPipedInput</code> hang), <code>CLAUDE_TIMEOUT</code> 300→600s.
 Lessons impact telemetry (Q39) — <code>recordLoopResult</code> loop rows
@@ -2147,24 +2284,24 @@ sync degrades to a skipped heartbeat cycle (ace2b88). <strong>Completed
 post-v0.3 (2026-09-07):</strong> FR-VIS-09 extended from the loop driver
 to queue claims — the <code>claimTask</code> last-writer-wins TODO meant
 two consumers that both read a <code>pending</code> task each believed
-they owned it, and the later writer silently overwrote the earlier one's
+they owned it, and the later writer silently overwrote the earlier one’s
 record. Claims now take an atomic <code>link()</code> lock per task
 (<code>acquireClaimLock</code>, <code>src/queue.ts:172</code>;
 <code>link()</code> fails EEXIST so exactly one caller wins, and it is
 portable to macOS where <code>flock</code> is unavailable — the same
-primitive family as the driver's mkdir lock) and issue a fencing token:
+primitive family as the driver’s mkdir lock) and issue a fencing token:
 <code>QueuedTask.leaseGeneration</code> plus <code>leaseOwner</code> and
 <code>leaseExpiresAt</code> (<code>src/queue.ts:27-31</code>). A
 <code>claimed</code> task past its lease is reclaimable and the reclaim
 bumps the generation — a token is never reused — so
-<code>claimNextPending</code> recovers a crashed worker's task instead
+<code>claimNextPending</code> recovers a crashed worker’s task instead
 of wedging (<code>src/queue.ts:443</code>). Every claim-lifecycle write
 carries the token and is refused when stale:
 <code>completeTask</code>/<code>failTask</code>/<code>requeueTask</code>
 (<code>src/queue.ts:348,358,375</code>) and the guarded
 <code>updateTask</code>/<code>setTaskStatus</code>
 (<code>expectedGeneration</code>); <code>requeueTask</code> bumps the
-generation on release so the releasing worker's own late writes die with
+generation on release so the releasing worker’s own late writes die with
 the release. <code>src/consume.ts:311</code> threads its claim token
 through completion, requeue, and failure, and
 <code>scripts/selfbuild-queue-claim.mjs</code> hands the loop the token
@@ -2177,7 +2314,7 @@ reclaimable. 9 deterministic lease tests
 output is unchanged.</p>
 </blockquote>
 <h4
-id="phase-4--history-backlog-migrated-to-github-issues-2026-09-07">Phase
+id="phase-4-history-backlog-migrated-to-github-issues-2026-09-07">Phase
 4 — history (backlog migrated to GitHub issues 2026-09-07)</h4>
 <blockquote>
 <p><strong>Tracker migration (2026-09-07, operator):</strong> the static
@@ -2188,7 +2325,7 @@ that queue (issue-first, deterministic: priority rank then oldest issue
 number), the PRD curator files and re-prioritizes new issues instead of
 maintaining this list, and every PR must land with its
 <code>docs/PRD.md</code> state update (PRD-per-PR policy;
-<code>docs/SELF-BUILD-LOOP.md</code> "Tracker + PRD policy"). Filed at
+<code>docs/SELF-BUILD-LOOP.md</code> “Tracker + PRD policy”). Filed at
 migration: #144–#148 (existing operator items) and #179 daemon control
 API (P1), #180 network sandbox allowlist (P2), #181 desktop control app
 (P2). Struck lines below are the shipped history.</p>
@@ -2201,22 +2338,20 @@ FR-GO-16 (#205) after the cutover soak gate (FR-GO-15, #204).</p>
 </blockquote>
 <p><del>- <strong>Cross-board retry memory beyond the SHA guard</strong>
 — commit 60638d3 stops re-issuing shipped goals, but re-queued failures
-still get a fresh attempt budget; carry the prior board's failure class
+still get a fresh attempt budget; carry the prior board’s failure class
 onto the re-bridged goal so the scout deprioritizes until the root-cause
 fix lands (Q27).</del> <del>- <strong>Regression oracle before board
-merge</strong> — gates judge single PRs and PR #108's committed STRIDE
-allowlist widens suppression paths; add a board-level "is the system at
-least as good?" check (full suite on the merged result) ahead of
+merge</strong> — gates judge single PRs and PR #108’s committed STRIDE
+allowlist widens suppression paths; add a board-level “is the system at
+least as good?” check (full suite on the merged result) ahead of
 <code>autoMerge</code>, per the Kitchen Loop zero-regression rule.</del>
 <del>- <strong>GRADIENT — structural gradient sensor</strong> —
 exit-code scalar architecture gate (sentrux:
 <code>.sentrux/rules.toml</code>, lowest-scoring root cause per change)
 plus an adjacent-category scan (sensors, MCP servers, harness tooling)
 in scout/selfbuild research prompts; the agent-products-only funnel is
-why sentrux was missed entirely (2026-09-01 human deep-dive;
-Q38).</del></p>
-<ul>
-<li><strong>Release/tag events as ledger outcomes</strong> — <del>the
+why sentrux was missed entirely (2026-09-01 human deep-dive; Q38).</del>
+- <strong>Release/tag events as ledger outcomes</strong> — <del>the
 release workflow needed same-day hotfixes (9c7132a remote-tag resolution
 + idempotent tag) yet the ledger stays PR-URL-only; record tag/release
 outcomes so per-loop spend-to-shipped-artifact math can count releases
@@ -2225,12 +2360,11 @@ outcomes so per-loop spend-to-shipped-artifact math can count releases
 tag, sha, version, source) in
 <code>src/orchestrator/ledger.ts:195</code> with
 <code>appendReleaseRecord</code>, a <code>devagent record release</code>
-CLI path, and a <code>release.yml</code> "Record release event in
-ledger" step — per-loop spend-to-shipped-artifact math can now count
-releases.</li>
-<li><strong>Consolidate the loop scripts</strong> — <del>recovery keeps
-landing in shell (aac28b6 queue-first selection, b302210
-sweep-each-iteration, baa4eda discovery sweep) while untracked
+CLI path, and a <code>release.yml</code> “Record release event in
+ledger” step — per-loop spend-to-shipped-artifact math can now count
+releases. - <strong>Consolidate the loop scripts</strong> —
+<del>recovery keeps landing in shell (aac28b6 queue-first selection,
+b302210 sweep-each-iteration, baa4eda discovery sweep) while untracked
 <code>scripts/orchestrator-loop.sh</code> runs divergent logic; fold
 recovery into <code>src/orchestrator/</code> and reduce the shell to a
 thin caller (Q19).</del> <strong>Shipped 2026-09-07 (PR #165):</strong>
@@ -2247,11 +2381,11 @@ the Phase 4 backlog lags merges; cross-check a pick against merged PR
 titles and these completion notes before dispatch, and strike shipped
 items in the same run (Q27 family; extends the curator title-match rule
 from the 2026-08-31 queue sweep).</del> <del>- <strong>Lessons
-must-beat-best-so-far + held-out tier</strong> — Q39's measured score
+must-beat-best-so-far + held-out tier</strong> — Q39’s measured score
 now ranks the digest, but nothing requires a candidate to beat the
 current best on loops it did not inform; add the AHE/Meta-Harness
 held-out slice so ranking cannot game the training distribution (flagged
-"future work" in the run-24 note above).</del> <del>-
+“future work” in the run-24 note above).</del> <del>-
 <strong>Simplicity-first surface pass (§21 FR-SIMPLE)</strong> — the
 2026-09-05 operator direction (§21) makes user simplicity the deciding
 quality: ship the implementable v1 slice — <code>devagent init</code>
@@ -2260,12 +2394,11 @@ the ≤3-step goal path with sane defaults (FR-SIMPLE-02), and
 human-readable-by-default status rendering in the §20.8 card/chip
 language with <code>--json</code> opt-out (FR-SIMPLE-03, FR-SIMPLE-04);
 walk the §21.1 four principles over the onboarding path at release
-review (FR-SIMPLE-06).</del></li>
-</ul>
-<h3 id="phase-5--personal-agent-surface-proposed-post-v1">Phase 5 —
+review (FR-SIMPLE-06).</del></p>
+<h3 id="phase-5-personal-agent-surface-proposed-post-v1">Phase 5 —
 Personal agent surface (proposed, post-v1)</h3>
 <p>Direction addendum 2026-09-03 (section 20): DevAgent becomes the
-local-first, BYO-provider counterpart to xAI/Cursor's Grok Bot — named
+local-first, BYO-provider counterpart to xAI/Cursor’s Grok Bot — named
 role agents with approval gates and durable memory, dispatched from a
 lightweight cross-platform desktop control app (Tauri 2: macOS
 menubar/tray, Windows + Linux tray), with first-class Grok/xAI worker
@@ -2305,8 +2438,14 @@ TUI (<code>devagent tui</code>): current task + phase, queue depth,
 token/cost vs budget cards, approval hotkeys — over SSH, on
 macOS/Linux/Windows (§20.8 FR-TUI).</li>
 </ul>
-<h2 id="18-open-questions">18. Open Questions</h2>
+<h2 id="open-questions">18. Open Questions</h2>
 <table>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
 <thead>
 <tr>
 <th>#</th>
@@ -2319,7 +2458,7 @@ macOS/Linux/Windows (§20.8 FR-TUI).</li>
 <tr>
 <td>Q11</td>
 <td><del><code>.devagent/AGENTS.md</code> auto-load — trust prompt on
-the operator's managed-settings page (Codex CVE-2025-61260 pattern) or
+the operator’s managed-settings page (Codex CVE-2025-61260 pattern) or
 one-time per-repo confirm?</del> Resolved 2026-09-07: one-time per-repo
 confirm — config <code>context.agentsMd</code> (<code>ask</code>
 default, <code>on</code>, <code>off</code>; validated beside
@@ -2363,28 +2502,28 @@ Removed.</td>
 </tr>
 <tr>
 <td>Q14</td>
-<td><del>With PR #64's governor on by default, should
+<td><del>With PR #64’s governor on by default, should
 <code>devagent status</code> surface the live
 <code>effectiveConcurrency</code> + <code>lastSample</code> + per-worker
 RSS, or stay at the one-line readout added in PR #64 AC-10? Operators
-need enough to debug "why is auto-1 today" without leaking the per-pid
+need enough to debug “why is auto-1 today” without leaking the per-pid
 sample into the human view.</del> Resolved 2026-09-07 (PR #174): stay
 one-line, enriched — <code>formatStatus</code> appends the cached
-sample's age and an aggregate calibration count
+sample’s age and an aggregate calibration count
 (<code>sample &lt;age&gt;s, cal &lt;n&gt;</code>,
-<code>src/orchestrator/governor.ts:174-182</code>), enough to debug "why
-is auto-1 today" while never surfacing the per-pid RSS into the human
+<code>src/orchestrator/governor.ts:174-182</code>), enough to debug “why
+is auto-1 today” while never surfacing the per-pid RSS into the human
 view. Removed.</td>
 <td>eng</td>
 <td>Phase 4</td>
 </tr>
 <tr>
 <td>Q15</td>
-<td><del>Now that the curator/queue gap behind PR #64's "sat in
-docs/prds/ for weeks" is recognized, should the curator's audit step
+<td><del>Now that the curator/queue gap behind PR #64’s “sat in
+docs/prds/ for weeks” is recognized, should the curator’s audit step
 (proposed above) be authoritative (curator enqueues directly) or
 advisory-only (just emits a warning the next scout cycle reads)? Direct
-write simplifies, but couples the curator to scout's queue schema.</del>
+write simplifies, but couples the curator to scout’s queue schema.</del>
 Resolved 2026-09-07: advisory-only — <code>auditPrdCoverage</code> scans
 <code>docs/prds/*.md</code> against <code>listTasks()</code> coverage
 and returns findings beside a hard <code>enqueued: 0</code> invariant
@@ -2420,7 +2559,7 @@ best-effort injectable <code>notify</code> seam. Retention is bounded:
 <code>pruneArchive</code> keeps the newest
 <code>resilience.archiveKeep</code> stamped archives (default
 <code>ARCHIVE_RETENTION_KEEP</code> = 20) on every archive, and
-<code>scripts/orchestrate-loop.sh</code>'s inline <code>mv</code> is
+<code>scripts/orchestrate-loop.sh</code>’s inline <code>mv</code> is
 gone so no archive escapes notify/retention. Proven in
 <code>test/orchestrator/board-recovery.test.ts</code> (injected notify,
 fake clock) plus a <code>devagent board-recovery</code> CLI smoke
@@ -2455,7 +2594,7 @@ size/complexity threshold (the salvage prompt was ~5 KB of step-by-step
 edits) and force a plan-split instead, or is dense prescriptive
 prompting the right shape and only the fail-signal capture (backlog item
 above) needs fixing?</del> Resolved 2026-09-07 (PR #173): refuse — a
-prompt-size preflight measures the task's own instruction payload before
+prompt-size preflight measures the task’s own instruction payload before
 worktree creation or any worker spend and fails the dispatch with
 <code>failureClass: 'prompt-oversized'</code>, forcing a plan-split
 (<code>src/orchestrator/executor.ts:235-244</code>); ceiling
@@ -2467,7 +2606,7 @@ Removed.</td>
 </tr>
 <tr>
 <td>Q19</td>
-<td><del><code>scripts/orchestrate-loop.sh</code> still carries PR #68's
+<td><del><code>scripts/orchestrate-loop.sh</code> still carries PR #68’s
 recovery logic only as an untracked-path script risk — PRs #67/#69
 shipped within minutes of each other while the recovery fix lives in a
 tracked-but-shell-level layer; should stuck-board recovery move into
@@ -2479,7 +2618,7 @@ Resolved 2026-09-07 (PR #165): moved —
 and unit coverage
 (<code>test/orchestrator/board-recovery.test.ts</code>);
 <code>scripts/orchestrate-loop.sh:118-153</code> is a thin caller
-mapping the gate's verdict
+mapping the gate’s verdict
 (<code>wait</code>/<code>requeue</code>/<code>archive</code>) to loop
 control. Removed.</td>
 <td>eng</td>
@@ -2500,7 +2639,7 @@ Removed.</td>
 <tr>
 <td>Q21</td>
 <td><del>The Release workflow publishes on every push to
-<code>main</code> regardless of the <code>test</code> job's result —
+<code>main</code> regardless of the <code>test</code> job’s result —
 should releases hard-gate on CI green (<code>needs: test</code>), or tag
 first and yank on red? Hard-gate delays tags by one CI run; tag-first
 risks shipping a broken semver point.</del> Resolved 2026-08-31 (PR #86
@@ -2554,16 +2693,16 @@ removed.</td>
 <tr>
 <td>Q36</td>
 <td><del>The CI-Fixer fix run (<code>TASK-fix-&lt;pr&gt;</code>) gets
-its own dispatch budget outside the originating task's
+its own dispatch budget outside the originating task’s
 <code>maxTaskRetries</code> — should fixer attempts count against the
-parent task's retry budget (linking to Q17's cumulative-attempt
+parent task’s retry budget (linking to Q17’s cumulative-attempt
 concern), or is one bounded fix attempt per PR run the right
 isolation?</del> Resolved 2026-09-07: isolated — the fixer gets exactly
 one bounded <code>TASK-fix-&lt;pr&gt;</code> re-dispatch per PR before
 the verdict falls back to request-changes
 (<code>src/integrations/autopr.ts:583-597</code>), outside the parent
-task's <code>maxTaskRetries</code>; the cross-round runaway concern is
-answered by Q17's lifetime <code>totalAttempts</code> cap
+task’s <code>maxTaskRetries</code>; the cross-round runaway concern is
+answered by Q17’s lifetime <code>totalAttempts</code> cap
 (<code>--max-total-attempts</code>, <code>src/cli.ts:136</code>), the
 shared Q17/Q36 mechanism. Removed.</td>
 <td>eng</td>
@@ -2572,21 +2711,21 @@ shared Q17/Q36 mechanism. Removed.</td>
 <tr>
 <td>Q22</td>
 <td><del>PR #73 re-bridges a queued goal in the same cycle as board
-archive, but the archive itself burns the board's salvage history —
+archive, but the archive itself burns the board’s salvage history —
 should archived boards write a compact post-mortem (goal, failure class,
 gate excerpts) to the ledger so the next bridge can plan around the same
 failure mode, or is the existing ledger analytics query surface
-enough?</del> Resolved 2026-08-31: PRs #96/#97's
+enough?</del> Resolved 2026-08-31: PRs #96/#97’s
 <code>ci-fix-failed</code> outcome gives the ledger a structured failure
 record with summary evidence (matching the Q24 taxonomy); remaining
-failure-evidence work is tracked by the backlog item "Executor failure
-surface".</td>
+failure-evidence work is tracked by the backlog item “Executor failure
+surface”.</td>
 <td>eng</td>
 <td>Phase 4</td>
 </tr>
 <tr>
 <td>Q23</td>
-<td><del>PR #77's herdr-sweep trusts the session name alone; if the
+<td><del>PR #77’s herdr-sweep trusts the session name alone; if the
 sweep ever gains an <code>--all</code> mode, what stops it from killing
 a user-attached interactive claude pane that happens to sit in an
 automation-spawned session (2026-08-26 mass-kill class)? Require
@@ -2598,11 +2737,19 @@ exactly one session and nothing widens it. Per-pane verification shipped
 as FR-VIS-07; the managed-settings-style toggle ships as FR-VIS-10:
 <code>herdr.sweep</code> (<code>src/config.ts:39</code>, resolved by
 <code>herdrSweepConfig</code> at <code>src/config.ts:427</code>) carries
-<code>enabled</code> (env `DEVAGENT_HERDR_SWEEP=0</td>
-<td>1<code>) and </code>denySessions<code>, and </code>findStalePanes<code>/</code>sweepStalePanes<code> (</code>src/integrations/herdr.ts:462<code>, </code>:699<code>) return nothing when the sweep is disabled or the resolved session is denied. A pane the FR-VIS-02 roster reports as live, or any sweep launched while </code>DEVAGENT_OPERATOR_ATTACHED<code>is set, is spared ahead of every other class — including</code>--orphans<code>— and reported with</code>reason:
-operator-attached<code>instead of closed. Unset defaults are today's behavior; an invalid</code>herdr.sweep`
-block fails closed. Removed.</td>
+<code>enabled</code> (env <code>DEVAGENT_HERDR_SWEEP=0|1</code>) and
+<code>denySessions</code>, and
+<code>findStalePanes</code>/<code>sweepStalePanes</code>
+(<code>src/integrations/herdr.ts:462</code>, <code>:699</code>) return
+nothing when the sweep is disabled or the resolved session is denied. A
+pane the FR-VIS-02 roster reports as live, or any sweep launched while
+<code>DEVAGENT_OPERATOR_ATTACHED</code> is set, is spared ahead of every
+other class — including <code>--orphans</code> — and reported with
+<code>reason: operator-attached</code> instead of closed. Unset defaults
+are today’s behavior; an invalid <code>herdr.sweep</code> block fails
+closed. Removed.</td>
 <td>product</td>
+<td>Phase 4</td>
 </tr>
 <tr>
 <td>Q24</td>
@@ -2615,7 +2762,7 @@ or stay PR-URL-only?</del> Resolved 2026-09-04: first-class —
 sha, version, source) at <code>src/orchestrator/ledger.ts:195</code>
 with <code>appendReleaseRecord</code>,
 <code>devagent record release</code> CLI, and the
-<code>release.yml</code> "Record release event in ledger" step write it;
+<code>release.yml</code> “Record release event in ledger” step write it;
 the §17 run-24 backlog bullet was stale and is struck. Removed.</td>
 <td>eng</td>
 <td>Phase 4</td>
@@ -2655,7 +2802,7 @@ dispatch. Removed.</td>
 <td>Q27</td>
 <td><del>Loops 53-55 and 57/58 each re-burned multiple attempts on the
 same already-planned goal after a requeue with a fresh attempt budget —
-should the bridge attach the prior board's failure class to the
+should the bridge attach the prior board’s failure class to the
 re-bridged goal so the scout skips it until the root cause ships, or is
 cross-board retry memory out of scope for the single-tenant model?</del>
 Resolved 2026-09-07: attached — <code>bridgeQueueToBoard</code> reads
@@ -2680,7 +2827,7 @@ portion also be appended to <code>lessons.md</code> on a successful
 merge (so future runs learn from the same structural evidence the
 planner used), or stay scoped to the single run and rebuild fresh each
 time? Persisting makes the digest cross-run durable; scoping avoids
-stale evidence bleeding in — and LeanKG's per-response
+stale evidence bleeding in — and LeanKG’s per-response
 <code>freshness</code> stamp (FR-CTX-05) gives the gate a
 machine-readable stale-evidence signal either way.</del> Resolved
 2026-09-07: persisted, freshness-gated. The dispatch-time provider now
@@ -2700,7 +2847,7 @@ and threads it through the implement outcome
 <code>possibly_stale</code>, <code>cold</code> and an absent stamp are
 omitted per FR-CTX-05. The call sits after <code>autoMergePr</code>
 resolves (<code>src/consume.ts:548</code>), so a gate-blocked merge
-persists nothing. Dedupe and the evaluate step stay the guard's own; the
+persists nothing. Dedupe and the evaluate step stay the guard’s own; the
 held-out must-beat tier is off because the candidate is machine-captured
 evidence, not a proposal claiming a predicted improvement to rank
 against. Unit-covered with fake <code>leankg</code> replies
@@ -2751,16 +2898,16 @@ omp/claude-code/grok adapters. Removed.</td>
 <code>devagent/&lt;taskId&gt;</code>, then publish from that branch),
 but snapshot and publish remain two stages with the deleted-cwd failure
 class between them — should auto-cleanup snapshot and per-task publish
-collapse into one commit path so the worktree's death cannot strand a
+collapse into one commit path so the worktree’s death cannot strand a
 green task, or is the regression-test guard enough?</del> Resolved
 2026-09-07: collapsed — <code>finalizeRunWorktree</code>
 (<code>src/git/worktree.ts:176</code>) now pushes the run branch to
 <code>origin</code> right after the snapshot commit and before
 <code>worktree remove</code>, so remote persistence precedes the
-worktree's death; a failed push holds the tree in place instead of
+worktree’s death; a failed push holds the tree in place instead of
 stranding the snapshot (<code>FinalizeResult.pushed</code> /
 <code>error</code>, logged at <code>src/deps.ts:450</code>), and
-publish's own push (<code>src/cli.ts:1009</code>) is now an idempotent
+publish’s own push (<code>src/cli.ts:1009</code>) is now an idempotent
 no-op. Proven by the local-bare-remote tests in
 <code>test/worktree.test.ts</code>. Removed.</td>
 <td>eng</td>
@@ -2785,7 +2932,7 @@ duplicated resolutions collapse into
 precedence — explicit positive caller value, then caller 0 honored only
 by a 0-declaring adapter, then
 <code>DEVAGENT_NO_PROGRESS_TIMEOUT_MS</code>, then the declared default
-— so no adapter's default moves; unit-covered in
+— so no adapter’s default moves; unit-covered in
 <code>test/workers/capabilities.test.ts</code>. Removed.</td>
 <td>eng</td>
 <td>Phase 4</td>
@@ -2801,7 +2948,7 @@ it has a track record on this repo?</td>
 </tr>
 <tr>
 <td>Q39</td>
-<td><del>PR #117's eval guard requires <code>predictedImpact</code> on
+<td><del>PR #117’s eval guard requires <code>predictedImpact</code> on
 machine-appended lessons but never scores it — should accept/reject
 outcomes be aggregated against loop results (accept rate, repeat-failure
 delta) to rank the 4000-char <code>lessonsMaxChars</code> digest by
@@ -2817,9 +2964,9 @@ Removed.</td>
 </tr>
 <tr>
 <td>Q40</td>
-<td><del>The curator noop'd 3x on 2026-09-02 under dead provider auth
+<td><del>The curator noop’d 3x on 2026-09-02 under dead provider auth
 (<code>unrecognized_model</code>, disabled-key 403, missing omniroute
-key) while writing "[noop] PRD already accurate" — should operator loops
+key) while writing “[noop] PRD already accurate” — should operator loops
 (curator/warroom/PO) fail loud with a ledger row on provider-probe
 failure, or write a structured <code>operator-degraded</code> outcome
 and keep cycling?</del> Resolved 2026-09-03 (PRs #119/#120/#122):
@@ -2843,11 +2990,11 @@ trailing degradation streak first reaches
 <code>DEGRADE_STREAK_THRESHOLD</code>, the pager POSTs one
 <code>provider-degraded-breach</code> alert to
 <code>resilience.degradeWebhookUrl</code>: once per outage episode,
-silent mid-streak, best-effort so paging can never change the caller's
+silent mid-streak, best-effort so paging can never change the caller’s
 decision. Follow-up 2026-09-07 (doc-sync hole closed): that write side
 lived inside <code>runPreflightGate</code>
 (<code>src/resilience/preflight.ts</code>), so only preflight failures
-paged while the loop's doc-sync refusals — <code>record</code> rows
+paged while the loop’s doc-sync refusals — <code>record</code> rows
 mirrored into the same streak by <code>scripts/selfbuild-loop.sh</code>
 — stayed silent (loops 145–154: ten consecutive operator-diverged rows,
 operator blind). The pager is now shared
@@ -2856,7 +3003,7 @@ operator blind). The pager is now shared
 <code>source</code> field (<code>preflight</code> or
 <code>doc-sync</code>) in the <code>OperatorAlert</code> union, and
 <code>devagent page-degrade-breach</code> gives the loop a
-<code>||</code>-guarded caller beside its sync-failure records.
+<code>\|\|</code>-guarded caller beside its sync-failure records.
 Removed.</td>
 <td>eng</td>
 <td>Phase 4</td>
@@ -2882,7 +3029,7 @@ Premium plans can drive workers without a separate API key?</td>
 <tr>
 <td>Q44</td>
 <td>Control API transport: token-authed <code>127.0.0.1</code> HTTP
-(curl-testable, script-friendly) as primary with UDS as the app's secure
+(curl-testable, script-friendly) as primary with UDS as the app’s secure
 path, or UDS-first with the Tauri Rust core as the sole client?</td>
 <td>eng</td>
 <td>Phase 5</td>
@@ -2897,8 +3044,8 @@ bot-to-bot handoff threads?</td>
 </tr>
 <tr>
 <td>Q46</td>
-<td>Benchmark coverage: the operator named z.ai's coding-agent UI
-("zcode") as a possible second benchmark for the control app's run view
+<td>Benchmark coverage: the operator named z.ai’s coding-agent UI
+(“zcode”) as a possible second benchmark for the control app’s run view
 alongside Grok Bot (§20.1) — its capabilities are UNRESEARCHED as of
 2026-09-04 (no primary sources fetched yet; offline session). Research
 it first (web fetch of z.ai docs + hands-on), then decide: add a
@@ -2913,7 +3060,7 @@ prior-art set as sufficient coverage.</td>
 is the right v1 fidelity: read-only status board (metrics + task cards,
 zero input risk), or interactive (approve/deny hotkeys,
 attach-to-session jump-in) from day one? Interactive inverts the §20.3
-anti-pattern's blast radius: every hotkey is a mutation path into the
+anti-pattern’s blast radius: every hotkey is a mutation path into the
 gate machinery.</td>
 <td>eng</td>
 <td>Phase 5</td>
@@ -2937,7 +3084,7 @@ ships as fixed-size ratchet-capped excerpt (PRs #56 + #57,
 <code>buildChildTrailsDigest</code> at <code>src/prompt.ts:226</code>,
 4000-char cap, oldest-first).</p>
 <p>Resolved 2026-08-29 (curation run 7): Q4, Q5 — both were tagged
-"Phase 2" which is shipped; the questions retired without an explicit
+“Phase 2” which is shipped; the questions retired without an explicit
 decision (G2 ships with repo-provided seed fixtures; G4 findings ship
 with a per-finding <code>severity</code> field and block on
 <code>high</code> unconditionally at <code>src/deps.ts:90</code> — no
@@ -2956,9 +3103,9 @@ with the needs-chain pinned by
 rather than a bare workflow edit (loops 57/58 lesson).</p>
 </blockquote>
 <hr />
-<h2 id="19-research-appendix">19. Research Appendix</h2>
-<h3 id="191-base-layer-analysis-orca-and-deepseek-harness">19.1
-Base-layer analysis: Orca and DeepSeek Harness</h3>
+<h2 id="research-appendix">19. Research Appendix</h2>
+<h3 id="base-layer-analysis-orca-and-deepseek-harness">19.1 Base-layer
+analysis: Orca and DeepSeek Harness</h3>
 <p><strong>Orca (stablyai/orca)</strong> — Electron-based Agent
 Development Environment; orchestrates parallel coding agents in git
 worktrees; ~51k stars.</p>
@@ -2968,12 +3115,12 @@ CLI with runs, tasks, dispatch, human decision gates
 (<code>gate-create</code>/<code>gate-resolve</code>), supervised workers
 with fencing semantics, and structured completion reports
 (<code>--outcome succeeded|failed --files-modified --report-path</code>).
-These primitives map almost 1:1 onto DevAgent's pipeline needs.</li>
+These primitives map almost 1:1 onto DevAgent’s pipeline needs.</li>
 <li>Production-grade worktree hygiene worth copying as a taxonomy: base
 prefetch, lineage pruning, retirement backfill scans, removal safety
 fencing.</li>
 <li>Agent-facing Linear skill pattern: JSON CLI + version-matched docs
-served by the binary + explicit "treat returned fields as untrusted"
+served by the binary + explicit “treat returned fields as untrusted”
 guardrail.</li>
 <li><code>orca serve</code> provides headless mode, but the CLI still
 drives an Electron daemon — headless, not library-embeddable.</li>
@@ -2982,7 +3129,7 @@ dev-time cockpit. Wrong foundation for a headless ticket-to-PR service
 (fast-moving daily releases, 2k+ open PRs, GUI-centric runtime).</li>
 </ul>
 <p><strong>DeepSeek Harness (<code>@deepseek-ai/dsh</code>)</strong> —
-plugin-based agent framework on Cordis ("everything is a plugin");
+plugin-based agent framework on Cordis (“everything is a plugin”);
 developer preview with promised breaking changes; ~183k stars.</p>
 <ul>
 <li>Already solves the driver-layer problem DevAgent faces: bundles
@@ -2991,11 +3138,11 @@ automation-only <strong>ACP</strong> (Agent Client Protocol) JSON-RPC
 stdio server — a neutral standard worth adopting at the adapter
 boundary.</li>
 <li>Right abstractions to borrow: durable session-event log with
-"model-visible means logged" invariant; waterfall event seams for
+“model-visible means logged” invariant; waterfall event seams for
 pre/post-execute hooks.</li>
 <li>Zero delivery-pipeline features (no tickets, worktrees, PRs) —
-adopting it means building all of DevAgent's actual domain anyway,
-inside someone else's unstable abstractions.</li>
+adopting it means building all of DevAgent’s actual domain anyway,
+inside someone else’s unstable abstractions.</li>
 <li><strong>Verdict</strong>: watchlist; study its ACP bridge and driver
 interfaces when designing <code>WorkerAdapter</code>.</li>
 </ul>
@@ -3004,10 +3151,10 @@ cheap when success probability is high but suffers context contamination
 across retries; fan-out converts latency into reliability (success ≈
 1−(1−p)^N) at N× cost and needs a deterministic judge (tests). DevAgent
 policy: one attempt → on test failure, small-N parallel fan-out with
-varied prompts/workers → tests select exactly one winner → failed legs'
+varied prompts/workers → tests select exactly one winner → failed legs’
 logs retained as retry context.</p>
-<h3 id="192-competitive-profiles">19.2 Competitive profiles</h3>
-<p><strong>Devin (Cognition).</strong> Archetype "AI software engineer":
+<h3 id="competitive-profiles">19.2 Competitive profiles</h3>
+<p><strong>Devin (Cognition).</strong> Archetype “AI software engineer”:
 autonomous cloud agent in its own VM (shell, editor, browser). Strongest
 ticket-driven player — Slack mentions, Linear/Jira assignment, GitHub
 events, REST API. Pricing collapsed from $500/mo team plan to
@@ -3016,16 +3163,17 @@ pay-as-you-go ACUs (~$2.25 per 15 active minutes; auto-reloading credits
 can silently overspend). Documented weaknesses: struggles with complex
 unfamiliar codebases (the stated reason for repricing), inconsistent
 results across identical runs, and its own Session Insights classifying
-&gt;20-ACU sessions as "unhealthy" — an implicit admission that broad
+&gt;20-ACU sessions as “unhealthy” — an implicit admission that broad
 tasks burn credits through failure loops. No structured post-build
 verification beyond repo tests.</p>
 <p><strong>GitHub Copilot coding agent.</strong> Distribution winner.
-Assign Copilot to an issue or @mention it; it opens a draft PR, commits
+Assign Copilot to an issue or <span class="citation"
+data-cites="mention">@mention</span> it; it opens a draft PR, commits
 with progress logs, marks ready for review. Validation runs on ephemeral
 GitHub Actions runners with network allowlists, read-only repo
 permissions, branch-scoped short-lived tokens; it cannot approve PRs or
 trigger workflows. Iterates against CI failures before handoff — but
-that CI is the repo's own; no opinionated validation layer (no migration
+that CI is the repo’s own; no opinionated validation layer (no migration
 checks, no semantic backend review). Requires Copilot
 Pro/Business/Enterprise.</p>
 <p><strong>OpenHands (All Hands AI).</strong> Open-source challenger
@@ -3041,7 +3189,7 @@ Linear/Jira, API/webhooks); multi-model routing per task; parallel
 Droids; spec-driven workflows; Droid Computers (managed cloud dev
 environments or BYOM) for private-network/Fortune 500 use. Weaknesses:
 rolling rate limits can exhaust quota mid-task below Enterprise tier;
-sales-led pricing; validation is "run repo's tests" plus audit logs — no
+sales-led pricing; validation is “run repo’s tests” plus audit logs — no
 domain-specific correctness checks.</p>
 <p><strong>Google Jules.</strong> Async Gemini agent bound to GitHub:
 clones into a private Google Cloud VM, presents a step-by-step plan
@@ -3055,15 +3203,16 @@ tasks in isolated containers preloaded with the repo produce diffs/PRs;
 triggered from ChatGPT, CLI, IDE, SDK, GitHub; parallel execution;
 includes code review and Slack integrations. Credit-metered within
 ChatGPT plans (5-hour rolling windows), extendable by purchased credits;
-API-key fallback. Opaque variable credit consumption ("similar tasks
-consume different amounts"); limits shared across agentic features; no
+API-key fallback. Opaque variable credit consumption (“similar tasks
+consume different amounts”); limits shared across agentic features; no
 structured validation beyond container test runs.</p>
 <p><strong>Claude Code GitHub Actions / background agents.</strong>
 Framework more than product: <code>claude-code-action</code> runs Claude
-Code in repo workflows (@claude mentions, any event trigger), built on
-the Agent SDK; autonomously responds to CI failures and review comments;
-explicit security posture (actor verification, least-privilege App
-permissions). Web/mobile background sessions plus scheduled routines
+Code in repo workflows (<span class="citation"
+data-cites="claude">@claude</span> mentions, any event trigger), built
+on the Agent SDK; autonomously responds to CI failures and review
+comments; explicit security posture (actor verification, least-privilege
+App permissions). Web/mobile background sessions plus scheduled routines
 round it out. DIY burden: you own workflow YAML, runner environment, and
 validation wiring.</p>
 <p>Sources: <a href="https://devin.ai/pricing/">devin.ai/pricing</a> ·
@@ -3080,8 +3229,7 @@ href="https://jules.google/docs/usage-limits/">Jules usage limits</a> ·
 · <a href="https://openai.com/chatgpt/pricing/">ChatGPT plans</a> · <a
 href="https://code.claude.com/docs/en/github-actions">Claude Code GitHub
 Actions</a></p>
-<h3 id="193-headless-cli-orchestration">19.3 Headless CLI
-orchestration</h3>
+<h3 id="headless-cli-orchestration">19.3 Headless CLI orchestration</h3>
 <p><strong>G4 evidence base.</strong> Dynamic ground truth: Go race
 detector (TSan-based happens-before, zero false positives,
 coverage-bound, 5–10x memory overhead). Static: Meta Infer RacerD
@@ -3129,14 +3277,14 @@ and <code>--attach &lt;url&gt;</code> on <code>run</code> to reuse a
 warm server (avoids cold boot per run). Also ships an ACP stdio server
 and GitHub Actions mode. Permissions resolve per action
 (<code>read</code>, <code>edit</code>, <code>bash</code>,
-<code>task</code>, ...) to allow/ask/deny with wildcard patterns,
+<code>task</code>, …) to allow/ask/deny with wildcard patterns,
 last-match-wins; <code>.env</code> reads denied by default.</p>
 <p><strong>Orchestration patterns (community practice).</strong> Git
 worktrees per worker are the standard isolation primitive (sub-second
 creation, shared object store) — they prevent filesystem collisions, not
 logical conflicts, so pair with ownership boundaries over shared files
 (lockfiles, migrations, contracts). Task claiming via lease + heartbeat
-so crashed workers' tasks reassign. Verification gates must be run by
+so crashed workers’ tasks reassign. Verification gates must be run by
 the supervisor independently of agent claims; failed verification
 reassigns rather than trusts completion reports. Parse worker stdout as
 NDJSON line-by-line; enforce budgets via <code>--max-turns</code> plus
@@ -3158,13 +3306,13 @@ href="https://opencode.ai/docs/permissions">OpenCode permissions</a> ·
 href="https://amux.io/blog/parallel-agents-isolated-worktrees/">Parallel
 agents in isolated worktrees (amux)</a> · <a
 href="https://github.com/anthropics/claude-code-action">claude-code-action</a></p>
-<p>These findings refine section 9's adapter table: Claude Code budget
+<p>These findings refine section 9’s adapter table: Claude Code budget
 control = <code>--max-turns</code> + wall clock; OpenCode permission
 bypass = <code>--auto</code>; both emit parseable JSON event streams;
 OpenCode additionally offers the serve-based REST surface as a future
 alternative transport.</p>
-<h3 id="194-migration-safety-tooling-and-techniques">19.4
-Migration-safety tooling and techniques</h3>
+<h3 id="migration-safety-tooling-and-techniques">19.4 Migration-safety
+tooling and techniques</h3>
 <p><strong>Tool landscape.</strong></p>
 <ul>
 <li><strong>Squawk</strong> (Postgres SQL linter, Rust; CLI + GitHub
@@ -3199,16 +3347,20 @@ safety. Useful as an additional gate, insufficient alone.</li>
 sources with <code>--exit-code</code> as a pure diff gate; the
 <strong>shadow database</strong> replays full migration history into a
 throwaway DB to detect drift and proactively evaluate generated SQL for
-data loss. Canonical implementation of "validate against production-like
-state."</li>
+data loss. Canonical implementation of “validate against production-like
+state.”</li>
 <li><strong>django-migration-linter / strong_migrations</strong>: static
-classification of backward-incompatible operations; strong_migrations'
-danger criterion ("blocks reads/writes more than a few seconds after
-acquiring a lock") is the right severity bar.</li>
+classification of backward-incompatible operations; strong_migrations’
+danger criterion (“blocks reads/writes more than a few seconds after
+acquiring a lock”) is the right severity bar.</li>
 </ul>
 <p><strong>Dangerous-pattern taxonomy</strong> (synthesis of the above;
 drives gates G2/G3):</p>
 <table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
 <thead>
 <tr>
 <th>Category</th>
@@ -3270,7 +3422,7 @@ hardest.</li>
 search_path, trigger-based data copy, trivial rollback); PlanetScale
 deploy requests (copy-table cutover with ~30-min revert window — and
 their admitted gap: no referential-integrity validation when adding FKs,
-an opening for DevAgent's deeper checks).</li>
+an opening for DevAgent’s deeper checks).</li>
 </ul>
 <p>Sources: <a href="https://squawkhq.com/docs/rules">Squawk rules</a> ·
 <a href="https://atlasgo.io/lint/analyzers">Atlas analyzers</a> · <a
@@ -3300,19 +3452,19 @@ href="https://go.dev/doc/articles/race_detector">Go race detector</a> ·
 <a
 href="https://typescript-eslint.io/rules/no-floating-promises">typescript-eslint
 no-floating-promises</a></p>
-<h3 id="195-knowledge-graph-grounded-context">19.5
-Knowledge-graph-grounded context</h3>
+<h3 id="knowledge-graph-grounded-context">19.5 Knowledge-graph-grounded
+context</h3>
 <p>A research note
 (<code>docs/research/2026-08-30-devagent-leankg-value-in-harness-era.md</code>)
 evaluated whether the local <code>leankg</code> MCP (FreePeak build, <a
 href="https://github.com/FreePeak/LeanKG">github.com/FreePeak/LeanKG</a>,
-Postgres-backed) adds value to DevAgent's harness. Verdict: yes, as the
-structural complement to the harness's durable state (lessons digest,
+Postgres-backed) adds value to DevAgent’s harness. Verdict: yes, as the
+structural complement to the harness’s durable state (lessons digest,
 childTrails digest, worklog, ledger). Live inventory at 2026-08-30 was
 358,359 elements and 1,867,483 relationships across 38,597 files;
 <code>mcp_status</code> ok but <code>kg_semantic_context</code> timed
 out at 30s — the measurement behind the v1 non-semantic constraint, and
-the exact failure mode LeanKG's v4.3.0 ladder (branch
+the exact failure mode LeanKG’s v4.3.0 ladder (branch
 <code>docs/prd-v4.3.0-ladder-setup</code>, 8d15c78f) removes: a single
 router tool (<code>leankg_context</code>) probes per-project
 capabilities in &lt;10ms and routes L3 vectors (ANN + rerank + traverse)
@@ -3324,7 +3476,7 @@ therefore consumes LeanKG as the degradation boundary (FR-CTX-05: no
 hand-rolled ladder here) and treats <code>freshness</code> as
 prompt-visible provenance so gates judge evidence quality. Zero-config
 v4.3.0 goals (FR-ZCP-01/02: cwd-based resolution, lazy auto-attach +
-background first index; embeddings optional) align with DevAgent's own
+background first index; embeddings optional) align with DevAgent’s own
 zero-dependency posture: the local markdown baseline (FR-CTX-02) is the
 always-on default and LeanKG the enhancement tier above it. Integration
 seam is the existing <code>COMPACT_CONTEXT_MARKER</code> ratchet
@@ -3337,24 +3489,42 @@ routing rule (freepeak → <code>leankg</code>; BE →
 <code>be-knowledge-graph</code>; never both) stays PRD prose
 (<code>skill://leankg-routing</code> is not materialized — create the
 skill at implementation time). See FR-CTX-01..05, Phase 4 sub-bullet
-"Knowledge-grounded context", and Q28.</p>
-<h3 id="196-pilot-probe-2026-09-04">19.6 Pilot probe (2026-09-04)</h3>
+“Knowledge-grounded context”, and Q28.</p>
+<h3 id="pilot-probe-2026-09-04">19.6 Pilot probe (2026-09-04)</h3>
 <p>A competitive probe of qf-studio/pilot (Go ticket-to-PR autopilot,
 665★, BSL 1.1 — <code>docs/research/pilot-probe.md</code>) confirms the
 §20 direction: Pilot ships the exact surface DevAgent specifies but
-hasn't built (cross-platform desktop app from releases, live token/cost
+hasn’t built (cross-platform desktop app from releases, live token/cost
 dashboard, failure/cost/stuck alerting via Telegram/Slack/Email briefs).
-Actionable imports: the alerting model resolves Q41's
+Actionable imports: the alerting model resolves Q41’s
 no-notification-surface gap; the dashboard card layout (current-task
 phase %, queue depth, budget-vs-spend) is a template for FR-UI-08.
 Verdict recorded there: continue DevAgent — Pilot is Claude-Code-locked
-with generic gates and no independent auditor, while DevAgent's domain
+with generic gates and no independent auditor, while DevAgent’s domain
 gates, evidence-gated orchestration, BYO-provider adapters, and
 eval-scored lessons are the differentiators. BSL 1.1 forbids copying
 code into this MIT repo.</p>
+<h3 id="internet-scout-synthesis-2026-09-07">19.7 Internet scout
+synthesis (2026-09-07)</h3>
+<p>A five-scout parallel web research pass (open-source harnesses,
+self-improving loops, multi-agent orchestration,
+verification/evals/sandboxing, context engineering + 2026 competitive
+scan; ~90 fetched sources) distilled into a 15-item prioritized adoption
+backlog mapped to DevAgent surfaces:
+<code>docs/research/2026-09-07-internet-scout-synthesis.md</code> with
+the five full scout docs beside it
+(<code>docs/research/2026-09-07-*-scout.md</code>). Headline
+convergence: harness quality is the product (durable state = moat);
+verification depth stays the white space; gates that explain themselves
+beat gates that merely block; context/caching behavior becomes a
+reported metric. Top five backlog items: sandboxed gate subprocesses
+(closes PRODUCTION-READINESS #1), Squawk/Atlas G3 engines +
+migration-history hashing, bors-style batched merged-result oracle
+(PRD:885), sentinel worker exits + format-error breakers, synthetic-bug
+gate calibration.</p>
 <hr />
 <h2
-id="20-product-direction-addendum-grok-bot-xai-integration-cross-platform-control-app">20.
+id="product-direction-addendum-grok-bot-xai-integration-cross-platform-control-app">20.
 Product Direction Addendum: Grok Bot, xAI Integration, Cross-Platform
 Control App</h2>
 <blockquote>
@@ -3369,14 +3539,18 @@ benchmark, the integration requirements, the app design, and the
 terminal visibility layer; it feeds Phase 5 in §17 and Q42–Q47 in
 §18.</p>
 </blockquote>
-<h3 id="201-the-benchmark-grok-bot-xaibot">20.1 The benchmark: Grok Bot
+<h3 id="the-benchmark-grok-bot-x.aibot">20.1 The benchmark: Grok Bot
 (x.ai/bot)</h3>
-<p><code>x.ai/bot</code> is <strong>Grok Bot</strong> — xAI's "AI
-teammates that finish the work" product (early beta, built with Cursor;
+<p><code>x.ai/bot</code> is <strong>Grok Bot</strong> — xAI’s “AI
+teammates that finish the work” product (early beta, built with Cursor;
 download served from <code>api2.cursor.sh</code>, sales via
 <code>cursor.com</code>). It is not an X-bot platform. What it promises,
 and what DevAgent should match locally:</p>
 <table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
 <thead>
 <tr>
 <th>Grok Bot capability</th>
@@ -3385,7 +3559,7 @@ and what DevAgent should match locally:</p>
 </thead>
 <tbody>
 <tr>
-<td>Named, persistent Bots ("Chief of Staff", "Bug Reproduction") with
+<td>Named, persistent Bots (“Chief of Staff”, “Bug Reproduction”) with
 their own VM</td>
 <td>Named role agents — the existing roles
 (scout/worker/reviewer/curator/PO) promoted to persistent, titled
@@ -3399,12 +3573,12 @@ in a shared run thread instead of user-as-router</td>
 </tr>
 <tr>
 <td>Teach-once routines: watch a workflow once, replay on schedule</td>
-<td>Recorded routines: capture a dispatch's prompt/role/tool set as a
+<td>Recorded routines: capture a dispatch’s prompt/role/tool set as a
 named, schedulable routine</td>
 </tr>
 <tr>
-<td>Approval gates — "only come back when something needs your
-approval"</td>
+<td>Approval gates — “only come back when something needs your
+approval”</td>
 <td>Existing approval gates surfaced as a cross-surface approval inbox
 (menu bar, notifications)</td>
 </tr>
@@ -3414,7 +3588,7 @@ approval"</td>
 thread per agent run</td>
 </tr>
 <tr>
-<td>Bots "get smarter over time"</td>
+<td>Bots “get smarter over time”</td>
 <td>Lessons feedback loop ships (PR #39, eval-ranked per Q39);
 childTrails digest ships (PR #57); KG context digest specified
 (FR-CTX-01..05) but not yet implemented — local markdown baseline +
@@ -3423,11 +3597,11 @@ opt-in LeanKG</td>
 </tbody>
 </table>
 <p>Grok Bot is cloud-hosted and Cursor/XAI-plan-gated ($20+/mo, shared
-per-account "computer"). DevAgent's wedge: the same teammate UX,
+per-account “computer”). DevAgent’s wedge: the same teammate UX,
 <strong>local, private, BYO-model</strong>.</p>
-<h3 id="202-grokxai-integration-fr-grok">20.2 Grok/xAI integration
+<h3 id="grokxai-integration-fr-grok">20.2 Grok/xAI integration
 (FR-GROK)</h3>
-<p>xAI's agent-relevant surface (docs.x.ai, verified 2026-09-03):</p>
+<p>xAI’s agent-relevant surface (docs.x.ai, verified 2026-09-03):</p>
 <ul>
 <li><strong>OpenAI-compatible REST</strong> at
 <code>https://api.x.ai/v1</code> with <code>XAI_API_KEY</code>; stateful
@@ -3439,9 +3613,9 @@ per-account "computer"). DevAgent's wedge: the same teammate UX,
 (256k ctx, $1/$2, coding), <code>grok-4.3</code> (1M ctx, $1.25/$2.50,
 batch-eligible). Cached input ≈ 25% of input price —
 <strong><code>prompt_cache_key</code> / <code>x-grok-conv-id</code>
-sticky routing is "highly recommended"</strong>; cache-cold retries pay
+sticky routing is “highly recommended”</strong>; cache-cold retries pay
 full input price.</li>
-<li><strong>Every response's
+<li><strong>Every response’s
 <code>usage.cost_in_usd_ticks</code></strong> gives exact per-request
 USD cost — free ledger cost accounting, no price tables to
 maintain.</li>
@@ -3461,13 +3635,18 @@ count).</li>
 <code>grok -p --output-format streaming-json</code> (NDJSON events —
 same adapter pattern as omp), <code>~/.grok/config.toml</code>
 <code>[model.*]</code> with <code>base_url</code>/<code>env_key</code>
-so devagent's omniroute proxy plugs in directly, and ACP support.</li>
+so devagent’s omniroute proxy plugs in directly, and ACP support.</li>
 <li><strong>No first-party Anthropic-compatible endpoint</strong> —
 Claude-Code-style harnesses reach Grok via the OpenAI-compat surface,
 LiteLLM, or a gateway. Model ids: only provider-qualified/exact slugs
 forward (omp lesson, PR #92).</li>
 </ul>
 <table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
 <thead>
 <tr>
 <th>ID</th>
@@ -3503,7 +3682,7 @@ analytics</td>
 <td>FR-GROK-04</td>
 <td>Set a per-task prompt-cache key (<code>prompt_cache_key</code> /
 <code>x-grok-conv-id</code>) on xAI-backed worker sessions so cache hits
-stick within a task's retry loop</td>
+stick within a task’s retry loop</td>
 <td>S</td>
 </tr>
 <tr>
@@ -3524,18 +3703,23 @@ cross-provider fallback</td>
 </tbody>
 </table>
 <p>Positioning note: Grok Bot is added to §4 competitive landscape as
-the consumer-agent archetype (cloud "own computer", plan-gated, shared
+the consumer-agent archetype (cloud “own computer”, plan-gated, shared
 per-account isolation). DevAgent does not compete on a cloud computer;
 it competes on local control, validation depth (§11 gates), and
 BYO-provider freedom — Grok being one first-class provider among
 several.</p>
-<h3 id="203-daemon-control-api-fr-ctrl">20.3 Daemon control API
+<h3 id="daemon-control-api-fr-ctrl">20.3 Daemon control API
 (FR-CTRL)</h3>
 <p>Prerequisite for the desktop control app: a machine-local control
 surface the app (and any script) can drive. Builds on the existing
 <code>serve</code> webhook server (<code>src/cli.ts:216</code>) — same
 process pattern, new endpoints, no new daemon process:</p>
 <table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
 <thead>
 <tr>
 <th>ID</th>
@@ -3591,16 +3775,16 @@ does <strong>not</strong> PTY-wrap worker CLIs. The orchestrator already
 owns worker processes and emits structured NDJSON/ledger events;
 UI-level TUI parsing recreates the omp
 <code>thinking_delta</code>/watchdog problems fixed in PRs #93/#94. The
-terminal visibility layer (§20.8) is the sanctioned exception's home:
+terminal visibility layer (§20.8) is the sanctioned exception’s home:
 there the PTY is owned by the terminal multiplexer/herdr server, not
-parsed by a UI, and the structured event stream stays the dashboard's
+parsed by a UI, and the structured event stream stays the dashboard’s
 data source.</p>
-<h3 id="204-cross-platform-desktop-control-app-fr-ui">20.4
-Cross-platform desktop control app (FR-UI)</h3>
+<h3 id="cross-platform-desktop-control-app-fr-ui">20.4 Cross-platform
+desktop control app (FR-UI)</h3>
 <p>Stack decision (researched against SwiftUI, Electron, Raycast — see
 §20.7): <strong>Tauri 2 desktop app, cross-platform from day
 one</strong> (macOS menubar/tray; Windows and Linux system tray).
-Reasons: TS webview UI matches the repo's single language skillset;
+Reasons: TS webview UI matches the repo’s single language skillset;
 Tauri 2 ships the same tray + webview + notification + autostart surface
 on all three OSes, so FR-UI-01..09 are written platform-neutral with
 per-OS packaging notes; system WKWebView/WebView2/WebKitGTK keeps bundle
@@ -3617,12 +3801,17 @@ SwiftUI is rejected as macOS-only.</p>
 away from terminal), Conductor (workspace-per-task, diff-first review),
 Sculptor (pairing mode, session replay), Vibe Kanban (task-queue UX,
 local-server origin security), claude-squad (profiles ≈ roles), Happy
-(approval pushes + per-session cost). Crystal's deprecation and Vibe
-Kanban's sunset are scope-discipline warnings: ship small. Orca (§19.1)
+(approval pushes + per-session cost). Crystal’s deprecation and Vibe
+Kanban’s sunset are scope-discipline warnings: ship small. Orca (§19.1)
 remains the closest prior art for worktree-centric multi-agent
-visualization; the operator-named "zcode" (z.ai) benchmark is pending
+visualization; the operator-named “zcode” (z.ai) benchmark is pending
 research (Q46).</p>
 <table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
 <thead>
 <tr>
 <th>ID</th>
@@ -3698,18 +3887,18 @@ roster, elapsed + retry counts per stage; static fallback reuses the
 <tr>
 <td>FR-UI-09</td>
 <td>Cross-platform parity gate: the app builds and smoke-launches on
-macOS, Windows, and Linux in CI (Tauri's bundler matrix); a
+macOS, Windows, and Linux in CI (Tauri’s bundler matrix); a
 platform-specific regression (tray icon missing, updater path,
 notification permission) blocks release, not a follow-up</td>
 <td>S</td>
 </tr>
 </tbody>
 </table>
-<h3 id="205-scope-boundaries">20.5 Scope boundaries</h3>
+<h3 id="scope-boundaries">20.5 Scope boundaries</h3>
 <ul>
 <li><strong>Not a cloud computer.</strong> No hosted VMs, no
 browser-in-the-cloud sessions; workers execute in local
-worktrees/containers (§8.2). The "own computer" story stays the user's
+worktrees/containers (§8.2). The “own computer” story stays the user’s
 machine — macOS, Linux, or Windows.</li>
 <li><strong>Not a chat-first product.</strong> v1 interaction is
 dispatch + approval, not free-form conversation; chat-like threads per
@@ -3720,39 +3909,39 @@ automation on X (X API v2, pay-per-usage, strict ToS: automated labels,
 approval-gated AI replies, no scraping) is out of scope; if ever added
 it is a separate integration behind approval gates.</li>
 <li><strong>No Electron, no Raycast control plane</strong> (§20.4); no
-multi-device sync, no mobile client in v1 — Happy's relay pattern is the
+multi-device sync, no mobile client in v1 — Happy’s relay pattern is the
 known path if wanted later.</li>
 <li><strong>No model lock-in.</strong> Grok is one provider behind the
 WorkerAdapter contract (§9, FR-IMPL-02); nothing in the UI or control
 API may hard-code xAI.</li>
 </ul>
-<h3 id="206-open-questions-resolved-into-this-addendum">20.6 Open
-questions resolved into this addendum</h3>
+<h3 id="open-questions-resolved-into-this-addendum">20.6 Open questions
+resolved into this addendum</h3>
 <ul>
 <li>Q42 (CLI vs native API): CLI-first (<code>grok -p</code> adapter),
-native xAI API worker as the follow-up — but both behind FR-GROK-02's
+native xAI API worker as the follow-up — but both behind FR-GROK-02’s
 model-id predicate so either path is dispatchable per role.</li>
 <li>Q43 (auth): console <code>XAI_API_KEY</code> in v1; SuperGrok
-device-code OAuth tracked as C-priority (matches OpenCode's proven
+device-code OAuth tracked as C-priority (matches OpenCode’s proven
 pattern).</li>
 <li>Q44 (transport): token-authed <code>127.0.0.1</code> HTTP primary
 (curl-testable, matches <code>serve</code>), UDS as FR-CTRL-05 hardening
 for the app path.</li>
 <li>Q45 (UX floor): v1 = named identities + approval inbox + dispatch
 sheet; teach-once routines and bot-to-bot handoff threads are Phase 5
-stretch, gated on the control API's event stream proving out.</li>
+stretch, gated on the control API’s event stream proving out.</li>
 </ul>
-<h3 id="207-research-sources-2026-09-03">20.7 Research sources
+<h3 id="research-sources-2026-09-03">20.7 Research sources
 (2026-09-03)</h3>
 <p>Research grounding for §20. Primary sources fetched 2026-09-03.</p>
-<p><strong>Grok Bot (x.ai/bot).</strong> xAI's "AI teammates" product:
+<p><strong>Grok Bot (x.ai/bot).</strong> xAI’s “AI teammates” product:
 early beta, built with Cursor (macOS download from
 <code>api2.cursor.sh/.../grok-bot-*</code>, sales via
 <code>cursor.com/contact-sales?product=grok-bot</code>). Persistent
 named Bots on a shared per-account cloud VM (browser, filesystem,
 terminal); connectors/MCP plus computer use for non-API apps; teach-once
 routines; cross-Bot collaboration threads; approval-gated completion
-("only come back when something needs your approval"); macOS + iOS
+(“only come back when something needs your approval”); macOS + iOS
 surfaces. Distribution: Cursor Pro $20/mo+ or SuperGrok plans. Sources:
 <a href="https://x.ai/bot">x.ai/bot</a> · <a
 href="https://docs.x.ai/grok-bot/overview">docs.x.ai/grok-bot/overview</a></p>
@@ -3791,7 +3980,7 @@ href="https://docs.x.ai/developers/release-notes">release notes</a></p>
 <code>xai/</code> prefix. OpenCode: 75+ providers via models.dev
 registry; xAI has two auth paths — console API key or SuperGrok
 device-code OAuth (auto-refresh; consumer Grok/X Premium plans work
-without a separate key). Cline: first-class "xAI (Grok)" provider.
+without a separate key). Cline: first-class “xAI (Grok)” provider.
 <code>grok-cli</code> (superagent-ai, ~3.4k★): headless
 <code>-p --format json</code> NDJSON stream, <code>--batch-api</code>
 for cheap unattended runs, schedules, sub-agents, MCP, Telegram control.
@@ -3810,7 +3999,7 @@ href="https://github.com/superagent-ai/grok-cli">github.com/superagent-ai/grok-c
 <p><strong>X API (if bots on X are ever wanted).</strong> Pay-per-usage
 credits: post create $0.015 (with URL $0.200), DM read $0.010 / DM
 interaction $0.015, webhooks $0.005–0.010/event; 3M post reads/mo cap;
-up to 20% back in xAI credits when linking an xAI team. ToS: "Automated"
+up to 20% back in xAI credits when linking an xAI team. ToS: “Automated”
 label mandatory, AI replies need prior X approval, replies only to
 engagers, DMs only after user DMs first, no scraping (permanent
 suspension). Sources: <a
@@ -3865,8 +4054,8 @@ href="https://github.com/slopus/happy">happy</a></p>
 <p><strong>IPC/security.</strong> Recommended: HTTP + SSE over
 <code>127.0.0.1</code> with per-boot <code>0600</code> bearer token,
 <code>Host</code> (DNS-rebinding) + <code>Origin</code> (drive-by CSRF)
-validation — Vibe Kanban's proven pattern; UDS via
-<code>server.listen(path)</code> as hardening (browser JS can't reach
+validation — Vibe Kanban’s proven pattern; UDS via
+<code>server.listen(path)</code> as hardening (browser JS can’t reach
 UDS; Tauri Rust core bridges), named pipe on Windows. gRPC rejected
 (codegen ×3 languages, grpc-web proxy); PTY-in-UI rejected (§20.3
 anti-pattern). Launch-at-login: <code>SMAppService</code> (macOS 13+) —
@@ -3880,7 +4069,7 @@ href="https://developer.apple.com/documentation/servicemanagement/smappservice">
 href="https://github.com/tauri-apps/plugins-workspace/tree/v2/plugins/single-instance">single-instance
 plugin</a> · <a
 href="https://github.com/BloopAI/vibe-kanban">vibe-kanban</a></p>
-<h3 id="208-visible-worker-sessions-and-terminal-tui-fr-vis-fr-tui">20.8
+<h3 id="visible-worker-sessions-and-terminal-tui-fr-vis-fr-tui">20.8
 Visible worker sessions and terminal TUI (FR-VIS, FR-TUI)</h3>
 <p>Added 2026-09-04 (operator direction): coding agents should run
 <strong>open, like when a human runs them</strong> — the operator can
@@ -3893,9 +4082,14 @@ session, attachable via <code>herdr session attach devagent</code>,
 surviving disconnects and reboots — but it is opt-in with
 <strong>silent</strong> fallback to invisible processes. §20.8 inverts
 that posture.</p>
-<p><strong>Visible sessions (FR-VIS)</strong> — the "jump in anytime"
+<p><strong>Visible sessions (FR-VIS)</strong> — the “jump in anytime”
 guarantee:</p>
 <table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
 <thead>
 <tr>
 <th>ID</th>
@@ -3911,7 +4105,7 @@ the default spawn path when the <code>herdr</code> binary is present
 (config <code>herdr.enabled</code> default flips to <code>true</code>);
 fallback to invisible child processes stays automatic but is
 <strong>loud</strong> — one stderr warning per spawn site plus a
-<code>visibility=fallback</code> field on the run's ledger row, never
+<code>visibility=fallback</code> field on the run’s ledger row, never
 silent</td>
 <td>M</td>
 </tr>
@@ -3927,8 +4121,8 @@ command for that pane</td>
 <tr>
 <td>FR-VIS-03</td>
 <td>Jump-in steering: attaching to a pane puts the operator in the
-worker's live terminal exactly like a human-run coding agent session —
-type into it, watch it think, interrupt it. The orchestrator's
+worker’s live terminal exactly like a human-run coding agent session —
+type into it, watch it think, interrupt it. The orchestrator’s
 no-progress watchdog must not fight a human at the wheel: pane-level
 operator presence (attach time) suppresses auto-kill timers for that run
 and the ledger records <code>operator-attached</code></td>
@@ -3940,7 +4134,7 @@ and the ledger records <code>operator-attached</code></td>
 <code>--headless</code> (explicit opt-out for CI/servers/LaunchAgents —
 the old invisible behavior becomes the named mode) and
 <code>--visible</code> (default); <code>devagent.json</code>
-<code>spawn.visibility: "visible" | "headless"</code> per project with
+<code>spawn.visibility: "visible" \| "headless"</code> per project with
 the env override <code>DEVAGENT_VISIBILITY</code></td>
 <td>M</td>
 </tr>
@@ -3955,15 +4149,20 @@ run</strong>, not of the loop process</td>
 </tr>
 </tbody>
 </table>
-<p>Added 2026-09-05 (operator escalation "every agent in vision mode as
-DEFAULT"): the §20.8 rollout left three headless gaps — loop research/PO
+<p>Added 2026-09-05 (operator escalation “every agent in vision mode as
+DEFAULT”): the §20.8 rollout left three headless gaps — loop research/PO
 phases ran as bare <code>omp</code> child processes, the scout
-dispatched through <code>spawnCli</code> directly, and the loop drivers'
+dispatched through <code>spawnCli</code> directly, and the loop drivers’
 herdr-sweep closed <strong>in-flight</strong> worker panes (a mid-run
 pane reports <code>agent_status: idle</code> because pane liveness comes
 from the done-marker poll, not the agent state machine). FR-VIS-06..08
 close them; FR-VIS-09 removes the double-driver failure mode.</p>
 <table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
 <thead>
 <tr>
 <th>ID</th>
@@ -3995,7 +4194,7 @@ in-flight pane is never sweepable</td>
 <tr>
 <td>FR-VIS-08</td>
 <td>Loop-process visibility: loop-phase events (research/po/task) stay
-on the SSE stream and TUI cards (FR-VIS-02 surface), with the phase's
+on the SSE stream and TUI cards (FR-VIS-02 surface), with the phase’s
 pane discoverable via <code>devagent sessions</code>/<code>attach</code>
 while it runs</td>
 <td>S</td>
@@ -4016,17 +4215,30 @@ complete/fail/requeue writes refused when their token is stale</td>
 </tr>
 <tr>
 <td>FR-VIS-10</td>
-<td>Sweep blast radius from the operator's side (Q23, added 2026-09-07):
+<td>Sweep blast radius from the operator’s side (Q23, added 2026-09-07):
 <code>herdr.sweep</code> is the managed-settings-style deny toggle —
-<code>enabled</code> (env `DEVAGENT_HERDR_SWEEP=0</td>
-<td>1<code>) stops the sweep before it lists a pane, </code>denySessions<code>names sessions it must never touch even when one is the resolved target, and</code>orphans<code>(env</code>DEVAGENT_HERDR_SWEEP_ORPHANS=0</td>
+<code>enabled</code> (env <code>DEVAGENT_HERDR_SWEEP=0|1</code>) stops
+the sweep before it lists a pane, <code>denySessions</code> names
+sessions it must never touch even when one is the resolved target, and
+<code>orphans</code> (env <code>DEVAGENT_HERDR_SWEEP_ORPHANS=0|1</code>)
+overrides a loop driver’s own <code>--orphans</code> either way; on top
+of that, any pane the FR-VIS-02 roster reports as live or any sweep
+launched under <code>DEVAGENT_OPERATOR_ATTACHED</code> is spared ahead
+of every other class and reported <code>operator-attached</code>. Unset
+= FR-VIS-07 behavior; invalid config fails closed</td>
+<td>M</td>
 </tr>
 </tbody>
 </table>
-<p><strong>TUI dashboard (FR-TUI)</strong> — pilot's dashboard as the
+<p><strong>TUI dashboard (FR-TUI)</strong> — pilot’s dashboard as the
 reference layout (<code>docs/research/pilot-probe.md</code> §2; BSL 1.1
 — patterns only, no code):</p>
 <table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
 <thead>
 <tr>
 <th>ID</th>
@@ -4045,7 +4257,7 @@ dependency)</td>
 </tr>
 <tr>
 <td>FR-TUI-02</td>
-<td>Pilot's card layout as v1: current task + phase + elapsed, queue
+<td>Pilot’s card layout as v1: current task + phase + elapsed, queue
 depth, token/cost today/week vs budget, recent tasks with per-task
 duration + cost, aggregate run/idle/failed status — all fed by the same
 structured ledger/JSONL + SSE stream as the desktop app (FR-CTRL-04; no
@@ -4054,7 +4266,7 @@ second event system, no PTY parsing)</td>
 </tr>
 <tr>
 <td>FR-TUI-03</td>
-<td>Live log tail view per agent (scrollable, follows the active pane's
+<td>Live log tail view per agent (scrollable, follows the active pane’s
 structured events) and jump hint showing the
 <code>devagent attach &lt;task&gt;</code> command for the selected run —
 the TUI is the discovery surface for FR-VIS-02 jump-in</td>
@@ -4069,7 +4281,7 @@ FR-UI-02; ship read-only cards first if Q47 resolves conservative</td>
 </tr>
 <tr>
 <td>FR-TUI-05</td>
-<td>Single-key ops: <code>u</code> upgrade/rollback hint (pilot's
+<td>Single-key ops: <code>u</code> upgrade/rollback hint (pilot’s
 pattern), <code>k</code> kill run (goes through the same gate machinery
 as CLI — the TUI is a transport, not a bypass, per FR-CTRL-03),
 <code>?</code> help overlay</td>
@@ -4085,7 +4297,7 @@ pressing <code>a</code> on the selected worker/session card suspends the
 alternate screen, execs
 <code>herdr --session &lt;session&gt; agent attach &lt;paneId&gt;</code>
 with inherited stdio (keystrokes go to the worker, not the dashboard),
-and restores the TUI + refreshes on detach — upgrade FR-TUI-03's
+and restores the TUI + refreshes on detach — upgrade FR-TUI-03’s
 discovery hint into an in-TUI action; <code>a</code> is discovery→input
 with zero terminal juggling</td>
 <td>M</td>
@@ -4096,8 +4308,8 @@ with zero terminal juggling</td>
 renderers over the same FR-CTRL API — the TUI is the SSH/headless-server
 surface, the app is the desktop surface; neither parses PTYs
 (anti-pattern in §20.3). The PTY lives in the herdr server (FR-VIS),
-which is a terminal multiplexer's job, not a UI's.</p>
-<h2 id="21-product-direction-addendum-simplicity-first-fr-simple">21.
+which is a terminal multiplexer’s job, not a UI’s.</p>
+<h2 id="product-direction-addendum-simplicity-first-fr-simple">21.
 Product Direction Addendum: Simplicity First (FR-SIMPLE)</h2>
 <blockquote>
 <p>Added 2026-09-05 (operator direction): the deciding product quality
@@ -4110,8 +4322,8 @@ future surface (§12 CLI, §20 daemon + control app, §20.8 TUI/visible
 sessions) is designed and reviewed; it adds no new runtime subsystem and
 does not change the pipeline contract (§8, §10–11).</p>
 </blockquote>
-<h3 id="211-principles-every-surface-every-release">21.1 Principles
-(every surface, every release)</h3>
+<h3 id="principles-every-surface-every-release">21.1 Principles (every
+surface, every release)</h3>
 <ol type="1">
 <li><strong>Few steps to value</strong> — the common paths (state a
 goal, approve a gate, read the result) are reachable in at most three
@@ -4132,8 +4344,13 @@ to a running factory in one guided command that checks prerequisites,
 captures credentials, and proves itself with a verified smoke run; no
 doc archaeology, no manual env wiring.</li>
 </ol>
-<h3 id="212-requirements">21.2 Requirements</h3>
+<h3 id="requirements">21.2 Requirements</h3>
 <table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
 <thead>
 <tr>
 <th>ID</th>
@@ -4178,7 +4395,7 @@ the first PR</td>
 </tr>
 <tr>
 <td>FR-SIMPLE-05</td>
-<td>First-run "where do I look" screen: after init, one view answers
+<td>First-run “where do I look” screen: after init, one view answers
 what the factory is doing right now, what happens next, and where to
 look — composed from the existing FR-CTRL status/events API (no second
 event system, no new tooling to learn)</td>
@@ -4197,38 +4414,40 @@ release</td>
 <p><strong>Boundary:</strong> simplicity is the default presentation,
 not a restriction — everything stays scriptable over FR-CTRL and flags;
 automation is unaffected.</p>
-<h2 id="22-addendum-full-go-migration-fr-go">22. Addendum: Full Go
+<h2 id="addendum-full-go-migration-fr-go">22. Addendum: Full Go
 Migration (FR-GO)</h2>
 <blockquote>
-<p>Added 2026-09-07 (operator decision): DevAgent's core — CLI, daemon,
+<p>Added 2026-09-07 (operator decision): DevAgent’s core — CLI, daemon,
 orchestrator, loop drivers, TUI — migrates from TypeScript/Node to a
 <strong>single Go binary</strong>. Full plan of record: master tracker
 issue <a
 href="https://github.com/FreePeak/devagent/issues/207">#207</a>.</p>
 </blockquote>
-<h3 id="221-decision-and-rationale">22.1 Decision and rationale</h3>
+<h3 id="decision-and-rationale">22.1 Decision and rationale</h3>
 <p>The Node implementation was chosen at v0.1.0 (§1 note: PRD:131 left
-"Go or TypeScript/Node" open). The migration reverses that choice for
+“Go or TypeScript/Node” open). The migration reverses that choice for
 the core runtime:</p>
 <ol type="1">
 <li><strong>Memory footprint.</strong> The daemon, TUI, and 24/7 loop
 drivers are permanent residents; Node pays its heap cost around the
 clock. The worker fleet (external agent CLIs) dominates peak memory and
 is unaffected by the host language — but the always-on orchestration
-surface is pure overhead Node pays and Go does not. Baseline recorded at
-FR-GO-01; target: idle daemon RSS ≤ 50 MB.</li>
+surface is pure overhead Node pays and Go does not. Baseline measured at
+FR-GO-01 (Node daemon idle RSS 16 MB, CLI cold start 0.11–0.13 s —
+<code>docs/GO-BASELINE.md</code>); Go targets: idle daemon RSS ≤ 50 MB,
+cold start ≤ 0.05 s.</li>
 <li><strong>Deployment simplicity.</strong> One static binary replaces
 the npm-link + <code>tsc</code> dist flow, which has a documented
 failure class (stale <code>dist/</code> after pulls, driver scripts
 baked at exec). Install becomes: download release artifact, run.</li>
 <li><strong>Cold-start latency.</strong> Dispatch-path cold starts drop
-from Node's process+heap warmup to a static binary's, tightening the §15
+from Node’s process+heap warmup to a static binary’s, tightening the §15
 loop-closure metric.</li>
 <li><strong>Operator alignment.</strong> The surrounding polyrepo is
 Go-heavy (CLIs, MCP servers); one language for the agent harness
 itself.</li>
 </ol>
-<h3 id="222-boundary">22.2 Boundary</h3>
+<h3 id="boundary">22.2 Boundary</h3>
 <ul>
 <li><strong>In scope:</strong> <code>src/**</code> (CLI, orchestrator,
 workers, integrations, gates, TUI, daemon), the <code>selfbuild-*</code>
@@ -4246,12 +4465,12 @@ a thin FR-CTRL client and unaffected by the core migration.</li>
 production entrypoint until the cutover soak gate passes; Node source is
 deleted only in the final step.</li>
 </ul>
-<h3 id="223-strategy-strangler-fig-gated-by-parity">22.3 Strategy:
+<h3 id="strategy-strangler-fig-gated-by-parity">22.3 Strategy:
 strangler-fig, gated by parity</h3>
 <p>Phases G0 → G1 → G2 → G3. Each G1 issue is independently mergeable
 behind the existing CLI surface. Parity is defined by three gates:</p>
 <ol type="1">
-<li><strong>Golden fixtures</strong> — the 99-file vitest suite's
+<li><strong>Golden fixtures</strong> — the 99-file vitest suite’s
 fixtures (scout replay, adapter streams, config matrices, ledger
 round-trips) are ported and must pass in Go (scoreboard: #206).</li>
 <li><strong>Ledger contract</strong> — both implementations read and
@@ -4262,8 +4481,14 @@ iterations self-hosting on the Go binary with the Node path as fallback;
 a ledger-row diff between the two is the merge gate for cutover
 (FR-GO-15).</li>
 </ol>
-<h3 id="224-requirements">22.4 Requirements</h3>
+<h3 id="requirements-1">22.4 Requirements</h3>
 <table>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
 <thead>
 <tr>
 <th>ID</th>
@@ -4332,7 +4557,7 @@ href="https://github.com/FreePeak/devagent/issues/194">#194</a></td>
 </tr>
 <tr>
 <td>FR-GO-08</td>
-<td>Gates G0–G5 incl. STRIDE allowlist + blocking, regression
+<td>Gates G0–G5 incl. STRIDE allowlist + blocking, regression
 oracle</td>
 <td>M</td>
 <td><a
@@ -4409,17 +4634,20 @@ href="https://github.com/FreePeak/devagent/issues/206">#206</a>. Master
 tracker with definition of done: <a
 href="https://github.com/FreePeak/devagent/issues/207">#207</a>.</p>
 <hr />
-<p><em>Last updated: 2026-09-07 (§22 added: full Go migration of the
-core — operator decision, FR-GO-01..16, phases G0/G1/G2/G3 tracked via
-master issue #207 + #190–#206; risks R8–R10 added; §17 roadmap carries
-the migration note; earlier same day: PRD §18 Q11 resolved —
+<p><em>Last updated: 2026-09-07 (§19.7 added: five-scout internet
+research pass (~90 sources) distilled into a 15-item prioritized
+adoption backlog — docs/research/2026-09-07-internet-scout-synthesis.md
++ five scout docs; §22 added: full Go migration of the core — operator
+decision, FR-GO-01..16, phases G0/G1/G2/G3 tracked via master issue #207
++ #190–#206; risks R8–R10 added; §17 roadmap carries the migration note;
+earlier same day: PRD §18 Q11 resolved —
 <code>.devagent/AGENTS.md</code> auto-load ships with the one-time
 per-repo trust confirm — <code>context.agentsMd</code> config,
 <code>loadAgentsMd</code> loader, <code>devagent trust agents-md</code>
 CLI; task tracker moved from the static §17 Phase 4 backlog to
 priority-labeled GitHub issues — selfbuild loop is issue-first,
 prd-curator reconciles the tracker, every PR lands with its PRD state
-update per the PRD-per-PR policy; see docs/SELF-BUILD-LOOP.md "Tracker +
-PRD policy")</em></p>
+update per the PRD-per-PR policy; see docs/SELF-BUILD-LOOP.md “Tracker +
+PRD policy”)</em></p>
 </body>
 </html>

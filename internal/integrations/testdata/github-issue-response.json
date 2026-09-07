@@ -1,0 +1,7 @@
+{
+  "number": 42,
+  "title": "Ship the thing",
+  "body": "## Acceptance Criteria\n- [ ] works\n- [X] tested",
+  "labels": [{ "name": "backend" }, { "name": "" }],
+  "html_url": "https://github.com/acme/widget/issues/42"
+}

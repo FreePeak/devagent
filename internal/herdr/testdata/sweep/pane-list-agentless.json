@@ -1,0 +1,13 @@
+{
+  "id": "x",
+  "result": {
+    "type": "pane_list",
+    "panes": [
+      {
+        "pane_id": "wT:p1",
+        "workspace_id": "wT",
+        "cwd": "/repo/.devagent-worktrees/TASK-old-a1"
+      }
+    ]
+  }
+}

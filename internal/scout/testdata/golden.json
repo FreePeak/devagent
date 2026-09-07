@@ -1,0 +1,26 @@
+{
+  "array-form.json": {
+    "worker": "claude-code",
+    "expected": "preamble text\n---TASK---\nid: FEAT-9\ntitle: T\ngoal: Goal: g\ncriteria: c\n---PRD---\n# T\n## Goal\nx\n"
+  },
+  "single-line-array.json": {
+    "worker": "claude-code",
+    "expected": "preamble text\n---TASK---\nid: FEAT-9\ntitle: T\ngoal: Goal: g\ncriteria: c\n---PRD---\n# T\n## Goal\nx\n"
+  },
+  "object-form.json": {
+    "worker": "claude-code",
+    "expected": "{\n  \"type\": \"result\",\n  \"subtype\": \"success\",\n  \"result\": \"preamble text\\n---TASK---\\nid: FEAT-9\\ntitle: T\\ngoal: Goal: g\\ncriteria: c\\n---PRD---\\n# T\\n## Goal\\nx\\n\"\n}\n"
+  },
+  "opencode-ndjson.ndjson": {
+    "worker": "opencode",
+    "expected": "preamble text\n---TASK---\nid: FEAT-9\ntitle: T\ngoal: Goal: g\ncriteria: c\n---PRD---\n# T\n## Goal\nx\n"
+  },
+  "no-markers.txt": {
+    "worker": "claude-code",
+    "expected": null
+  },
+  "malformed.json": {
+    "worker": "claude-code",
+    "expected": null
+  }
+}

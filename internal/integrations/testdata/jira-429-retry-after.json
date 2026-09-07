@@ -1,0 +1,5 @@
+{
+  "status": 429,
+  "headers": { "Retry-After": "3" },
+  "body": { "errorMessages": ["slow down"] }
+}
