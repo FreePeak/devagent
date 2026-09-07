@@ -1,8 +1,7 @@
 import { spawnCli } from '../workers/spawn-utils.js';
-import { loadConfig } from '../config.js';
 import { appendOperatorDegradedRecord } from '../orchestrator/ledger.js';
-import { DEGRADE_STREAK_THRESHOLD, readDegradationStreak } from './degradation.js';
-import { postOperatorAlert } from './operator-alert.js';
+import { pageDegradeBreach } from './degrade-pager.js';
+import type { DegradeBreachNotifier } from './degrade-pager.js';
 import { recordProxyProbe } from './proxy-state.js';
 
 /**
@@ -23,8 +22,10 @@ import { recordProxyProbe } from './proxy-state.js';
  * who runs `devagent status --providers`, so the 2026-09-03 overnight (25
  * DEGRADED cycles, 2 breaker trips) stayed silent. On the cycle where the
  * trailing degradation streak first reaches DEGRADE_STREAK_THRESHOLD this gate
- * POSTs one paging alert to `resilience.degradeWebhookUrl` — once per outage
- * episode, never mid-streak, and never in a shape that can throw into the loop.
+ * pages once through the shared pager (src/resilience/degrade-pager.ts) —
+ * once per outage episode, never mid-streak, and never in a shape that can
+ * throw into the loop. The pager is caller-neutral so the loop's doc-sync
+ * refusals, which land in the same streak, page too.
  */
 
 /** Roles a preflight can gate; each maps to one operator loop script. */
@@ -88,31 +89,6 @@ export interface PreflightDecision {
   paged?: boolean;
 }
 
-/** Body of the one-per-episode operator paging POST (Q41 write side). */
-export interface DegradeBreachAlert {
-  /** Discriminator so a receiver routes the payload without parsing prose. */
-  event: 'provider-degraded-breach';
-  /** ISO ts of the paging POST. */
-  ts: string;
-  /** Repo whose ledger tripped the streak. */
-  repo: string;
-  /** Role whose failed probe completed the streak. */
-  role: PreflightRole;
-  worker: string;
-  model: string;
-  /** Trailing degraded rows; equals `threshold` on the breach POST. */
-  count: number;
-  threshold: number;
-  /** Outage window edges (null when the streak rows carry no parseable ts). */
-  latestTs: string | null;
-  oldestTs: string | null;
-  windowMs: number | null;
-  /** Distinct roles degraded in the window, newest first. */
-  roles: string[];
-  /** Bounded last-failure excerpt from the probe CLI. */
-  detail?: string;
-}
-
 /** Bound an error excerpt for ledger/log output. */
 function boundDetail(text: string): string {
   return text.replace(/\s+/g, ' ').trim().slice(0, 200);
@@ -143,50 +119,6 @@ export async function runPreflightProbe(
 }
 
 /**
- * Page a human once per outage episode (Q41 write side). Runs after the
- * degraded ledger row lands, so the streak it reads includes this cycle. Fires
- * only at `count === threshold`: the breach cycle pages, every later cycle of
- * the same run stays silent, and the next episode breaches again from zero.
- * Best-effort by design — no webhook configured, an unreadable devagent.json,
- * a transport throw or a non-2xx response must never change the gate decision.
- */
-async function pageDegradeBreach(
-  repoPath: string,
-  decision: PreflightDecision,
-  notify: (url: string, alert: DegradeBreachAlert) => Promise<void>,
-): Promise<boolean> {
-  let url: string | undefined;
-  try {
-    url = loadConfig(repoPath).resilience?.degradeWebhookUrl;
-  } catch {
-    return false; // a broken config file must not turn paging into a gate failure
-  }
-  if (!url) return false;
-  const streak = readDegradationStreak(repoPath, DEGRADE_STREAK_THRESHOLD);
-  if (streak.count !== streak.threshold) return false;
-  try {
-    await notify(url, {
-      event: 'provider-degraded-breach',
-      ts: new Date().toISOString(),
-      repo: repoPath,
-      role: decision.role,
-      worker: decision.worker ?? '',
-      model: decision.model ?? '',
-      count: streak.count,
-      threshold: streak.threshold,
-      latestTs: streak.latestTs,
-      oldestTs: streak.oldestTs,
-      windowMs: streak.windowMs,
-      roles: streak.roles,
-      ...(decision.detail ? { detail: decision.detail } : {}),
-    });
-  } catch {
-    return false; // paging is observability, never a failure signal for the loop
-  }
-  return true;
-}
-
-/**
  * The typed gate. Runs up to PREFLIGHT_PROBE_ATTEMPTS probes with
  * PREFLIGHT_RETRY_DELAY_MS between failures, records the circuit transition
  * (recordProxyProbe) and — on failure — one structured `operator-degraded`
@@ -213,14 +145,14 @@ export async function runPreflightGate(args: {
   /** Injection seam for tests: sleep between failed probes. */
   delayMs?: (ms: number) => Promise<void>;
   /**
-   * Injection seam for tests: outbound paging transport. Defaults to
-   * postOperatorAlert (the shared JSON POST, src/resilience/operator-alert.ts).
+   * Injection seam for tests: outbound paging transport, forwarded to the
+   * shared pager (src/resilience/degrade-pager.ts), which defaults it to
+   * postOperatorAlert.
    */
-  notify?: (url: string, alert: DegradeBreachAlert) => Promise<void>;
+  notify?: DegradeBreachNotifier;
 }): Promise<PreflightDecision> {
   const probe = args.probe ?? runPreflightProbe;
   const delayMs = args.delayMs ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
-  const notify = args.notify ?? postOperatorAlert;
   const cwd = args.cwd ?? args.repoPath;
   const [cmd, promptFlag, ...flags] = args.argv;
   if (!cmd || promptFlag !== '-p') {
@@ -282,7 +214,16 @@ export async function runPreflightGate(args: {
     });
     // One page per outage episode: only the cycle that completes the streak
     // reaches the threshold, so mid-streak failures stay silent (Q41).
-    if (await pageDegradeBreach(args.repoPath, decision, notify)) decision.paged = true;
+    const paged = await pageDegradeBreach({
+      repoPath: args.repoPath,
+      source: 'preflight',
+      role: args.role,
+      worker: args.worker,
+      model: args.model,
+      detail: decision.detail,
+      notify: args.notify,
+    });
+    if (paged) decision.paged = true;
   }
   return decision;
 }

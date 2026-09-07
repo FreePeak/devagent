@@ -284,8 +284,21 @@ while :; do
         else
           record "$N" provider-degraded "doc-sync failed: $(printf '%s' "$SYNC_OUT" | tail -1 | cut -c1-120)"
           fails=$(( fails + 1 ))
-          [ "$fails" -ge "$MAX_FAILS" ] && { echo "circuit breaker: $fails consecutive failures" ; exit 1 ; }
         fi
+        # Q41 paging, doc-sync surface: the rows recorded just above mirror into
+        # .devagent/runs/orchestration/events.jsonl and count toward the same
+        # trailing degradation streak `devagent status --providers` reads, but
+        # the pager only ever ran inside `devagent preflight` — loops 145-154
+        # logged ten consecutive operator-diverged syncs with nobody paged.
+        # `devagent page-degrade-breach` reuses that threshold and the
+        # once-per-episode rule (silent mid-streak, silent on a dirty-PRD
+        # refusal, which is productive for the streak). `|| true` + the breaker
+        # moved below it: paging is observability and must never fail — or
+        # delay — the cycle it reports, and the breaker exit must not preempt
+        # the page that tells a human why the driver just died.
+        "${DEVAGENT[@]}" page-degrade-breach --repo "$REPO" --source doc-sync \
+          --role selfbuild --detail "doc-sync rc=$SYNC_RC: $(printf '%s' "$SYNC_OUT" | tail -1 | cut -c1-120)" || true
+        [ "$fails" -ge "$MAX_FAILS" ] && { echo "circuit breaker: $fails consecutive failures" ; exit 1 ; }
         sleep "${SELFBUILD_SYNC_RETRY_SECS:-60}"
         continue
       fi

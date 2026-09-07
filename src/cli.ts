@@ -11,6 +11,7 @@ import { buildStatusView, renderStatusCard, statusJson } from './commands/status
 import { buildProbeArgvFor } from './commands/probe-argv.js';
 import { runSyncDocs } from './commands/sync-docs.js';
 import { runPreflightGate, PREFLIGHT_ROLES, isPreflightRole } from './resilience/preflight.js';
+import { pageDegradeBreach, DEGRADE_BREACH_SOURCES, isDegradeBreachSource } from './resilience/degrade-pager.js';
 import { DEGRADE_STREAK_THRESHOLD, readDegradationStreak } from './resilience/degradation.js';
 import { runPipeline } from './pipeline.js';
 import { buildDeps, buildDryRunDeps } from './deps.js';
@@ -1318,6 +1319,54 @@ program
       if (decision.detail) console.error(`[preflight] last probe: ${decision.detail}`);
       if (decision.paged) console.error('[preflight] paged operator webhook (resilience.degradeWebhookUrl)');
       process.exitCode = 1;
+    }
+  });
+
+program
+  .command('page-degrade-breach')
+  .description(
+    'Page the operator webhook for a degradation streak the preflight gate did not cause (Q41 doc-sync surface): read the trailing streak from .devagent/runs/orchestration/events.jsonl and POST one provider-degraded-breach alert to resilience.degradeWebhookUrl, but only on the cycle where the streak equals the threshold — mid-streak cycles stay silent. Best-effort by design: an unset webhook, a broken devagent.json or a transport throw still exits 0, so paging can never fail the calling loop',
+  )
+  .requiredOption('--source <name>', `surface that recorded the streak-completing row (${DEGRADE_BREACH_SOURCES.join(' | ')})`)
+  .option('--repo <path>', 'target repository owning the ledger and config', process.cwd())
+  .option('--role <name>', 'role carried onto the alert (the loop role that paused)', '')
+  .option('--worker <name>', 'worker CLI carried onto the alert (default from repo config)')
+  .option('--model <id>', 'model id carried onto the alert (default from repo config)')
+  .option('--detail <text>', 'human-readable why carried onto the alert')
+  .action(async (opts) => {
+    if (!isDegradeBreachSource(opts.source)) {
+      console.error(
+        `[page-degrade-breach] unknown source "${opts.source}"; expected one of: ${DEGRADE_BREACH_SOURCES.join(', ')}`,
+      );
+      process.exitCode = 1;
+      return;
+    }
+    // Worker/model are alert context only: a config this CLI cannot read must
+    // degrade to empty fields, never to a failed command.
+    let worker = opts.worker as string | undefined;
+    let model = opts.model as string | undefined;
+    try {
+      const config = loadConfig(opts.repo);
+      worker = worker ?? config.worker;
+      model = model ?? config.model;
+    } catch {
+      worker = worker ?? '';
+      model = model ?? '';
+    }
+    const paged = await pageDegradeBreach({
+      repoPath: opts.repo,
+      source: opts.source,
+      role: opts.role,
+      worker,
+      model,
+      detail: opts.detail,
+    });
+    if (paged) {
+      console.log(`[page-degrade-breach] paged operator webhook (resilience.degradeWebhookUrl) source=${opts.source}`);
+    } else {
+      console.log(
+        '[page-degrade-breach] no page: streak below threshold, webhook unset/unreadable, or paging failed (best-effort)',
+      );
     }
   });
 
