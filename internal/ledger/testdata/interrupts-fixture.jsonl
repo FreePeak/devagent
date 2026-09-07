@@ -1,0 +1,6 @@
+{"ts":"2026-09-07T00:00:00Z","kind":"event","taskId":"T1","attempt":1,"event":"taskInterrupt","goal":"ship failure clusters","failureClass":"test-gate","lastGateExcerpt":"npm test: 3 failed (same every time)","attempts":1,"trailHash":"h-T1"}
+{"ts":"2026-09-07T00:00:00Z","kind":"event","taskId":"T1","attempt":1,"event":"taskInterrupt","goal":"ship failure clusters","failureClass":"test-gate","lastGateExcerpt":"npm test: 3 failed (again)","attempts":1,"trailHash":"h-T1"}
+{"ts":"2026-09-07T00:00:00Z","kind":"event","taskId":"T2","attempt":1,"event":"taskInterrupt","goal":"ship failure clusters","failureClass":"test-gate","lastGateExcerpt":"vitest exited 1","attempts":1,"trailHash":"h-T2"}
+{"ts":"2026-09-07T00:00:00Z","kind":"event","taskId":"T3","attempt":1,"event":"taskInterrupt","goal":"ship failure clusters","failureClass":"worker-error","lastGateExcerpt":"worker CLI crashed","attempts":1,"trailHash":"h-T3"}
+{"ts":"2026-09-07T00:00:00Z","kind":"audit","taskId":"T4","attempt":1,"verdict":"fail","integrity":"clean","unmetCriteria":["tests green"],"summary":"not done"}
+{"ts":"2026-09-07T01:00:00Z","kind":"event","taskId":"release/0.1.0","attempt":1,"event":"release-created","tag":"v0.1.0","sha":"abc123","version":"0.1.0","source":"cli"}

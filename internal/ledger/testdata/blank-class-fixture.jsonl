@@ -1,0 +1,3 @@
+{"ts":"x","kind":"event","taskId":"T1","attempt":1,"event":"taskInterrupt","goal":"g","failureClass":"   ","lastGateExcerpt":"blank class","attempts":1,"trailHash":""}
+{"ts":"x","kind":"event","taskId":"T2","attempt":1,"event":"taskInterrupt","goal":"g","lastGateExcerpt":"no class field","attempts":1,"trailHash":""}
+{"ts":"2026-09-07T00:00:00Z","kind":"event","taskId":"T3","attempt":1,"event":"taskInterrupt","goal":"ship failure clusters","failureClass":"prompt-oversized","lastGateExcerpt":"prompt 5120 bytes exceeds 4096","attempts":1,"trailHash":"h-T3"}
