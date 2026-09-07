@@ -1,5 +1,11 @@
-import { describe, expect, it } from 'vitest';
-import { perTaskPrPublished, topoOrder } from '../src/orchestrator/merge.js';
+import { afterAll, describe, expect, it } from 'vitest';
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { LEDGER_DIR } from '../src/orchestrator/ledger.js';
+import { perTaskPrPublished, restoreAutoStash, topoOrder } from '../src/orchestrator/merge.js';
+import { stashMainWorktree } from '../src/git/worktree.js';
 import type { ProjectBoard } from '../src/orchestrator/types.js';
 
 function board(tasks: ProjectBoard['tasks']): ProjectBoard {
@@ -55,5 +61,84 @@ describe('perTaskPrPublished (legacy merge-back gate, PRD Q20)', () => {
 
   it('is false for an empty board', () => {
     expect(perTaskPrPublished(board([]))).toBe(false);
+  });
+});
+
+describe('restoreAutoStash (Q26 merge-back auto-stash ledger warnings)', () => {
+  const dirs: string[] = [];
+  afterAll(() => {
+    for (const d of dirs) rmSync(d, { recursive: true, force: true });
+  });
+
+  function initRepo(): string {
+    const dir = mkdtempSync(join(tmpdir(), 'da-merge-stash-'));
+    dirs.push(dir);
+    const repo = join(dir, 'repo');
+    mkdirSync(repo);
+    execFileSync('git', ['init', '-b', 'main'], { cwd: repo });
+    execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: repo });
+    execFileSync('git', ['config', 'user.name', 'test'], { cwd: repo });
+    writeFileSync(join(repo, 'f.txt'), 'x\n');
+    execFileSync('git', ['add', '.'], { cwd: repo });
+    execFileSync('git', ['commit', '-m', 'init'], { cwd: repo });
+    return repo;
+  }
+
+  function stashRows(repo: string): Array<Record<string, unknown>> {
+    const file = join(repo, LEDGER_DIR, 'events.jsonl');
+    if (!existsSync(file)) return [];
+    return readFileSync(file, 'utf8')
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+      .map((l) => JSON.parse(l) as Record<string, unknown>)
+      .filter((r) => r.event === 'merge-back-stash');
+  }
+
+  it('emits a restored row when the stash pops back cleanly', async () => {
+    const repo = initRepo();
+    writeFileSync(join(repo, 'f.txt'), 'local work\n');
+    const sha = (await stashMainWorktree(repo, 'devagent auto-stash before merge'))!;
+
+    expect(await restoreAutoStash(repo, sha)).toBe(true);
+    expect(readFileSync(join(repo, 'f.txt'), 'utf8')).toBe('local work\n');
+
+    const rows = stashRows(repo);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      kind: 'event',
+      event: 'merge-back-stash',
+      taskId: 'merge-back',
+      attempt: 1,
+      stashSha: sha,
+      outcome: 'restored',
+    });
+    expect(typeof rows[0]!.ts).toBe('string');
+    expect(typeof rows[0]!.detail).toBe('string');
+  });
+
+  it('emits a retained row and keeps the stash when the pop conflicts', async () => {
+    const repo = initRepo();
+    writeFileSync(join(repo, 'f.txt'), 'local work\n');
+    const sha = (await stashMainWorktree(repo, 'devagent auto-stash before merge'))!;
+    // Merge-back lands a conflicting change to the same file: apply fails.
+    writeFileSync(join(repo, 'f.txt'), 'merged work\n');
+    execFileSync('git', ['add', '.'], { cwd: repo });
+    execFileSync('git', ['commit', '-m', 'merge-back'], { cwd: repo });
+
+    expect(await restoreAutoStash(repo, sha)).toBe(false);
+    // User work is never dropped: the stash entry survives for manual recovery
+    expect(execFileSync('git', ['stash', 'list', '--format=%H'], { cwd: repo }).toString().trim()).toBe(sha);
+
+    const rows = stashRows(repo);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      kind: 'event',
+      event: 'merge-back-stash',
+      taskId: 'merge-back',
+      attempt: 1,
+      stashSha: sha,
+      outcome: 'retained',
+    });
   });
 });

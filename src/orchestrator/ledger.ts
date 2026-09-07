@@ -222,6 +222,32 @@ export function appendReleaseRecord(repoPath: string, record: ReleaseLedgerRecor
   }
 }
 
+/** Merge-back auto-stash outcome (Q26, PRD:927): one row per restore attempt. */
+export interface StashLedgerRecord extends LedgerRecordBase {
+  kind: 'event';
+  event: 'merge-back-stash';
+  /** Concrete stash SHA created by the merge-back auto-stash. */
+  stashSha: string;
+  /** restored = applied back to the worktree; retained = pop failed, stash kept. */
+  outcome: 'restored' | 'retained';
+  /** Human detail; best-effort. */
+  detail?: string;
+}
+
+/**
+ * Append a merge-back-stash record. Never throws into the caller's path —
+ * best-effort observability by design.
+ */
+export function appendStashRecord(repoPath: string, record: StashLedgerRecord): void {
+  try {
+    const file = ledgerPath(repoPath);
+    mkdirSync(join(repoPath, LEDGER_DIR), { recursive: true });
+    appendFileSync(file, `${JSON.stringify(record)}\n`);
+  } catch {
+    // best-effort observability only
+  }
+}
+
 /** Operator attach event (FR-VIS-03): an operator jumped into a task's pane. */
 export interface OperatorAttachLedgerRecord extends LedgerRecordBase {
   kind: 'event';
