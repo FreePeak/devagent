@@ -24,7 +24,7 @@ func testListen(t *testing.T) net.Listener {
 		}
 		t.Fatalf("Listen: %v", err)
 	}
-	t.Cleanup(func() { ln.Close() })
+	defer func() { _ = ln.Close() }()
 	return ln
 }
 
@@ -36,15 +36,15 @@ func TestListenDialRoundTrip(t *testing.T) {
 			if err != nil {
 				return
 			}
-			c.Write([]byte("pong"))
-			c.Close()
+			_, _ = c.Write([]byte("pong"))
+			_ = c.Close()
 		}
 	}()
 	conn, err := DialContext(ln.Addr().String())(context.Background(), "unix", "")
 	if err != nil {
 		t.Skipf("dial unavailable on this GOOS: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	buf := make([]byte, 4)
 	if _, err := conn.Read(buf); err != nil {
 		t.Fatalf("read: %v", err)
@@ -57,7 +57,7 @@ func TestListenDialRoundTrip(t *testing.T) {
 func TestListenStaleSocketRemoved(t *testing.T) {
 	ln := testListen(t)
 	path := ln.Addr().String()
-	ln.Close()
+	_ = ln.Close()
 	// A crashed daemon leaves the socket file behind; the next Listen must
 	// unlink it and bind again (parity with the Node daemon's
 	// unlinkSync-before-listen).
@@ -68,7 +68,7 @@ func TestListenStaleSocketRemoved(t *testing.T) {
 		}
 		t.Fatalf("re-Listen after stale socket: %v", err)
 	}
-	defer ln2.Close()
+	defer func() { _ = ln2.Close() }()
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("socket file missing after re-bind: %v", err)
 	}

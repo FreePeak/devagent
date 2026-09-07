@@ -26,7 +26,7 @@ func Listen(name string) (net.Listener, error) {
 		return nil, fmt.Errorf("platform: listen unix %s: %w", name, err)
 	}
 	if err := os.Chmod(name, 0o600); err != nil {
-		l.Close()
+		_ = l.Close()
 		return nil, fmt.Errorf("platform: chmod socket %s: %w", name, err)
 	}
 	return l, nil
