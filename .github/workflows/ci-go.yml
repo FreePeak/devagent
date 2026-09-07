@@ -32,4 +32,4 @@ jobs:
           go-version: stable
       - uses: golangci/golangci-lint-action@v7
         with:
-          version: latest
+          version: v2.13.2

@@ -5,6 +5,14 @@ linters:
   # Keep the set deliberately small at G0; widen per-issue when a class of
   # bugs justifies it (matches the repo's "deterministic lints first" policy).
   default: standard
+  settings:
+    staticcheck:
+      # Exempted style subgroup (ST*): the Go port deliberately mirrors the
+      # TypeScript identifiers and doc-comment shapes — ALL_CAPS constants
+      # (NESTED_ENV_BLOCKLIST), ModelId spellings, capitalized error strings
+      # (ST1005) that tests and ledger rows pin byte-for-byte. Revisit the
+      # exemptions at FR-GO-16 when the TS source is gone.
+      checks: ["all", "-ST1003", "-ST1005", "-ST1020", "-ST1021", "-ST1022"]
 
 formatters:
   enable:

@@ -1,23 +1,16 @@
 // Command devagent is the Go implementation entrypoint (PRD §22, FR-GO).
 //
-// G0 scaffold only: this binary reports its version and otherwise refuses to
-// run, so it can never be mistaken for a partial port. Command parity arrives
-// with FR-GO-02 (issue #193); production keeps the Node entrypoint until the
-// cutover soak gate (FR-GO-15, issue #204).
+// FR-GO-02: the command tree exists at full parity (internal/cli) with
+// scan-text / config / init / trust agents-md implemented; every other
+// command exits 3 with a not-ported pointer to its owning FR-GO issue.
+// Production keeps the Node entrypoint until the cutover soak gate
+// (FR-GO-15, issue #204).
 package main
 
 import (
-	"fmt"
-	"os"
-
-	"github.com/FreePeak/devagent/internal/version"
+	"github.com/FreePeak/devagent/internal/cli"
 )
 
 func main() {
-	if len(os.Args) > 1 && os.Args[1] == "--version" {
-		fmt.Println(version.Version)
-		return
-	}
-	fmt.Fprintln(os.Stderr, "devagent (Go scaffold): no commands yet — see PRD §22 and issue #193; the Node CLI remains the production entrypoint")
-	os.Exit(2)
+	cli.Execute()
 }
