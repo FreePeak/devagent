@@ -108,7 +108,7 @@ func RunLoop(cfg LoopConfig) int {
 		// for skip/continue paths — a capped run could skip-cycle forever
 		// (2026-09-04 smoke evidence).
 		if cfg.MaxIterations > 0 && n >= cfg.MaxIterations {
-			fmt.Fprintln(cfg.Stdout, "max iterations reached")
+			_, _ = fmt.Fprintln(cfg.Stdout, "max iterations reached")
 			return 0
 		}
 
@@ -188,7 +188,7 @@ func (d *driver) runIteration(n int, logF io.Writer, gradient, clusters string) 
 	// breaker increment, no starvation count (operator-degraded semantics).
 	if !cfg.DryRun {
 		if _, clean := d.gitQuiet("diff", "--quiet", "--", "docs/PRD.md"); !clean {
-			fmt.Fprintln(logF, "[prd-fresh] docs/PRD.md locally modified — operator mid-edit, skipping iteration")
+			_, _ = fmt.Fprintln(logF, "[prd-fresh] docs/PRD.md locally modified — operator mid-edit, skipping iteration")
 			d.record(logF, n, "operator-degraded", "PRD dirty: operator mid-edit, state doc must land clean")
 			cfg.Sleep(secsToDuration(cfg.SyncRetrySecs))
 			return outcomeSkip // bash: continue
@@ -294,7 +294,7 @@ func (d *driver) runIteration(n int, logF io.Writer, gradient, clusters string) 
 		_, committed := d.gitQuiet("commit", "-m", fmt.Sprintf("self-build loop %d: %s", n, firstLineCapped(goal, 90)))
 		_, pushed := d.gitQuiet("push")
 		if !committed || !pushed {
-			fmt.Fprintln(logF, "[push] failed")
+			_, _ = fmt.Fprintln(logF, "[push] failed")
 			d.record(logF, n, "push-failed", goal)
 			return outcomeExit1
 		}
