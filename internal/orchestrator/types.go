@@ -176,7 +176,9 @@ func RecomputeReadiness(tasks []OrchestratorTask) []OrchestratorTask {
 			continue
 		}
 		dangling := false
-		allDone := len(t.DependsOn) > 0
+		// deps.every(...) is TRUE for an empty array: a no-deps pending
+		// task promotes to 'ready' (TS parity).
+		allDone := true
 		neverRunnable := false
 		for _, d := range t.DependsOn {
 			dep, ok := byID[d]
