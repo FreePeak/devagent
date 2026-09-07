@@ -69,8 +69,18 @@ func TestSurfaceParity(t *testing.T) {
 			t.Errorf("subcommands for %q:\n got: %v\nwant: %v", path, g.Subcommands, w.Subcommands)
 		}
 	}
+	// Additions the Node surface never had (scripts that became commands in
+	// the Go port) are allowed but must be listed here with their rationale —
+	// a surprise extra command still fails.
+	allowedAdditions := map[string]string{
+		// FR-GO-13 (#225): scripts/selfbuild-loop.sh became `devagent loop`.
+		"loop": "scripts/selfbuild-loop.sh ported as a command (FR-GO-13)",
+	}
 	for path := range got {
 		if _, ok := want[path]; !ok {
+			if _, allowed := allowedAdditions[path]; allowed {
+				continue
+			}
 			t.Errorf("extra command %q in Go tree (Node surface does not have it)", path)
 		}
 	}

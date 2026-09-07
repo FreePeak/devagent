@@ -429,6 +429,7 @@ func wiredCommands() map[string]*cobra.Command {
 		"pr-hygiene":          newPrHygieneCmd(),
 		"autosweep":           newAutoSweepCmd(),
 		"automerge":           automergeCommand(),
+		"loop":                newLoopCmd(),
 
 		// Pipeline-family commands (FR-GO-04 #194 / FR-GO-05 #190 wiring).
 		"run":           runCommand(),
