@@ -1356,8 +1356,9 @@ core runtime:
    residents; Node pays its heap cost around the clock. The worker fleet
    (external agent CLIs) dominates peak memory and is unaffected by the host
    language — but the always-on orchestration surface is pure overhead Node
-   pays and Go does not. Baseline recorded at FR-GO-01; target: idle daemon
-   RSS ≤ 50 MB.
+   pays and Go does not. Baseline measured at FR-GO-01 (Node daemon idle
+   RSS 16 MB, CLI cold start 0.11–0.13 s — `docs/GO-BASELINE.md`); Go
+   targets: idle daemon RSS ≤ 50 MB, cold start ≤ 0.05 s.
 2. **Deployment simplicity.** One static binary replaces the npm-link +
    `tsc` dist flow, which has a documented failure class (stale `dist/`
    after pulls, driver scripts baked at exec). Install becomes: download

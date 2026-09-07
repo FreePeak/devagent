@@ -20,7 +20,10 @@
     "prdcurate": "bash scripts/prd-curator.sh",
     "selfstate": "bash scripts/selfbuild-state.sh",
     "reclaim": "bash scripts/reclaim-disk.sh clean",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "gobuild": "go build ./...",
+    "gotest": "go test ./...",
+    "golint": "golangci-lint run"
   },
   "dependencies": {
     "commander": "^12.1.0"

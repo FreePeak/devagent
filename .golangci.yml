@@ -1,0 +1,11 @@
+version: "2"
+
+linters:
+  # standard = errcheck, govet, ineffassign, staticcheck, unused.
+  # Keep the set deliberately small at G0; widen per-issue when a class of
+  # bugs justifies it (matches the repo's "deterministic lints first" policy).
+  default: standard
+
+formatters:
+  enable:
+    - gofmt
