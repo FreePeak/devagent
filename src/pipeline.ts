@@ -1,4 +1,5 @@
 import type { ExecutorFailureClass, RunConfig, TicketClass, TicketSpec, WorkerName } from './types.js';
+import type { KgEvidence } from './leankg.js';
 import type { ReadinessGateResult } from './validation/readiness-gate.js';
 import type { RunLogger } from './logger.js';
 import type { ImplementationPlan } from './planner.js';
@@ -20,6 +21,8 @@ export type StageOutcome =
       branch?: string;
       attempts: number;
       ok: boolean;
+      /** Verbatim KG provenance the run consumed (PRD Q28); absent when the layer was off/degraded. */
+      kgEvidence?: KgEvidence;
     }
   | { stage: 'validate'; passed: boolean }
   | { stage: 'publish'; prUrl?: string; note: string }
@@ -33,6 +36,12 @@ export interface ImplementResult {
   attempts: number;
   /** Executor failure class on failure (PRD:775 / Q24 taxonomy mirror). */
   failureClass?: ExecutorFailureClass;
+  /**
+   * Verbatim KG provenance excerpt captured from this run's digest build
+   * (PRD Q28). Carried to the merge path so the evidence persisted into
+   * `lessons.md` is the one the planner actually saw, never a re-query.
+   */
+  kgEvidence?: KgEvidence;
 }
 
 export interface PipelineDeps {
@@ -127,6 +136,7 @@ export async function runPipeline(cfg: RunConfig, deps: PipelineDeps, log: RunLo
     branch: impl.branch,
     attempts: impl.attempts,
     ok: impl.ok,
+    kgEvidence: impl.kgEvidence,
   });
   if (!impl.ok) {
     outcomes.push({ stage: 'failed', reason: 'worker failed to produce a diff within retry budget' });

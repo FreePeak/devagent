@@ -10,6 +10,15 @@ import { runCli } from './workers/spawn-utils.js';
 import { runPipeline } from './pipeline.js';
 import { isTransientProviderError } from './resilience/classify.js';
 import { listOpenPrs, type PrStatus } from './integrations/autopr.js';
+import type { KgEvidence } from './leankg.js';
+import { isFreshKgEvidence } from './leankg.js';
+import {
+  DEFAULT_LESSONS_DEDUPE_SIMILARITY,
+  DEFAULT_LESSONS_SUITE_TIMEOUT_MS,
+  LESSONS_PATH,
+  appendLessonGuarded,
+  type LessonsDedupeResult,
+} from './lessons/guard.js';
 
 export interface ConsumeOptions {
   repoPath: string;
@@ -33,6 +42,57 @@ function isConsumeTransient(detail: string): boolean {
   // Also treat watchdog / timeout wording as transient
   if (/timed.?out|watchdog|no-progress/i.test(detail)) return true;
   return isTransientProviderError(detail);
+}
+
+/** `predictedImpact` text for machine-persisted KG evidence (guard gate 1). */
+const KG_EVIDENCE_PREDICTED_IMPACT =
+  'cuts repeat KG re-queries on future runs: fresh structural evidence is already in the digest';
+
+/** Lessons-line prefix marking a machine-persisted KG excerpt. */
+const KG_EVIDENCE_LESSON_PREFIX = 'KG digest evidence persisted on merge:';
+
+/**
+ * PRD Q28: persist the merged run's verbatim KG provenance excerpt into the
+ * lessons digest, freshness-gated per FR-CTX-05.
+ *
+ * Only a `fresh` stamp lands: `stale`, `possibly_stale`, `cold`, and a missing
+ * stamp are all omitted, so a later run never learns from structural evidence
+ * LeanKG itself distrusts. The write goes through the eval guard, so the
+ * dedupe gate and the evaluate step apply unchanged; the held-out must-beat
+ * tier is off because the candidate is machine-captured evidence, not a
+ * proposal claiming a predicted improvement to rank against.
+ *
+ * Returns the guard's verdict, or undefined when the freshness gate omitted the
+ * append (no file write, no ledger row). Never throws: lesson persistence is
+ * context and must never fail a merge that already landed.
+ */
+export function recordMergedKgEvidence(
+  repoPath: string,
+  evidence: KgEvidence | undefined,
+  opts: { log?: RunLogger; lessonsFile?: string; threshold?: number } = {},
+): LessonsDedupeResult | undefined {
+  if (!isFreshKgEvidence(evidence)) return undefined;
+  const config = loadConfig(repoPath);
+  const lessonsFile = opts.lessonsFile ?? config.lessonsFile ?? LESSONS_PATH;
+  try {
+    const result = appendLessonGuarded(repoPath, `${KG_EVIDENCE_LESSON_PREFIX} ${evidence.excerpt}`, {
+      lessonsFile,
+      threshold: opts.threshold ?? config.lessonsDedupeSimilarity ?? DEFAULT_LESSONS_DEDUPE_SIMILARITY,
+      predictedImpact: KG_EVIDENCE_PREDICTED_IMPACT,
+      suiteTimeoutMs: DEFAULT_LESSONS_SUITE_TIMEOUT_MS,
+      mustBeat: false,
+    });
+    opts.log?.info('consume', `KG lesson evidence ${result.reason}`, {
+      freshness: evidence.freshness,
+      lessonsFile,
+      similarity: result.similarity,
+      suite: result.suite,
+    });
+    return result;
+  } catch (err) {
+    opts.log?.warn('consume', `KG lesson evidence append failed: ${(err as Error).message}`);
+    return undefined;
+  }
 }
 
 export interface RegressionOracleResult {
@@ -370,9 +430,10 @@ async function runQueuedTask(
     // before auto-merge. HIGH/CRITICAL findings block the merge; MEDIUM/LOW
     // are advisory. A missing/failed diff is treated as an empty diff (pass).
     let diff = '';
-    const branch =
-      (outcomes.find((o) => o.stage === 'implement') as { stage: 'implement'; branch?: string } | undefined)
-        ?.branch ?? parsePrBranch(prUrl);
+    const implementOutcome = outcomes.find((o) => o.stage === 'implement') as
+      | { stage: 'implement'; branch?: string; kgEvidence?: KgEvidence }
+      | undefined;
+    const branch = implementOutcome?.branch ?? parsePrBranch(prUrl);
     if (branch) {
       const { spawnCli } = await import('./workers/index.js');
       for (const base of ['main', 'origin/main']) {
@@ -482,6 +543,9 @@ async function runQueuedTask(
     try {
       const { autoMergePr } = await import('./integrations/github.js');
       await autoMergePr(opts.repoPath, prUrl);
+      // PRD Q28: the merge is the moment the run's structural evidence becomes
+      // durable. Freshness-gated inside, so a stale reply is never persisted.
+      recordMergedKgEvidence(opts.repoPath, implementOutcome?.kgEvidence, { log });
       return { ok: true, detail: `done: ${task.id} -> ${prUrl} (auto-merged)`, prUrl, merged: true };
     } catch (err) {
       return { ok: true, detail: `done: ${task.id} -> ${prUrl} (auto-merge failed: ${(err as Error).message})`, prUrl, merged: false };

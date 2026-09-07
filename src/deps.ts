@@ -14,7 +14,7 @@ import { evaluateReadiness } from './validation/readiness-gate.js';
 import { createWorktree, isGitRepository, finalizeRunWorktree } from './git/worktree.js';
 import { getWorker } from './workers/index.js';
 import { buildImplementationPrompt, buildKnowledgeContext, buildRepairPrompt, loadLessons } from './prompt.js';
-import { createLeanKgProvider } from './leankg.js';
+import { captureKgEvidence, createLeanKgProvider } from './leankg.js';
 import type { CleanupMode } from './config.js';
 import { findOrcaWorktreeByPath, dropOrcaWorkspace } from './integrations/orca.js';
 import { isNonRetryableApiError } from './sessionguard/events.js';
@@ -316,6 +316,9 @@ export async function implementStage(
     ...(cfg.context?.kg !== undefined ? { kg: cfg.context.kg } : {}),
     ...(kgProvider ? { kgProvider } : {}),
   });
+  // PRD Q28: the digest build is the run's only KG contact, so the evidence
+  // persisted on merge is captured here from that same reply (never re-queried).
+  const kgEvidence = captureKgEvidence(kgProvider);
   const prompt = buildImplementationPrompt(plan, lessons);
   let repairPrompt = prompt;
   const maxAttempts = Math.max(1, cfg.maxLoops);
@@ -430,7 +433,7 @@ export async function implementStage(
       });
       if (g1.passed) {
         succeeded = true;
-        return { ok: true, worker: workerName, attempts: displayAttempt, worktreePath };
+        return { ok: true, worker: workerName, attempts: displayAttempt, worktreePath, kgEvidence };
       }
       repairPrompt = buildRepairPrompt(plan, logicAttempts + 1, g1.detail ?? 'test suite failed', lessons, knowledge);
       lastFailureClass = 'test-gate';
