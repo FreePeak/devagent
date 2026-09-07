@@ -1,0 +1,4 @@
+{"runId":"parity-0001","ts":"2026-09-01T10:00:00Z","stage":"plan","level":"info","message":"Run parity-0001 starting"}
+{"runId":"parity-0001","ts":"2026-09-01T10:05:00Z","stage":"implement","level":"info","message":"Porting the TUI","data":{"title":"FR-GO-11 parity fixture","repo":"FreePeak/devagent","ticket":"FR-GO-11","durationMs":720000,"exitCode":0}}
+{"runId":"parity-0001","ts":"2026-09-01T10:11:00Z","stage":"validate","level":"info","message":"suite green"}
+{"runId":"parity-0001","ts":"2026-09-01T10:12:00Z","stage":"publish","level":"info","message":"PR opened: https://github.com/FreePeak/devagent/pull/198."}

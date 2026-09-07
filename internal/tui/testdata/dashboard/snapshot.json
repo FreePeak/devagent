@@ -1,0 +1,38 @@
+{
+  "status": {
+    "now": "2026-09-07T09:00:00.000Z",
+    "uptime_s": 5,
+    "runs": { "active": 1, "failed_recent": 0 },
+    "queue": { "pending": 2, "claimed": 1, "done": 3 },
+    "circuit": "closed",
+    "herdr": { "enabled": true, "session": "devagent" },
+    "spawn": { "visibility": "visible" },
+    "capabilities": ["approve", "dispatch", "attach", "kill-via-answer"]
+  },
+  "agents": {
+    "panes": [
+      {
+        "taskId": "TASK-abc",
+        "role": "worker",
+        "worker": "omp",
+        "paneId": "w1:p1",
+        "workspaceId": "w1",
+        "label": "TASK-abc-a1",
+        "cwd": "/tmp/.devagent-worktrees/TASK-abc-a1",
+        "agentStatus": "working",
+        "state": "running",
+        "startedAt": "2026-01-01T00:00:00.000Z"
+      }
+    ],
+    "queued": [
+      { "id": "TASK-xyz", "title": "do the thing", "status": "pending", "createdAt": "2026-09-07T09:00:00.000Z" }
+    ]
+  },
+  "history": [
+    { "ts": "2026-09-07T08:00:00.000Z", "kind": "audit", "taskId": "TASK-abc", "attempt": 1, "verdict": "pass", "integrity": "ok", "unmetCriteria": [], "summary": "" },
+    { "ts": "2026-09-07T08:10:00.000Z", "kind": "event", "event": "watchdog-health", "taskId": "TASK-mtnmnp1g-f4j9", "attempt": 1, "worker": "omp", "site": "herdr-pane", "watchdogFired": true },
+    { "ts": "2026-09-07T08:20:00.000Z", "kind": "event", "event": "loop-result", "loop": 76, "status": "skipped", "goal": "Goal: pinned by the FR-GO-11 fixture" }
+  ],
+  "sessions": null,
+  "reachable": true
+}

@@ -1,0 +1,716 @@
+package tui
+
+import (
+	"strings"
+)
+
+// version matches DEVAGENT_VERSION (internal/version) for the upgrade
+// overlay; duplicated here to avoid importing a sibling package for one
+// string.
+const version = "0.1.0"
+
+// Dashboard renderers: header strip, worker/session cards, history tail, log
+// view, overlays and the frame fitting. Port of src/tui/tui.ts render half —
+// every literal is byte-identical to the TS renderer.
+
+// PadTo pads to n visible columns — ANSI color codes must not count toward
+// width.
+func PadTo(s string, n int) string {
+	pad := n - VisibleLen(s)
+	if pad < 1 {
+		pad = 1
+	}
+	return s + strings.Repeat(" ", pad)
+}
+
+// BoxLines renders rounded-box panel lines for visible width w: ╭─ title ─╮
+// / body / ╰──╯. VisibleLen measures title+body so ANSI colors never skew
+// borders (Pilot-style panel).
+func BoxLines(title string, body []string, w int) string {
+	tl := VisibleLen(title)
+	var out []string
+	head := Dim + "╭─" + Reset + " " + title + " " + Dim +
+		strings.Repeat("─", maxInt(1, w-tl-5)) + "╮" + Reset
+	out = append(out, head)
+	for _, b := range body {
+		out = append(out, PadTo(b+" ", w-1)+Dim+"│"+Reset)
+	}
+	foot := Dim + "╰" + strings.Repeat("─", maxInt(1, w-2)) + "╯" + Reset
+	return strings.Join(append(out, foot), "\n")
+}
+
+func boxLinesLines(title string, body []string, w int) []string {
+	return strings.Split(BoxLines(title, body, w), "\n")
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// paneCardLines renders a boxed worker card: title bar + status/cwd body.
+func paneCardLines(p TuiPane, inner int, selected bool) []string {
+	id := p.TaskID
+	if id == "" {
+		id = p.Label
+	}
+	if id == "" {
+		id = "?"
+	}
+	el := ""
+	if p.StartedAt != "" {
+		el = fmtElapsed(p.StartedAt, nowClock())
+	}
+	worker := p.Worker
+	if worker == "" {
+		worker = "-"
+	}
+	body := []string{
+		" " + ChipFor(p.State, orDefault(p.AgentStatus, p.State)) +
+			" " + orEmpty(el != "", Dim+"· "+el+Reset) + " " +
+			Dim + Truncate(worker, 12) + Reset,
+		" " + Dim + "cwd " + Truncate(p.Cwd, maxInt(10, inner-8)) + Reset,
+		" " + Cyan + "devagent attach " + Truncate(id, maxInt(8, inner-18)) + Reset,
+	}
+	title := Truncate(id, inner-6)
+	if selected {
+		title = Cyan + "▸" + Reset + " " + Truncate(id, inner-8)
+	}
+	return boxLinesLines(title, body, inner)
+}
+
+// queuedCardLines renders a boxed queued-task card.
+func queuedCardLines(t TuiQueuedTask, inner int, selected bool) []string {
+	body := []string{
+		" " + ChipFor("queued", "queued") + "  " + Dim + Truncate(t.Title, maxInt(10, inner-14)) + Reset,
+		" " + Dim + "waiting for a worker claim" + Reset,
+	}
+	title := Truncate(orDefault(t.ID, "?"), inner-6)
+	if selected {
+		title = Cyan + "▸" + Reset + " " + Truncate(orDefault(t.ID, "?"), inner-8)
+	}
+	return boxLinesLines(title, body, inner)
+}
+
+func orDefault(v, def string) string {
+	if v != "" {
+		return v
+	}
+	return def
+}
+
+func orEmpty(cond bool, s string) string {
+	if cond {
+		return s
+	}
+	return ""
+}
+
+// headerLines renders the header strip + metrics line + iteration card.
+func headerLines(snap *Snapshot, ropts RenderOptions) []string {
+	width := ropts.Width
+	if width == 0 {
+		width = DefaultColumns
+	}
+	status := snap.Status
+	if snap.AuthFailed {
+		return []string{
+			Bold + Red + " DevAgent — DAEMON AUTH REJECTED " + Reset +
+				Dim + " token invalid (DEVAGENT_DAEMON_TOKEN / daemon-token file)" + Reset,
+			"",
+		}
+	}
+	if !snap.Reachable || status == nil {
+		return []string{
+			Bold + Red + " DevAgent — DAEMON UNREACHABLE " + Reset +
+				Dim + " retrying every 2s · start the daemon" + Reset,
+			"",
+		}
+	}
+	panes := rosterPanes(snap)
+	agg := AggregateStatus(status, panes)
+	var pending, claimed, done float64
+	if status.Queue != nil {
+		pending = orNum(status.Queue.Pending)
+		claimed = orNum(status.Queue.Claimed)
+		done = orNum(status.Queue.Done)
+	}
+	// Spinner (Claude Code cue) animates only while work is live.
+	spin := ""
+	if agg == "RUNNING" {
+		spin = Green + spinnerAt(ropts.SpinnerFrame) + Reset + " "
+	}
+	chip := StatusColor(agg) + "● " + agg + Reset
+	// Embedded-daemon cue in the title bar (cyan = "the TUI started this one
+	// for you") — the bar is short, so the marker survives narrow terminals.
+	barBody := " DevAgent  " + spin + chip
+	if ropts.DaemonMode == "embedded" {
+		barBody += "  " + Cyan + "· daemon:embedded" + Reset
+	}
+	// Metrics line (htop meters + pilot sparkline): uptime, runs, queue meter,
+	// activity sparkline, environment. One dense dim line under the bar.
+	openTasks := pending + claimed
+	total := openTasks + done
+	meter := Dim + "[" + Reset + MeterBar(openTasks, total, 10, Yellow+"█"+Reset, Dim+"░"+Reset) + Dim + "]" + Reset
+	var samples []float64
+	sampleMs := float64(PollMs)
+	if ropts.Metrics != nil {
+		samples = ropts.Metrics.Samples
+		if ropts.Metrics.SampleMs > 0 {
+			sampleMs = ropts.Metrics.SampleMs
+		}
+	}
+	// Size the spark to the terminal: reserve room for the static prefix +
+	// herdr/vis tail so the row never overflows into the clamp ellipsis.
+	sparkBudget := 0
+	if width >= 100 {
+		sparkBudget = maxInt(8, minInt(24, width-108))
+	}
+	var sparkTail []float64
+	if sparkBudget > 0 && len(samples) > sparkBudget {
+		sparkTail = samples[len(samples)-sparkBudget:]
+	} else if sparkBudget > 0 {
+		sparkTail = samples
+	}
+	spark := ""
+	if len(samples) > 0 && len(sparkTail) > 0 {
+		uptime := fmtUptime(f64(len(samples) * int(sampleMs) / 1000))
+		last := 0.0
+		if len(samples) > 0 {
+			last = samples[len(samples)-1]
+		}
+		spark = " · " + Dim + "activity(" + uptime + ") " + Cyan + Sparkline(sparkTail) + Reset +
+			Dim + " " + jsNum(last) + Reset
+	}
+	circuit := ""
+	if status.Circuit != "" && status.Circuit != "closed" {
+		color := Yellow
+		if status.Circuit == "open" {
+			color = Red
+		}
+		circuit = " · " + color + "circuit:" + status.Circuit + Reset
+	}
+	meta := Dim + " up " + fmtUptime(status.UptimeS) + " · runs " +
+		runsField(status) + " · queue " + meter + " " + jsNum(pending) + "p/" +
+		jsNum(claimed) + "c/" + jsNum(done) + "d" + Reset + spark + circuit +
+		Dim + " · herdr:" + herdrSession(status)
+	if width >= 118 {
+		meta += " · vis:" + spawnVisibility(status)
+	}
+	meta += Reset
+	return append([]string{
+		Bold + Inverse + PadTo(barBody, maxInt(width, VisibleLen(barBody)+1)) + Reset,
+		meta,
+		"",
+	}, iterationLines(snap)...)
+}
+
+func orNum(v *float64) float64 {
+	if v == nil {
+		return 0
+	}
+	return *v
+}
+
+func f64(n int) *float64 {
+	v := float64(n)
+	return &v
+}
+
+func runsField(status *StatusPayload) string {
+	var active, failed float64
+	if status.Runs != nil {
+		active = orNum(status.Runs.Active)
+		failed = orNum(status.Runs.FailedRecent)
+	}
+	return jsNum(active) + "a/" + jsNum(failed) + "f"
+}
+
+func herdrSession(status *StatusPayload) string {
+	if status.Herdr != nil && status.Herdr.Session != "" {
+		return status.Herdr.Session
+	}
+	return "-"
+}
+
+func spawnVisibility(status *StatusPayload) string {
+	if status.Spawn != nil && status.Spawn.Visibility != "" {
+		return status.Spawn.Visibility
+	}
+	return "visible"
+}
+
+// iterationLines renders the current loop progress (human jump-in cue,
+// PR #140): iteration + phase from the newest loop-phase row in the ledger
+// tail; nothing when none yet.
+func iterationLines(snap *Snapshot) []string {
+	var latest HistoryRow
+	for _, r := range snap.History {
+		if ev, ok := r["event"].(string); ok && ev == "loop-phase" {
+			latest = r
+		}
+	}
+	phase, ok := latest["phase"].(string)
+	if !ok || latest == nil {
+		return nil
+	}
+	det := ""
+	if d, ok := latest["detail"].(string); ok && d != "" {
+		det = " — " + d
+	}
+	loop := "?"
+	if l, ok := latest["loop"].(float64); ok {
+		loop = jsNum(l)
+	}
+	return []string{
+		Dim + "iteration " + loop + " · phase: " + Reset + Cyan + phase + Reset + Dim + det + Reset,
+		"",
+	}
+}
+
+// helpLines renders the key help overlay.
+func helpLines() []string {
+	return []string{
+		Bold + "Keys" + Reset,
+		"  1 / 2 / 3  switch view: workers / sessions / live log   (s and l toggle back)",
+		"  ↑ ↓ / PgUp PgDn  move the selection (workers, sessions) · scroll (log)",
+		"  g / G      jump to first / last item (log: oldest / newest)",
+		"  f         toggle follow-tail in the log view",
+		"  Enter / o  expand the selected worker into a detail panel",
+		"  a         attach inline (FR-TUI-06): dashboard suspends, herdr owns the terminal; detach to return",
+		"  u         upgrade hint (pilot-style self-update recipe)",
+		"  r  refresh now",
+		"  k  kill the running task via POST /approve (answer __kill__); daemon must advertise kill-via-answer",
+		"  y  confirm the pending kill — any other key cancels",
+		"  ?  toggle this help",
+		"  q or Ctrl+C  quit",
+		"",
+	}
+}
+
+// logViewLines renders the log view: dense structured tail (Claude Code
+// transcript feel).
+func logViewLines(ropts RenderOptions, width, bodyBudget int) []string {
+	log := ropts.Log
+	var titleState string
+	if log == nil || log.State == "off" {
+		titleState = DimText("● tail off")
+	} else if log.State == "live" {
+		titleState = Green + "● live" + Reset
+	} else if log.State == "down" {
+		titleState = Yellow + "● reconnecting…" + Reset
+	} else {
+		titleState = DimText("● connecting…")
+	}
+	src := ""
+	if log != nil && log.Source != "" {
+		src = DimText(" · run " + Truncate(log.Source, 8))
+	}
+	pos := DimText("  [following tail]")
+	if log != nil && log.Scroll > 0 {
+		pos = DimText("  [" + itoa(log.Scroll) + " older ↑ · f to follow]")
+	}
+	count := 0
+	if log != nil {
+		count = len(log.Lines)
+	}
+	lines := []string{
+		Bold + "▌Live log" + Reset + " " + titleState +
+			DimText(" · "+itoa(count)+" line(s) buffered") + src + pos,
+		"",
+	}
+	if log == nil || len(log.Lines) == 0 {
+		lines = append(lines, DimText("  no events yet — waiting for worker / daemon run-log output"))
+		return lines
+	}
+	// Chrome inside the body: the title + blank above the rows. The title
+	// must never be cut by fitting, so the viewport derives from the body
+	// budget the caller computed (rows - page header - footer), not its own
+	// guess.
+	viewport := maxInt(3, bodyBudget-2)
+	start := len(log.Lines) - viewport
+	if !log.Follow {
+		start -= log.Scroll
+	}
+	if start < 0 {
+		start = 0
+	}
+	end := minInt(start+viewport, len(log.Lines))
+	for _, l := range log.Lines[start:end] {
+		lines = append(lines, FormatLogLine(l, width, Reset))
+	}
+	return lines
+}
+
+// detailOverlayLines renders the detail panel (Claude Code expand):
+// everything known about one item.
+func detailOverlayLines(item any, width int) []string {
+	inner := maxInt(30, width-4)
+	var body []string
+	var titleID, title string
+	switch it := item.(type) {
+	case TuiPane:
+		role := orDefault(it.Role, "-")
+		worker := orDefault(it.Worker, "-")
+		paneID := orDefault(it.PaneID, "-")
+		wsID := orDefault(it.WorkspaceID, "-")
+		up := ""
+		if it.StartedAt != "" {
+			up = fmtElapsed(it.StartedAt, nowClock())
+		}
+		since := orDefault(it.StartedAt, "-")
+		id := orDefault(orDefault(it.TaskID, it.Label), "?")
+		titleID = id
+		body = []string{
+			" " + ChipFor(it.State, orDefault(it.AgentStatus, it.State)) +
+				"  " + Dim + "role " + role + " · engine " + worker + Reset,
+			" " + Dim + "pane " + paneID + " · workspace " + wsID + Reset,
+			" " + Dim + "up " + orDefault(up, "-") + " · since " + Truncate(since, inner-16) + Reset,
+			" " + Dim + "cwd " + Truncate(it.Cwd, inner-6) + Reset,
+			"",
+			" " + Cyan + "devagent attach " + Truncate(id, maxInt(8, inner-18)) + Reset,
+			DimText(" jump into this worker pane and steer it live"),
+		}
+	case TuiQueuedTask:
+		titleID = orDefault(it.ID, "?")
+		body = []string{
+			" " + ChipFor("queued", "queued") + "  " + Dim + orDefault(it.Status, "pending") + Reset,
+			" " + Dim + "created " + Truncate(orDefault(it.CreatedAt, "-"), inner-10) + Reset,
+			"",
+			" " + Truncate(it.Title, inner-2),
+			DimText(" waiting for a worker claim"),
+		}
+	}
+	title = Cyan + "▸" + Reset + " " + Truncate(titleID, inner-8)
+	return boxLinesLines(title, body, inner)
+}
+
+// upgradeOverlayLines renders Pilot's `u` recipe (FR-TUI-05): the
+// self-hosted upgrade/rollback hint.
+func upgradeOverlayLines(width int) []string {
+	inner := maxInt(34, width-4)
+	body := []string{
+		" " + Bold + "devagent v" + version + Reset + " " + Dim + "(self-hosted checkout)" + Reset,
+		"",
+		" " + Dim + "upgrade — clean worktree only:" + Reset,
+		"   " + Cyan + "git pull --ff-only" + Reset,
+		"   " + Cyan + "npm ci && npm run build" + Reset,
+		"",
+		" " + Dim + "rollback:" + Reset,
+		"   " + Cyan + "git checkout <previous-commit> && npm run build" + Reset,
+		"",
+		" " + Dim + "the daemon dispatches dist/src/cli.js — rebuild, then restart" + Reset,
+		" " + Dim + "devagent tui so new tasks run the fresh build" + Reset,
+	}
+	return boxLinesLines("Upgrade", body, inner)
+}
+
+// fitLines trims so header+body+footer fit rows (htop always fits). Never
+// emits more than rows lines total: a frame taller than the terminal scrolls
+// the alternate screen and desyncs the incremental diff (pressing `?` on a
+// short terminal garbled the whole dashboard). The header's tail is cut
+// first — help lines are appended last — and at least one body row always
+// survives.
+func fitLines(header, body, footer []string, rows int, keep string) []string {
+	head := header
+	if len(header)+len(footer)+1 > rows {
+		cut := maxInt(1, rows-len(footer)-1)
+		if cut > len(header) {
+			cut = len(header)
+		}
+		head = header[:cut]
+	}
+	budget := rows - len(head) - len(footer)
+	if budget >= len(body) {
+		return concat(head, body, footer)
+	}
+	cut := maxInt(1, budget)
+	var trimmed []string
+	if keep == "top" {
+		trimmed = body[:minInt(cut, len(body))]
+	} else {
+		trimmed = body[maxInt(0, len(body)-cut):]
+	}
+	return concat(head, trimmed, footer)
+}
+
+func concat(parts ...[]string) []string {
+	var out []string
+	for _, p := range parts {
+		out = append(out, p...)
+	}
+	return out
+}
+
+// RenderLines renders the full frame as lines (interactive diffs these;
+// one-shot joins them).
+func RenderLines(snap *Snapshot, ropts RenderOptions) []string {
+	width := ropts.Width
+	if width == 0 {
+		width = DefaultColumns
+	}
+	rows := ropts.Rows
+	if rows == 0 {
+		rows = DefaultRows
+	}
+	view := ropts.View
+	if ropts.ShowSessions && view == ViewWorkers {
+		view = ViewSessions
+	}
+	panes := rosterPanes(snap)
+	queued := queueRows(snap)
+
+	header := headerLines(snap, ropts)
+	if ropts.ShowHelp {
+		header = append(header, helpLines()...)
+	}
+
+	// Footer (htop function-bar cue): contextual keys + transient notes.
+	var notes []string
+	if ropts.PendingKill != "" {
+		notes = append(notes, "kill "+ropts.PendingKill+": y confirm · other key cancels")
+	}
+	if ropts.Note != "" {
+		notes = append(notes, ropts.Note)
+	}
+	keysHint := Inverse + " [1] workers [2] sessions [3] log · ↑↓ select · ⏎ detail · a attach · k kill · r refresh [?] help [q] quit " + Reset
+	if view == ViewLog {
+		keysHint = Inverse + " [1] workers [2] sessions [3] log · ↑↓ scroll · f follow · r refresh [?] help [q] quit " + Reset
+	}
+	noteSuffix := ""
+	if len(notes) > 0 {
+		noteSuffix = "  " + Yellow + Truncate(strings.Join(notes, " · "), maxInt(20, width-62)) + Reset
+	}
+	footer := []string{keysHint + noteSuffix}
+
+	if ropts.Overlay != nil && ropts.Overlay.Kind == "upgrade" {
+		return fitLines(header, append(upgradeOverlayLines(width), ""), footer, rows, "top")
+	}
+	if ropts.Overlay != nil && ropts.Overlay.Kind == "detail" && (ropts.Overlay.Pane != nil || ropts.Overlay.Queued != nil) {
+		var item any
+		if ropts.Overlay.Pane != nil {
+			item = *ropts.Overlay.Pane
+		} else {
+			item = *ropts.Overlay.Queued
+		}
+		return fitLines(header, append(detailOverlayLines(item, width), ""), footer, rows, "top")
+	}
+
+	if view == ViewLog {
+		bodyBudget := rows - len(header) - len(footer)
+		return fitLines(header, logViewLines(ropts, width, bodyBudget), footer, rows, "bottom")
+	}
+
+	if view == ViewSessions {
+		body := []string{Bold + "▌Sessions" + Reset + " " + Dim + "herdr panes" + Reset, ""}
+		if len(panes) == 0 {
+			body = append(body, DimText("  no live sessions"))
+		}
+		for i, p := range panes {
+			el := ""
+			if p.StartedAt != "" {
+				el = fmtElapsed(p.StartedAt, nowClock())
+			}
+			mark := " "
+			if i == ropts.Selection {
+				mark = Cyan + "▸" + Reset
+			}
+			line := mark + " " + Cyan + Truncate(orDefault(p.PaneID, "-"), 18) + Reset + "  " +
+				Bold + Truncate(orDefault(p.TaskID, "?"), 24) + Reset + "  " +
+				ChipFor(p.State, orDefault(p.AgentStatus, p.State))
+			if el != "" {
+				line += " " + Dim + "· " + el + Reset
+			}
+			line += "  " + Dim + Truncate(p.Cwd, maxInt(20, width-74)) + Reset
+			body = append(body, line)
+		}
+		return fitLines(header, body, footer, rows, "top")
+	}
+
+	// Workers view: cards (2-up) + history tail.
+	half := maxInt(34, width/2)
+	body := []string{Bold + "▌Workers" + Reset + " " + Dim + itoa(len(panes)) + " pane(s) · " +
+		itoa(len(queued)) + " queued" + Reset, ""}
+	var cards [][]string
+	for i, p := range panes {
+		cards = append(cards, paneCardLines(p, half-2, i == ropts.Selection))
+	}
+	for i, t := range queued {
+		cards = append(cards, queuedCardLines(t, half-2, len(panes)+i == ropts.Selection))
+	}
+	if len(cards) == 0 {
+		body = append(body, DimText("  no workers, queue empty"))
+	}
+	for i := 0; i < len(cards); i += 2 {
+		a := cards[i]
+		var b []string
+		if i+1 < len(cards) {
+			b = cards[i+1]
+		}
+		rws := maxInt(len(a), len(b))
+		for r := 0; r < rws; r++ {
+			left := ""
+			if r < len(a) {
+				left = a[r]
+			}
+			right := ""
+			if b != nil && r < len(b) {
+				right = b[r]
+			}
+			body = append(body, PadTo(left, half)+right)
+		}
+		body = append(body, "")
+	}
+	if len(cards) > 0 {
+		body = body[:len(body)-1] // single blank between cards and history
+	}
+
+	body = append(body, Bold+"▌History"+Reset+" "+Dim+"ledger tail"+Reset, "")
+	history := snap.History
+	if len(history) > HistoryRows {
+		history = history[len(history)-HistoryRows:]
+	}
+	if len(history) == 0 {
+		body = append(body, DimText("  no ledger rows"))
+	} else {
+		for _, row := range history {
+			// Row shapes vary by producer: loop-result rows carry {event, loop,
+			// status, goal}; watchdog-health rows carry {taskId, watchdogFired};
+			// audit rows carry {taskId, verdict}. Columns: clock, kind, taskId
+			// (loop-result rows show their loop number instead), short verdict,
+			// goal prose — taskId must win over prose so every row is
+			// identifiable.
+			ev := historyEvent(row)
+			task := historyTask(row)
+			statusTxt := historyStatus(row, ev)
+			goal := ""
+			if g, ok := row["goal"].(string); ok {
+				goal = g
+			}
+			goalW := minInt(60, maxInt(30, width-66))
+			statusCell := "        "
+			if statusTxt != "" {
+				statusCell = StatusColor(statusTxt) + Truncate(statusTxt, 8) + Reset
+			}
+			body = append(body, "  "+Dim+fmtClock(row["ts"])+Reset+"  "+
+				Cyan+Truncate(ev, 18)+Reset+"  "+Truncate(task, 18)+"  "+
+				statusCell+"  "+Truncate(goal, goalW))
+		}
+	}
+	return fitLines(header, body, footer, rows, "top")
+}
+
+func historyEvent(row HistoryRow) string {
+	if ev, ok := row["event"].(string); ok && ev != "" {
+		return ev
+	}
+	if st, ok := row["status"].(string); ok && st != "" {
+		return st
+	}
+	if k, ok := row["kind"].(string); ok {
+		return k
+	}
+	return ""
+}
+
+func historyTask(row HistoryRow) string {
+	if id, ok := row["taskId"].(string); ok && id != "" {
+		return id
+	}
+	if loop, ok := row["loop"].(float64); ok {
+		return "loop:" + jsNum(loop)
+	}
+	return ""
+}
+
+func historyStatus(row HistoryRow, ev string) string {
+	if st, ok := row["status"].(string); ok && st != "" && st != ev {
+		return st
+	}
+	if v, ok := row["verdict"].(string); ok && v != "" {
+		return v
+	}
+	if wf, ok := row["watchdogFired"].(bool); ok {
+		if wf {
+			return "fired"
+		}
+		return "pass"
+	}
+	return ""
+}
+
+// RenderDashboard renders the full frame (multi-line, no screen-control
+// codes) for the current snapshot.
+func RenderDashboard(snap *Snapshot, ropts RenderOptions) string {
+	return strings.Join(RenderLines(snap, ropts), "\n")
+}
+
+// viewItems is the flat item list of the current view — what the selection
+// cursor walks.
+func viewItems(snap *Snapshot, view View) []any {
+	if view == ViewLog {
+		return nil
+	}
+	if view == ViewSessions {
+		return panesToItems(rosterPanes(snap))
+	}
+	var items []any
+	for _, p := range rosterPanes(snap) {
+		items = append(items, p)
+	}
+	for _, q := range queueRows(snap) {
+		items = append(items, q)
+	}
+	return items
+}
+
+func panesToItems(panes []TuiPane) []any {
+	var items []any
+	for _, p := range panes {
+		items = append(items, p)
+	}
+	return items
+}
+
+// PickKillTarget resolves the kill target: the selection, else a running
+// pane, else any pane, else first queued row. "" when nothing qualifies.
+func PickKillTarget(snap *Snapshot, view View, selection int) string {
+	items := viewItems(snap, view)
+	if selection >= 0 && selection < len(items) {
+		switch it := items[selection].(type) {
+		case TuiPane:
+			if it.TaskID != "" {
+				return it.TaskID
+			}
+		case TuiQueuedTask:
+			if it.ID != "" {
+				return it.ID
+			}
+		}
+	}
+	for _, p := range rosterPanes(snap) {
+		if p.State == "running" && p.TaskID != "" {
+			return p.TaskID
+		}
+	}
+	for _, p := range rosterPanes(snap) {
+		if p.TaskID != "" {
+			return p.TaskID
+		}
+	}
+	for _, q := range queueRows(snap) {
+		if q.Status == "pending" && q.ID != "" {
+			return q.ID
+		}
+	}
+	return ""
+}
