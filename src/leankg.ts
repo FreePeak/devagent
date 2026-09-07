@@ -68,7 +68,7 @@ export interface LeanKgClientOptions extends LeanKgCallOptions {
 }
 
 /** Render `retrieval: {rung, reason}` + `freshness` verbatim as one line. */
-function provenanceLine(p: LeanKgProvenance): string {
+export function provenanceLine(p: LeanKgProvenance): string {
   const parts: string[] = [];
   if (p.rung !== undefined || p.reason !== undefined) {
     const reason = p.reason !== undefined ? ` (${p.reason})` : '';
@@ -177,10 +177,11 @@ export function queryLeanKg(opts: LeanKgCallOptions): LeanKgResult {
  * info line carrying the response's `retrieval`/`freshness` provenance
  * verbatim when it is not. Never throws.
  */
-export function createLeanKgProvider(opts: LeanKgClientOptions): () => string {
+export function createLeanKgProvider(opts: LeanKgClientOptions): LeanKgProvider {
   const stage: RunStage = opts.stage ?? 'implement';
-  return () => {
+  const provider: LeanKgProvider = () => {
     const res = queryLeanKg(opts);
+    provider.last = res;
     if (res.degraded) {
       opts.log?.warn(
         stage,
@@ -197,4 +198,47 @@ export function createLeanKgProvider(opts: LeanKgClientOptions): () => string {
     );
     return res.content;
   };
+  return provider;
+}
+
+/**
+ * The `kgProvider` seam plus the last raw result. The extra property is
+ * structurally invisible to `() => string` consumers, so every existing
+ * digest site keeps compiling; the merge path reads `last` to capture the
+ * provenance the run actually consumed instead of re-querying (PRD Q28).
+ */
+export type LeanKgProvider = (() => string) & { last?: LeanKgResult };
+
+/** The one LeanKG freshness value that clears the stale-evidence gate. */
+export const KG_FRESHNESS_FRESH = 'fresh';
+
+/** Verbatim KG provenance excerpt of one digest build (PRD Q28). */
+export interface KgEvidence {
+  /** `retrieval: … | freshness: …`, rendered verbatim by `provenanceLine`. */
+  excerpt: string;
+  /** LeanKG's own freshness stamp, never re-derived. */
+  freshness?: string;
+}
+
+/**
+ * Capture the run's verbatim provenance excerpt from a provider that has
+ * already been called by `buildKnowledgeContext`. Returns undefined when the
+ * KG layer was absent, degraded, or answered without provenance — the caller
+ * then persists nothing.
+ */
+export function captureKgEvidence(provider?: LeanKgProvider): KgEvidence | undefined {
+  const prov = provider?.last?.provenance;
+  if (!prov) return undefined;
+  const excerpt = provenanceLine(prov);
+  if (!excerpt) return undefined;
+  return { excerpt, ...(prov.freshness !== undefined ? { freshness: prov.freshness } : {}) };
+}
+
+/**
+ * FR-CTX-05 freshness gate: only a `fresh` stamp may persist across runs.
+ * `stale`, `possibly_stale`, `cold`, and an absent stamp are all omitted so a
+ * later digest never learns from evidence LeanKG itself distrusts.
+ */
+export function isFreshKgEvidence(evidence?: KgEvidence): evidence is KgEvidence & { freshness: string } {
+  return evidence?.freshness === KG_FRESHNESS_FRESH;
 }
