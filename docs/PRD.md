@@ -1135,7 +1135,25 @@ Claude-Code-locked with generic gates and no independent auditor, while DevAgent
 domain gates, evidence-gated orchestration, BYO-provider adapters, and eval-scored
 lessons are the differentiators. BSL 1.1 forbids copying code into this MIT repo.
 
+
+### 19.7 Internet scout synthesis (2026-09-07)
+
+A five-scout parallel web research pass (open-source harnesses, self-improving
+loops, multi-agent orchestration, verification/evals/sandboxing, context
+engineering + 2026 competitive scan; ~90 fetched sources) distilled into a
+15-item prioritized adoption backlog mapped to DevAgent surfaces:
+`docs/research/2026-09-07-internet-scout-synthesis.md` with the five full
+scout docs beside it (`docs/research/2026-09-07-*-scout.md`). Headline
+convergence: harness quality is the product (durable state = moat);
+verification depth stays the white space; gates that explain themselves beat
+gates that merely block; context/caching behavior becomes a reported metric.
+Top five backlog items: sandboxed gate subprocesses (closes
+PRODUCTION-READINESS #1), Squawk/Atlas G3 engines + migration-history hashing,
+bors-style batched merged-result oracle (PRD:885), sentinel worker exits +
+format-error breakers, synthetic-bug gate calibration.
+
 ---
+
 
 ## 20. Product Direction Addendum: Grok Bot, xAI Integration, Cross-Platform Control App
 
@@ -1426,4 +1444,4 @@ Master tracker with definition of done: [#207](https://github.com/FreePeak/devag
 
 ---
 
-*Last updated: 2026-09-07 (§22 added: full Go migration of the core — operator decision, FR-GO-01..16, phases G0/G1/G2/G3 tracked via master issue #207 + #190–#206; risks R8–R10 added; §17 roadmap carries the migration note; earlier same day: PRD §18 Q11 resolved — `.devagent/AGENTS.md` auto-load ships with the one-time per-repo trust confirm — `context.agentsMd` config, `loadAgentsMd` loader, `devagent trust agents-md` CLI; task tracker moved from the static §17 Phase 4 backlog to priority-labeled GitHub issues — selfbuild loop is issue-first, prd-curator reconciles the tracker, every PR lands with its PRD state update per the PRD-per-PR policy; see docs/SELF-BUILD-LOOP.md "Tracker + PRD policy")*
+*Last updated: 2026-09-07 (§19.7 added: five-scout internet research pass (~90 sources) distilled into a 15-item prioritized adoption backlog — docs/research/2026-09-07-internet-scout-synthesis.md + five scout docs; §22 added: full Go migration of the core — operator decision, FR-GO-01..16, phases G0/G1/G2/G3 tracked via master issue #207 + #190–#206; risks R8–R10 added; §17 roadmap carries the migration note; earlier same day: PRD §18 Q11 resolved — `.devagent/AGENTS.md` auto-load ships with the one-time per-repo trust confirm — `context.agentsMd` config, `loadAgentsMd` loader, `devagent trust agents-md` CLI; task tracker moved from the static §17 Phase 4 backlog to priority-labeled GitHub issues — selfbuild loop is issue-first, prd-curator reconciles the tracker, every PR lands with its PRD state update per the PRD-per-PR policy; see docs/SELF-BUILD-LOOP.md "Tracker + PRD policy")*
