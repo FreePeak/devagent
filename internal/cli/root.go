@@ -29,14 +29,11 @@ import (
 // notPortedIssue maps each stubbed command to the FR-GO issue that owns its
 // port, so the exit-3 message points at the tracker instead of dead-ending.
 var notPortedIssue = map[string]string{
-	"prd-audit": "#202", "run": "#194", "fleet": "#194",
-	"task": "#194", "orchestrate": "#194", "project": "#194",
-	"mcp":   "#200",
-	"guard": "#190", "guard-status": "#190",
+	"prd-audit": "#202",
+	"mcp":       "#200",
+	"guard":     "#190", "guard-status": "#190",
 	"pane-run": "#201",
 	"daemon":   "#200", "tui": "#198",
-	"create":     "#202",
-	"reap-stale": "#190",
 }
 
 // requiredFlags: flags the Node CLI declares with .requiredOption — the
@@ -84,6 +81,9 @@ func addFlags(cmd *cobra.Command, flags []string, required map[string]bool) {
 			case flagBool:
 				cmd.Flags().Bool(f[2:], false, "")
 				continue
+			case flagStringArray:
+				cmd.Flags().StringArray(f[2:], nil, "")
+				continue
 			}
 		}
 		switch f {
@@ -109,6 +109,7 @@ const (
 	flagString flagKind = iota
 	flagInt
 	flagBool
+	flagStringArray
 )
 
 // wiredTypedFlags pins the exact commander option types for wired commands,
@@ -165,6 +166,49 @@ var wiredTypedFlags = map[string]map[string]flagKind{
 		"tag": flagString, "sha": flagString, "repo": flagString, "source": flagString,
 	},
 	"dashboard": {},
+	"run": {
+		"ticket": flagString, "repo": flagString, "worker": flagString, "model": flagString,
+		"variant": flagString, "cleanup": flagString, "max-loops": flagInt, "timeout": flagInt,
+		"drop-orca-workspace": flagBool, "auto-pr": flagBool, "interactive": flagBool,
+		"dry-run": flagBool, "auto-merge": flagBool,
+	},
+	"fleet": {
+		"ticket": flagStringArray, "repo": flagStringArray, "concurrency": flagString,
+		"worker": flagString, "cleanup": flagString, "drop-orca-workspace": flagBool,
+		"auto-pr": flagBool, "max-loops": flagInt,
+	},
+	"task": {
+		"prompt": flagString, "pick": flagString, "dry-run": flagBool, "id": flagString,
+		"repo": flagString, "worker": flagString, "model": flagString, "variant": flagString,
+		"cleanup": flagString, "drop-orca-workspace": flagBool, "auto-pr": flagBool,
+		"auto-merge": flagBool, "max-loops": flagInt, "remote": flagString,
+	},
+	"orchestrate": {
+		"goal": flagString, "repo": flagString, "planner": flagString, "executor": flagString,
+		"auditor": flagString, "no-audit": flagBool, "answer": flagStringArray,
+		"concurrency": flagString, "max-task-retries": flagInt, "max-recoveries": flagInt,
+		"max-total-attempts": flagInt, "plan-only": flagBool, "max-waves": flagInt,
+		"resume": flagBool, "no-merge": flagBool,
+	},
+	"project": {
+		"repo": flagString,
+	},
+	"create": {
+		"repo": flagString, "scout": flagBool, "tracker": flagBool, "builder": flagBool,
+		"orchestrator": flagBool, "orchestrator-goal": flagString, "workers": flagInt,
+		"auto-merge": flagBool, "self-update": flagBool, "interval": flagInt,
+		"track-interval": flagInt, "scout-worker": flagString, "dry-run": flagBool,
+	},
+	"consume": {
+		"repo": flagString, "once": flagBool, "auto-pr": flagBool,
+		"auto-merge": flagBool, "max-loops": flagInt,
+	},
+	"backlog-check": {
+		"repo": flagString, "ledger": flagString, "strike": flagBool,
+	},
+	"reap-stale": {
+		"older-than": flagInt, "repo": flagString, "dry-run": flagBool,
+	},
 }
 
 // parentNames walks a command's ancestor chain (root first, immediate parent
@@ -385,6 +429,17 @@ func wiredCommands() map[string]*cobra.Command {
 		"pr-hygiene":          newPrHygieneCmd(),
 		"autosweep":           newAutoSweepCmd(),
 		"automerge":           automergeCommand(),
+
+		// Pipeline-family commands (FR-GO-04 #194 / FR-GO-05 #190 wiring).
+		"run":           runCommand(),
+		"fleet":         fleetCommand(),
+		"task":          taskCommand(),
+		"orchestrate":   orchestrateCommand(),
+		"project":       projectCommand(),
+		"create":        createCommand(),
+		"consume":       consumeCommand(),
+		"backlog-check": backlogCheckCommand(),
+		"reap-stale":    reapStaleCommand(),
 	}
 	for _, sub := range wired["record"].Commands() {
 		if sub.Name() == "release" {
@@ -403,6 +458,10 @@ var wiredFlagDefaults = map[string]map[string]string{
 	"rebase-stack":   {"onto": "main"},
 	"sync-docs":      {"branch": "main"},
 	"record release": {"source": "cli"},
+	"fleet":          {"concurrency": "2"},
+	"orchestrate":    {"concurrency": "2", "max-task-retries": "1", "max-recoveries": "1", "max-total-attempts": "0"},
+	"consume":        {"once": "true"},
+	"reap-stale":     {"older-than": "600000"},
 }
 
 // registerStubs registers every remaining command from the frozen surface
@@ -469,7 +528,9 @@ func handled(dotted string) bool {
 		"record", "pane-run",
 		"selfbuild-gate", "board-recovery", "preflight", "page-degrade-breach",
 		"queue", "queue list", "queue show", "queue bridge",
-		"lessons", "lessons scores", "pr-hygiene", "automerge", "autosweep":
+		"lessons", "lessons scores", "pr-hygiene", "automerge", "autosweep",
+		"run", "fleet", "task", "orchestrate", "project", "create",
+		"consume", "backlog-check", "reap-stale":
 		return true
 	}
 	return false
