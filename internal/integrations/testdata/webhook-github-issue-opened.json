@@ -1,0 +1,5 @@
+{
+  "action": "opened",
+  "issue": { "number": 5, "title": "Fix login" },
+  "repository": { "full_name": "acme/api" }
+}
