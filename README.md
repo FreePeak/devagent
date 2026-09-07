@@ -172,9 +172,9 @@ Research sources backing the PRD are cited inline and collected in the [research
 
 ## Status
 
-Releases are tagged automatically on every push to `main` (latest:
-**v0.25.26**, 2026-09-07); each release appends a `release-created` row to the
-orchestration ledger. Current surface:
+Releases are tagged automatically on every push to `main` (see
+[Releases](https://github.com/FreePeak/devagent/releases)); each release
+appends a `release-created` row to the orchestration ledger. Current surface:
 
 - **Trackers & hosts** — Linear, Jira, GitHub Issues ingestion; GitHub + GitLab PR publishing
 - **Workers** — headless omp (default), Claude Code, OpenCode, pi, and Grok Build CLI adapters; per-adapter model-id validation, cold-start + no-progress watchdogs, fan-out winner selection with flaky rerun
