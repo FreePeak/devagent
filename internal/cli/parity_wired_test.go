@@ -217,11 +217,9 @@ func TestExitParityVsNodeWired(t *testing.T) {
 // command still in the notPortedIssue map exits 3 with the pointer message.
 func TestWiredStubContract(t *testing.T) {
 	stillStubbed := []string{
-		"backlog-check", "selfbuild-gate", "board-recovery", "prd-audit",
-		"task", "project", "mcp", "preflight",
-		"page-degrade-breach", "guard", "guard-status", "automerge", "autosweep",
-		"pr-hygiene", "daemon", "tui", "lessons", "queue list",
-		"queue show", "queue bridge", "consume", "reap-stale",
+		"backlog-check", "prd-audit",
+		"task", "project", "mcp",
+		"guard", "guard-status", "daemon", "tui", "reap-stale",
 	}
 	bin := filepath.Join(t.TempDir(), "devagent-go")
 	build := exec.Command("go", "build", "-o", bin, "./cmd/devagent")
