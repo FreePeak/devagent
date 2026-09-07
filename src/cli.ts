@@ -2,7 +2,7 @@
 import { Command } from 'commander';
 import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { loadConfig, loadCredentials, credentialStatus, type CleanupMode } from './config.js';
+import { herdrSweepConfig, loadConfig, loadCredentials, credentialStatus, type CleanupMode, type HerdrSweepSettings } from './config.js';
 import { RunLogger } from './logger.js';
 import { ensureStateBranch } from './git/state-branch.js';
 import { runInit, renderInitReport } from './commands/init.js';
@@ -11,6 +11,7 @@ import { buildStatusView, renderStatusCard, statusJson } from './commands/status
 import { buildProbeArgvFor } from './commands/probe-argv.js';
 import { runSyncDocs } from './commands/sync-docs.js';
 import { runPreflightGate, PREFLIGHT_ROLES, isPreflightRole } from './resilience/preflight.js';
+import { pageDegradeBreach, DEGRADE_BREACH_SOURCES, isDegradeBreachSource } from './resilience/degrade-pager.js';
 import { DEGRADE_STREAK_THRESHOLD, readDegradationStreak } from './resilience/degradation.js';
 import { runPipeline } from './pipeline.js';
 import { buildDeps, buildDryRunDeps } from './deps.js';
@@ -1322,6 +1323,54 @@ program
   });
 
 program
+  .command('page-degrade-breach')
+  .description(
+    'Page the operator webhook for a degradation streak the preflight gate did not cause (Q41 doc-sync surface): read the trailing streak from .devagent/runs/orchestration/events.jsonl and POST one provider-degraded-breach alert to resilience.degradeWebhookUrl, but only on the cycle where the streak equals the threshold — mid-streak cycles stay silent. Best-effort by design: an unset webhook, a broken devagent.json or a transport throw still exits 0, so paging can never fail the calling loop',
+  )
+  .requiredOption('--source <name>', `surface that recorded the streak-completing row (${DEGRADE_BREACH_SOURCES.join(' | ')})`)
+  .option('--repo <path>', 'target repository owning the ledger and config', process.cwd())
+  .option('--role <name>', 'role carried onto the alert (the loop role that paused)', '')
+  .option('--worker <name>', 'worker CLI carried onto the alert (default from repo config)')
+  .option('--model <id>', 'model id carried onto the alert (default from repo config)')
+  .option('--detail <text>', 'human-readable why carried onto the alert')
+  .action(async (opts) => {
+    if (!isDegradeBreachSource(opts.source)) {
+      console.error(
+        `[page-degrade-breach] unknown source "${opts.source}"; expected one of: ${DEGRADE_BREACH_SOURCES.join(', ')}`,
+      );
+      process.exitCode = 1;
+      return;
+    }
+    // Worker/model are alert context only: a config this CLI cannot read must
+    // degrade to empty fields, never to a failed command.
+    let worker = opts.worker as string | undefined;
+    let model = opts.model as string | undefined;
+    try {
+      const config = loadConfig(opts.repo);
+      worker = worker ?? config.worker;
+      model = model ?? config.model;
+    } catch {
+      worker = worker ?? '';
+      model = model ?? '';
+    }
+    const paged = await pageDegradeBreach({
+      repoPath: opts.repo,
+      source: opts.source,
+      role: opts.role,
+      worker,
+      model,
+      detail: opts.detail,
+    });
+    if (paged) {
+      console.log(`[page-degrade-breach] paged operator webhook (resilience.degradeWebhookUrl) source=${opts.source}`);
+    } else {
+      console.log(
+        '[page-degrade-breach] no page: streak below threshold, webhook unset/unreadable, or paging failed (best-effort)',
+      );
+    }
+  });
+
+program
   .command('clean')
   .description('Remove run worktrees older than the cutoff (default 7 days)')
   .option('--repo <path>', 'target repository', process.cwd())
@@ -1570,21 +1619,39 @@ program
 
 program
   .command('herdr-sweep')
-  .description('Close idle/agentless stale panes in the devagent herdr session (session-scoped; never touches other sessions or non-herdr processes)')
+  .description('Close idle/agentless stale panes in the devagent herdr session (session-scoped; bounded by herdr.sweep — enabled toggle, denySessions list, operator-attach exemption)')
   .option('--session <name>', 'herdr session to sweep (default DEVAGENT_HERDR_SESSION or "devagent")')
   .option('--dry-run', 'list stale panes without closing', false)
+  .option('--orphans', 'also close LIVE panes whose pane-run owner CLI detached from any live selfbuild-loop.sh driver (loop-driver use only; spares operator-attached tasks)', false)
   .action(async (opts) => {
-    const { resolveSession, sweepStalePanes } = await import('./integrations/herdr.js');
+    // Loaded per invocation like every other herdr command: the integration
+    // pulls in the child-process plumbing no other subcommand needs.
+    const { resolveSession, sweepDenyReason, sweepStalePanes, SWEEP_REASON_OPERATOR_ATTACHED } = await import('./integrations/herdr.js');
     const session = resolveSession(opts.session);
-    const stale = await sweepStalePanes(session, { dryRun: opts.dryRun });
+    // An invalid config leaves the deny list unknown; resolveSweepSettings()
+    // inside the sweep then refuses to run and says why on stderr.
+    let sweep: HerdrSweepSettings | undefined;
+    try {
+      sweep = herdrSweepConfig();
+    } catch {
+      sweep = undefined;
+    }
+    const denied = sweep ? sweepDenyReason(session, sweep) : null;
+    if (denied !== null) {
+      console.log(`[${session}] sweep ${denied === 'disabled' ? 'disabled (herdr.sweep.enabled / DEVAGENT_HERDR_SWEEP=0)' : `denied for session "${session}" (herdr.sweep.denySessions)`}`);
+      return;
+    }
+    const stale = await sweepStalePanes(session, { dryRun: opts.dryRun, orphans: Boolean(opts.orphans), sweep });
     if (stale.length === 0) {
       console.log(`[${session}] no stale panes`);
       return;
     }
+    const spared = stale.filter((s) => s.reason === SWEEP_REASON_OPERATOR_ATTACHED).length;
     for (const s of stale) {
-      console.log(`${opts.dryRun ? '[stale]' : '[closed]'} ${s.paneId} (${s.label}) status=${s.agentStatus} reason=${s.reason}`);
+      const tag = s.reason === SWEEP_REASON_OPERATOR_ATTACHED ? '[spared]' : opts.dryRun ? '[stale]' : '[closed]';
+      console.log(`${tag} ${s.paneId} (${s.label}) status=${s.agentStatus} reason=${s.reason}`);
     }
-    console.log(`${stale.length} pane(s) ${opts.dryRun ? 'found' : 'closed'} in session "${session}"`);
+    console.log(`${stale.length - spared} pane(s) ${opts.dryRun ? 'found' : 'closed'} in session "${session}"${spared ? `; ${spared} spared (operator-attached)` : ''}`);
   });
 
 program

@@ -11,7 +11,7 @@ import {
   isPreflightRole,
   runPreflightGate,
 } from '../src/resilience/preflight.js';
-import type { DegradeBreachAlert } from '../src/resilience/preflight.js';
+import type { DegradeBreachAlert } from '../src/resilience/degrade-pager.js';
 import { readProxyState, recordProxyProbe } from '../src/resilience/proxy-state.js';
 import { DEGRADE_STREAK_THRESHOLD } from '../src/resilience/degradation.js';
 import { loadConfig } from '../src/config.js';
@@ -324,6 +324,9 @@ describe('degradation paging (Q41 write side)', () => {
     expect(calls[0]!.url).toBe('https://pager.invalid/hook');
     expect(calls[0]!.alert).toMatchObject({
       event: 'provider-degraded-breach',
+      // The gate claims the preflight source; the doc-sync surface is the
+      // other caller of the same pager (src/resilience/degrade-pager.ts).
+      source: 'preflight',
       repo,
       role: 'selfbuild',
       worker: 'omp',

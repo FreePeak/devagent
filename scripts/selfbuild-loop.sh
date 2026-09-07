@@ -319,8 +319,21 @@ while :; do
         else
           record "$N" provider-degraded "doc-sync failed: $(printf '%s' "$SYNC_OUT" | tail -1 | cut -c1-120)"
           fails=$(( fails + 1 ))
-          [ "$fails" -ge "$MAX_FAILS" ] && { echo "circuit breaker: $fails consecutive failures" ; exit 1 ; }
         fi
+        # Q41 paging, doc-sync surface: the rows recorded just above mirror into
+        # .devagent/runs/orchestration/events.jsonl and count toward the same
+        # trailing degradation streak `devagent status --providers` reads, but
+        # the pager only ever ran inside `devagent preflight` — loops 145-154
+        # logged ten consecutive operator-diverged syncs with nobody paged.
+        # `devagent page-degrade-breach` reuses that threshold and the
+        # once-per-episode rule (silent mid-streak, silent on a dirty-PRD
+        # refusal, which is productive for the streak). `|| true` + the breaker
+        # moved below it: paging is observability and must never fail — or
+        # delay — the cycle it reports, and the breaker exit must not preempt
+        # the page that tells a human why the driver just died.
+        "${DEVAGENT[@]}" page-degrade-breach --repo "$REPO" --source doc-sync \
+          --role selfbuild --detail "doc-sync rc=$SYNC_RC: $(printf '%s' "$SYNC_OUT" | tail -1 | cut -c1-120)" || true
+        [ "$fails" -ge "$MAX_FAILS" ] && { echo "circuit breaker: $fails consecutive failures" ; exit 1 ; }
         sleep "${SELFBUILD_SYNC_RETRY_SECS:-60}"
         continue
       fi
@@ -425,9 +438,14 @@ Do NOT edit any files. Output only."
     if [ -n "$QUEUE_JSON" ] && [ "$QUEUE_JSON" != "{}" ]; then
       QID="$(printf '%s' "$QUEUE_JSON" | node -e 'let d="";process.stdin.on("data",(c)=>d+=c).on("end",()=>console.log(JSON.parse(d).id))')"
       QGOAL="$(printf '%s' "$QUEUE_JSON" | node -e 'let d="";process.stdin.on("data",(c)=>d+=c).on("end",()=>console.log(JSON.parse(d).goal))')"
+      QLEASE="$(printf '%s' "$QUEUE_JSON" | node -e 'let d="";process.stdin.on("data",(c)=>d+=c).on("end",()=>console.log(JSON.parse(d).leaseGeneration))')"
       echo "[queue] claimed $QID from .devagent/queue (queue-first outranks LLM selection)"
       GOAL="$QGOAL"
       QUEUED_TASK_ID="$QID"
+      # Fencing token for this claim (FR-VIS-09 queue claims): handed to
+      # selfbuild-queue-done.mjs so a lease reclaimed mid-run makes the done
+      # write refuse instead of clobbering the new owner's record.
+      QUEUED_TASK_LEASE="$QLEASE"
       printf '%s\n' "$GOAL" > goal.tmp && mv goal.tmp "$STATE/goals/loop-$N.md"
     fi
 
@@ -505,6 +523,7 @@ Output ONLY the goal statement (max 120 words), starting with 'Goal:' — this t
     if ! grep -q '^Goal:' "$GOAL_FILE"; then
       echo "[validate] goal file missing Goal: line — marking iteration invalid" ; record "$N" invalid "$(cat "$GOAL_FILE" 2>/dev/null)" ; fails=$(( fails + 1 )) ; else
       GOAL=$(cat "$GOAL_FILE")
+
       # Q27 guard: never re-implement a goal that already shipped (a ledger
       # entry with a productive status carries the same text). Loop 58 re-burned
       # Q35 after its PR #100 merged because the driver restart lost the record;
@@ -515,7 +534,7 @@ Output ONLY the goal statement (max 120 words), starting with 'Goal:' — this t
         # Mark a queue-claimed item done too, or the queue-first selector
         # re-claims the same already-shipped goal every iteration (2026-09-04:
         # SCOUT-20260903-fallback skipped twice, then burned a worker dispatch).
-        [ -n "${QUEUED_TASK_ID:-}" ] && node "$REPO/scripts/selfbuild-queue-done.mjs" "$REPO" "$QUEUED_TASK_ID" done "already shipped (Q27 guard)" >/dev/null 2>&1 || true
+        [ -n "${QUEUED_TASK_ID:-}" ] && DEVAGENT_QUEUE_LEASE="${QUEUED_TASK_LEASE:-}" node "$REPO/scripts/selfbuild-queue-done.mjs" "$REPO" "$QUEUED_TASK_ID" done "already shipped (Q27 guard)" >/dev/null 2>&1 || true
         [ -n "${ISSUE_NUM:-}" ] && close_issue "$ISSUE_NUM" "self-build loop $N: goal already shipped (Q27 no re-burn guard) — closing as done" || true
         echo "[ok] loop $N skipped (already shipped)"
         fails=0
@@ -550,7 +569,7 @@ ${PRD_POLICY}" --repo "$REPO" --worker "$WORKER")
       DEVAGENT_API_MAX_ATTEMPTS="${SELFBUILD_API_MAX_ATTEMPTS:-40}" \
       DEVAGENT_NO_PROGRESS_TIMEOUT_MS="${SELFBUILD_NO_PROGRESS_TIMEOUT_MS:-600000}" \
       DEVAGENT_VISIBILITY="$VISIBILITY" \
-        timeout "${SELFBUILD_TASK_TIMEOUT:-7200}" "${DEVAGENT[@]}" "${TASK_ARGS[@]}" || { echo "[implement] task failed" ; record "$N" failed "$GOAL" ; [ -n "${QUEUED_TASK_ID:-}" ] && node "$REPO/scripts/selfbuild-queue-done.mjs" "$REPO" "$QUEUED_TASK_ID" failed "implement failed at loop $N" >/dev/null 2>&1 || true ; fails=$(( fails + 1 )) ;
+        timeout "${SELFBUILD_TASK_TIMEOUT:-7200}" "${DEVAGENT[@]}" "${TASK_ARGS[@]}" || { echo "[implement] task failed" ; record "$N" failed "$GOAL" ; [ -n "${QUEUED_TASK_ID:-}" ] && DEVAGENT_QUEUE_LEASE="${QUEUED_TASK_LEASE:-}" node "$REPO/scripts/selfbuild-queue-done.mjs" "$REPO" "$QUEUED_TASK_ID" failed "implement failed at loop $N" >/dev/null 2>&1 || true ; fails=$(( fails + 1 )) ;
         [ "$fails" -ge "$MAX_FAILS" ] && { echo "circuit breaker: $fails consecutive failures" ; exit 1 ; } ; continue ; }
 
       # Post-merge-back repo-level test gate.
@@ -564,7 +583,7 @@ ${PRD_POLICY}" --repo "$REPO" --worker "$WORKER")
       fi
 
       record "$N" ok "$GOAL"
-      [ -n "${QUEUED_TASK_ID:-}" ] && node "$REPO/scripts/selfbuild-queue-done.mjs" "$REPO" "$QUEUED_TASK_ID" done >/dev/null 2>&1 || true
+      [ -n "${QUEUED_TASK_ID:-}" ] && DEVAGENT_QUEUE_LEASE="${QUEUED_TASK_LEASE:-}" node "$REPO/scripts/selfbuild-queue-done.mjs" "$REPO" "$QUEUED_TASK_ID" done >/dev/null 2>&1 || true
       # Issue-first bookkeeping: the shipped iteration closes its tracker
       # issue (best effort; merge-side auto-close via 'Fixes #N' in the PR
       # body may have done it already — an already-closed issue is a no-op).

@@ -1,8 +1,8 @@
 import { describe, expect, it, beforeEach } from 'vitest';
-import { mkdtempSync, rmSync, existsSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { enqueueTask, listTasks, claimTask, claimNextPending, updateTask, setTaskStatus, readTask, writePrd, readPrd, pruneDone, taskCount, ensureQueueDirs, queueDir } from '../src/queue.js';
+import { enqueueTask, listTasks, claimTask, claimNextPending, updateTask, setTaskStatus, readTask, writePrd, readPrd, pruneDone, taskCount, ensureQueueDirs, queueDir, completeTask, failTask, requeueTask, leaseIsExpired } from '../src/queue.js';
 
 function tmpRepo(): string {
   const d = mkdtempSync(join(tmpdir(), 'da-queue-'));
@@ -129,6 +129,172 @@ describe('queue: claim', () => {
       expect(readTask(repo, 'STAMP-1')!.failureClass).toBe('test-gate');
       const clean = enqueueTask(repo, { id: 'STAMP-2', title: 's2', goal: 'Goal: s2' });
       expect(clean.failureClass).toBeUndefined();
+    } finally { rmSync(repo, { recursive: true, force: true }); }
+  });
+});
+
+/** Deterministic clock: leases are wall-clock behaviour, tests must not sleep. */
+function fakeClock(start: number): { now: () => number; advance: (ms: number) => void } {
+  let at = start;
+  return { now: () => at, advance: (ms: number) => { at += ms; } };
+}
+
+const T0 = Date.parse('2026-09-07T00:00:00.000Z');
+
+describe('queue: claim lease + fencing tokens (FR-VIS-09)', () => {
+  it('double claim: exactly one worker wins the lease', () => {
+    const repo = tmpRepo();
+    try {
+      const clock = fakeClock(T0);
+      enqueueTask(repo, { id: 'L-1', title: 'l', goal: 'Goal: l' });
+      const first = claimTask(repo, 'L-1', 'w1', { now: clock.now, leaseMs: 60_000 });
+      const second = claimTask(repo, 'L-1', 'w2', { now: clock.now, leaseMs: 60_000 });
+      expect(first!.status).toBe('claimed');
+      expect(first!.leaseGeneration).toBe(1);
+      expect(first!.leaseOwner).toBe('w1');
+      expect(second).toBeNull();
+      const stored = readTask(repo, 'L-1')!;
+      expect(stored.leaseOwner).toBe('w1');
+      expect(stored.claimedBy).toBe('w1');
+      expect(stored.attempts).toBe(1);
+      // the claim lock is released with the claim, not left behind
+      expect(existsSync(join(queueDir(repo), 'L-1.claim.lock'))).toBe(false);
+    } finally { rmSync(repo, { recursive: true, force: true }); }
+  });
+
+  it('a live claim lock makes the loser give up without touching the task or the lock', () => {
+    const repo = tmpRepo();
+    try {
+      const clock = fakeClock(T0);
+      enqueueTask(repo, { id: 'L-2', title: 'l', goal: 'Goal: l' });
+      // Another claimant mid-read-modify-write (link() already won the name).
+      const lock = join(queueDir(repo), 'L-2.claim.lock');
+      writeFileSync(lock, JSON.stringify({ workerId: 'other', pid: 999_999, acquiredAtMs: clock.now() }) + '\n');
+      expect(claimTask(repo, 'L-2', 'w1', { now: clock.now })).toBeNull();
+      expect(readTask(repo, 'L-2')!.status).toBe('pending');
+      expect(existsSync(lock)).toBe(true);
+      expect(readdirSync(queueDir(repo)).filter((f) => f.includes('.tmp.'))).toEqual([]);
+    } finally { rmSync(repo, { recursive: true, force: true }); }
+  });
+
+  it('a wedged claim lock past the stale window is broken and the claim proceeds', () => {
+    const repo = tmpRepo();
+    try {
+      const clock = fakeClock(T0);
+      enqueueTask(repo, { id: 'L-3', title: 'l', goal: 'Goal: l' });
+      const lock = join(queueDir(repo), 'L-3.claim.lock');
+      // Holder died between link() and unlink(): lock is 60s old, window is 30s.
+      writeFileSync(lock, JSON.stringify({ workerId: 'dead', pid: 1, acquiredAtMs: clock.now() - 60_000 }) + '\n');
+      expect(claimTask(repo, 'L-3', 'w1', { now: clock.now })).not.toBeNull();
+      expect(readTask(repo, 'L-3')!.leaseOwner).toBe('w1');
+    } finally { rmSync(repo, { recursive: true, force: true }); }
+  });
+
+  it('expired lease is reclaimable and bumps the generation (never reused)', () => {
+    const repo = tmpRepo();
+    try {
+      const clock = fakeClock(T0);
+      enqueueTask(repo, { id: 'L-4', title: 'l', goal: 'Goal: l' });
+      const first = claimTask(repo, 'L-4', 'w1', { now: clock.now, leaseMs: 1000 })!;
+      expect(leaseIsExpired(first, clock.now())).toBe(false);
+      // still inside the lease: nobody else gets in
+      expect(claimTask(repo, 'L-4', 'w2', { now: clock.now, leaseMs: 1000 })).toBeNull();
+      clock.advance(1000);
+      const reclaimed = claimTask(repo, 'L-4', 'w2', { now: clock.now, leaseMs: 1000 })!;
+      expect(reclaimed.leaseGeneration).toBe(first.leaseGeneration! + 1);
+      expect(reclaimed.leaseOwner).toBe('w2');
+      expect(reclaimed.attempts).toBe(2);
+      expect(leaseIsExpired(reclaimed, clock.now() + 999)).toBe(false);
+    } finally { rmSync(repo, { recursive: true, force: true }); }
+  });
+
+  it('claimNextPending reclaims an expired lease instead of wedging on it', () => {
+    const repo = tmpRepo();
+    try {
+      const clock = fakeClock(T0);
+      enqueueTask(repo, { id: 'L-5', title: 'l', goal: 'Goal: l' });
+      expect(claimNextPending(repo, 'w1', { now: clock.now, leaseMs: 1000 })!.leaseGeneration).toBe(1);
+      expect(claimNextPending(repo, 'w2', { now: clock.now, leaseMs: 1000 })).toBeNull();
+      clock.advance(1000);
+      const reclaimed = claimNextPending(repo, 'w2', { now: clock.now, leaseMs: 1000 })!;
+      expect(reclaimed.leaseGeneration).toBe(2);
+      expect(reclaimed.leaseOwner).toBe('w2');
+    } finally { rmSync(repo, { recursive: true, force: true }); }
+  });
+
+  it('stale-generation writes are refused: complete, fail, and requeue', () => {
+    const repo = tmpRepo();
+    try {
+      const clock = fakeClock(T0);
+      enqueueTask(repo, { id: 'L-6', title: 'l', goal: 'Goal: l' });
+      claimTask(repo, 'L-6', 'w1', { now: clock.now, leaseMs: 1000 });
+      clock.advance(1000);
+      claimTask(repo, 'L-6', 'w2', { now: clock.now, leaseMs: 1000 }); // generation 2
+      // w1 woke up late and still holds generation 1
+      expect(completeTask(repo, 'L-6', 1)).toBeNull();
+      expect(failTask(repo, 'L-6', 1, 'boom')).toBeNull();
+      expect(requeueTask(repo, 'L-6', 1, 'oops')).toBeNull();
+      expect(setTaskStatus(repo, 'L-6', 'done', undefined, { expectedGeneration: 1 })).toBeNull();
+      const held = readTask(repo, 'L-6')!;
+      expect(held.status).toBe('claimed');
+      expect(held.leaseOwner).toBe('w2');
+      expect(held.leaseGeneration).toBe(2);
+      expect(held.lastError).toBeUndefined();
+      // the current token writes
+      expect(completeTask(repo, 'L-6', 2)!.status).toBe('done');
+    } finally { rmSync(repo, { recursive: true, force: true }); }
+  });
+
+  it('requeue releases the lease and kills the releasing worker token', () => {
+    const repo = tmpRepo();
+    try {
+      const clock = fakeClock(T0);
+      enqueueTask(repo, { id: 'L-7', title: 'l', goal: 'Goal: l' });
+      claimTask(repo, 'L-7', 'w1', { now: clock.now });
+      const requeued = requeueTask(repo, 'L-7', 1, 'transient infra')!;
+      expect(requeued.status).toBe('pending');
+      expect(requeued.leaseGeneration).toBe(2);
+      expect(requeued.leaseOwner).toBeUndefined();
+      expect(requeued.lastError).toContain('transient infra');
+      // a late completion from the worker that released it is refused
+      expect(completeTask(repo, 'L-7', 1)).toBeNull();
+      expect(readTask(repo, 'L-7')!.status).toBe('pending');
+      // and the next claim continues the sequence rather than reusing 1
+      expect(claimTask(repo, 'L-7', 'w2', { now: clock.now })!.leaseGeneration).toBe(3);
+    } finally { rmSync(repo, { recursive: true, force: true }); }
+  });
+
+  it('failTask records the detail and completeTask clears it under the current token', () => {
+    const repo = tmpRepo();
+    try {
+      enqueueTask(repo, { id: 'L-8', title: 'l', goal: 'Goal: l' });
+      const claimed = claimTask(repo, 'L-8', 'w1')!;
+      const gen = claimed.leaseGeneration!;
+      expect(failTask(repo, 'L-8', gen, 'gate red')!.lastError).toBe('gate red');
+      expect(readTask(repo, 'L-8')!.status).toBe('failed');
+      const retried = claimTask(repo, 'L-8', 'w2');
+      // terminal failed is not claimable: it must be requeued by an
+      // administrative write first
+      expect(retried).toBeNull();
+      setTaskStatus(repo, 'L-8', 'pending');
+      const again = claimTask(repo, 'L-8', 'w2')!;
+      expect(again.leaseGeneration).toBe(gen + 1);
+      expect(completeTask(repo, 'L-8', again.leaseGeneration!)!.lastError).toBeUndefined();
+    } finally { rmSync(repo, { recursive: true, force: true }); }
+  });
+
+  it('a legacy claimed task with no lease fields is reclaimable, not wedged', () => {
+    const repo = tmpRepo();
+    try {
+      const clock = fakeClock(T0);
+      enqueueTask(repo, { id: 'L-9', title: 'l', goal: 'Goal: l' });
+      claimTask(repo, 'L-9', 'w1', { now: clock.now });
+      // Rewrite the record as a pre-lease build left it: claimed, no lease.
+      const legacy = { ...readTask(repo, 'L-9')!, leaseGeneration: undefined, leaseOwner: undefined, leaseExpiresAt: undefined };
+      writeFileSync(join(queueDir(repo), 'L-9.json'), JSON.stringify(legacy, null, 2) + '\n');
+      const reclaimed = claimTask(repo, 'L-9', 'w2', { now: clock.now })!;
+      expect(reclaimed.leaseGeneration).toBe(1);
+      expect(reclaimed.leaseOwner).toBe('w2');
     } finally { rmSync(repo, { recursive: true, force: true }); }
   });
 });
