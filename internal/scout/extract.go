@@ -152,7 +152,7 @@ func Extract(raw, abortedPathArg string) ExtractResult {
 // cannot be read (the Node script throws on the same condition).
 func RunExtractText(args []string, stderr io.Writer) int {
 	if len(args) < 2 {
-		fmt.Fprintln(stderr, "usage: selfbuild-extract-text.mjs <raw-file> <out-file> [aborted-file]")
+		_, _ = fmt.Fprintln(stderr, "usage: selfbuild-extract-text.mjs <raw-file> <out-file> [aborted-file]")
 		return 2
 	}
 	rawPath, outPath := args[0], args[1]
@@ -162,7 +162,7 @@ func RunExtractText(args []string, stderr io.Writer) int {
 	}
 	raw, err := os.ReadFile(rawPath)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
+		_, _ = fmt.Fprintln(stderr, err)
 		return 1
 	}
 	res := Extract(string(raw), abortedPathArg)
@@ -171,7 +171,7 @@ func RunExtractText(args []string, stderr io.Writer) int {
 		_ = os.WriteFile(res.PreserveRawAt, raw, 0o644)
 	}
 	if err := os.WriteFile(outPath, []byte(res.Out), 0o644); err != nil {
-		fmt.Fprintln(stderr, err)
+		_, _ = fmt.Fprintln(stderr, err)
 		return 1
 	}
 	return 0

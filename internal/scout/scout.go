@@ -2,7 +2,8 @@
 // payload extraction, the golden replay harness, heartbeat persistence, the
 // single-instance lock, and prompt assembly. Live worker dispatch
 // (runScoutOnce/runScoutLoop) stays in TS until the queue (FR-GO-04) and
-// doc-sync (FR-GO-05) ports land.
+// doc-sync (FR-GO-05) ports land. See extract.go for the canonical package
+// comment.
 
 package scout
 

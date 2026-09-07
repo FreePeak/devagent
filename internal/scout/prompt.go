@@ -2,7 +2,9 @@
 // COMPACT_CONTEXT_MARKER splice seam, the lessons digest (bounded + impact
 // ranked, Q39), and the layered knowledge-context digest (FR-CTX-01..03).
 // The trust-gated AGENTS.md layer reuses the already-ported internal/trust
-// package (same file, same gate semantics).
+// package (same file, same gate semantics). See extract.go for the
+// canonical package comment.
+
 package scout
 
 import (

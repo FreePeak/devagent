@@ -2,7 +2,9 @@
 // classification (which validation gates apply, FR-PLAN-03), the spec
 // sufficiency check (FR-TICKET-05), the plan outline, and the
 // implementation/repair prompt builders from src/prompt.ts (they hang off
-// ImplementationPlan, so they live beside it).
+// ImplementationPlan, so they live beside it). See extract.go for the
+// canonical package comment.
+
 package scout
 
 import (
