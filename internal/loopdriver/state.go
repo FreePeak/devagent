@@ -201,12 +201,12 @@ func dedupeLines(s string) string {
 // remote branch is the normal first-run path, not an error.
 func (s *stateSync) Pull() error {
 	if err := s.fetchState(); err != nil {
-		fmt.Fprintf(s.stdout, "[state] no remote state yet (%s) — starting fresh\n", StateBranch)
+		_, _ = fmt.Fprintf(s.stdout, "[state] no remote state yet (%s) — starting fresh\n", StateBranch)
 		return nil
 	}
 	s.mergeLedger()
 	s.mergeLessons()
-	fmt.Fprintf(s.stdout, "[state] pulled %d ledger entries into %s\n", countNewlines(s.ledgerPath()), s.ledgerPath())
+	_, _ = fmt.Fprintf(s.stdout, "[state] pulled %d ledger entries into %s\n", countNewlines(s.ledgerPath()), s.ledgerPath())
 	return nil
 }
 
@@ -215,11 +215,11 @@ func (s *stateSync) Pull() error {
 // bash driver.
 func (s *stateSync) Push() error {
 	if _, err := os.Stat(s.ledgerPath()); err != nil {
-		fmt.Fprintf(s.stdout, "[state] nothing to push: %s missing\n", s.ledgerPath())
+		_, _ = fmt.Fprintf(s.stdout, "[state] nothing to push: %s missing\n", s.ledgerPath())
 		return nil
 	}
 	if err := s.fetchState(); err != nil {
-		fmt.Fprintf(s.stdout, "[state] no remote state yet — creating %s\n", StateBranch)
+		_, _ = fmt.Fprintf(s.stdout, "[state] no remote state yet — creating %s\n", StateBranch)
 	}
 	s.mergeLedger()
 	s.mergeLessons()
@@ -228,7 +228,7 @@ func (s *stateSync) Push() error {
 		err = s.pushRef(commit, nil)
 	}
 	if err == nil {
-		fmt.Fprintf(s.stdout, "[state] pushed %d ledger entries to %s\n", countNewlines(s.ledgerPath()), StateBranch)
+		_, _ = fmt.Fprintf(s.stdout, "[state] pushed %d ledger entries to %s\n", countNewlines(s.ledgerPath()), StateBranch)
 		return nil
 	}
 	// Another run raced us: re-pull, re-merge, retry once.
@@ -241,10 +241,10 @@ func (s *stateSync) Push() error {
 		return cerr
 	}
 	if err := s.pushRef(commit2, &stderr); err != nil {
-		fmt.Fprintf(s.stdout, "[state] push failed after retry:\n%s", stderr.String())
+		_, _ = fmt.Fprintf(s.stdout, "[state] push failed after retry:\n%s", stderr.String())
 		return err
 	}
-	fmt.Fprintf(s.stdout, "[state] pushed %d ledger entries to %s\n", countNewlines(s.ledgerPath()), StateBranch)
+	_, _ = fmt.Fprintf(s.stdout, "[state] pushed %d ledger entries to %s\n", countNewlines(s.ledgerPath()), StateBranch)
 	return nil
 }
 
