@@ -514,3 +514,28 @@ func TestStatusUpdatesAndPrune(t *testing.T) {
 		}
 	})
 }
+
+func TestSanitizeIDEdgeCases(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"TASK / 1 !!", "TASK-1"},
+		{"a--b", "a-b"},
+		{"--x--", "x"},
+		{"a.b_c-d", "a.b_c-d"},
+		{"///", ""},
+	}
+	for _, tc := range cases {
+		got, err := queue.SanitizeID(tc.in)
+		if tc.want == "" {
+			if err == nil {
+				t.Fatalf("SanitizeID(%q): want error", tc.in)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatalf("SanitizeID(%q): %v", tc.in, err)
+		}
+		if got != tc.want {
+			t.Fatalf("SanitizeID(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}

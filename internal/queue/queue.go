@@ -88,21 +88,21 @@ func (e ErrAlreadyQueued) Error() string { return "Task " + e.ID + " already que
 // SanitizeID mirrors the TS sanitizeId: map every char outside
 // [A-Za-z0-9._-] to '-', collapse runs, trim leading/trailing '-'.
 func SanitizeID(id string) (string, error) {
+	// Map every char outside [A-Za-z0-9._-] to '-', then collapse '-+' runs
+	// to a single '-' (the TS chained .replace does exactly this).
 	var b strings.Builder
-	prevDash := false
 	for _, r := range id {
 		if r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || r >= '0' && r <= '9' ||
 			r == '.' || r == '_' || r == '-' {
 			b.WriteRune(r)
-			prevDash = r == '-'
-			continue
-		}
-		if !prevDash {
+		} else {
 			b.WriteByte('-')
-			prevDash = true
 		}
 	}
 	s := b.String()
+	for strings.Contains(s, "--") {
+		s = strings.ReplaceAll(s, "--", "-")
+	}
 	s = strings.Trim(s, "-")
 	if s == "" {
 		return "", ErrInvalidTaskID{ID: id}
