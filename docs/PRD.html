@@ -2219,10 +2219,15 @@ one-time per-repo confirm?</td>
 </tr>
 <tr>
 <td>Q12</td>
-<td>With PR #57 merged, G0 plan-critic and G5:STRIDE both read the same
-<code>COMPACT_CONTEXT_MARKER</code> digest — should the audit track
+<td><del>With PR #57 merged, G0 plan-critic and G5:STRIDE both read the
+same <code>COMPACT_CONTEXT_MARKER</code> digest — should the audit track
 provenance (which gate, which loop, which trail line) per consumed
-entry, or treat the digest as opaque input?</td>
+entry, or treat the digest as opaque input?</del> Resolved 2026-09-07:
+opaque input — <code>evaluateStride</code> documents
+<code>contextDigest</code> as provenance-only and passes it through
+verbatim to the gate result without tracking which entry each gate
+consumed (<code>src/gates/stride.ts:123</code>); no per-gate/per-loop
+audit trail was added. Removed.</td>
 <td>eng</td>
 <td>Phase 4</td>
 </tr>
@@ -2240,12 +2245,18 @@ Removed.</td>
 </tr>
 <tr>
 <td>Q14</td>
-<td>With PR #64's governor on by default, should
+<td><del>With PR #64's governor on by default, should
 <code>devagent status</code> surface the live
 <code>effectiveConcurrency</code> + <code>lastSample</code> + per-worker
 RSS, or stay at the one-line readout added in PR #64 AC-10? Operators
 need enough to debug "why is auto-1 today" without leaking the per-pid
-sample into the human view.</td>
+sample into the human view.</del> Resolved 2026-09-07 (PR #174): stay
+one-line, enriched — <code>formatStatus</code> appends the cached
+sample's age and an aggregate calibration count
+(<code>sample &lt;age&gt;s, cal &lt;n&gt;</code>,
+<code>src/orchestrator/governor.ts:174-182</code>), enough to debug "why
+is auto-1 today" while never surfacing the per-pid RSS into the human
+view. Removed.</td>
 <td>eng</td>
 <td>Phase 4</td>
 </tr>
@@ -2261,30 +2272,64 @@ simplifies, but couples the curator to scout's queue schema.</td>
 </tr>
 <tr>
 <td>Q16</td>
-<td>PR #68 archives stuck boards to <code>.devagent/archive/</code> and
-re-bridges from the oldest queued goal — should archive events emit a
-webhook/notification (the stalled factory ran 6h before a human
-noticed), and what is the retention policy for archived boards?</td>
+<td><del>PR #68 archives stuck boards to <code>.devagent/archive/</code>
+and re-bridges from the oldest queued goal — should archive events emit
+a webhook/notification (the stalled factory ran 6h before a human
+noticed), and what is the retention policy for archived boards?</del>
+Resolved 2026-09-07: yes to both. The Q41 paging transport is
+generalized into a typed operator-alert seam
+(<code>src/resilience/operator-alert.ts</code>:
+<code>OperatorAlert</code> union + <code>postOperatorAlert</code>), and
+<code>archiveBoard</code>
+(<code>src/orchestrator/board-recovery.ts:324</code>) now fires
+<code>event:'board-archived'</code> for both gate verdicts (completed
+<code>board</code> + stuck <code>board-stuck</code>) through the same
+best-effort injectable <code>notify</code> seam. Retention is bounded:
+<code>pruneArchive</code> keeps the newest
+<code>resilience.archiveKeep</code> stamped archives (default
+<code>ARCHIVE_RETENTION_KEEP</code> = 20) on every archive, and
+<code>scripts/orchestrate-loop.sh</code>'s inline <code>mv</code> is
+gone so no archive escapes notify/retention. Proven in
+<code>test/orchestrator/board-recovery.test.ts</code> (injected notify,
+fake clock) plus a <code>devagent board-recovery</code> CLI smoke
+against a local webhook. Removed.</td>
 <td>eng</td>
 <td>Phase 4</td>
 </tr>
 <tr>
 <td>Q17</td>
-<td><code>requeue_parked</code> now resets <code>attempts</code> to 0
-(PR #68), so a task that exhausts <code>maxTaskRetries</code> gets a
+<td><del><code>requeue_parked</code> now resets <code>attempts</code> to
+0 (PR #68), so a task that exhausts <code>maxTaskRetries</code> gets a
 fresh budget on every requeue round — is unbounded retry the right
 policy, or should cumulative attempt history across rounds cap a task
-permanently?</td>
+permanently?</del> Resolved 2026-09-07: capped — every dispatch
+increments a lifetime <code>totalAttempts</code> counter that neither
+recovery grants nor requeue resets
+(<code>src/orchestrator/scheduler.ts:230</code>); at
+<code>--max-total-attempts</code> (default 0 = unbounded,
+<code>src/cli.ts:136</code>) the scheduler refuses recovery grants
+(<code>src/orchestrator/scheduler.ts:118-133</code>) and
+<code>requeueParked</code> refuses the fresh budget so capped tasks stay
+terminal (<code>src/orchestrator/board-recovery.ts:245-249</code>).
+Removed.</td>
 <td>eng</td>
 <td>Phase 4</td>
 </tr>
 <tr>
 <td>Q18</td>
-<td>The 08-29 stuck board burned 3 salvage-instructed attempts on STRIDE
-wiring — should the executor refuse prompts above a size/complexity
-threshold (the salvage prompt was ~5 KB of step-by-step edits) and force
-a plan-split instead, or is dense prescriptive prompting the right shape
-and only the fail-signal capture (backlog item above) needs fixing?</td>
+<td><del>The 08-29 stuck board burned 3 salvage-instructed attempts on
+STRIDE wiring — should the executor refuse prompts above a
+size/complexity threshold (the salvage prompt was ~5 KB of step-by-step
+edits) and force a plan-split instead, or is dense prescriptive
+prompting the right shape and only the fail-signal capture (backlog item
+above) needs fixing?</del> Resolved 2026-09-07 (PR #173): refuse — a
+prompt-size preflight measures the task's own instruction payload before
+worktree creation or any worker spend and fails the dispatch with
+<code>failureClass: 'prompt-oversized'</code>, forcing a plan-split
+(<code>src/orchestrator/executor.ts:235-244</code>); ceiling
+<code>resilience.maxPromptBytes</code> (default 4096,
+<code>src/orchestrator/executor.ts:37</code>), 0 disables the guard.
+Removed.</td>
 <td>eng</td>
 <td>Phase 4</td>
 </tr>
@@ -2376,12 +2421,19 @@ removed.</td>
 </tr>
 <tr>
 <td>Q36</td>
-<td>The CI-Fixer fix run (<code>TASK-fix-&lt;pr&gt;</code>) gets its own
-dispatch budget outside the originating task's
+<td><del>The CI-Fixer fix run (<code>TASK-fix-&lt;pr&gt;</code>) gets
+its own dispatch budget outside the originating task's
 <code>maxTaskRetries</code> — should fixer attempts count against the
 parent task's retry budget (linking to Q17's cumulative-attempt
 concern), or is one bounded fix attempt per PR run the right
-isolation?</td>
+isolation?</del> Resolved 2026-09-07: isolated — the fixer gets exactly
+one bounded <code>TASK-fix-&lt;pr&gt;</code> re-dispatch per PR before
+the verdict falls back to request-changes
+(<code>src/integrations/autopr.ts:583-597</code>), outside the parent
+task's <code>maxTaskRetries</code>; the cross-round runaway concern is
+answered by Q17's lifetime <code>totalAttempts</code> cap
+(<code>--max-total-attempts</code>, <code>src/cli.ts:136</code>), the
+shared Q17/Q36 mechanism. Removed.</td>
 <td>eng</td>
 <td>Phase 4</td>
 </tr>
@@ -2443,11 +2495,18 @@ suppressed. Absent or malformed allowlists fail closed.</td>
 </tr>
 <tr>
 <td>Q26</td>
-<td>PR #84 auto-stashes a dirty main before merge-back, but the stash is
-keyed by SHA and never re-offered — if a curation PR (like #83) is open
-in the same worktree when the factory merges back, should the popped
-stash be surfaced as a ledger warning (operator reapplies by hand) or
-re-applied automatically on the next dispatch?</td>
+<td><del>PR #84 auto-stashes a dirty main before merge-back, but the
+stash is keyed by SHA and never re-offered — if a curation PR (like #83)
+is open in the same worktree when the factory merges back, should the
+popped stash be surfaced as a ledger warning (operator reapplies by
+hand) or re-applied automatically on the next dispatch?</del> Resolved
+2026-09-07 (PR #172): ledger warning — <code>restoreAutoStash</code>
+pops the auto-stash by SHA after merge-back and writes a
+<code>merge-back-stash</code> ledger row with outcome
+<code>restored</code> or <code>retained</code>
+(<code>src/orchestrator/merge.ts:116-124</code>); a failed pop leaves
+the stash intact for manual recovery — no automatic re-apply on the next
+dispatch. Removed.</td>
 <td>eng</td>
 <td>Phase 4</td>
 </tr>
@@ -2510,24 +2569,47 @@ omp/claude-code/grok adapters. Removed.</td>
 </tr>
 <tr>
 <td>Q29</td>
-<td>PR #88 makes the run branch the source of truth after
+<td><del>PR #88 makes the run branch the source of truth after
 <code>cleanup=auto</code> (snapshot onto
 <code>devagent/&lt;taskId&gt;</code>, then publish from that branch),
 but snapshot and publish remain two stages with the deleted-cwd failure
 class between them — should auto-cleanup snapshot and per-task publish
 collapse into one commit path so the worktree's death cannot strand a
-green task, or is the regression-test guard enough?</td>
+green task, or is the regression-test guard enough?</del> Resolved
+2026-09-07: collapsed — <code>finalizeRunWorktree</code>
+(<code>src/git/worktree.ts:176</code>) now pushes the run branch to
+<code>origin</code> right after the snapshot commit and before
+<code>worktree remove</code>, so remote persistence precedes the
+worktree's death; a failed push holds the tree in place instead of
+stranding the snapshot (<code>FinalizeResult.pushed</code> /
+<code>error</code>, logged at <code>src/deps.ts:450</code>), and
+publish's own push (<code>src/cli.ts:1009</code>) is now an idempotent
+no-op. Proven by the local-bare-remote tests in
+<code>test/worktree.test.ts</code>. Removed.</td>
 <td>eng</td>
 <td>Phase 4</td>
 </tr>
 <tr>
 <td>Q30</td>
-<td>omp (PRs #87/#89) needed adapter-specific hardening — prewalk off,
-stream-error parsing, capped retries, a bespoke no-progress timeout —
-none of which the registry declares. Should <code>WorkerAdapter</code>
+<td><del>omp (PRs #87/#89) needed adapter-specific hardening — prewalk
+off, stream-error parsing, capped retries, a bespoke no-progress timeout
+— none of which the registry declares. Should <code>WorkerAdapter</code>
 expose a capability/limit block (supported flags, stream quirks,
 watchdog defaults) the scheduler can honor, or stay as per-adapter
-internals patched case by case?</td>
+internals patched case by case?</del> Resolved 2026-09-07: declared —
+optional <code>WorkerAdapter.capabilities</code>
+(<code>src/types.ts:204</code>, following the Q33
+<code>isProgress</code> precedent) carries
+<code>defaultNoProgressTimeoutMs</code>; all five adapters declare it
+(claude-code/opencode 0 = clock off, omp/pi/grok 10m) and the five
+duplicated resolutions collapse into
+<code>resolveNoProgressTimeoutMs</code>
+(<code>src/workers/spawn-utils.ts:64</code>), which keeps the historical
+precedence — explicit positive caller value, then caller 0 honored only
+by a 0-declaring adapter, then
+<code>DEVAGENT_NO_PROGRESS_TIMEOUT_MS</code>, then the declared default
+— so no adapter's default moves; unit-covered in
+<code>test/workers/capabilities.test.ts</code>. Removed.</td>
 <td>eng</td>
 <td>Phase 4</td>
 </tr>
@@ -2573,13 +2655,20 @@ cycle, cycling until the per-loop circuit breaker trips; default-on with
 </tr>
 <tr>
 <td>Q41</td>
-<td><code>devagent preflight</code> (PRs #119/#120) writes an
+<td><del><code>devagent preflight</code> (PRs #119/#120) writes an
 <code>operator-degraded</code> row per failed cycle and each loop trips
 its own breaker after <code>MAX_FAILS</code>, but the 2026-09-03
 overnight logged 25 DEGRADED cycles + 2 breaker trips with no
 notification surface — should consecutive cross-role degradation page a
 human, or is per-loop breaker exit + <code>status --providers</code>
-enough?</td>
+enough?</del> Resolved 2026-09-07: page — on the cycle where the
+trailing degradation streak first reaches
+<code>DEGRADE_STREAK_THRESHOLD</code>, <code>pageDegradeBreach</code>
+POSTs one <code>provider-degraded-breach</code> alert to
+<code>resilience.degradeWebhookUrl</code>
+(<code>src/resilience/preflight.ts:159-168</code>): once per outage
+episode, silent mid-streak, best-effort so paging can never change the
+gate decision. Removed.</td>
 <td>eng</td>
 <td>Phase 4</td>
 </tr>
