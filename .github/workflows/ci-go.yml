@@ -23,6 +23,36 @@ jobs:
       - run: go vet ./...
       - run: go test ./...
 
+  # FR-GO-14: windows-only files (internal/platform/listener_windows.go and
+  # its test) are excluded from the unix build, so nothing above proves they
+  # compile. Cross-compile + vet with GOOS=windows: vet type-checks the
+  # windows test files too, which plain build does not.
+  windows-cross:
+    runs-on: ubuntu-latest
+    env:
+      GOOS: windows
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - run: go build ./...
+      - run: go vet ./...
+
+  # Real windows runner, build-only (no go test): the platform package skips
+  # its round-trip tests there until the FR-CTRL pipe listener lands —
+  # recorded justification in docs/WINDOWS.md. Keeps CI minutes sane per
+  # FR-GO-14.
+  windows-build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - run: go build ./...
+      - run: go vet ./...
+
   lint:
     runs-on: ubuntu-latest
     steps:

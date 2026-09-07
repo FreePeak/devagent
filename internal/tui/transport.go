@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -15,6 +14,8 @@ import (
 	"sync"
 	"time"
 	"unicode"
+
+	"github.com/FreePeak/devagent/internal/platform"
 )
 
 // Transport layer for the TUI (FR-TUI over FR-CTRL): bearer-token HTTP and
@@ -93,12 +94,7 @@ func DaemonRequest(opts TuiOptions, method, path, body string, timeout time.Dura
 			return HTTPResponse{}
 		}
 		req.Host = "127.0.0.1"
-		tr := &http.Transport{
-			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-				var d net.Dialer
-				return d.DialContext(ctx, "unix", opts.UDSPath)
-			},
-		}
+		tr := &http.Transport{DialContext: platform.DialContext(opts.UDSPath)}
 		client = &http.Client{Transport: tr, Timeout: timeout}
 	} else {
 		u, err := url.Parse(daemonBaseURL(opts) + path)
@@ -326,19 +322,14 @@ func sseRequest(ctx context.Context, opts TuiOptions, lastID int) (*http.Request
 	return req, nil
 }
 
-// sseClient builds the HTTP client for the long-lived stream: a unix
-// dialer over opts.UDSPath, plain transport otherwise. No timeout — SSE
-// connections are long-lived by design.
+// sseClient builds the HTTP client for the long-lived stream: the platform
+// dialer over opts.UDSPath (unix socket / named pipe), plain transport
+// otherwise. No timeout — SSE connections are long-lived by design.
 func sseClient(opts TuiOptions) *http.Client {
 	if opts.UDSPath == "" {
 		return &http.Client{}
 	}
-	return &http.Client{Transport: &http.Transport{
-		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			var d net.Dialer
-			return d.DialContext(ctx, "unix", opts.UDSPath)
-		},
-	}}
+	return &http.Client{Transport: &http.Transport{DialContext: platform.DialContext(opts.UDSPath)}}
 }
 
 func (s *EventsSubscription) backoff(ctx context.Context, ms int, onState func(EventsState)) {
