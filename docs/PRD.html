@@ -2262,11 +2262,25 @@ view. Removed.</td>
 </tr>
 <tr>
 <td>Q15</td>
-<td>Now that the curator/queue gap behind PR #64's "sat in docs/prds/
-for weeks" is recognized, should the curator's audit step (proposed
-above) be authoritative (curator enqueues directly) or advisory-only
-(just emits a warning the next scout cycle reads)? Direct write
-simplifies, but couples the curator to scout's queue schema.</td>
+<td><del>Now that the curator/queue gap behind PR #64's "sat in
+docs/prds/ for weeks" is recognized, should the curator's audit step
+(proposed above) be authoritative (curator enqueues directly) or
+advisory-only (just emits a warning the next scout cycle reads)? Direct
+write simplifies, but couples the curator to scout's queue schema.</del>
+Resolved 2026-09-07: advisory-only — <code>auditPrdCoverage</code> scans
+<code>docs/prds/*.md</code> against <code>listTasks()</code> coverage
+and returns findings beside a hard <code>enqueued: 0</code> invariant
+(<code>src/curator/audit.ts:100</code>,
+<code>src/curator/audit.ts:175</code>);
+<code>devagent prd-audit --repo &lt;path&gt; [--json]</code>
+(<code>src/cli.ts:160</code>) prints warnings on stderr and always exits
+0, and <code>scripts/prd-curator.sh:50</code> runs it right after the
+sync so the warnings land in the curation cycle log for the next scout
+cycle to read. The curator calls no queue writer
+(<code>enqueueTask</code>/<code>writePrd</code> are never referenced
+from <code>src/curator/</code>), so it stays decoupled from the queue
+schema — the read-only contract is pinned by
+<code>test/curator-audit.test.ts</code>. Removed.</td>
 <td>eng</td>
 <td>Phase 4</td>
 </tr>
@@ -2512,11 +2526,22 @@ dispatch. Removed.</td>
 </tr>
 <tr>
 <td>Q27</td>
-<td>Loops 53-55 and 57/58 each re-burned multiple attempts on the same
-already-planned goal after a requeue with a fresh attempt budget —
+<td><del>Loops 53-55 and 57/58 each re-burned multiple attempts on the
+same already-planned goal after a requeue with a fresh attempt budget —
 should the bridge attach the prior board's failure class to the
 re-bridged goal so the scout skips it until the root cause ships, or is
-cross-board retry memory out of scope for the single-tenant model?</td>
+cross-board retry memory out of scope for the single-tenant model?</del>
+Resolved 2026-09-07: attached — <code>bridgeQueueToBoard</code> reads
+the newest goal-matching archived board and stamps its executor failure
+class onto the re-bridged goal (<code>archivedBoardFailureClass</code>,
+<code>src/orchestrator/queue-bridge.ts:110</code>); the queue carries it
+on <code>QueuedTask.failureClass</code> (<code>src/queue.ts:29</code>)
+and <code>claimNextPending</code> drains clean tasks first so a
+failure-carrying goal waits until the root cause ships
+(<code>src/queue.ts:198</code>). Unit-covered
+(<code>test/queue.test.ts:85</code>,
+<code>test/queue-bridge.test.ts:53</code>); the §17 backlog twin was
+already struck, this row was the stale half. Removed.</td>
 <td>product</td>
 <td>Phase 4</td>
 </tr>

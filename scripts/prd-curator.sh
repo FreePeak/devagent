@@ -42,6 +42,14 @@ fi
 
 
 {
+  # Advisory PRD-coverage audit (Q15, PRD:912). Runs after the sync above so the
+  # scan sees the freshly pulled docs/prds/, and its warnings land in this
+  # cycle's log for the next scout cycle to read. Advisory-only: `prd-audit`
+  # never enqueues and always exits 0, and the `|| echo` absorbs a crashed CLI,
+  # so a broken audit can never stall curation under `set -e`.
+  npx tsx "$REPO/src/cli.ts" prd-audit --repo "$REPO" \
+    || echo "[prd-audit] skipped (audit errored; advisory only - cycle continues)"
+
   # Phase 1-3: research, analyze, propose (single agent pass).
   cat > "$CURLOG/research/curation-$DAY.md" <<EOF || true
 # Curation $STAMP
