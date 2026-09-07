@@ -5,6 +5,7 @@
 // os.freemem() natively everywhere; the Go port currently covers darwin and
 // linux only — see FR-GO-02 tracker #207). Zeros make effectiveAuto fall
 // back to its 1-worker floor and formatStatusAuto print "0.0" GB figures.
+
 package cli
 
 import "runtime"

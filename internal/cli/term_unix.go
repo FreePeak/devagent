@@ -6,6 +6,7 @@
 // both the TS `?? 100` and tui.DefaultColumns. When stdout is a pipe the
 // ioctl fails (ENOTTY) and the fallback applies, just as Node leaves
 // stdout.columns undefined.
+
 package cli
 
 import (

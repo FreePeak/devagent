@@ -3,6 +3,7 @@
 // durable orchestration board (src/orchestrator/store.ts loadBoard). Both are
 // plain file reads over repo state — the ports below mirror the Node readers
 // exactly (same dir layout, same skip-on-corrupt discipline, same sort).
+
 package cli
 
 import (
