@@ -28,6 +28,27 @@ import { sanitizeTicketId } from '../git/worktree.js';
 /** Trail root under the repo; same dir the ledger uses so it survives resets. */
 const TRAIL_ROOT = '.devagent/runs/orchestration';
 
+/**
+ * Default byte ceiling for a task's own prescriptive instruction payload
+ * (Q18 / PRD:915). The 08-29 stuck board burned 3 salvage attempts on a ~5 KB
+ * step-by-step prompt; 4 KB sits below that so a dense mega-prompt is refused
+ * and forced into a plan-split, while ordinary task contracts stay well under.
+ */
+export const DEFAULT_MAX_PROMPT_BYTES = 4096;
+
+/**
+ * Byte length of the task's own instruction payload: prompt + boundary
+ * constraints + evidence gaps (Q18). Deliberately excludes the lessons/KG
+ * digest and the acceptance criteria — the digest is bounded separately by
+ * `lessonsMaxChars` (4000) and is routinely large, so counting it would make
+ * the size guard fire on every dispatch. This measures only the prescriptive
+ * text the executor is being asked to follow.
+ */
+export function instructionPayloadBytes(task: OrchestratorTask): number {
+  const parts = [task.prompt ?? '', ...(task.boundaryConstraints ?? []), ...(task.evidenceGaps ?? [])];
+  return Buffer.byteLength(parts.join('\n'), 'utf8');
+}
+
 /** One failure signature row in a task's trail.jsonl. */
 export interface TrailSignature {
   ts: string;
@@ -197,10 +218,29 @@ export async function executeTask(args: {
   // so a bad id fails at the gate in seconds instead of burning attempts
   // mid-board (loop 58: `--model coding` exit-1-in-12s repeated 3x).
   const { validateWorkerModel, loadConfig: loadCfg } = await import('../config.js');
-  const modelProblem = validateWorkerModel(executor, loadCfg(repoPath).model);
+  const preflightCfg = loadCfg(repoPath);
+  const modelProblem = validateWorkerModel(executor, preflightCfg.model);
   if (modelProblem) {
     log.error('task', `${task.id} dispatch preflight failed: ${modelProblem}`, {});
     return { ok: false, detail: `dispatch preflight: ${modelProblem}`, failureClass: 'config' as ExecutorFailureClass };
+  }
+
+  // Prompt-size preflight (Q18 / PRD:915): refuse an oversized prescriptive
+  // prompt BEFORE worktree creation or any worker spend. The 08-29 stuck board
+  // burned 3 salvage attempts on a ~5 KB step-by-step prompt — a prompt that
+  // dense is a plan that should have been split, not a single task. Measure
+  // only the task's own instruction payload (never the lessons/KG digest).
+  // resilience.maxPromptBytes (env DEVAGENT_MAX_PROMPT_BYTES) sets the ceiling;
+  // 0 disables the guard.
+  const maxPromptBytes = preflightCfg.resilience?.maxPromptBytes ?? DEFAULT_MAX_PROMPT_BYTES;
+  const promptBytes = instructionPayloadBytes(task);
+  if (maxPromptBytes > 0 && promptBytes > maxPromptBytes) {
+    const detail =
+      `prompt oversized: ${promptBytes} bytes > resilience.maxPromptBytes=${maxPromptBytes} — ` +
+      `split this into smaller tasks (plan-split): each subtask must carry its own ` +
+      `instruction payload under ${maxPromptBytes} bytes rather than one dense prescriptive prompt`;
+    log.error('task', `${task.id} dispatch preflight failed: ${detail}`, {});
+    return { ok: false, detail, failureClass: 'prompt-oversized' as ExecutorFailureClass };
   }
 
   const criteria = [...(task.acceptanceCriteria ?? []), ...(task.expectedOutput ? [task.expectedOutput] : [])];
