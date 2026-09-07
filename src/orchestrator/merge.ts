@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 import { spawnCli } from '../workers/spawn-utils.js';
-import { sanitizeTicketId } from '../git/worktree.js';
+import { popStashBySha, sanitizeTicketId } from '../git/worktree.js';
+import { appendStashRecord } from './ledger.js';
 import type { ProjectBoard } from './types.js';
 import type { RunLogger } from '../logger.js';
 
@@ -102,4 +103,29 @@ export async function mergeProjectBranches(
     log.info('task', `Merged ${branch} into ${baseBranch}`, {});
   }
   return { ok: true, merged };
+}
+
+/**
+ * Q26 (PRD:927): restore the merge-back auto-stash and surface the outcome as
+ * a ledger warning. Console output is lost when the loop runs unattended, so
+ * the `merge-back-stash` row is how operators discover retained stashes via
+ * ledger analytics. A failed pop leaves the stash intact (user work is never
+ * dropped); the row records that so recovery is possible after the run ends.
+ * Returns whether the stash was restored.
+ */
+export async function restoreAutoStash(repoPath: string, stashSha: string): Promise<boolean> {
+  const popped = await popStashBySha(repoPath, stashSha);
+  appendStashRecord(repoPath, {
+    ts: new Date().toISOString(),
+    kind: 'event',
+    event: 'merge-back-stash',
+    taskId: 'merge-back',
+    attempt: 1,
+    stashSha,
+    outcome: popped ? 'restored' : 'retained',
+    detail: popped
+      ? 'auto-stash restored after merge-back'
+      : 'stash pop failed; stash kept for manual recovery',
+  });
+  return popped;
 }

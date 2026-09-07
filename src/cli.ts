@@ -1102,8 +1102,15 @@ program
         if (stashSha) {
           // Restore the loop's own auto-stash by concrete SHA (indices shift
           // under concurrent stashes). If the restore fails, leave the stash
-          // intact rather than dropping user work.
-          const popped = await git.popStashBySha(opts.repo, stashSha);
+          // intact rather than dropping user work. Q26 (PRD:927): the outcome
+          // is recorded as a merge-back-stash ledger row, so operators
+          // discover retained stashes via ledger analytics instead of lost
+          // console output.
+          // Lazy import (like every module use in this action): the finally
+          // must not depend on the try's import binding, which never exists
+          // when assertCleanMainWorktree throws before line 1092 runs.
+          const { restoreAutoStash } = await import('./orchestrator/merge.js');
+          const popped = await restoreAutoStash(opts.repo, stashSha);
           if (!popped) {
             console.error(`Warning: could not restore stash ${stashSha}; stash kept for manual recovery.`);
           }
