@@ -211,9 +211,13 @@ describe('selfbuild-loop.sh wiring (PRD:888 thin caller)', () => {
     expect(script).toContain(`[ "$rc" -eq 1 ] && [[ "$out" == *"already shipped"* ]]`);
   });
 
-  it('call sites keep the documented semantics: halt on starvation, Q27 guard after backlog-check', () => {
+  it('call sites keep the documented semantics: halt on starvation, Q27 ledger guard stands alone', () => {
     expect(script).toContain('if starved; then');
-    expect(script).toContain('if [ "$GUARD_RESOLVED" != 1 ] && already_shipped "$GOAL"; then');
+    // PRD-id pick reconciliation (PRD:889) was retired with the static
+    // backlog (2026-09-07 tracker migration): the tracker is GitHub issues,
+    // so the Q27 ledger guard runs without a GUARD_RESOLVED superseder.
+    expect(script).not.toContain('GUARD_RESOLVED');
+    expect(script).toContain('if already_shipped "$GOAL"; then');
   });
 });
 

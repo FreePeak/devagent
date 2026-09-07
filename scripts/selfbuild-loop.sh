@@ -254,10 +254,15 @@ while :; do
 
     # Herdr hygiene: close idle/agentless panes the previous iteration left in
     # the devagent session (killed tasks, stalled workers, crashed dispatches).
-    # Same session-scoped trust boundary as orchestrate-loop's sweep; the
-    # session name only ever holds automation-spawned panes. Non-fatal when
-    # herdr is down.
-    HERDR_SWEEP_OUT="$(${DEVAGENT[@]} herdr-sweep 2>&1)" || true
+    # --orphans also closes LIVE worktree panes whose pane-run owner CLI
+    # detached from any live selfbuild-loop.sh driver — at an iteration head
+    # this driver is synchronous, so a worker it does not own belongs to a
+    # dead predecessor (2026-09-07: v11 OOM-killed mid-task orphaned pane w68
+    # + omp 45472; the sweep's idle-only guard missed it for hours). Same
+    # session-scoped trust boundary as orchestrate-loop's sweep; the session
+    # name only ever holds automation-spawned panes. Non-fatal when herdr is
+    # down.
+    HERDR_SWEEP_OUT="$(${DEVAGENT[@]} herdr-sweep --orphans 2>&1)" || true
     [ -n "$HERDR_SWEEP_OUT" ] && printf '%s\n' "$HERDR_SWEEP_OUT" | tail -3
 
     # Operator preflight (Q40): probe the provider before spending the
@@ -379,7 +384,7 @@ while :; do
     RESEARCH_OUT="$STATE/research/loop-$N.md"
     RESEARCH_PROMPT="You are phase 1 (Research) of the DevAgent self-build loop, iteration $N.
 Repo: $REPO. Use ONLY local evidence — no web searches, no network fetches:
-1. docs/PRD.md section 17 (Phase 4 backlog) and section 18 (open questions)
+1. GitHub issue tracker — open issues labeled selfbuild (the prioritized task queue; priority:P0 > P1 > P2)
 2. Recent loop ledger: ${PREV_TAIL:-none}
 3. Accumulated lessons: $(tail -40 "$LESSONS" 2>/dev/null | head -c 4000 || echo none)
 4. git log --oneline -15 (what just shipped, what friction it caused)
@@ -387,7 +392,7 @@ Repo: $REPO. Use ONLY local evidence — no web searches, no network fetches:
 
 $GRADIENT_SCAN_TEXT
 
-Rank the top 3 backlog items by (impact x tractability) for a single iteration. Consider: does an earlier failed loop already cover this? Does a merged PR already cover it? Output compact markdown (<300 words): your ranked top-3 with one-line rationale each, then THE single pick.
+Rank the top 3 open tracker issues by (impact x tractability) for a single iteration. If the tracker is empty, propose ONE new goal instead, derived from recent failures, the PRD open questions (section 18 — state history, not a backlog), and the adjacent-category scan. Consider: does an earlier failed loop already cover this? Does a merged PR already cover it? Output compact markdown (<300 words): your ranked top-3 with one-line rationale each (or the proposed new goal), then THE single pick.
 Do NOT edit any files. Output only."
     rm -f "$STATE/research/.loop-$N.done"
     "${DEVAGENT[@]}" pane-run --cwd "$REPO" --timeout "$RESEARCH_TIMEOUT" \
@@ -426,8 +431,28 @@ Do NOT edit any files. Output only."
       printf '%s\n' "$GOAL" > goal.tmp && mv goal.tmp "$STATE/goals/loop-$N.md"
     fi
 
+    # Phase 2a-issue (issue-first, 2026-09-07 operator policy): the GitHub
+    # issue queue outranks LLM selection. The pick is deterministic (priority
+    # rank, then oldest issue number) and reproducible across restarts. When
+    # an issue claims the iteration the PO/LLM selection phase is skipped
+    # entirely — the LLM path below is the empty-tracker fallback only.
     if [ -z "${QUEUED_TASK_ID:-}" ]; then
-    # Phases 2-3: Idea + Validate. Pick one PRD Phase 4 item, constrained by research.
+      if [ -n "$ISSUE_PICK" ]; then
+        ISSUE_NUM="${ISSUE_PICK%%$'\t'*}"
+        ISSUE_TITLE="${ISSUE_PICK#*$'\t'}"
+        echo "[issue] claimed #$ISSUE_NUM from tracker (issue-first outranks LLM selection): $ISSUE_TITLE"
+        GOAL="Goal: Implement GitHub issue #$ISSUE_NUM ($ISSUE_TITLE) in full and verifiably. Read the issue body for scope, acceptance criteria, and source links before planning. The PR must close the issue on merge."
+        printf '%s\n' "$GOAL" > goal.tmp && mv goal.tmp "$STATE/goals/loop-$N.md"
+        phase "$N" issue "#$ISSUE_NUM $ISSUE_TITLE"
+      else
+        echo "[issue] no open selfbuild issue found — falling back to LLM selection"
+      fi
+    fi
+
+    if [ -z "${QUEUED_TASK_ID:-}" ] && [ -z "${ISSUE_NUM:-}" ]; then
+    # Phases 2-3: Idea + Validate. Empty-tracker fallback only: derive one
+    # goal from research + ledger + lessons (the curator files tracker issues
+    # for anything worth keeping on the record).
     if [ "$DRY_RUN" != 1 ]; then
       # PO preflight (Q40): the goal-selection dispatch dies silently under a
       # degraded provider (empty goal.tmp -> "[validate] goal file missing");
@@ -441,13 +466,13 @@ Do NOT edit any files. Output only."
       fi
     phase "$N" po "timeout ${CLAUDE_TIMEOUT}s"
     PO_PROMPT="You are phases 2-3 (Ideas + Validate) of the DevAgent self-build loop, iteration $N.
-Repo: $REPO. Inputs: docs/PRD.md (Phase 4 backlog), .selfbuild/research/loop-$N.md, recent ledger entries below.
+Repo: $REPO. Inputs: .selfbuild/research/loop-$N.md, the repo state, recent ledger entries below.
 $PREV_TAIL
 $LESSONS_CTX
 $GRADIENT_SCAN_TEXT
 $FAILURE_CLUSTERS_CTX
-Select exactly ONE backlog item scoped to a single implementable+testable iteration.
-Validation checks (all must pass): maps to a PRD backlog item; no dependency on an earlier failed loop; verifiable by the repo test suite or CLI smoke run.
+The GitHub issue tracker has no open selfbuild issue, so derive exactly ONE goal scoped to a single implementable+testable iteration from the research above.
+Validation checks (all must pass): no dependency on an earlier failed loop; verifiable by the repo test suite or CLI smoke run.
 Output ONLY the goal statement (max 120 words), starting with 'Goal:' — this text is passed directly to devagent task as the implementation prompt."
     rm -f goal.tmp.raw "$STATE/goals/.loop-$N.done"
     "${DEVAGENT[@]}" pane-run --cwd "$REPO" --timeout "$CLAUDE_TIMEOUT" \
@@ -479,69 +504,19 @@ Output ONLY the goal statement (max 120 words), starting with 'Goal:' — this t
     GOAL_FILE="$STATE/goals/loop-$N.md"
     if ! grep -q '^Goal:' "$GOAL_FILE"; then
       echo "[validate] goal file missing Goal: line — marking iteration invalid" ; record "$N" invalid "$(cat "$GOAL_FILE" 2>/dev/null)" ; fails=$(( fails + 1 )) ; else
-      GOAL=$(cat "$GOAL_FILE")
-
-      # PRD:889: pick-time backlog reconciliation — supersedes the Q27 subject
-      # heuristic for goals naming a Phase 4 backlog id. When the goal's SUBJECT
-      # names one (Q35, Q24, ...) or a PRD line ref (PRD:889 — the form goals
-      # use when the bullet's trailing id collides with a struck twin),
-      # checkBacklogPick (src/task.ts) cross-checks the id against merged PR
-      # titles, PRD completion notes, and the struck state — strictly stronger
-      # evidence than the ledger-subject match below, which only sees ledger
-      # rows and misfires on incidental id mentions (loop-109's "Goal: Q41 ..."
-      # skipped while Q41 was still open). A shipped id skips the iteration
-      # BEFORE dispatch; confirmed-shipped items are struck from the Phase 4
-      # backlog in the same run (--strike, dry-run never writes) and the strike
-      # is committed locally, or the next iteration's sync-docs would refuse on
-      # a dirty docs/PRD.md (operator-degraded stall; the PRD was verified
-      # clean at iteration start by the sync gate above). A resolved check
-      # (rc 0 current / rc 1 shipped) supersedes already_shipped; goals without
-      # a backlog id — and unresolved checks (rc 2: id not in the backlog, no
-      # PRD, or no merged-title evidence, e.g. offline) — keep the Q27 ledger
-      # guard below. A crashed check (bad tsx/module resolution, uncaught
-      # throw) also exits 1, so rc 1 only counts as shipped when the CLI's
-      # own "already shipped" verdict line is in the output; otherwise the
-      # iteration falls through to the ledger guard rather than silently
-      # skipping every id-naming goal.
-      BACKLOG_PICK=$(printf '%s' "${GOAL%%(*}" | cut -c1-80 | grep -oE 'PRD:[0-9]+|Q[0-9]+' | head -1 || true)
-      GUARD_RESOLVED=0
-      if [ -n "$BACKLOG_PICK" ]; then
-        BC_RC=0
-        BC_ARGS=(backlog-check "$BACKLOG_PICK" --repo "$REPO")
-        [ "$DRY_RUN" != 1 ] && BC_ARGS+=(--strike)
-        BC_OUT="$("${DEVAGENT[@]}" "${BC_ARGS[@]}" 2>&1)" || BC_RC=$?
-        printf '[backlog] %s\n' "$BC_OUT"
-        case "$BC_OUT" in
-          *struck:*)
-            git add docs/PRD.md \
-              && git commit -m "self-build loop $N: strike confirmed-shipped backlog items (PRD:889 pick reconciliation)" >/dev/null \
-              || echo "[backlog] strike commit failed — docs/PRD.md left dirty for operator reconcile" >&2 ;;
-        esac
-        if [ "$BC_RC" -eq 1 ] && [[ "$BC_OUT" == *"already shipped"* ]]; then
-          echo "[guard] $BACKLOG_PICK already shipped — skipping before dispatch (PRD:889 pick reconciliation)"
-          record "$N" skipped "$GOAL"
-          # Mark a queue-claimed item done too, or the queue-first selector
-          # re-claims the same already-shipped goal every iteration (the
-          # 2026-09-04 SCOUT-20260903-fallback double-skip class).
-          [ -n "${QUEUED_TASK_ID:-}" ] && node "$REPO/scripts/selfbuild-queue-done.mjs" "$REPO" "$QUEUED_TASK_ID" done "already shipped (PRD:889 pick reconciliation)" >/dev/null 2>&1 || true
-          echo "[ok] loop $N skipped (already shipped)"
-          fails=0
-          continue
-        fi
-        [ "$BC_RC" -eq 0 ] && GUARD_RESOLVED=1
-      fi
 
       # Q27 guard: never re-implement a goal that already shipped (a ledger
       # entry with a productive status carries the same text). Loop 58 re-burned
       # Q35 after its PR #100 merged because the driver restart lost the record;
       # skip it so the iteration doesn't re-burn spend on already-planned work.
-      if [ "$GUARD_RESOLVED" != 1 ] && already_shipped "$GOAL"; then
+      if already_shipped "$GOAL"; then
         echo "[guard] goal already shipped — skipping (Q27 no re-burn)"
         record "$N" skipped "$GOAL"
         # Mark a queue-claimed item done too, or the queue-first selector
         # re-claims the same already-shipped goal every iteration (2026-09-04:
         # SCOUT-20260903-fallback skipped twice, then burned a worker dispatch).
         [ -n "${QUEUED_TASK_ID:-}" ] && node "$REPO/scripts/selfbuild-queue-done.mjs" "$REPO" "$QUEUED_TASK_ID" done "already shipped (Q27 guard)" >/dev/null 2>&1 || true
+        [ -n "${ISSUE_NUM:-}" ] && close_issue "$ISSUE_NUM" "self-build loop $N: goal already shipped (Q27 no re-burn guard) — closing as done" || true
         echo "[ok] loop $N skipped (already shipped)"
         fails=0
         continue
@@ -559,7 +534,14 @@ Output ONLY the goal statement (max 120 words), starting with 'Goal:' — this t
       # so one provider storm serializes into a 12h silent iteration (2026-09-03:
       # 11h45m). Outer timeout bounds the whole dispatch; env caps bound the
       # retry budget and no-progress hang detection inside it.
-      TASK_ARGS=(task --prompt "$GOAL" --repo "$REPO" --worker "$WORKER")
+      # PRD-per-PR policy (2026-09-07): every PR ships with its state update.
+      # The policy rides inside the dispatch prompt — the worker applies it in
+      # the same branch, and publishTaskBranch copies the prompt into the PR
+      # body so reviewers see the requirement on the PR itself.
+      PRD_POLICY="Repo policy: every PR keeps docs/PRD.md current — update the sections this change affects (status claims, architecture notes, roadmap/completion notes) and bump the *Last updated* footer in the same PR. A PR that changes repo state without reflecting it in docs/PRD.md is incomplete."
+      TASK_ARGS=(task --prompt "${GOAL}
+
+${PRD_POLICY}" --repo "$REPO" --worker "$WORKER")
       # Jump-in breadcrumb: the phase-4 card in the TUI (and `devagent sessions`)
       # points at the worker pane once this event lands on the SSE stream.
       phase "$N" task "$(head -1 <<<"$GOAL" | cut -c1-100)"
@@ -583,6 +565,10 @@ Output ONLY the goal statement (max 120 words), starting with 'Goal:' — this t
 
       record "$N" ok "$GOAL"
       [ -n "${QUEUED_TASK_ID:-}" ] && node "$REPO/scripts/selfbuild-queue-done.mjs" "$REPO" "$QUEUED_TASK_ID" done >/dev/null 2>&1 || true
+      # Issue-first bookkeeping: the shipped iteration closes its tracker
+      # issue (best effort; merge-side auto-close via 'Fixes #N' in the PR
+      # body may have done it already — an already-closed issue is a no-op).
+      [ -n "${ISSUE_NUM:-}" ] && close_issue "$ISSUE_NUM" "self-build loop $N shipped this issue: $GOAL" || true
       [ "$PUSH_MODE" = pr ] && schedule_cleanup "$N"
       echo "[ok] loop $N complete"
       fi # DRY_RUN

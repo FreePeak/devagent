@@ -890,7 +890,18 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 > agent cycle instead of silently building stale work, and a failed scout
 > sync degrades to a skipped heartbeat cycle (ace2b88).
 
-#### Phase 4 — current backlog (2026-09-03, curation run 24)
+#### Phase 4 — history (backlog migrated to GitHub issues 2026-09-07)
+
+> **Tracker migration (2026-09-07, operator):** the static backlog below is
+> retired. Open work now lives as GitHub issues labeled `selfbuild`, ordered by
+> `priority:P0` > `P1` > `P2` — the selfbuild loop claims from that queue
+> (issue-first, deterministic: priority rank then oldest issue number), the
+> PRD curator files and re-prioritizes new issues instead of maintaining this
+> list, and every PR must land with its `docs/PRD.md` state update
+> (PRD-per-PR policy; `docs/SELF-BUILD-LOOP.md` "Tracker + PRD policy").
+> Filed at migration: #144–#148 (existing operator items) and #179 daemon
+> control API (P1), #180 network sandbox allowlist (P2), #181 desktop control
+> app (P2). Struck lines below are the shipped history.
 
 ~~- **Cross-board retry memory beyond the SHA guard** — commit 60638d3 stops re-issuing shipped goals, but re-queued failures still get a fresh attempt budget; carry the prior board's failure class onto the re-bridged goal so the scout deprioritizes until the root-cause fix lands (Q27).~~
 ~~- **Regression oracle before board merge** — gates judge single PRs and PR #108's committed STRIDE allowlist widens suppression paths; add a board-level "is the system at least as good?" check (full suite on the merged result) ahead of `autoMerge`, per the Kitchen Loop zero-regression rule.~~
@@ -904,6 +915,13 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 ### Phase 5 — Personal agent surface (proposed, post-v1)
 
 Direction addendum 2026-09-03 (section 20): DevAgent becomes the local-first, BYO-provider counterpart to xAI/Cursor's Grok Bot — named role agents with approval gates and durable memory, dispatched from a lightweight cross-platform desktop control app (Tauri 2: macOS menubar/tray, Windows + Linux tray), with first-class Grok/xAI worker support.
+
+> **Tracker status (2026-09-07):** open Phase 5 work is tracked as GitHub issues,
+> not here — #179 daemon control API (P1), #181 desktop control app (P2);
+> network sandbox allowlist (#180) is the remaining Phase 4 leftover (P2).
+> Shipped from this phase: Grok/xAI worker adapter (`src/workers/grok.ts`),
+> visible worker sessions (FR-VIS, herdr panes), terminal TUI dashboard
+> (`devagent tui`; polish tracked in #146). Bot-style UX scope stays open as Q45.
 
 - **Grok/xAI worker support** — `grok` (Grok Build CLI) WorkerAdapter + native xAI API fallback, per-provider model-id predicate, exact per-run cost in the ledger, sticky prompt-cache keys, batch/off-peak routing (FR-GROK-01..06).
 - **Daemon control API** — localhost REST + SSE control surface on the existing `serve` pattern with per-boot token auth and Origin/Host validation (FR-CTRL-01..05).
@@ -1285,3 +1303,7 @@ new runtime subsystem and does not change the pipeline contract (§8, §10–11)
 
 **Boundary:** simplicity is the default presentation, not a restriction — everything
 stays scriptable over FR-CTRL and flags; automation is unaffected.
+
+---
+
+*Last updated: 2026-09-07 (task tracker moved from the static §17 Phase 4 backlog to priority-labeled GitHub issues — selfbuild loop is issue-first, prd-curator reconciles the tracker, every PR lands with its PRD state update per the PRD-per-PR policy; see docs/SELF-BUILD-LOOP.md "Tracker + PRD policy")*
