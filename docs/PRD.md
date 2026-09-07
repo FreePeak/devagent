@@ -1422,17 +1422,17 @@ the existing CLI surface. Parity is defined by three gates:
 
 | ID | Requirement | Pri | Issue |
 |---|---|---|---|
-| FR-GO-01 | Go module scaffold, CI-go workflow (test + golangci-lint, macOS/Linux), baseline RSS/cold-start measurement with a recorded target | M | [#191](https://github.com/FreePeak/devagent/issues/191) |
-| FR-GO-02 | Full CLI command-surface parity (cobra) + config/credentials/trust loading, verified by a checked-in parity matrix | M | [#193](https://github.com/FreePeak/devagent/issues/193) |
-| FR-GO-03 | Git layer parity: worktrees + clean-main guard, state branch (bounded network ops), rebase-stack, doc-sync | M | [#195](https://github.com/FreePeak/devagent/issues/195) |
-| FR-GO-04 | Run logger + JSONL ledger + analytics, byte-compatible schema both directions | M | [#197](https://github.com/FreePeak/devagent/issues/197) |
-| FR-GO-05 | Worker adapters (claude/opencode/omp/pi/grok) + model-id registry + env scrub/sandbox + no-progress watchdog semantics | M | [#190](https://github.com/FreePeak/devagent/issues/190) |
-| FR-GO-06 | Scout + `--replay` golden suite + research extractor (abort/empty paths) + prompts/planner | M | [#192](https://github.com/FreePeak/devagent/issues/192) |
-| FR-GO-07 | Orchestrator: scheduler, executor, queue + bridge, board recovery, merge, autopr + CI-fixer, resilience, lessons | M | [#194](https://github.com/FreePeak/devagent/issues/194) |
-| FR-GO-08 | Gates G0–G5 incl. STRIDE allowlist + blocking, regression oracle | M | [#196](https://github.com/FreePeak/devagent/issues/196) |
-| FR-GO-09 | Integrations: Linear (thin GraphQL client), Jira, GitHub/GitLab, webhooks (HMAC, dedup), rate limits | M | [#199](https://github.com/FreePeak/devagent/issues/199) |
-| FR-GO-10 | herdr integration: panes, sessions/attach, orphan-aware sweep with test seams | M | [#201](https://github.com/FreePeak/devagent/issues/201) |
-| FR-GO-11 | TUI (bubbletea) + dashboard HTML + card/chip language at the #146 polish bar | M | [#198](https://github.com/FreePeak/devagent/issues/198) |
+| FR-GO-01 | Go module scaffold, CI-go workflow (test + golangci-lint, macOS/Linux), baseline RSS/cold-start measurement with a recorded target | M | ✅ [#191](https://github.com/FreePeak/devagent/issues/191) — PR [#208](https://github.com/FreePeak/devagent/pull/208) |
+| FR-GO-02 | Full CLI command-surface parity (cobra) + config/credentials/trust loading, verified by a checked-in parity matrix | M | ✅ [#193](https://github.com/FreePeak/devagent/issues/193) — PR [#209](https://github.com/FreePeak/devagent/pull/209) |
+| FR-GO-03 | Git layer parity: worktrees + clean-main guard, state branch (bounded network ops), rebase-stack, doc-sync | M | ✅ [#195](https://github.com/FreePeak/devagent/issues/195) — PR [#210](https://github.com/FreePeak/devagent/pull/210) |
+| FR-GO-04 | Run logger + JSONL ledger + analytics, byte-compatible schema both directions | M | ✅ [#197](https://github.com/FreePeak/devagent/issues/197) — PR [#211](https://github.com/FreePeak/devagent/pull/211) |
+| FR-GO-05 | Worker adapters (claude/opencode/omp/pi/grok) + model-id registry + env scrub/sandbox + no-progress watchdog semantics | M | ✅ [#190](https://github.com/FreePeak/devagent/issues/190) — PR [#217](https://github.com/FreePeak/devagent/pull/217) |
+| FR-GO-06 | Scout + `--replay` golden suite + research extractor (abort/empty paths) + prompts/planner | M | ✅ [#192](https://github.com/FreePeak/devagent/issues/192) — PR [#214](https://github.com/FreePeak/devagent/pull/214) |
+| FR-GO-07 | Orchestrator: scheduler, executor, queue + bridge, board recovery, merge, autopr + CI-fixer, resilience, lessons | M | 🔄 in flight ([#194](https://github.com/FreePeak/devagent/issues/194)) |
+| FR-GO-08 | Gates G0–G5 incl. STRIDE allowlist + blocking, regression oracle | M | ✅ [#196](https://github.com/FreePeak/devagent/issues/196) — PR [#215](https://github.com/FreePeak/devagent/pull/215) |
+| FR-GO-09 | Integrations: Linear (thin GraphQL client), Jira, GitHub/GitLab, webhooks (HMAC, dedup), rate limits | M | ✅ [#199](https://github.com/FreePeak/devagent/issues/199) — PR [#212](https://github.com/FreePeak/devagent/pull/212) |
+| FR-GO-10 | herdr integration: panes, sessions/attach, orphan-aware sweep with test seams | M | ✅ [#201](https://github.com/FreePeak/devagent/issues/201) — PR [#213](https://github.com/FreePeak/devagent/pull/213) |
+| FR-GO-11 | TUI + dashboard HTML + card/chip language at the #146 polish bar | M | ✅ [#198](https://github.com/FreePeak/devagent/issues/198) — PR [#216](https://github.com/FreePeak/devagent/pull/216) (pure-Go renderer; bubbletea dropped per the no-new-deps contract) |
 | FR-GO-12 | Control API + SSE in Go (supersedes the Node implementation half of #179) | M | [#200](https://github.com/FreePeak/devagent/issues/200) |
 | FR-GO-13 | Loop driver port (selfbuild-loop + state/queue helpers) with a recorded bash-vs-Go decision gate | M | [#202](https://github.com/FreePeak/devagent/issues/202) |
 | FR-GO-14 | Windows path: cross-compile, Task Scheduler automation, named-pipe UDS equivalent (NFR-05) | C | [#203](https://github.com/FreePeak/devagent/issues/203) |
