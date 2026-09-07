@@ -3,6 +3,11 @@
 # Executes one full product cycle (Research -> Ideas -> Validate -> Plan ->
 # Implement -> Testing -> Push) per iteration, forever, using DevAgent's own
 # pipeline (`devagent task`) as the implementation engine.
+# Work selection (2026-09-07 operator policy): issue-first — the goal comes
+# from an open GitHub issue labeled selfbuild (priority:P0 > P1 > P2, oldest
+# first), never a static PRD backlog section. docs/PRD.md is the state
+# record: every PR must land with its PRD sections + Last-updated footer
+# matching the post-PR repo state (prd-fresh gates below).
 # Protocol: docs/SELF-BUILD-LOOP.md
 set -euo pipefail
 
@@ -40,6 +45,8 @@ MAX_ITERS="${SELFBUILD_MAX_ITERATIONS:-0}"
 MAX_FAILS="${SELFBUILD_MAX_CONSECUTIVE_FAILURES:-3}"
 STARVATION_LIMIT="${SELFBUILD_STARVATION_LIMIT:-5}"
 CLEANUP_DELAY="${SELFBUILD_CLEANUP_DELAY_SECS:-1800}"
+ISSUE_LABEL="${SELFBUILD_ISSUE_LABEL:-selfbuild}"
+ISSUE_MAX="${SELFBUILD_ISSUE_MAX:-50}"
 DRY_RUN="${SELFBUILD_DRY_RUN:-0}"
 LESSONS="$STATE/lessons.md"
 WORKER="${SELFBUILD_WORKER:-omp}"
@@ -146,6 +153,34 @@ starved() {
   local rc=0 out
   out="$("${DEVAGENT[@]}" selfbuild-gate --starved --limit "$STARVATION_LIMIT" --repo "$REPO" 2>&1)" || rc=$?
   [ "$rc" -eq 1 ] && [[ "$out" == *"starved:"* ]]
+}
+
+# Issue-first selection (2026-09-07 operator policy): the task tracker is
+# the GitHub issue queue, not a static PRD backlog section. The pick is
+# deterministic: priority:P0 > priority:P1 > P2 (unlabeled = P2), oldest
+# issue number first within a tier. An empty tracker yields an empty pick —
+# the LLM selection path below is the only fallback, and the curator refills
+# the tracker daily. The PR body carries the dispatch prompt verbatim
+# (src/task.ts publishTaskBranch), so "Fixes #NNN" in the goal closes the
+# issue on merge.
+GH_REPO="${SELFBUILD_GH_REPO:-$(git remote get-url origin 2>/dev/null | sed -E 's#^git@[^:]+:##; s#^https?://[^/]+/##; s#\.git$##')}"
+pick_issue() { # pick_issue -> "NUM<TAB>TITLE" or ""
+  gh issue list --repo "$GH_REPO" --state open --label "$ISSUE_LABEL" \
+    --limit "$ISSUE_MAX" --json number,title,labels 2>/dev/null | node -e '
+      let d = "";
+      process.stdin.on("data", (c) => (d += c)).on("end", () => {
+        try {
+          const items = JSON.parse(d || "[]");
+          const rank = (ls) => (ls.some((l) => l.name === "priority:P0") ? 0 : ls.some((l) => l.name === "priority:P1") ? 1 : 2);
+          items.sort((a, b) => rank(a.labels) - rank(b.labels) || a.number - b.number);
+          const top = items[0];
+          console.log(top ? top.number + "\t" + top.title.replace(/\t/g, " ") : "");
+        } catch { console.log(""); }
+      });
+    ' 2>/dev/null
+}
+close_issue() { # close_issue <num> <evidence-comment> — best effort, never fatal
+  gh issue close "$1" --comment "$2" >/dev/null 2>&1 || true
 }
 
 # Deferred cleanup of auto-pr leftovers. `devagent task --auto-pr` pushes the
@@ -284,6 +319,25 @@ while :; do
         sleep "${SELFBUILD_SYNC_RETRY_SECS:-60}"
         continue
       fi
+    fi
+
+    # PRD currency gate (2026-09-07 operator policy): docs/PRD.md must reflect
+    # the current repo state at all times. A locally modified PRD means an
+    # un-landed state claim — the operator's mid-edit pause, not a factory
+    # fault: skip without breaker increment or starvation count (same
+    # operator-degraded semantics as the sync-docs refusals above).
+    if [ "$DRY_RUN" != 1 ] && ! git diff --quiet -- docs/PRD.md; then
+      echo "[prd-fresh] docs/PRD.md locally modified — operator mid-edit, skipping iteration"
+      record "$N" operator-degraded "PRD dirty: operator mid-edit, state doc must land clean"
+      sleep "${SELFBUILD_SYNC_RETRY_SECS:-60}"
+      continue
+    fi
+
+    # Tracker snapshot (issue-first): one gh call per iteration; a failed
+    # listing degrades to empty and the LLM selection path runs instead.
+    ISSUE_PICK=""; ISSUE_NUM=""
+    if [ "$DRY_RUN" != 1 ]; then
+      ISSUE_PICK="$(pick_issue || true)"
     fi
 
     # Phase 1: Research. Feed prior failures back in so defects compound into fixes.
