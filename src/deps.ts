@@ -209,8 +209,8 @@ export async function implementStage(
     Pick<RunConfig, 'worker' | 'maxLoops' | 'model' | 'variant'> & {
       lessonsFile?: string;
       lessonsMaxChars?: number;
-      /** Knowledge-context layer config (FR-CTX-03); `context.kg` gates the KG digest tier. */
-      context?: { kg?: 'leankg' | 'off' };
+      /** Knowledge-context layer config (FR-CTX-03, PRD §18 Q11); `context.kg` gates the KG digest tier, `context.agentsMd` the AGENTS.md trust gate. */
+      context?: { kg?: 'leankg' | 'off'; agentsMd?: 'ask' | 'on' | 'off' };
     },
   plan: ImplementationPlan,
   log: RunLogger,
@@ -314,6 +314,7 @@ export async function implementStage(
   const knowledge = buildKnowledgeContext(cfg.repoPath, {
     ...(cfg.lessonsMaxChars !== undefined ? { maxChars: cfg.lessonsMaxChars } : {}),
     ...(cfg.context?.kg !== undefined ? { kg: cfg.context.kg } : {}),
+    ...(cfg.context?.agentsMd !== undefined ? { agentsMd: cfg.context.agentsMd } : {}),
     ...(kgProvider ? { kgProvider } : {}),
   });
   // PRD Q28: the digest build is the run's only KG contact, so the evidence

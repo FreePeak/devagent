@@ -295,6 +295,7 @@ export async function executeTask(args: {
   const knowledge = buildKnowledgeContext(repoPath, {
     ...(knowledgeMaxChars !== undefined ? { maxChars: knowledgeMaxChars } : {}),
     ...(fullCfg.context?.kg !== undefined ? { kg: fullCfg.context.kg } : {}),
+    ...(fullCfg.context?.agentsMd !== undefined ? { agentsMd: fullCfg.context.agentsMd } : {}),
     ...(kgProvider ? { kgProvider } : {}),
   });
   const resilienceCfg = fullCfg.resilience;

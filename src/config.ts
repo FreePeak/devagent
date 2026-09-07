@@ -145,8 +145,12 @@ export interface DevAgentConfig {
    * the structural KG digest tier layered on top of it. Default `off`: when
    * off or the provider is unreachable the digest is baseline-only and the
    * pipeline continues — never blocked.
+   * `agentsMd` gates the `.devagent/AGENTS.md` auto-load (PRD §18 Q11):
+   * `ask` (the default) injects nothing until `devagent trust agents-md`
+   * records a one-time per-repo confirm in `.devagent/trust.json`; `on`
+   * loads without the confirm; `off` disables loading.
    */
-  context?: { kg?: 'leankg' | 'off' };
+  context?: { kg?: 'leankg' | 'off'; agentsMd?: 'ask' | 'on' | 'off' };
   /**
    * Trigram-Jaccard similarity threshold for the lessons dedupe guard (PRD
    * Phase 4 "Lessons eval guard"): a candidate lesson at or above this
@@ -333,6 +337,9 @@ export function loadConfig(repoPath: string = process.cwd()): DevAgentConfig {
   }
   if (config.context?.kg !== undefined && !['leankg', 'off'].includes(config.context.kg)) {
     throw new Error(`Invalid context.kg "${config.context.kg}"; expected leankg or off`);
+  }
+  if (config.context?.agentsMd !== undefined && !['ask', 'on', 'off'].includes(config.context.agentsMd)) {
+    throw new Error(`Invalid context.agentsMd "${config.context.agentsMd}"; expected ask, on, or off`);
   }
   if (config.lessonsDedupeSimilarity !== undefined) {
     const t = config.lessonsDedupeSimilarity;
