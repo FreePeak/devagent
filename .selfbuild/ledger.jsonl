@@ -124,3 +124,4 @@
 {"loop":163,"ts":"2026-09-07T08:20:00Z","status":"provider-degraded","goal":"doc-sync failed: [sync-docs] git fetch failed: Command failed: git fetch origin main"}
 {"loop":164,"ts":"2026-09-07T08:48:03Z","status":"invalid","goal":"Loop 160 died mid-verification of #144 remainder + #179 state. Resolving that now against code."}
 {"loop":165,"ts":"2026-09-07T23:17:50Z","status":"provider-degraded","goal":"preflight: provider probe failed"}
+{"loop":166,"ts":"2026-09-07T23:25:32Z","status":"provider-degraded","goal":"preflight: provider probe failed"}
