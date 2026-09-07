@@ -499,3 +499,47 @@ export function clusterFailures(repoPath: string): FailureCluster[] {
     .map(({ _key, ...c }) => ({ ...c, openTasks: c.tasks.filter((t) => !passedTasks.has(t)).length }))
     .sort((a, b) => b.occurrences - a.occurrences || b.tasks.length - a.tasks.length);
 }
+
+/** One recurring executor failure class across taskInterrupt event rows. */
+export interface FailureClassCluster {
+  /** Q24 taxonomy failure class as recorded on the interrupt rows. */
+  failureClass: string;
+  /** taskInterrupt rows carrying this class. */
+  occurrences: number;
+  /** Distinct tasks interrupted with this class, in first-seen order. */
+  tasks: string[];
+  /** Last-gate excerpt of the first row of the class (bounded exemplar). */
+  exemplar: string;
+}
+
+/**
+ * Failure-cluster reporting, failureClass half (PRD §17:621): taskInterrupt
+ * post-mortems are `kind: 'event'` rows, so `readLedger`'s audit filter never
+ * sees them and `clusterFailures` is criteria-only by construction. This
+ * groups the event rows by executor failure class so recurring executor
+ * deaths surface ranked next to the recurring unmet criteria in
+ * `devagent ledger --clusters`. No normalization: failureClass is a
+ * machine-written taxonomy id, not operator wording.
+ */
+export function clusterFailureClasses(repoPath: string): FailureClassCluster[] {
+  const clusters = new Map<string, FailureClassCluster>();
+  for (const r of readLedgerTail(repoPath)) {
+    if (r.kind !== 'event') continue;
+    const row = r as Partial<TaskInterruptLedgerRecord>;
+    if (row.event !== 'taskInterrupt') continue;
+    if (typeof row.failureClass !== 'string' || row.failureClass.trim() === '') continue;
+    let c = clusters.get(row.failureClass);
+    if (!c) {
+      c = {
+        failureClass: row.failureClass,
+        occurrences: 0,
+        tasks: [],
+        exemplar: typeof row.lastGateExcerpt === 'string' ? row.lastGateExcerpt.trim() : '',
+      };
+      clusters.set(row.failureClass, c);
+    }
+    c.occurrences += 1;
+    if (!c.tasks.includes(r.taskId)) c.tasks.push(r.taskId);
+  }
+  return [...clusters.values()].sort((a, b) => b.occurrences - a.occurrences || b.tasks.length - a.tasks.length);
+}

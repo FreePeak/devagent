@@ -618,7 +618,18 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
   > **Completed post-v0.3 (2026-08-28):** one flaky rerun before condemning a
   > candidate, and a clean pass outranks a flaky rescue in winner ranking
   > (`src/workers/fanout.ts:74-95`); closes Q8 below.
-- Failure-cluster reporting on ledger analytics — recurring gap categories in the ledger should surface as actionable periodic reports, not just queryable rows.
+- ~~Failure-cluster reporting on ledger analytics — recurring gap categories in the ledger should surface as actionable periodic reports, not just queryable rows.~~
+  > **Completed post-v0.3 (2026-09-07):** both halves of the cluster view
+  > ship. Criteria half — `clusterFailures` ranks recurring unmet acceptance
+  > criteria across failed audits, surfaced by `devagent ledger --clusters`.
+  > failureClass half — `clusterFailureClasses` (`src/orchestrator/ledger.ts`)
+  > groups `taskInterrupt` event rows (which `readLedger`'s audit filter never
+  > returned, so `clusterFailures` was criteria-only by construction) by
+  > executor failure class — occurrences, distinct tasks, first-seen gate
+  > excerpt — printed as a second section under `--clusters` (text and
+  > `--json`); `scripts/selfbuild-loop.sh` captures the report each iteration
+  > and echoes it into the research/PO prompts, so recurring executor deaths
+  > steer goal selection instead of staying queryable rows.
 - Knowledge-grounded context — two-layer digest at the existing `COMPACT_CONTEXT_MARKER`: an always-on local markdown baseline (`.devagent/context/*.md`, zero dependencies) plus opt-in structural memory from the local `leankg` MCP, consumed as the degradation boundary (LeanKG's single-tool ladder degrades internally and stamps `retrieval`/`freshness` provenance; no hand-rolled fallback in DevAgent), ratchet-capped at the same 4000-char budget as `lessonsMaxChars`; routes to the freepeak `leankg` server, never `be-knowledge-graph` from a freepeak path. See `docs/research/2026-08-30-devagent-leankg-value-in-harness-era.md` and FR-CTX-01..05.
 
 > **Completed post-v0.3 (2026-08-25 → 2026-08-28):** Lessons feedback

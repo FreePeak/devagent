@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { LEDGER_DIR, appendAuditRecord, appendReleaseRecord, appendTaskInterruptRecord, auditLedgerRecord, clusterFailures, ledgerTailFor, readLedger, summarizeLedger } from '../src/orchestrator/ledger.js';
+import { LEDGER_DIR, appendAuditRecord, appendReleaseRecord, appendTaskInterruptRecord, auditLedgerRecord, clusterFailureClasses, clusterFailures, ledgerTailFor, readLedger, summarizeLedger } from '../src/orchestrator/ledger.js';
 import type { AuditVerdict } from '../src/orchestrator/types.js';
 
 const pass: AuditVerdict = {
@@ -237,6 +237,87 @@ describe('taskInterrupt post-mortem (executor failure surface, PRD:775)', () => 
     ).not.toThrow();
     const raw = readFileSync(join(repo, LEDGER_DIR, 'events.jsonl'), 'utf8').trim().split('\n');
     expect(raw).toHaveLength(1);
+  });
+});
+
+describe('failure class clusters (PRD §17:621 failureClass half)', () => {
+  const dirs: string[] = [];
+  const tempRepo = () => {
+    const d = mkdtempSync(join(tmpdir(), 'da-fclass-'));
+    dirs.push(d);
+    return d;
+  };
+  afterEach(() => {
+    for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  });
+
+  const interrupt = (repo: string, taskId: string, failureClass: string, lastGateExcerpt: string) =>
+    appendTaskInterruptRecord(repo, {
+      ts: '2026-09-07T00:00:00Z',
+      kind: 'event',
+      event: 'taskInterrupt',
+      taskId,
+      attempt: 1,
+      goal: 'ship failure clusters',
+      failureClass,
+      lastGateExcerpt,
+      attempts: 1,
+      trailHash: `h-${taskId}`,
+    });
+
+  it('groups taskInterrupt event rows by failureClass with occurrences, distinct tasks, and a first-seen exemplar', () => {
+    const repo = tempRepo();
+    interrupt(repo, 'T1', 'test-gate', 'npm test: 3 failed (same every time)');
+    interrupt(repo, 'T1', 'test-gate', 'npm test: 3 failed (again)');
+    interrupt(repo, 'T2', 'test-gate', 'vitest exited 1');
+    interrupt(repo, 'T3', 'worker-error', 'worker CLI crashed');
+    // audit rows never join the failureClass view (readLedger's filter is why
+    // clusterFailures could not see these rows)
+    appendAuditRecord(repo, auditLedgerRecord({ taskId: 'T4', attempt: 1, verdict: failWithUnmet('tests green') }));
+    const classes = clusterFailureClasses(repo);
+    expect(classes).toHaveLength(2);
+    expect(classes[0]).toEqual({
+      failureClass: 'test-gate',
+      occurrences: 3,
+      tasks: ['T1', 'T2'],
+      exemplar: 'npm test: 3 failed (same every time)',
+    });
+    expect(classes[1]).toEqual({
+      failureClass: 'worker-error',
+      occurrences: 1,
+      tasks: ['T3'],
+      exemplar: 'worker CLI crashed',
+    });
+  });
+
+  it('ignores audit-only and non-interrupt event ledgers; [] when nothing clusters', () => {
+    const repo = tempRepo();
+    expect(clusterFailureClasses(repo)).toEqual([]);
+    appendAuditRecord(repo, auditLedgerRecord({ taskId: 'T1', attempt: 1, verdict: failWithUnmet('tests green') }));
+    appendReleaseRecord(repo, {
+      ts: '2026-09-07T01:00:00Z',
+      kind: 'event',
+      event: 'release-created',
+      taskId: 'release/0.1.0',
+      attempt: 1,
+      tag: 'v0.1.0',
+      sha: 'abc123',
+      version: '0.1.0',
+      source: 'cli',
+    });
+    expect(clusterFailureClasses(repo)).toEqual([]);
+  });
+
+  it('skips interrupt rows with a missing or blank failureClass', () => {
+    const repo = tempRepo();
+    mkdirSync(join(repo, LEDGER_DIR), { recursive: true });
+    const file = join(repo, LEDGER_DIR, 'events.jsonl');
+    appendFileSync(file, `${JSON.stringify({ ts: 'x', kind: 'event', event: 'taskInterrupt', taskId: 'T1', attempt: 1, goal: 'g', failureClass: '   ', lastGateExcerpt: 'blank class', attempts: 1, trailHash: '' })}\n`);
+    appendFileSync(file, `${JSON.stringify({ ts: 'x', kind: 'event', event: 'taskInterrupt', taskId: 'T2', attempt: 1, goal: 'g', lastGateExcerpt: 'no class field', attempts: 1, trailHash: '' })}\n`);
+    interrupt(repo, 'T3', 'prompt-oversized', 'prompt 5120 bytes exceeds 4096');
+    expect(clusterFailureClasses(repo)).toEqual([
+      { failureClass: 'prompt-oversized', occurrences: 1, tasks: ['T3'], exemplar: 'prompt 5120 bytes exceeds 4096' },
+    ]);
   });
 });
 

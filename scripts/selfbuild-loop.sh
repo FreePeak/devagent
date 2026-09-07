@@ -294,6 +294,14 @@ while :; do
     # eval-guard keeps the ratchet deduped at append time; the digest stays a
     # text cursor so optional `predictedImpact:` suffixes echo verbatim.
     LESSONS_CTX=""; [ -f "$LESSONS" ] && LESSONS_CTX="Accumulated lessons (do not re-derive): $(tail -40 "$LESSONS" | head -c 4000)"
+    # Failure-cluster report (PRD §17:621): ranked recurring failures from the
+    # run ledger — unmet audit criteria plus executor failureClass clusters —
+    # captured once per iteration and echoed into the research/PO prompts so
+    # the loop stops re-picking goals that die on the same failure mode.
+    # `|| true`-guarded: a ledger-less repo or CLI failure degrades to empty
+    # context, never a dead driver (same shape as the gradient scan above).
+    FAILURE_CLUSTERS_CTX="$("${DEVAGENT[@]}" ledger --clusters --repo "$REPO" 2>/dev/null || true)"
+    [ -n "$FAILURE_CLUSTERS_CTX" ] || echo "[clusters] ledger --clusters capture failed — prompts run without the failure-cluster report" >&2
     if [ "$DRY_RUN" = 1 ]; then
       echo "[dry-run] phase 1 research skipped"
       echo "# dry-run stub" > "$STATE/research/loop-$N.md"
@@ -321,6 +329,7 @@ Repo: $REPO. Use ONLY local evidence — no web searches, no network fetches:
 2. Recent loop ledger: ${PREV_TAIL:-none}
 3. Accumulated lessons: $(tail -40 "$LESSONS" 2>/dev/null | head -c 4000 || echo none)
 4. git log --oneline -15 (what just shipped, what friction it caused)
+5. Failure-cluster report (recurring audit gaps + executor failure classes; prefer goals that fix a top cluster): ${FAILURE_CLUSTERS_CTX:-none}
 
 $GRADIENT_SCAN_TEXT
 
@@ -382,6 +391,7 @@ Repo: $REPO. Inputs: docs/PRD.md (Phase 4 backlog), .selfbuild/research/loop-$N.
 $PREV_TAIL
 $LESSONS_CTX
 $GRADIENT_SCAN_TEXT
+$FAILURE_CLUSTERS_CTX
 Select exactly ONE backlog item scoped to a single implementable+testable iteration.
 Validation checks (all must pass): maps to a PRD backlog item; no dependency on an earlier failed loop; verifiable by the repo test suite or CLI smoke run.
 Output ONLY the goal statement (max 120 words), starting with 'Goal:' — this text is passed directly to devagent task as the implementation prompt."
