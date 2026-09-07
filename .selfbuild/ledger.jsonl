@@ -99,3 +99,4 @@
 {"loop":138,"ts":"2026-09-07T03:13:32Z","status":"ok","goal":"Q28 confirmed unshipped: KG layer built only at dispatch (`src/orchestrator/executor.ts:291-294`), zero merge-path callers of `appendLessonGuarded` (`src/lesson"}
 {"loop":139,"ts":"2026-09-07T03:29:14Z","status":"ok","goal":"Goal: Complete PRD §17:621 Failure-cluster reporting — the failureClass half. Verified 2026-09-07: `readLedger` filters `kind==='audit'` (src/orchestrator/ledge"}
 {"loop":140,"ts":"2026-09-07T03:30:23Z","status":"provider-degraded","goal":"doc-sync failed: and the repository exists."}
+{"loop":141,"ts":"2026-09-07T04:25:30Z","status":"ok","goal":"Goal: Ship PRD §18 Q11 — `.devagent/AGENTS.md` auto-load with one-time per-repo trust confirm. Verified 2026-09-07: zero `AGENTS` handling in `src/`. Implement "}
