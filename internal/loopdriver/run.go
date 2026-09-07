@@ -1,3 +1,11 @@
+// Package loopdriver is the Go port of scripts/selfbuild-loop.sh (FR-GO-13,
+// issue #202): the self-build loop driver as a library — one RunLoop entry
+// preserving the live factory iteration semantics (starvation gate with
+// degraded-row exemptions, already-shipped guard, sync-docs rc
+// classification, PRD currency gate, issue-first pick, research/PO pane-run
+// with abort guards, task dispatch, cleanup schedule, byte-compatible
+// ledger rows). The bash driver stays production until the FR-GO-15 soak
+// gate; see DECISION.md.
 package loopdriver
 
 import (
@@ -36,7 +44,7 @@ func (d *driver) starved() bool {
 // consecutive-failure budget is exhausted.
 func (d *driver) breakerTripped(logF io.Writer) bool {
 	if *d.fails >= d.cfg.MaxConsecutiveFailures {
-		fmt.Fprintf(logF, "circuit breaker: %d consecutive failures\n", *d.fails)
+		_, _ = fmt.Fprintf(logF, "circuit breaker: %d consecutive failures\n", *d.fails)
 		return true
 	}
 	return false
@@ -74,7 +82,7 @@ func RunLoop(cfg LoopConfig) int {
 	clusters := d.failureClusters()
 	// Durable state restore before numbering.
 	if err := newStateSync(cfg.Repo, cfg.Stdout, cfg.Now).Pull(); err != nil {
-		fmt.Fprintln(cfg.Stdout, "[state] pull failed, starting from local state")
+		_, _ = fmt.Fprintln(cfg.Stdout, "[state] pull failed, starting from local state")
 	}
 
 	// Tracker repo fallback: SELFBUILD_GH_REPO unset derives from
@@ -111,7 +119,7 @@ func RunLoop(cfg LoopConfig) int {
 			return 1
 		}
 
-		fmt.Fprintf(logF, "=== self-build loop %d start %s ===\n", n, rowTimestamp(cfg.Now))
+		_, _ = fmt.Fprintf(logF, "=== self-build loop %d start %s ===\n", n, rowTimestamp(cfg.Now))
 
 		// Starvation gate: halt a loop that stopped shipping (checked before
 		// spending tokens). Exit 0 — an intentional stop; exit 1 + hub
@@ -198,7 +206,7 @@ func (d *driver) runIteration(n int, logF io.Writer, gradient, clusters string) 
 	prevTail := prevLedgerTail(d.stateDir+"/ledger.jsonl", 3)
 	lessonsCtx := d.lessonsCtx()
 	if cfg.DryRun {
-		fmt.Fprintln(logF, "[dry-run] phase 1 research skipped")
+		_, _ = fmt.Fprintln(logF, "[dry-run] phase 1 research skipped")
 		_ = os.WriteFile(filepath.Join(d.stateDir, "research", fmt.Sprintf("loop-%d.md", n)), []byte("# dry-run stub\n"), 0o644)
 	} else {
 		d.runResearchPhase(n, logF, prevTail, lessonsCtx, gradient, clusters)
@@ -215,11 +223,11 @@ func (d *driver) runIteration(n int, logF io.Writer, gradient, clusters string) 
 	if queued == nil && issuePick != "" {
 		issueNum, issueTitle = parseIssuePick(issuePick)
 		goal := issueGoalTemplate(issueNum, issueTitle)
-		fmt.Fprintf(logF, "[issue] claimed #%d from tracker (issue-first outranks LLM selection): %s\n", issueNum, issueTitle)
+		_, _ = fmt.Fprintf(logF, "[issue] claimed #%d from tracker (issue-first outranks LLM selection): %s\n", issueNum, issueTitle)
 		_ = os.WriteFile(filepath.Join(d.stateDir, "goals", fmt.Sprintf("loop-%d.md", n)), []byte(goal+"\n"), 0o644)
 		d.phase(n, "issue", fmt.Sprintf("#%d %s", issueNum, issueTitle))
 	} else if queued == nil {
-		fmt.Fprintln(logF, "[issue] no open selfbuild issue found — falling back to LLM selection")
+		_, _ = fmt.Fprintln(logF, "[issue] no open selfbuild issue found — falling back to LLM selection")
 	}
 
 	// Phases 2-3: PO/LLM fallback (empty tracker + empty queue only).
@@ -236,7 +244,7 @@ func (d *driver) runIteration(n int, logF io.Writer, gradient, clusters string) 
 	goalData, gerr := os.ReadFile(goalFile)
 	goalText := string(goalData)
 	if gerr != nil || !goalValidationRe.MatchString(goalText) {
-		fmt.Fprintln(logF, "[validate] goal file missing Goal: line — marking iteration invalid")
+		_, _ = fmt.Fprintln(logF, "[validate] goal file missing Goal: line — marking iteration invalid")
 		d.record(logF, n, "invalid", goalText)
 		return outcomeFallThrough
 	}
@@ -252,14 +260,14 @@ func (d *driver) runIteration(n int, logF io.Writer, gradient, clusters string) 
 		if issueNum != 0 {
 			d.closeIssue(issueNum, fmt.Sprintf("self-build loop %d: goal already shipped (Q27 no re-burn guard) — closing as done", n))
 		}
-		fmt.Fprintf(logF, "[ok] loop %d skipped (already shipped)\n", n)
+		_, _ = fmt.Fprintf(logF, "[ok] loop %d skipped (already shipped)\n", n)
 		return outcomeNextReset
 	}
 
 	if cfg.DryRun {
-		fmt.Fprintln(logF, "[dry-run] phases 4-7 skipped (implement/test/push)")
+		_, _ = fmt.Fprintln(logF, "[dry-run] phases 4-7 skipped (implement/test/push)")
 		d.record(logF, n, "ok", "(dry-run) "+goal)
-		fmt.Fprintf(logF, "[ok] loop %d complete\n", n)
+		_, _ = fmt.Fprintf(logF, "[ok] loop %d complete\n", n)
 		return outcomeFallThrough
 	}
 
@@ -270,7 +278,7 @@ func (d *driver) runIteration(n int, logF io.Writer, gradient, clusters string) 
 
 	// Post-merge-back repo-level test gate.
 	if rc := d.runNpmTest(); rc != 0 {
-		fmt.Fprintln(logF, "[testing] repo tests failed after merge-back")
+		_, _ = fmt.Fprintln(logF, "[testing] repo tests failed after merge-back")
 		d.record(logF, n, "failed-tests", goal)
 		*d.fails++
 		if d.breakerTripped(logF) {
@@ -303,7 +311,7 @@ func (d *driver) runIteration(n int, logF io.Writer, gradient, clusters string) 
 	if cfg.PushMode == "pr" {
 		d.scheduleCleanup(n)
 	}
-	fmt.Fprintf(logF, "[ok] loop %d complete\n", n)
+	_, _ = fmt.Fprintf(logF, "[ok] loop %d complete\n", n)
 	return outcomeFallThrough
 }
 
@@ -319,7 +327,7 @@ func (d *driver) runSyncDocs(n int, logF io.Writer) outcome {
 		}
 		return outcomeNext
 	}
-	fmt.Fprintf(logF, "[sync-docs] PRD refresh failed (rc=%d): %s\n", rc, strings.TrimRight(out, "\n"))
+	_, _ = fmt.Fprintf(logF, "[sync-docs] PRD refresh failed (rc=%d): %s\n", rc, strings.TrimRight(out, "\n"))
 	switch rc {
 	case 3:
 		d.record(logF, n, "operator-diverged", "doc-sync diverged: operator must reconcile (conflict or diverged+dirty PRD)")
@@ -346,7 +354,7 @@ func (d *driver) runResearchPhase(n int, logF io.Writer, prevTail, lessonsCtx, g
 	_ = os.Remove(p.done)
 	prompt := researchPrompt(n, d.cfg.Repo, prevTail, lessonsCtx, gradient, clusters)
 	if rc := d.paneRunDispatch(d.cfg.ResearchBin, prompt, p.raw, p.err, p.done, d.cfg.ResearchTimeout); rc != 0 {
-		fmt.Fprintf(logF, "[research] pane-run dispatch failed (rc=%d) — falling back to direct dispatch\n", rc)
+		_, _ = fmt.Fprintf(logF, "[research] pane-run dispatch failed (rc=%d) — falling back to direct dispatch\n", rc)
 	}
 	if _, err := os.Stat(p.done); err != nil {
 		_ = d.directDispatch(d.cfg.ResearchBin, prompt, p.raw, d.cfg.ResearchTimeout)
@@ -362,7 +370,7 @@ func (d *driver) runPOPhase(n int, logF io.Writer, prevTail, lessonsCtx, gradien
 	// PO preflight (Q40): the goal-selection dispatch dies silently under a
 	// degraded provider; gate it so the skip lands as a ledger row instead.
 	if !d.preflight("po") {
-		fmt.Fprintln(logF, "[preflight] provider degraded - skipping PO selection (ledger row written)")
+		_, _ = fmt.Fprintln(logF, "[preflight] provider degraded - skipping PO selection (ledger row written)")
 		d.record(logF, n, "provider-degraded", "preflight(po): provider probe failed")
 		*d.fails++
 		if d.breakerTripped(logF) {
@@ -379,7 +387,7 @@ func (d *driver) runPOPhase(n int, logF io.Writer, prevTail, lessonsCtx, gradien
 	_ = os.Remove(donePath)
 	prompt := poPrompt(n, d.cfg.Repo, prevTail, lessonsCtx, gradient, clusters)
 	if rc := d.paneRunDispatch(d.cfg.POBin, prompt, rawPath, errPath, donePath, d.cfg.ClaudeTimeout); rc != 0 {
-		fmt.Fprintf(logF, "[po] pane-run dispatch failed (rc=%d) — attempting partial extraction\n", rc)
+		_, _ = fmt.Fprintf(logF, "[po] pane-run dispatch failed (rc=%d) — attempting partial extraction\n", rc)
 	}
 	if _, err := os.Stat(donePath); err != nil {
 		if rc := d.directDispatch(d.cfg.POBin, prompt, rawPath, d.cfg.ClaudeTimeout); rc != 0 {
@@ -403,7 +411,7 @@ func (d *driver) runPOPhase(n int, logF io.Writer, prevTail, lessonsCtx, gradien
 func (d *driver) runTaskPhase(n int, logF io.Writer, goal string, queued *claimedTask) outcome {
 	d.phase(n, "task", firstLineCapped(goal, 100))
 	if rc := d.taskDispatch(goal); rc != 0 {
-		fmt.Fprintln(logF, "[implement] task failed")
+		_, _ = fmt.Fprintln(logF, "[implement] task failed")
 		d.record(logF, n, "failed", goal)
 		if queued != nil {
 			_ = markQueueTaskDone(d.cfg.Repo, queued.ID, "failed", fmt.Sprintf("implement failed at loop %d", n), queued)
@@ -472,7 +480,7 @@ func parseIssuePick(pick string) (int, string) {
 		return 0, ""
 	}
 	n := 0
-	fmt.Sscanf(pick[:i], "%d", &n)
+	_, _ = fmt.Sscanf(pick[:i], "%d", &n)
 	return n, pick[i+1:]
 }
 
@@ -490,6 +498,6 @@ func tailFile(w io.Writer, path string, n int) {
 		lines = lines[len(lines)-n:]
 	}
 	for _, line := range lines {
-		fmt.Fprintln(w, line)
+		_, _ = fmt.Fprintln(w, line)
 	}
 }

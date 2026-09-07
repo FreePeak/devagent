@@ -133,7 +133,7 @@ func (d *driver) directDispatch(bin, prompt, rawPath string, timeoutSecs int) in
 func (d *driver) gradientScan() string {
 	out, rc := d.runDevagent("scan-text", scanPrompt)
 	if rc != 0 || strings.TrimSpace(out) == "" {
-		fmt.Fprintln(d.cfg.Stderr, "[gradient] scan-text dispatch failed — prompts run without the adjacent-category scan")
+		_, _ = fmt.Fprintln(d.cfg.Stderr, "[gradient] scan-text dispatch failed — prompts run without the adjacent-category scan")
 		return ""
 	}
 	return strings.TrimRight(out, "\n")
@@ -145,7 +145,7 @@ func (d *driver) gradientScan() string {
 func (d *driver) failureClusters() string {
 	out, rc := d.runDevagent("ledger", "--clusters", "--repo", d.cfg.Repo)
 	if rc != 0 || strings.TrimSpace(out) == "" {
-		fmt.Fprint(d.cfg.Stderr, "[clusters] ledger --clusters capture failed — prompts run without the failure-cluster report\n")
+		_, _ = fmt.Fprint(d.cfg.Stderr, "[clusters] ledger --clusters capture failed — prompts run without the failure-cluster report\n")
 		return ""
 	}
 	return strings.TrimRight(out, "\n")
@@ -157,7 +157,7 @@ func (d *driver) failureClusters() string {
 func (d *driver) herdrSweep(logF io.Writer) {
 	out, _ := d.runDevagent("herdr-sweep", "--orphans")
 	for _, line := range tailLines(strings.TrimRight(out, "\n"), 3) {
-		fmt.Fprintln(logF, line)
+		_, _ = fmt.Fprintln(logF, line)
 	}
 }
 

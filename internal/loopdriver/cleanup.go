@@ -105,7 +105,7 @@ func (d *driver) sweepCleanup(logF io.Writer) {
 			// `&&` chain: echo only on success, entry always consumed).
 			continue
 		}
-		fmt.Fprintf(logF, "[cleanup] deferring %s (tip not on origin — no PR yet)\n", row.Branch)
+		_, _ = fmt.Fprintf(logF, "[cleanup] deferring %s (tip not on origin — no PR yet)\n", row.Branch)
 		keep = append(keep, line)
 	}
 	if len(keep) == 0 {

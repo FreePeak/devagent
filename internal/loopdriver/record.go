@@ -126,7 +126,7 @@ func (d *driver) record(w io.Writer, loopNum int, status, goal string) {
 	})
 	sync := newStateSync(d.cfg.Repo, w, d.cfg.Now)
 	if err := sync.Push(); err != nil {
-		fmt.Fprintln(w, "[state] push deferred")
+		_, _ = fmt.Fprintln(w, "[state] push deferred")
 	}
 	_ = appendJSONL(eventsPath(d.cfg.Repo), loopResultEvent{
 		TS:     rowTimestamp(d.cfg.Now),
@@ -164,7 +164,7 @@ func nextLoopNumber(ledgerPath string) int {
 	max := 0
 	for _, m := range loopNumRe.FindAllStringSubmatch(string(data), -1) {
 		n := 0
-		fmt.Sscanf(m[1], "%d", &n)
+		_, _ = fmt.Sscanf(m[1], "%d", &n)
 		if n > max {
 			max = n
 		}

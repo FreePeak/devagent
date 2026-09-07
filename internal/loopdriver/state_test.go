@@ -81,6 +81,8 @@ func TestStatePullMergeAndPush(t *testing.T) {
 	runGit(t, t.TempDir(), "clone", "--quiet", bare, seed)
 	writeRepoFile(t, seed, ".selfbuild/ledger.jsonl",
 		"{\"loop\":7,\"ts\":\"2026-09-01T00:00:00Z\",\"status\":\"ok\",\"goal\":\"seeded\"}\n")
+	runGit(t, seed, "config", "user.email", "test@localhost")
+	runGit(t, seed, "config", "user.name", "test")
 	runGit(t, seed, "add", "-A")
 	runGit(t, seed, "commit", "-q", "-m", "seed")
 	runGit(t, seed, "push", "-q", "origin", "HEAD:refs/heads/selfbuild/state")
@@ -127,6 +129,8 @@ func TestStatePushRetryAfterRace(t *testing.T) {
 	runGit(t, t.TempDir(), "clone", "--quiet", bare, seed)
 	writeRepoFile(t, seed, ".selfbuild/ledger.jsonl",
 		"{\"loop\":1,\"ts\":\"2026-09-01T00:00:00Z\",\"status\":\"ok\",\"goal\":\"raced\"}\n")
+	runGit(t, seed, "config", "user.email", "test@localhost")
+	runGit(t, seed, "config", "user.name", "test")
 	runGit(t, seed, "add", "-A")
 	runGit(t, seed, "commit", "-q", "-m", "seed")
 	runGit(t, seed, "push", "-q", "origin", "HEAD:refs/heads/selfbuild/state")
