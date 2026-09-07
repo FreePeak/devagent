@@ -1,0 +1,3 @@
+{"type":"step_start"}
+{"type":"text","text":"preamble text\n---TASK---\nid: FEAT-9\ntitle: T\ngoal: Goal: g\ncriteria: c\n---PRD---\n# T\n## Goal\nx\n"}
+{"type":"step_finish"}
