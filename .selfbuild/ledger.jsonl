@@ -118,3 +118,4 @@
 {"loop":157,"ts":"2026-09-07T06:47:57Z","status":"ok","goal":"Verified research pick #1 against code state:  - `pageDegradeBreach` (`src/resilience/preflight.ts:153`) is module-private, only called at `:285` inside `runPre"}
 {"loop":158,"ts":"2026-09-07T07:24:12Z","status":"skipped","goal":"Verified pick #1 against code state: - Q11 open at `docs/PRD.md:942` (Phase 4, product); no `repoContext`/trust symbol anywhere in `src/config.ts`. - `buildKnow"}
 {"loop":159,"ts":"2026-09-07T07:27:59Z","status":"provider-degraded","goal":"doc-sync failed: [sync-docs] git fetch failed: Command failed: git fetch origin main"}
+{"loop":160,"ts":"2026-09-07T07:54:30Z","status":"invalid","goal":"#147 already fixed (`test/doc-sync.test.ts:40` sets user.email on repo). #144 R1/R2 shipped. Checking #144 remainder and #179 state."}
