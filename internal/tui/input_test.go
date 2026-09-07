@@ -4,8 +4,6 @@ import "testing"
 
 // Port of test/tui-input.test.ts: whole-sequence key decoding contract.
 
-func keysOf(res DecodeResult) []Key { return res.Keys }
-
 func expectKeys(t *testing.T, chunk string, flush bool, want []Key) {
 	t.Helper()
 	got := DecodeKeys(chunk, flush)

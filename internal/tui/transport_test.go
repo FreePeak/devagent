@@ -29,23 +29,23 @@ func fakeDaemon(t *testing.T) (*httptest.Server, *[]*http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.Header.Get("Authorization") != "Bearer "+token {
 			w.WriteHeader(http.StatusUnauthorized)
-			fmt.Fprint(w, `{"error":"unauthorized"}`)
+			_, _ = fmt.Fprint(w, `{"error":"unauthorized"}`)
 			return
 		}
 		switch {
 		case strings.HasPrefix(r.URL.Path, "/status"):
-			fmt.Fprint(w, `{"now":"2026-09-07T00:00:00Z","uptime_s":5,"runs":{"active":0,"failed_recent":0},`+
+			_, _ = fmt.Fprint(w, `{"now":"2026-09-07T00:00:00Z","uptime_s":5,"runs":{"active":0,"failed_recent":0},`+
 				`"queue":{"pending":0,"claimed":0,"done":0},"circuit":"closed",`+
 				`"herdr":{"enabled":true,"session":"devagent"},"spawn":{"visibility":"visible"},`+
 				`"capabilities":["approve","dispatch","attach","kill-via-answer"]}`)
 		case strings.HasPrefix(r.URL.Path, "/agents"):
-			fmt.Fprint(w, `{"panes":[],"queued":[]}`)
+			_, _ = fmt.Fprint(w, `{"panes":[],"queued":[]}`)
 		case strings.HasPrefix(r.URL.Path, "/history"):
-			fmt.Fprint(w, `{"records":[{"ts":"2026-09-07T00:00:00Z","kind":"audit","taskId":"TASK-abc","attempt":1,"verdict":"pass"}]}`)
+			_, _ = fmt.Fprint(w, `{"records":[{"ts":"2026-09-07T00:00:00Z","kind":"audit","taskId":"TASK-abc","attempt":1,"verdict":"pass"}]}`)
 		case strings.HasPrefix(r.URL.Path, "/sessions"):
-			fmt.Fprint(w, `{"panes":[{"taskId":"TASK-abc","role":"worker","worker":"omp","paneId":"w1:p1","workspaceId":"w1","label":"TASK-abc-a1","cwd":"/tmp/w1","agentStatus":"working","state":"running","startedAt":"2026-09-07T00:00:00Z"}]}`)
+			_, _ = fmt.Fprint(w, `{"panes":[{"taskId":"TASK-abc","role":"worker","worker":"omp","paneId":"w1:p1","workspaceId":"w1","label":"TASK-abc-a1","cwd":"/tmp/w1","agentStatus":"working","state":"running","startedAt":"2026-09-07T00:00:00Z"}]}`)
 		case strings.HasPrefix(r.URL.Path, "/approve"):
-			fmt.Fprint(w, `{"ok":true,"note":"killed"}`)
+			_, _ = fmt.Fprint(w, `{"ok":true,"note":"killed"}`)
 		default:
 			http.NotFound(w, r)
 		}
@@ -161,13 +161,13 @@ func sseServer(t *testing.T, events []string) *httptest.Server {
 		}
 		lastID := -1
 		if v := r.Header.Get("Last-Event-ID"); v != "" {
-			fmt.Sscanf(v, "%d", &lastID)
+			_, _ = fmt.Sscanf(v, "%d", &lastID)
 		}
 		for i, ev := range events {
 			if i <= lastID {
 				continue // replay skips what we already have
 			}
-			fmt.Fprintf(w, "id: %d\ndata: %s\n\n", i, ev)
+			_, _ = fmt.Fprintf(w, "id: %d\ndata: %s\n\n", i, ev)
 			flusher.Flush()
 		}
 		<-r.Context().Done() // hold the stream open like a live tail

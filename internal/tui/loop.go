@@ -1,8 +1,6 @@
 package tui
 
-import (
-	"time"
-)
+import "time"
 
 // Loop is the seam for the interactive raw-mode terminal driver
 // (FR-TUI alternate screen, key handling, suspend/attach). FR-GO-11 ships
@@ -24,13 +22,6 @@ type Loop interface {
 	// loop should quit.
 	ApplyKeys(res DecodeResult) (quit bool)
 }
-
-// noopLoop is a placeholder so the seam is exercised without FR-GO-13.
-type noopLoop struct{}
-
-func (noopLoop) Run() error                         { return nil }
-func (noopLoop) Snapshot() *Snapshot                { return &Snapshot{} }
-func (noopLoop) ApplyKeys(DecodeResult) (quit bool) { return true }
 
 // Transport is the seam over the FR-CTRL daemon API (FR-GO-12): the TUI is a
 // pure HTTP + SSE client. TODO(FR-GO-12 #200): implement the Go daemon

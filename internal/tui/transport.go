@@ -122,7 +122,7 @@ func DaemonRequest(opts TuiOptions, method, path, body string, timeout time.Dura
 	if err != nil {
 		return HTTPResponse{}
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	data, err := io.ReadAll(resp.Body)
 	if err != nil && len(data) == 0 {
 		return HTTPResponse{Status: resp.StatusCode}
@@ -283,7 +283,7 @@ func SubscribeEvents(opts TuiOptions, onEvent func(id int, data string), onState
 				if resp.StatusCode == 401 {
 					waitMs = sseAuthRetryMs
 				}
-				resp.Body.Close()
+				_ = resp.Body.Close()
 				sub.backoff(ctx, waitMs, onState)
 				continue
 			}
@@ -295,7 +295,7 @@ func SubscribeEvents(opts TuiOptions, onEvent func(id int, data string), onState
 					onEvent(id, data)
 				}
 			})
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			sub.backoff(ctx, waitMs, onState)
 		}
 	}()
