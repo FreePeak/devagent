@@ -15,7 +15,12 @@
 
 ---
 
-DevAgent integrates with your issue tracker (Linear in v1; Jira, GitHub Issues planned), parses backend specs, drafts database migrations, writes production-grade API code using headless coding-agent CLIs (Claude Code, OpenCode) as execution workers, validates every change inside sandboxed Docker containers, and delivers tested Pull Requests with auto-generated documentation for frontend teams.
+DevAgent integrates with your issue tracker (Linear, Jira, GitHub Issues;
+GitLab PR publishing), parses backend specs, drafts database migrations,
+writes production-grade API code using headless coding-agent CLIs (omp by
+default; Claude Code, OpenCode, pi, and Grok adapters) as execution workers,
+validates every change inside sandboxed Docker containers, and delivers
+tested Pull Requests with auto-generated documentation for frontend teams.
 
 ```bash
 # From zero: guided setup (checks prerequisites, writes devagent.json)
@@ -44,7 +49,12 @@ progress across projects:
 - **Set-and-forget backend ops** — assign a ticket to `@devagent` and get back a green, tested PR. A virtual team member, not an IDE extension.
 - **Specialized domain intelligence** — general AI coders break database integrity and ignore async race conditions. DevAgent explicitly validates migration scripts, foreign-key safety, lock-risk patterns, and event-queue logic before anything leaves the machine.
 - **Closed-loop testing** — nothing is submitted because it "looks right". Every change is verified against the real test suite and migrated schema inside an isolated container first.
-- **Multi-worker fan-out** — the same ticket can run through Claude Code and OpenCode in parallel isolated worktrees; the validated winner becomes the PR.
+- **Multi-worker fan-out** — the same ticket can run through multiple worker
+  CLIs in parallel isolated worktrees; the validated winner becomes the PR.
+- **Self-improving loop** — DevAgent's own roadmap runs through its own
+  factory: a 24/7 scout researches the PRD backlog into a task queue, workers
+  ship tested PRs with auto-merge, and the orchestration ledger + lessons
+  eval guard feed measured-impact context back into every prompt.
 
 ## Orchestration
 
@@ -114,15 +124,21 @@ See [docs/TUI.md](docs/TUI.md) for the keyboard reference, daemon modes, and arc
 
 ### Herdr worker panes
 
-By default workers run headless and are only observable via run logs. Opt in
-to running every worker launch inside a herdr pane instead — visible live,
-reattachable, disconnect-proof:
+Worker launches default to **visible herdr panes** when the `herdr` binary is
+present — visible live, reattachable, disconnect-proof. When herdr is
+unreachable the fallback to invisible child processes is loud (one warning
+per spawn site plus a `visibility=fallback` ledger row), never silent:
 
-- `herdr.enabled: true` in `devagent.json`, or env override `DEVAGENT_HERDR=1` (`=0` forces off)
+- Force headless (CI/servers/LaunchAgents): `spawn.visibility: "headless"` in `devagent.json` or `DEVAGENT_VISIBILITY=headless` (`DEVAGENT_HERDR=0` forces the pane runtime off)
 - Workers open in a named session — attach with `herdr session attach devagent` to watch them work
 - `DEVAGENT_HERDR_KEEP_PANES=1` keeps completed panes around for inspection
 
+Companion commands: `devagent sessions` (live panes), `devagent attach <task>`
+(jump-in command), `devagent pane-run` (run a phase inside a pane),
+`devagent herdr-sweep` (close stale automation panes only).
+
 See [docs/HERDR.md](docs/HERDR.md) for the full behavior contract.
+
 
 ### LaunchAgent control
 
@@ -142,50 +158,46 @@ See [docs/HERDR.md](docs/HERDR.md) for the full behavior contract.
 | [Product Requirements Document](docs/PRD.md) | Markdown | Full PRD: problem, personas, requirements (FR/NFR), architecture, pipeline, validation gates, CLI spec, integrations, metrics, risks, roadmap |
 | [Product Requirements Document](docs/PRD.html) | HTML | Same document, styled single-file HTML for sharing — regenerate after editing PRD.md: `pandoc docs/PRD.md -f gfm -t html5 -s --toc --toc-depth=2 --metadata title="DevAgent - Product Requirements Document" -H docs/prd-style.html -o docs/PRD.html` (pandoc 3.10.x) |
 | [War Room mode](docs/WAR-ROOM.md) | Markdown | Goal-driven infinity loop: abstract idea → research → spec-until-clear → implement-until-evidenced. Built for new products and hackathons (`npm run warroom`) |
+| [TUI dashboard](docs/TUI.md) | Markdown | `devagent tui` full-screen live dashboard: keyboard reference, daemon attach/embed modes, architecture |
 | [cc-guard: auto-resume for headless sessions](docs/cc-guard.md) | Markdown | Supervisor that restarts Claude Code sessions killed by API failures ("Connection lost mid-response") via `devagent guard` |
 | [LongHorizon-Harness analysis](docs/research/longhorizon-harness.md) | Markdown | Research backing evidence-gated orchestration: MEA loop, audit economics, recovery strategy (arXiv:2608.01964) |
 | [Scout + Factory (24/7)](docs/SCOUT.md) | Markdown | 24/7 scout (opencode research → PRD → queue) + Orca workers (queue → PR → auto-merge → self-update) on macOS |
 | [Scout + Factory PRD](docs/SCOUT-CREATE-PRD.md) | Markdown | Factory requirements: queue, scout daemon, `devagent create`, LaunchAgent, auto-merge, self-update |
 | [Self-Build Loop](docs/SELF-BUILD-LOOP.md) | Markdown | Infinity loop driver (`scripts/selfbuild-loop.sh`) + Orca automation modes |
 | [Git cleanup of merged MRs/PRs](docs/cleanup-merged.md) | Markdown | `scripts/git-cleanup-merged.sh`: delete local branches + worktrees whose GitLab MR / GitHub PR was merged, across all nested repos in `~/work` (dry-run default, launchd automation) |
-| [Herdr runtime support](docs/HERDR.md) | Markdown | Run worker launches inside herdr panes (persistent terminal workspace manager): visible, reattachable, disconnect-proof; opt-in via `herdr.enabled` or `DEVAGENT_HERDR=1` |
+| [Herdr runtime support](docs/HERDR.md) | Markdown | Run worker launches inside herdr panes (persistent terminal workspace manager): visible, reattachable, disconnect-proof; default-on with loud fallback, opt-out via `spawn.visibility: "headless"` |
 | [DevAgent × Grok](docs/GROK.md) | Markdown | Grok/xAI integration plan (worker adapter M0–M2), 2026-09 competitive install-ease scan, and the few-tools easy-install path |
 
 Research sources backing the PRD are cited inline and collected in the [research appendix](docs/PRD.md#19-research-appendix).
 
 ## Status
 
-v0.4.0 — factory (scout + Orca workers) landed (2026-08-25):
+Releases are tagged automatically on every push to `main` (latest:
+**v0.25.26**, 2026-09-07); each release appends a `release-created` row to the
+orchestration ledger. Current surface:
 
-- **Factory bootstrap**: `devagent create --repo . --scout --workers N [--auto-merge] [--self-update]` creates `.devagent/queue` + `.devagent/prds`, merges `devagent.json`, registers repo with `orca`, provisions Orca worktrees, installs scout LaunchAgent. `--dry-run` prints plan.
-- **Scout (24/7 researcher)**: `devagent scout [--once] [--dry-run] [--interval <min>] [--worker opencode|claude-code|omp|pi]` researches `docs/PRD.md §4+§17` + ledger + lessons, writes markdown PRD to `.devagent/prds/<id>.md` and task to `.devagent/queue/<id>.json`; heartbeat at `.devagent/scout.heartbeat.json`, `devagent scout-status` surfaces it. Live mode uses the configured worker CLI (default `omp -p --mode json`; also opencode, claude-code, pi); unparseable output or missing binary falls back deterministically so the queue never starves. `maxQueued` caps depth.
-- **Queue**: `devagent queue list [--status] [--json]`, `queue show <id>`; filesystem store `.devagent/queue/*.json`, no DB.
-- **Workers**: `devagent consume --auto-pr [--auto-merge]` claims oldest `pending` task, creates `.devagent-worktrees/<id>` worktree, runs pipeline (synthetic ticket, no tracker creds), validates G1/G3/G4, pushes `devagent/<id>` and opens PR via `gh`, optionally `gh pr merge --auto --squash` (see [SCOUT.md](docs/SCOUT.md)).
-- **Orca fleet provisioner**: `src/integrations/orca.ts` now exposes `ensureOrcaRepo`, `createOrcaWorktree`, `listOrcaWorktrees` (best-effort, degrades when Orca absent); `dropOrcaWorkspace` already existed.
-- **Auto-merge**: `src/integrations/github.ts: autoMergePr(repo, prRef)` via `gh pr merge --auto --squash`; controlled by `config.autoMerge` / `create --auto-merge`.
-- **Self-update**: `src/self-update.ts: runSelfUpdate` + `scripts/self-update.sh` — `git pull --ff-only` + `npm ci|install` + `build` + `launchctl kickstart com.devagent.scout`, guarded on dirty worktree, secrets redacted in error details.
-- **Persistence (macOS)**: LaunchAgent plist `~/Library/LaunchAgents/com.devagent.scout.plist` running `node dist/src/cli.js scout --interval <n>` with `KeepAlive` + `RunAtLoad`, `plutil -lint` clean; `scripts/install-scout-launchagent.sh [--validate|--uninstall]`.
-- 314 tests green (was 276) incl. `test/queue.test.ts`, `test/scout.test.ts`, `test/create-consume.test.ts`, `test/self-update.test.ts`.
+- **Trackers & hosts** — Linear, Jira, GitHub Issues ingestion; GitHub + GitLab PR publishing
+- **Workers** — headless omp (default), Claude Code, OpenCode, pi, and Grok Build CLI adapters; per-adapter model-id validation, cold-start + no-progress watchdogs, fan-out winner selection with flaky rerun
+- **Gates** — G0 issue-readiness scoring, G1 repo-native tests, G2 up/down migration apply, G3 static migration analysis, G4 concurrency review, G5 STRIDE threat-model gate with per-PR allowlists
+- **Orchestration** — goal → DAG → evidence-gated audited waves, recovery contracts, ask/answer via CLI/MCP/HTTP, per-task PRs, auto review + merge (CI-green gated), topological merge-back, remote dispatch over SSH (`devagent task --remote`)
+- **Factory** — scout → queue → workers → auto-merge → self-update with LaunchAgent persistence (see [Factory](#factory-247-scout--orca-workers))
+- **Control plane** — `devagent daemon` (HTTP + SSE + UDS, token auth), `devagent tui` full-screen dashboard, herdr visible worker panes
+- **Resilience** — provider preflight with circuit breakers + degradation paging, typed board-recovery and selfbuild gates, doc-sync freshness gate, PR merge hygiene (`automerge`, `autosweep`, `pr-hygiene`), `rebase-stack` merge-queue refresh, prompt-size and lifetime-attempt caps
+- **Self-knowledge** — orchestration ledger (PR, fixer, and release outcomes), lessons eval guard, markdown + LeanKG layered context digest
+- **Simplicity pass (PRD §21)** — `devagent init` guided setup with verified smoke; card/chip human-readable `status`/`validate`/`ledger` output with `--json` opt-out
+- 1300+ tests green, including end-to-end over real git fixtures
 
-v0.3.0 — v1 complete, fleet + observability landed (2026-08); evidence-gated
-orchestration landed 2026-08-24 (loops 40-46):
+Deferred: deeper sandbox profiles beyond seatbelt/compose, pooled multi-tenant
+remote execution.
 
-- **CLI**: `devagent init|run|serve|validate|log|status|dashboard|fleet|config|orchestrate|project|mcp`
-- **Workers**: headless omp (`omp -p --mode json`, default), Claude Code (`claude -p`), OpenCode (`opencode run`), and pi (`pi --mode json -p`); fan-out mode (`--worker both`) runs parallel legs and picks the test-passing winner; retries carry gate evidence back as repair prompts
-- **Gates**: G0 issue-readiness scoring before dispatch (type-specific ready-for-dev rubric, 60/100 threshold), G1 repo-native tests, G2 up/down migration apply (compose; honest skips without Docker), G3 static migration analysis (8 rules), G4 concurrency review scoped to the run's own diff
-- **Auto-cleanup**: after every `run`/`task`/`fleet` run the worktree is finalized per `--cleanup auto|keep|always` (default `auto`: on success uncommitted output is snapshotted to the run branch, then the tree is removed; failed runs are preserved for debugging). `--drop-orca-workspace` additionally removes an enclosing Orca-managed workspace via orca-cli. Applies identically to Claude Code and OpenCode workers
-- **Fleet**: `devagent fleet --ticket A --ticket B --repo api=/repos/api ...` runs the ticket×repo matrix over a bounded pool with per-job failure isolation
-- **Triggers**: CLI plus webhook server (`serve`) — HMAC verification, delivery dedup, latest-wins per ticket via lock registry
-- **Delivery**: branch push + gh PR with plan, changed-file evidence, acceptance criteria (`--auto-pr`)
-- **Resilience**: Linear 429 handling honors Retry-After with jittered backoff
-- **Orchestration**: goal -> DAG -> audited parallel execution with recovery
-  contracts, human-in-the-loop ask/answer (CLI/MCP/HTTP), plan-only preview,
-  topological merge-back (see [Orchestration](#orchestration))
-- **MCP**: stdio server (`devagent mcp`) exposing dispatch/status/log/board/answer tools
-- **Observability**: JSONL run logs, `status`, `log`, and a static HTML `dashboard`
-- 250+ tests green incl. end-to-end over real git fixtures
+## What's next
 
-Deferred to later: deeper sandbox isolation beyond compose conventions, remote execution. See the [roadmap](docs/PRD.md#17-roadmap).
+Tracked in the [roadmap](docs/PRD.md#17-roadmap) and the [Grok Bot & control app addendum](docs/PRD.md#20-product-direction-addendum-grok-bot-xai-integration-cross-platform-control-app):
+
+- **Native xAI worker + SuperGrok auth** — the Grok Build CLI adapter ships today; native xAI API loops (Responses API caps, batch/off-peak routing) and consumer-plan OAuth are next (Q42/Q43)
+- **Cross-platform desktop control app** — Tauri 2 tray + dashboard over the same FR-CTRL API the TUI already uses (macOS, Windows, Linux) (§20.4)
+- **Bot-style UX floor** — named persistent agent identities, teach-once routines, visible bot-to-bot handoff (§20.1, Q45)
+- **Durable knowledge-graph context** — whether the LeanKG digest persists across runs or stays per-run (Q28)
 
 ## Factory (24/7 scout + Orca workers)
 
