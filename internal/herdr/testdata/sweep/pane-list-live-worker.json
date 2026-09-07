@@ -1,0 +1,15 @@
+{
+  "id": "x",
+  "result": {
+    "type": "pane_list",
+    "panes": [
+      {
+        "pane_id": "wX:p1",
+        "workspace_id": "wX",
+        "label": "TASK-orphan-a1",
+        "agent_status": "idle",
+        "cwd": "/repo/.devagent-worktrees/TASK-orphan-a1"
+      }
+    ]
+  }
+}

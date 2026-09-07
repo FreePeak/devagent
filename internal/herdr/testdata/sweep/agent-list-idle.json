@@ -1,0 +1,17 @@
+{
+  "id": "x",
+  "result": {
+    "type": "agent_list",
+    "agents": [
+      {
+        "name": "TASK-abc-a1",
+        "label": "TASK-abc-a1",
+        "agent": "omp",
+        "pane_id": "wX:p1",
+        "workspace_id": "wX",
+        "agent_status": "idle",
+        "cwd": "/repo/.devagent-worktrees/TASK-abc-a1"
+      }
+    ]
+  }
+}
