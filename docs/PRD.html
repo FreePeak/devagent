@@ -2098,7 +2098,39 @@ fetches origin and fast-forwards before each live scout cycle (opt-out
 refusing the sync while <code>docs/PRD.md</code> is locally modified —
 the loop then records a <code>provider-degraded</code> row and skips its
 agent cycle instead of silently building stale work, and a failed scout
-sync degrades to a skipped heartbeat cycle (ace2b88).</p>
+sync degrades to a skipped heartbeat cycle (ace2b88).
+<strong>Completed post-v0.3 (2026-09-07):</strong> FR-VIS-09 extended
+from the loop driver to queue claims — the <code>claimTask</code>
+last-writer-wins TODO meant two consumers that both read a
+<code>pending</code> task each believed they owned it, and the later
+writer silently overwrote the earlier one’s record. Claims now take an
+atomic <code>link()</code> lock per task
+(<code>acquireClaimLock</code>, <code>src/queue.ts:172</code>;
+<code>link()</code> fails EEXIST so exactly one caller wins, and it is
+portable to macOS where <code>flock</code> is unavailable — the same
+primitive family as the driver’s mkdir lock) and issue a fencing token:
+<code>QueuedTask.leaseGeneration</code> plus <code>leaseOwner</code> and
+<code>leaseExpiresAt</code> (<code>src/queue.ts:27-31</code>). A
+<code>claimed</code> task past its lease is reclaimable and the reclaim
+bumps the generation — a token is never reused — so
+<code>claimNextPending</code> recovers a crashed worker’s task instead of
+wedging (<code>src/queue.ts:443</code>). Every claim-lifecycle write
+carries the token and is refused when stale:
+<code>completeTask</code>/<code>failTask</code>/<code>requeueTask</code>
+(<code>src/queue.ts:348,358,375</code>) and the guarded
+<code>updateTask</code>/<code>setTaskStatus</code>
+(<code>expectedGeneration</code>); <code>requeueTask</code> bumps the
+generation on release so the releasing worker’s own late writes die with
+the release. <code>src/consume.ts:311</code> threads its claim token
+through completion, requeue, and failure, and
+<code>scripts/selfbuild-queue-claim.mjs</code> hands the loop the token
+(<code>leaseGeneration</code>) which
+<code>scripts/selfbuild-queue-done.mjs</code> presents via
+<code>DEVAGENT_QUEUE_LEASE</code> — a stale token refuses loudly instead
+of clobbering the new owner. Legacy records with no lease fields stay
+reclaimable. 9 deterministic lease tests
+(<code>test/queue.test.ts:144</code>); <code>devagent queue list</code>
+output is unchanged.</p>
 </blockquote>
 <h4 id="phase-4--current-backlog-2026-09-03-curation-run-24">Phase 4 —
 current backlog (2026-09-03, curation run 24)</h4>
@@ -3838,10 +3870,16 @@ while it runs</td>
 </tr>
 <tr>
 <td>FR-VIS-09</td>
-<td>Single-instance loop drivers: <code>selfbuild-loop.sh</code> holds a
+<td>Single-instance locking: <code>selfbuild-loop.sh</code> holds a
 portable mkdir lock (<code>.selfbuild/loop.lock.d</code>, stale-holder
-recovery via pid liveness) so an orphaned ppid=1 driver and a fresh
-start can never race loop numbering, ledger writes, or pane sweeps</td>
+recovery via pid liveness) so an orphaned ppid=1 driver and a fresh start
+can never race loop numbering, ledger writes, or pane sweeps.
+<strong>Extended 2026-09-07 to queue claims:</strong> the same
+single-owner guarantee covers task claiming — an atomic
+<code>link()</code> claim lock per task, an incrementing fencing token
+(<code>leaseGeneration</code>/<code>leaseOwner</code>/<code>leaseExpiresAt</code>),
+expired leases reclaimable with a generation bump, and
+complete/fail/requeue writes refused when their token is stale</td>
 <td>M</td>
 </tr>
 </tbody>

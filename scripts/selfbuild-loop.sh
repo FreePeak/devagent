@@ -366,9 +366,14 @@ Do NOT edit any files. Output only."
     if [ -n "$QUEUE_JSON" ] && [ "$QUEUE_JSON" != "{}" ]; then
       QID="$(printf '%s' "$QUEUE_JSON" | node -e 'let d="";process.stdin.on("data",(c)=>d+=c).on("end",()=>console.log(JSON.parse(d).id))')"
       QGOAL="$(printf '%s' "$QUEUE_JSON" | node -e 'let d="";process.stdin.on("data",(c)=>d+=c).on("end",()=>console.log(JSON.parse(d).goal))')"
+      QLEASE="$(printf '%s' "$QUEUE_JSON" | node -e 'let d="";process.stdin.on("data",(c)=>d+=c).on("end",()=>console.log(JSON.parse(d).leaseGeneration))')"
       echo "[queue] claimed $QID from .devagent/queue (queue-first outranks LLM selection)"
       GOAL="$QGOAL"
       QUEUED_TASK_ID="$QID"
+      # Fencing token for this claim (FR-VIS-09 queue claims): handed to
+      # selfbuild-queue-done.mjs so a lease reclaimed mid-run makes the done
+      # write refuse instead of clobbering the new owner's record.
+      QUEUED_TASK_LEASE="$QLEASE"
       printf '%s\n' "$GOAL" > goal.tmp && mv goal.tmp "$STATE/goals/loop-$N.md"
     fi
 
@@ -469,7 +474,7 @@ Output ONLY the goal statement (max 120 words), starting with 'Goal:' — this t
           # Mark a queue-claimed item done too, or the queue-first selector
           # re-claims the same already-shipped goal every iteration (the
           # 2026-09-04 SCOUT-20260903-fallback double-skip class).
-          [ -n "${QUEUED_TASK_ID:-}" ] && node "$REPO/scripts/selfbuild-queue-done.mjs" "$REPO" "$QUEUED_TASK_ID" done "already shipped (PRD:889 pick reconciliation)" >/dev/null 2>&1 || true
+          [ -n "${QUEUED_TASK_ID:-}" ] && DEVAGENT_QUEUE_LEASE="${QUEUED_TASK_LEASE:-}" node "$REPO/scripts/selfbuild-queue-done.mjs" "$REPO" "$QUEUED_TASK_ID" done "already shipped (PRD:889 pick reconciliation)" >/dev/null 2>&1 || true
           echo "[ok] loop $N skipped (already shipped)"
           fails=0
           continue
@@ -487,7 +492,7 @@ Output ONLY the goal statement (max 120 words), starting with 'Goal:' — this t
         # Mark a queue-claimed item done too, or the queue-first selector
         # re-claims the same already-shipped goal every iteration (2026-09-04:
         # SCOUT-20260903-fallback skipped twice, then burned a worker dispatch).
-        [ -n "${QUEUED_TASK_ID:-}" ] && node "$REPO/scripts/selfbuild-queue-done.mjs" "$REPO" "$QUEUED_TASK_ID" done "already shipped (Q27 guard)" >/dev/null 2>&1 || true
+        [ -n "${QUEUED_TASK_ID:-}" ] && DEVAGENT_QUEUE_LEASE="${QUEUED_TASK_LEASE:-}" node "$REPO/scripts/selfbuild-queue-done.mjs" "$REPO" "$QUEUED_TASK_ID" done "already shipped (Q27 guard)" >/dev/null 2>&1 || true
         echo "[ok] loop $N skipped (already shipped)"
         fails=0
         continue
@@ -514,7 +519,7 @@ Output ONLY the goal statement (max 120 words), starting with 'Goal:' — this t
       DEVAGENT_API_MAX_ATTEMPTS="${SELFBUILD_API_MAX_ATTEMPTS:-40}" \
       DEVAGENT_NO_PROGRESS_TIMEOUT_MS="${SELFBUILD_NO_PROGRESS_TIMEOUT_MS:-600000}" \
       DEVAGENT_VISIBILITY="$VISIBILITY" \
-        timeout "${SELFBUILD_TASK_TIMEOUT:-7200}" "${DEVAGENT[@]}" "${TASK_ARGS[@]}" || { echo "[implement] task failed" ; record "$N" failed "$GOAL" ; [ -n "${QUEUED_TASK_ID:-}" ] && node "$REPO/scripts/selfbuild-queue-done.mjs" "$REPO" "$QUEUED_TASK_ID" failed "implement failed at loop $N" >/dev/null 2>&1 || true ; fails=$(( fails + 1 )) ;
+        timeout "${SELFBUILD_TASK_TIMEOUT:-7200}" "${DEVAGENT[@]}" "${TASK_ARGS[@]}" || { echo "[implement] task failed" ; record "$N" failed "$GOAL" ; [ -n "${QUEUED_TASK_ID:-}" ] && DEVAGENT_QUEUE_LEASE="${QUEUED_TASK_LEASE:-}" node "$REPO/scripts/selfbuild-queue-done.mjs" "$REPO" "$QUEUED_TASK_ID" failed "implement failed at loop $N" >/dev/null 2>&1 || true ; fails=$(( fails + 1 )) ;
         [ "$fails" -ge "$MAX_FAILS" ] && { echo "circuit breaker: $fails consecutive failures" ; exit 1 ; } ; continue ; }
 
       # Post-merge-back repo-level test gate.
@@ -528,7 +533,7 @@ Output ONLY the goal statement (max 120 words), starting with 'Goal:' — this t
       fi
 
       record "$N" ok "$GOAL"
-      [ -n "${QUEUED_TASK_ID:-}" ] && node "$REPO/scripts/selfbuild-queue-done.mjs" "$REPO" "$QUEUED_TASK_ID" done >/dev/null 2>&1 || true
+      [ -n "${QUEUED_TASK_ID:-}" ] && DEVAGENT_QUEUE_LEASE="${QUEUED_TASK_LEASE:-}" node "$REPO/scripts/selfbuild-queue-done.mjs" "$REPO" "$QUEUED_TASK_ID" done >/dev/null 2>&1 || true
       [ "$PUSH_MODE" = pr ] && schedule_cleanup "$N"
       echo "[ok] loop $N complete"
       fi # DRY_RUN
