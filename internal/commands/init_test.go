@@ -64,7 +64,7 @@ func TestRunInitFreshRepo(t *testing.T) {
 func TestRunInitIdempotentMerge(t *testing.T) {
 	fakeWorkerBin(t)
 	repo := t.TempDir()
-	os.WriteFile(filepath.Join(repo, "devagent.json"), []byte("{\"worker\": \"pi\", \"maxLoops\": 9}\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(repo, "devagent.json"), []byte("{\"worker\": \"pi\", \"maxLoops\": 9}\n"), 0o644)
 	res, err := RunInit(InitOptions{RepoPath: repo, Probe: okProbe})
 	if err != nil {
 		t.Fatal(err)
@@ -84,7 +84,7 @@ func TestRunInitIdempotentMerge(t *testing.T) {
 func TestRunInitBrokenConfigReplaced(t *testing.T) {
 	fakeWorkerBin(t)
 	repo := t.TempDir()
-	os.WriteFile(filepath.Join(repo, "devagent.json"), []byte("{broken"), 0o644)
+	_ = os.WriteFile(filepath.Join(repo, "devagent.json"), []byte("{broken"), 0o644)
 	res, err := RunInit(InitOptions{RepoPath: repo, Probe: okProbe})
 	if err != nil {
 		t.Fatal(err)

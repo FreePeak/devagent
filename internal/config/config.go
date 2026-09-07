@@ -286,15 +286,6 @@ func rawFloat(m map[string]any, key string) (float64, bool) {
 	return f, ok
 }
 
-func rawBool(m map[string]any, key string) (bool, bool) {
-	v, ok := m[key]
-	if !ok || v == nil {
-		return false, false
-	}
-	b, ok := v.(bool)
-	return b, ok
-}
-
 // Load mirrors loadConfig(repoPath): find devagent.json / .devagent.json in
 // repoPath, layer env overrides, validate with byte-identical error strings,
 // return the effective config.

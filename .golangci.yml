@@ -7,10 +7,12 @@ linters:
   default: standard
   settings:
     staticcheck:
-      # ST1005 (error strings should not be capitalized) is exempted repo-wide:
-      # config/model-id error strings are byte-identical ports of the
-      # TypeScript originals — tests and ledger rows pin them.
-      checks: ["all", "-ST1005"]
+      # Exempted style subgroup (ST*): the Go port deliberately mirrors the
+      # TypeScript identifiers and doc-comment shapes — ALL_CAPS constants
+      # (NESTED_ENV_BLOCKLIST), ModelId spellings, capitalized error strings
+      # (ST1005) that tests and ledger rows pin byte-for-byte. Revisit the
+      # exemptions at FR-GO-16 when the TS source is gone.
+      checks: ["all", "-ST1003", "-ST1005", "-ST1020", "-ST1021", "-ST1022"]
 
 formatters:
   enable:
