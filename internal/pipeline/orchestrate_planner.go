@@ -6,6 +6,7 @@
 // (mirrors orchestrator.WorkerDispatchRequest→workers.GetWorker(name).Spawn);
 // TODO(FR-GO): converge on the shared orchestrator dispatcher when the cli
 // wiring lands.
+
 package pipeline
 
 import (

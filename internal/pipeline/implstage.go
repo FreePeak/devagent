@@ -321,7 +321,6 @@ type impRetryEnv struct {
 // a gate-passed attempt, and any error that aborts the stage (test-gate
 // failure to launch propagates like the TS throw).
 func impRunRetryLoop(env impRetryEnv, plan ImplementationPlan, cfg StageConfig, log RunLog) (ImplementResult, bool, error) {
-	succeeded := false
 	if env.spawn == nil {
 		spawn, err := impResolveSpawner(env.workerName)
 		if err != nil {
@@ -466,7 +465,6 @@ func impRunRetryLoop(env impRetryEnv, plan ImplementationPlan, cfg StageConfig, 
 		}
 		log.Info("implement", fmt.Sprintf("Attempt %d test gate: %s", displayAttempt, gateState), data)
 		if g1.Passed {
-			succeeded = true
 			return ImplementResult{OK: true, Worker: env.workerName, Attempts: displayAttempt, WorktreePath: env.worktreePath, KgEvidence: env.kgEvidence}, true, nil
 		}
 		detail := g1.Detail
@@ -481,7 +479,7 @@ func impRunRetryLoop(env impRetryEnv, plan ImplementationPlan, cfg StageConfig, 
 	if attempts == 0 {
 		attempts = 1
 	}
-	return ImplementResult{OK: false, Worker: env.workerName, Attempts: attempts, WorktreePath: env.worktreePath, FailureClass: lastFailureClass}, succeeded, nil
+	return ImplementResult{OK: false, Worker: env.workerName, Attempts: attempts, WorktreePath: env.worktreePath, FailureClass: lastFailureClass}, false, nil
 }
 
 // impIsInfraTransient mirrors the isInfraTransient closure (Q31): a cold-start

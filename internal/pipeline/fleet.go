@@ -2,6 +2,7 @@
 // against N repositories over a bounded concurrency pool. Failure isolation:
 // a repo that errors is recorded and does not stall the rest (Orca's
 // task-dispatch lesson — workers fail independently).
+
 package pipeline
 
 import (

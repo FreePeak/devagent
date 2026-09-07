@@ -566,6 +566,9 @@ func TestImpRunGateG4(t *testing.T) {
 	impGit(t, repo, "add", "-A")
 	impGit(t, repo, "commit", "-m", "hazard")
 	res, err := impRunGateG4(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if res.Passed || res.Skipped {
 		t.Fatalf("hazard must block: %+v", res)
 	}

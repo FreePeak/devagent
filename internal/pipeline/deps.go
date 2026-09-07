@@ -6,10 +6,18 @@
 //
 // Byte-parity: log lines, error strings, and the PR body mirror the
 // TypeScript originals exactly; tests pin them.
+//
+// Package pipeline is the Go port of DevAgent's ticket→PR pipeline
+// command-support layer (FR-GO-07 remainder, issue #223): the pipeline state
+// machine, task dispatch, PRD backlog reconciliation, the consume loop,
+// the LeanKG client, the stale-worker reaper, implementStage/buildDeps,
+// fleet, create, the orchestrator planner, remote task, and the run
+// registry. Byte-parity with src/*.ts is pinned by tests.
 
 package pipeline
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -240,7 +248,7 @@ func impPublishStage(creds config.Credentials, cfg StageConfig, c RunConfig, pla
 		if baseURL == "" {
 			baseURL = "https://gitlab.com"
 		}
-		return integrations.CreateMergeRequest(nil, integrations.GitlabCredentials{
+		return integrations.CreateMergeRequest(context.TODO(), integrations.GitlabCredentials{
 			BaseURL:   baseURL,
 			ProjectID: gitlabProject,
 			Token:     gitlabToken,
