@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -7,7 +7,7 @@ import { validateWorkerModel } from '../src/config.js';
 import { getWorker } from '../src/workers/index.js';
 import { createWorktree } from '../src/git/worktree.js';
 import { buildDeps } from '../src/deps.js';
-import { executeTask } from '../src/orchestrator/executor.js';
+import { executeTask, instructionPayloadBytes, DEFAULT_MAX_PROMPT_BYTES } from '../src/orchestrator/executor.js';
 import { RunLogger } from '../src/logger.js';
 import { planFromTicket } from '../src/planner.js';
 import type { OrchestratorTask, ProjectBoard } from '../src/orchestrator/types.js';
@@ -238,5 +238,177 @@ describe('executeTask model preflight (orchestrator dispatch path)', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('executeTask prompt-size preflight (Q18 / PRD:915)', () => {
+  let savedMaxPrompt: string | undefined;
+  beforeEach(() => {
+    mockGetWorker.mockReset();
+    mockCreate.mockReset();
+    savedMaxPrompt = process.env.DEVAGENT_MAX_PROMPT_BYTES;
+    delete process.env.DEVAGENT_MAX_PROMPT_BYTES;
+  });
+  afterEach(() => {
+    if (savedMaxPrompt === undefined) delete process.env.DEVAGENT_MAX_PROMPT_BYTES;
+    else process.env.DEVAGENT_MAX_PROMPT_BYTES = savedMaxPrompt;
+  });
+
+  // ASCII prompt of an exact byte length (instructionPayloadBytes counts only
+  // prompt + boundaryConstraints + evidenceGaps, so a bare prompt measures
+  // its own length).
+  const taskWithPromptBytes = (n: number): OrchestratorTask => ({
+    id: 'T1',
+    title: 'T1',
+    prompt: 'x'.repeat(n),
+    dependsOn: [],
+    status: 'ready',
+    attempts: 0,
+  });
+
+  function board(t: OrchestratorTask): ProjectBoard {
+    return {
+      goal: 'test goal',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      roles: { planner: 'pi', executor: 'pi', auditor: 'pi' },
+      tasks: [t],
+    };
+  }
+
+  async function runWithMaxBytes(dir: string, maxBytes: number, promptBytes: number) {
+    writeFileSync(join(dir, 'devagent.json'), JSON.stringify({ worker: 'pi', resilience: { maxPromptBytes: maxBytes } }));
+    const spawn = vi.fn().mockResolvedValue({
+      exitCode: 0,
+      events: [],
+      resultText: 'done',
+      sessionId: null,
+      durationMs: 1,
+      timedOut: false,
+    });
+    mockGetWorker.mockReturnValue({ name: 'pi', spawn } as never);
+    mockCreate.mockResolvedValue({ worktreePath: join(dir, 'wt'), branch: 'devagent/T1-a1' });
+    const log = new RunLogger(dir);
+    const r = await executeTask({
+      task: taskWithPromptBytes(promptBytes),
+      board: board(taskWithPromptBytes(promptBytes)),
+      repoPath: dir,
+      timeoutMs: 1_000,
+      log,
+      executor: 'pi',
+    });
+    return { r, spawn };
+  }
+
+  it('refuses a prompt over the threshold: no worktree, no worker, failureClass "prompt-oversized"', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'da-exec-oversized-'));
+    try {
+      const { r, spawn } = await runWithMaxBytes(dir, 100, 101);
+      expect(r.ok).toBe(false);
+      expect(r.failureClass).toBe('prompt-oversized');
+      expect(r.detail).toMatch(/prompt oversized: 101 bytes > resilience\.maxPromptBytes=100/);
+      expect(r.detail).toMatch(/plan-split/);
+      expect(mockCreate).not.toHaveBeenCalled();
+      expect(spawn).not.toHaveBeenCalled();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('allows a prompt exactly at the threshold (refuse only strictly over)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'da-exec-at-'));
+    try {
+      const { r, spawn } = await runWithMaxBytes(dir, 100, 100);
+      expect(r.failureClass).not.toBe('prompt-oversized');
+      expect(mockCreate).toHaveBeenCalledTimes(1);
+      expect(spawn).toHaveBeenCalledTimes(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('allows a prompt under the threshold', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'da-exec-under-'));
+    try {
+      const { r, spawn } = await runWithMaxBytes(dir, 100, 99);
+      expect(r.failureClass).not.toBe('prompt-oversized');
+      expect(spawn).toHaveBeenCalledTimes(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('maxPromptBytes: 0 disables the guard (a huge prompt still dispatches)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'da-exec-off-'));
+    try {
+      const { r, spawn } = await runWithMaxBytes(dir, 0, 10_000);
+      expect(r.failureClass).not.toBe('prompt-oversized');
+      expect(spawn).toHaveBeenCalledTimes(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('honors DEVAGENT_MAX_PROMPT_BYTES over the config value', async () => {
+    const saved = process.env.DEVAGENT_MAX_PROMPT_BYTES;
+    process.env.DEVAGENT_MAX_PROMPT_BYTES = '50';
+    const dir = mkdtempSync(join(tmpdir(), 'da-exec-env-'));
+    try {
+      // config says 10_000 (would allow), env tightens to 50 (refuses 100 bytes)
+      const { r } = await runWithMaxBytes(dir, 10_000, 100);
+      expect(r.failureClass).toBe('prompt-oversized');
+      expect(r.detail).toMatch(/maxPromptBytes=50/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      if (saved === undefined) delete process.env.DEVAGENT_MAX_PROMPT_BYTES;
+      else process.env.DEVAGENT_MAX_PROMPT_BYTES = saved;
+    }
+  });
+
+  it('falls back to DEFAULT_MAX_PROMPT_BYTES when unset', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'da-exec-default-'));
+    try {
+      writeFileSync(join(dir, 'devagent.json'), JSON.stringify({ worker: 'pi' }));
+      const spawn = vi.fn().mockResolvedValue({
+        exitCode: 0,
+        events: [],
+        resultText: 'done',
+        sessionId: null,
+        durationMs: 1,
+        timedOut: false,
+      });
+      mockGetWorker.mockReturnValue({ name: 'pi', spawn } as never);
+      mockCreate.mockResolvedValue({ worktreePath: join(dir, 'wt'), branch: 'devagent/T1-a1' });
+      const log = new RunLogger(dir);
+      const r = await executeTask({
+        task: taskWithPromptBytes(DEFAULT_MAX_PROMPT_BYTES + 1),
+        board: board(taskWithPromptBytes(DEFAULT_MAX_PROMPT_BYTES + 1)),
+        repoPath: dir,
+        timeoutMs: 1_000,
+        log,
+        executor: 'pi',
+      });
+      expect(r.failureClass).toBe('prompt-oversized');
+      expect(r.detail).toMatch(new RegExp(`maxPromptBytes=${DEFAULT_MAX_PROMPT_BYTES}`));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('instructionPayloadBytes counts prompt + boundaryConstraints + evidenceGaps, not criteria', () => {
+    const t: OrchestratorTask = {
+      id: 'T1',
+      title: 'T1',
+      prompt: 'aaaa', // 4
+      boundaryConstraints: ['bbbb'], // + 1 sep + 4
+      evidenceGaps: ['cccc'], // + 1 sep + 4
+      acceptanceCriteria: ['z'.repeat(1000)], // excluded
+      expectedOutput: 'y'.repeat(1000), // excluded
+      dependsOn: [],
+      status: 'ready',
+      attempts: 0,
+    };
+    // 'aaaa\nbbbb\ncccc' = 4 + 1 + 4 + 1 + 4 = 14 bytes
+    expect(instructionPayloadBytes(t)).toBe(14);
   });
 });

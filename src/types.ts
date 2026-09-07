@@ -45,6 +45,10 @@ export type ExecutorFailureClass =
   | 'transient-provider'
   /** Dispatch preflight rejected the run config (e.g. model id invalid for the adapter). */
   | 'config'
+  /** Dispatch preflight refused an oversized prescriptive prompt (Q18 / PRD:915): the
+   * task's own instruction payload exceeds resilience.maxPromptBytes, so the executor
+   * forces a plan-split instead of burning a worktree + worker attempt on it. */
+  | 'prompt-oversized'
   /** Failure we could not classify into a known class. */
   | 'unknown';
 

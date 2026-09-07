@@ -76,6 +76,13 @@ export interface DevAgentConfig {
    * boards are kept and older ones pruned on every archive (0 = unbounded,
    * never prune). Unset = ARCHIVE_RETENTION_KEEP. Env override:
    * DEVAGENT_ARCHIVE_KEEP.
+   * Q18: maxPromptBytes refuses an oversized prescriptive prompt at dispatch —
+   * the executor measures only the task's own instruction payload (prompt +
+   * boundary constraints + evidence gaps, never the lessons/KG digest) and
+   * fails with `prompt-oversized` before creating a worktree when it exceeds
+   * this many bytes, forcing a plan-split instead of burning attempts on a
+   * dense step-by-step prompt (default 4096; 0 disables). Env override:
+   * DEVAGENT_MAX_PROMPT_BYTES.
    */
   resilience?: {
     apiMaxAttempts?: number;
@@ -83,6 +90,7 @@ export interface DevAgentConfig {
     coldStartTimeoutMs?: number;
     degradeWebhookUrl?: string;
     archiveKeep?: number;
+    maxPromptBytes?: number;
   };
   /**
    * Herdr runtime: run worker CLIs inside herdr (https://github.com/herdrdev/herdr)
@@ -174,6 +182,7 @@ export function loadConfig(repoPath: string = process.cwd()): DevAgentConfig {
   const envColdStart = process.env.DEVAGENT_COLD_START_TIMEOUT_MS;
   const envDegradeWebhook = process.env.DEVAGENT_DEGRADE_WEBHOOK_URL;
   const envArchiveKeep = process.env.DEVAGENT_ARCHIVE_KEEP;
+  const envMaxPromptBytes = process.env.DEVAGENT_MAX_PROMPT_BYTES;
   const envResilience: Partial<NonNullable<DevAgentConfig['resilience']>> = {};
   if (envApiMax !== undefined && envApiMax !== '') {
     const n = Number(envApiMax);
@@ -194,6 +203,10 @@ export function loadConfig(repoPath: string = process.cwd()): DevAgentConfig {
   if (envArchiveKeep !== undefined && envArchiveKeep !== '') {
     const n = Number(envArchiveKeep);
     if (Number.isInteger(n) && n >= 0) envResilience.archiveKeep = n;
+  }
+  if (envMaxPromptBytes !== undefined && envMaxPromptBytes !== '') {
+    const n = Number(envMaxPromptBytes);
+    if (Number.isFinite(n) && n >= 0) envResilience.maxPromptBytes = n;
   }
 
   const config: DevAgentConfig = {
@@ -238,6 +251,9 @@ export function loadConfig(repoPath: string = process.cwd()): DevAgentConfig {
     }
     if (r.archiveKeep !== undefined && (!Number.isInteger(r.archiveKeep) || r.archiveKeep < 0)) {
       throw new Error(`Invalid resilience.archiveKeep "${r.archiveKeep}"; expected a non-negative integer`);
+    }
+    if (r.maxPromptBytes !== undefined && (!Number.isFinite(r.maxPromptBytes) || r.maxPromptBytes < 0)) {
+      throw new Error(`Invalid resilience.maxPromptBytes "${r.maxPromptBytes}"; expected >= 0`);
     }
   }
   if (config.herdr !== undefined) {
