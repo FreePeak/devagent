@@ -32,8 +32,8 @@ func TestRecordAndTrustRoundTrip(t *testing.T) {
 func TestRecordPreservesExistingKeys(t *testing.T) {
 	repo := t.TempDir()
 	p := filepath.Join(repo, File)
-	os.MkdirAll(filepath.Dir(p), 0o755)
-	os.WriteFile(p, []byte("{\"other\": \"keep\"}\n"), 0o644)
+	_ = os.MkdirAll(filepath.Dir(p), 0o755)
+	_ = os.WriteFile(p, []byte("{\"other\": \"keep\"}\n"), 0o644)
 	if _, err := RecordAgentsMd(repo); err != nil {
 		t.Fatal(err)
 	}
@@ -46,8 +46,8 @@ func TestRecordPreservesExistingKeys(t *testing.T) {
 func TestMalformedTrustRecordIsUntrusted(t *testing.T) {
 	repo := t.TempDir()
 	p := filepath.Join(repo, File)
-	os.MkdirAll(filepath.Dir(p), 0o755)
-	os.WriteFile(p, []byte("{broken"), 0o644)
+	_ = os.MkdirAll(filepath.Dir(p), 0o755)
+	_ = os.WriteFile(p, []byte("{broken"), 0o644)
 	if IsAgentsMdTrusted(repo) {
 		t.Fatal("malformed record must read as untrusted")
 	}
@@ -55,8 +55,8 @@ func TestMalformedTrustRecordIsUntrusted(t *testing.T) {
 
 func TestLoadAgentsMdModes(t *testing.T) {
 	repo := t.TempDir()
-	os.MkdirAll(filepath.Join(repo, ".devagent"), 0o755)
-	os.WriteFile(filepath.Join(repo, AgentsMdFile), []byte("  # repo context\n"), 0o644)
+	_ = os.MkdirAll(filepath.Join(repo, ".devagent"), 0o755)
+	_ = os.WriteFile(filepath.Join(repo, AgentsMdFile), []byte("  # repo context\n"), 0o644)
 
 	if got := LoadAgentsMd(repo, ModeOff); got != "" {
 		t.Fatalf("off must never read: %q", got)

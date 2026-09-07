@@ -187,9 +187,10 @@ func RunInit(opts InitOptions) (InitResult, error) {
 
 	// Worker CLI on PATH (worker name -> binary; claude-code's binary is claude).
 	workerBin := worker
-	if worker == "claude-code" {
+	switch worker {
+	case "claude-code":
 		workerBin = "claude"
-	} else if worker == "both" {
+	case "both":
 		workerBin = "omp"
 	}
 	workerPath := which(workerBin)

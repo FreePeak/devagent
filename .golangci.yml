@@ -5,6 +5,12 @@ linters:
   # Keep the set deliberately small at G0; widen per-issue when a class of
   # bugs justifies it (matches the repo's "deterministic lints first" policy).
   default: standard
+  settings:
+    staticcheck:
+      # ST1005 (error strings should not be capitalized) is exempted repo-wide:
+      # config/model-id error strings are byte-identical ports of the
+      # TypeScript originals — tests and ledger rows pin them.
+      checks: ["all", "-ST1005"]
 
 formatters:
   enable:
