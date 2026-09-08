@@ -27,9 +27,8 @@ import (
 // notPortedIssue maps each stubbed command to the FR-GO issue that owns its
 // port, so the exit-3 message points at the tracker instead of dead-ending.
 var notPortedIssue = map[string]string{
-	"prd-audit": "#202",
-	"mcp":       "#200",
-	"guard":     "#190", "guard-status": "#190",
+	"mcp":   "#200",
+	"guard": "#190", "guard-status": "#190",
 	"pane-run": "#201",
 	"tui":      "#198",
 }
@@ -211,6 +210,9 @@ var wiredTypedFlags = map[string]map[string]flagKind{
 	},
 	"reap-stale": {
 		"older-than": flagInt, "repo": flagString, "dry-run": flagBool,
+	},
+	"prd-audit": {
+		"repo": flagString, "json": flagBool,
 	},
 }
 
@@ -445,6 +447,9 @@ func wiredCommands() map[string]*cobra.Command {
 		"consume":       consumeCommand(),
 		"backlog-check": backlogCheckCommand(),
 		"reap-stale":    reapStaleCommand(),
+
+		// Curator follow-through (issue #202 / PRD Q15 wiring).
+		"prd-audit": prdAuditCommand(),
 	}
 	for _, sub := range wired["record"].Commands() {
 		if sub.Name() == "release" {
@@ -535,7 +540,7 @@ func handled(dotted string) bool {
 		"queue", "queue list", "queue show", "queue bridge",
 		"lessons", "lessons scores", "pr-hygiene", "automerge", "autosweep",
 		"run", "fleet", "task", "orchestrate", "project", "create",
-		"consume", "backlog-check", "reap-stale":
+		"consume", "backlog-check", "reap-stale", "prd-audit":
 		return true
 	}
 	return false
