@@ -61,8 +61,11 @@ a ratchet-only union. `selfbuild-loop.sh` calls both automatically; hand-run ite
    remains available but is not the operating default. **PRD-per-PR policy (2026-09-07):
    every PR lands with its `docs/PRD.md` state update** — the sections the change
    affects plus the *Last updated* footer, applied in the same branch via the
-   dispatch-prompt policy rider. The shipped iteration closes its tracker issue
-   (merge-side auto-close also works when the goal carries an issue reference).
+   dispatch-prompt policy rider. The shipped iteration closes its tracker
+   issue only once the dispatch actually reported a PR: in pr push mode a
+   task that exits 0 without a `PR opened:` line records a non-productive
+   `no-pr` ledger row and leaves the issue open for re-pick (#238);
+   push mode `main` closes on the merge-to-main commit.
 
 ## Running
 

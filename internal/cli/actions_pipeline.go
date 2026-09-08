@@ -95,6 +95,57 @@ func printOutcomes(outcomes []pipeline.StageOutcome) {
 	}
 }
 
+// taskPublishStage builds the TaskDeps.PublishStage closure (the LIVE
+// wiring of the `devagent task` publish boundary). Publishing consults
+// PublishTaskBranch for every non-empty worktree — auto-cleanup removes a
+// successful run's worktree before publish, so the surviving run branch
+// (snapshot already pushed by FinalizeRunWorktree) is the publish source;
+// only a truly unpublishable impl returns "" (issue #238: the previous
+// GITHUB_TOKEN short-circuit silently skipped the live publish stage).
+func taskPublishStage(repoPath, prompt, baseBranch string, autoMerge bool, logger pipeline.RunLog, pubErr *error) func(pipeline.TaskOptions, pipeline.TicketSpec, pipeline.PublishImpl) string {
+	return func(c pipeline.TaskOptions, ticket pipeline.TicketSpec, impl pipeline.PublishImpl) string {
+		if impl.WorktreePath == "" {
+			return ""
+		}
+		prURL, perr := pipeline.PublishTaskBranch(pipeline.TaskPublishOptions{
+			RepoPath: c.RepoPath, Prompt: prompt, BaseBranch: baseBranch, Log: logger,
+		}, impl, pipeline.TaskPublishDeps{
+			CommitAllChanges: git.CommitAllChanges,
+			CurrentBranch:    git.CurrentBranch,
+			ListChangedFiles: git.ListChangedFiles,
+			PushBranch: func(repoPath, branch string) error {
+				return integrations.PushBranch(repoPath, branch, integrations.GitHubOptions{})
+			},
+			CreatePr: func(o pipeline.TaskPublishPrRequest) (string, error) {
+				return integrations.CreatePr(integrations.CreatePrOptions{
+					RepoPath: o.RepoPath, Branch: o.Branch, Title: o.Title, Body: o.Body, BaseBranch: baseBranch,
+				}, integrations.GitHubOptions{})
+			},
+		})
+		if perr != nil {
+			*pubErr = perr
+			return ""
+		}
+		if prURL == "" {
+			return ""
+		}
+		if autoMerge {
+			if m := autoMergePRRe.FindStringSubmatch(prURL); m != nil {
+				n, _ := strconv.Atoi(m[1])
+				go func() {
+					baseBranch := "main"
+					if lcfg, lerr := config.Load(repoPath); lerr == nil && lcfg.GithubBaseBranch != "" {
+						baseBranch = lcfg.GithubBaseBranch
+					}
+					o := orchestrator.AutoReviewAndMergeOne(repoPath, n, orchestrator.AutoReviewAndMergeOneOpts{AutoReviewAndMergeOptions: orchestrator.AutoReviewAndMergeOptions{BaseBranch: baseBranch}}, nil)
+					logger.Info(ledger.StageTask, fmt.Sprintf("auto-merge PR #%d: %s (%s)", n, o.Action, truncateStr(o.Detail, 120)), nil)
+				}()
+			}
+		}
+		return prURL
+	}
+}
+
 // ---------------------------------------------------------------------------
 // run
 // ---------------------------------------------------------------------------
@@ -384,12 +435,10 @@ func taskCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			creds := config.LoadCredentials()
 			logger, err := ledger.NewRunLogger("")
 			if err != nil {
 				return err
 			}
-
 			// PRD backlog reconciliation at pick time: validate a --pick
 			// before any dispatch; shipped picks are rejected and struck
 			// (dry-run validates only, no writes).
@@ -498,6 +547,11 @@ func taskCommand() *cobra.Command {
 			if synthID == "" {
 				synthID = "TASK"
 			}
+			// PR base for the publish stage (task.ts default 'main').
+			base := cfg.GithubBaseBranch
+			if base == "" {
+				base = "main"
+			}
 			stageCfg := pipeline.StageConfig{
 				RepoPath: repo, MaxLoops: maxLoops, TimeoutMs: cfg.TimeoutMinutes * 60000,
 				Worker: pipeline.WorkerName(worker), AutoPr: autoPr,
@@ -528,51 +582,7 @@ func taskCommand() *cobra.Command {
 					}
 					return pipeline.TaskImplResult{OK: res.OK, Worker: res.Worker, Attempts: res.Attempts, WorktreePath: res.WorktreePath}
 				},
-				PublishStage: func(c pipeline.TaskOptions, ticket pipeline.TicketSpec, impl pipeline.PublishImpl) string {
-					if impl.WorktreePath == "" || creds.GithubToken == "" {
-						return ""
-					}
-					base := cfg.GithubBaseBranch
-					if base == "" {
-						base = "main"
-					}
-					prURL, perr := pipeline.PublishTaskBranch(pipeline.TaskPublishOptions{
-						RepoPath: c.RepoPath, Prompt: prompt, BaseBranch: base, Log: logger,
-					}, impl, pipeline.TaskPublishDeps{
-						CommitAllChanges: git.CommitAllChanges,
-						CurrentBranch:    git.CurrentBranch,
-						ListChangedFiles: git.ListChangedFiles,
-						PushBranch: func(repoPath, branch string) error {
-							return integrations.PushBranch(repoPath, branch, integrations.GitHubOptions{})
-						},
-						CreatePr: func(o pipeline.TaskPublishPrRequest) (string, error) {
-							return integrations.CreatePr(integrations.CreatePrOptions{
-								RepoPath: o.RepoPath, Branch: o.Branch, Title: o.Title, Body: o.Body, BaseBranch: base,
-							}, integrations.GitHubOptions{})
-						},
-					})
-					if perr != nil {
-						pubErr = perr
-						return ""
-					}
-					if prURL == "" {
-						return ""
-					}
-					if c.AutoMerge {
-						if m := autoMergePRRe.FindStringSubmatch(prURL); m != nil {
-							n, _ := strconv.Atoi(m[1])
-							go func() {
-								baseBranch := "main"
-								if lcfg, lerr := config.Load(repo); lerr == nil && lcfg.GithubBaseBranch != "" {
-									baseBranch = lcfg.GithubBaseBranch
-								}
-								o := orchestrator.AutoReviewAndMergeOne(repo, n, orchestrator.AutoReviewAndMergeOneOpts{AutoReviewAndMergeOptions: orchestrator.AutoReviewAndMergeOptions{BaseBranch: baseBranch}}, nil)
-								logger.Info(ledger.StageTask, fmt.Sprintf("auto-merge PR #%d: %s (%s)", n, o.Action, truncateStr(o.Detail, 120)), nil)
-							}()
-						}
-					}
-					return prURL
-				},
+				PublishStage: taskPublishStage(repo, prompt, base, autoMerge, logger, &pubErr),
 			}
 
 			result := pipeline.RunTask(pipeline.TaskOptions{
