@@ -790,9 +790,8 @@ type LessonsSuiteResult struct {
 // command in dir with a wall-clock cap and return its output plus exit code.
 // The default implementation runs os/exec; tests inject fakes so they stay
 // hermetic. The default implementation joins stdout and stderr into the
-// output string (the TS detail is `${stdout}\n${stderr}`, trimmed by the
-// caller). An unstartable command returns output "" and a negative exit
-// code.
+// output string, trimmed by the caller. An unstartable command returns
+// output "" and a negative exit code.
 type SuiteRunner func(cmd string, args []string, dir string, timeoutMs int) (output string, exitCode int)
 
 // defaultSuiteRunner is the real os/exec implementation of SuiteRunner.
@@ -828,12 +827,12 @@ func defaultSuiteRunner(cmd string, args []string, dir string, timeoutMs int) (s
 type RunLessonsSuiteOpts struct {
 	// Wall-clock budget for the suite run; 0 = DefaultLessonsSuiteTimeoutMs.
 	TimeoutMs int
-	// Runner seam; nil = default os/exec-based runner (`npm test`).
+	// Runner seam; nil = default os/exec-based runner (`go test ./...`).
 	Runner SuiteRunner
 }
 
 // RunLessonsSuite is the evaluate step of the propose→evaluate→accept gate:
-// run the repo regression suite (`npm test` — vitest in this repo) against
+// run the repo regression suite (`go test ./...`) against
 // the proposed lessons-file state. Never panics and never returns an error:
 // a suite that cannot even start is a red result, not a crash path — a bad
 // lesson must never land because the runner broke.
@@ -848,13 +847,13 @@ func RunLessonsSuite(repoPath string, opts *RunLessonsSuiteOpts) LessonsSuiteRes
 			runner = opts.Runner
 		}
 	}
-	output, exitCode := runner("npm", []string{"test"}, repoPath, timeoutMs)
+	output, exitCode := runner("go", []string{"test", "./..."}, repoPath, timeoutMs)
 	detail := strings.TrimSpace(output)
 	if exitCode == 0 {
 		return LessonsSuiteResult{OK: true, Detail: suffixUTF16(detail, 300)}
 	}
 	if strings.TrimSpace(detail) == "" {
-		detail = fmt.Sprintf("npm test exited %d", exitCode)
+		detail = fmt.Sprintf("go test exited %d", exitCode)
 	}
 	return LessonsSuiteResult{OK: false, Detail: suffixUTF16(detail, 300)}
 }

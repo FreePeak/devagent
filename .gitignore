@@ -1,5 +1,3 @@
-node_modules/
-dist/
 .devagent-worktrees/
 .devagent/
 *.log

@@ -26,7 +26,19 @@ REPO="${REVIEWER_REPO:-$(cd "$(dirname "$0")/.." && pwd)}"
 INTERVAL="${REVIEWER_INTERVAL_SECS:-600}"
 MAX_INTERVAL="${REVIEWER_MAX_INTERVAL:-3600}"
 DRY_RUN="${REVIEWER_DRY_RUN:-0}"
-DEVAGENT=(node "$REPO/dist/src/cli.js")
+# FR-GO-16 (#205): the Go binary is the only devagent CLI. Resolve it the way
+# scripts/install-scout-launchagent.sh does — the repo-local build first,
+# then PATH, then ~/.local/bin/devagent.
+if [ -z "${DEVAGENT_BIN:-}" ]; then
+  if [ -x "$REPO/devagent-go" ]; then
+    DEVAGENT_BIN="$REPO/devagent-go"
+  else
+    DEVAGENT_BIN="$(command -v devagent || true)"
+    [ -n "$DEVAGENT_BIN" ] || DEVAGENT_BIN="${HOME}/.local/bin/devagent"
+  fi
+fi
+[ -x "$DEVAGENT_BIN" ] || { echo "devagent binary not found (looked in $REPO/devagent-go, PATH, ${HOME}/.local/bin/devagent); run: make build" >&2; exit 1; }
+DEVAGENT=("$DEVAGENT_BIN")
 LOG="$REPO/.devagent/logs/reviewer-loop.log"
 
 cd "$REPO"

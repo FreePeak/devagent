@@ -21,7 +21,19 @@ POLL_SECS="${ORCHESTRATOR_POLL_SECS:-600}"
 REQUEUE_AFTER="${ORCHESTRATOR_REQUEUE_AFTER:-6}"
 PLAN_ONLY="${ORCHESTRATOR_PLAN_ONLY:-0}"
 DRY_RUN="${ORCHESTRATOR_DRY_RUN:-0}"
-DEVAGENT=(node "$REPO/dist/src/cli.js")
+# FR-GO-16 (#205): the Go binary is the only devagent CLI. Resolve it the way
+# scripts/install-scout-launchagent.sh does — the repo-local build first,
+# then PATH, then ~/.local/bin/devagent.
+if [ -z "${DEVAGENT_BIN:-}" ]; then
+  if [ -x "$REPO/devagent-go" ]; then
+    DEVAGENT_BIN="$REPO/devagent-go"
+  else
+    DEVAGENT_BIN="$(command -v devagent || true)"
+    [ -n "$DEVAGENT_BIN" ] || DEVAGENT_BIN="${HOME}/.local/bin/devagent"
+  fi
+fi
+[ -x "$DEVAGENT_BIN" ] || { echo "devagent binary not found (looked in $REPO/devagent-go, PATH, ${HOME}/.local/bin/devagent); run: make build" >&2; exit 1; }
+DEVAGENT=("$DEVAGENT_BIN")
 # Spawn visibility (FR-VIS-04): visible is the default (workers in attachable
 # herdr panes); DEVAGENT_VISIBILITY=headless keeps 24/7 LaunchAgents invisible.
 # Precedence: DEVAGENT_VISIBILITY > SELFBUILD_VISIBILITY > visible, exported
@@ -40,45 +52,38 @@ resolve_goal() {
   printf 'Continue the devagent self-build loop per docs/ORCHESTRATOR-FACTORY.md'
 }
 
-board_open_tasks() { # count tasks not in done/failed/blocked
+# Board counters (the node -e helpers died with the Node implementation,
+# #205): python3 parses .devagent-project.json directly — one JSON object
+# with a tasks array (status values per internal/orchestrator/types.go:
+# pending ready dispatched untrusted done failed blocked ask).
+board_count() { # board_count <status[,status...]> — tasks in any status
   [ -f "$BOARD" ] || { echo 0; return; }
-  node -e '
-    const b = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
-    console.log(b.tasks.filter(t => !["done","failed","blocked"].includes(t.status)).length);
-  ' "$BOARD" 2>/dev/null || echo 0
+  BOARD_FILE="$BOARD" BOARD_STATUSES="$1" python3 2>/dev/null <<'PYEOF2' || echo 0
+import json, os
+try:
+    board = json.load(open(os.environ["BOARD_FILE"]))
+    statuses = set(os.environ["BOARD_STATUSES"].split(","))
+    tasks = board.get("tasks", [])
+    print(sum(1 for t in tasks if t.get("status") in statuses))
+except Exception:
+    print(0)
+PYEOF2
 }
 
-board_done_tasks() {
-  [ -f "$BOARD" ] || { echo 0; return; }
-  node -e '
-    const b = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
-    console.log(b.tasks.filter(t => t.status === "done").length);
-  ' "$BOARD" 2>/dev/null || echo 0
-}
-
+board_open_tasks() { board_count "pending,ready,dispatched,untrusted,ask"; }
+board_done_tasks() { board_count "done"; }
 board_total_tasks() {
   [ -f "$BOARD" ] || { echo 0; return; }
-  node -e '
-    const b = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
-    console.log(b.tasks.length);
-  ' "$BOARD" 2>/dev/null || echo 0
+  BOARD_FILE="$BOARD" python3 2>/dev/null <<'PYEOF2' || echo 0
+import json, os
+try:
+    print(len(json.load(open(os.environ["BOARD_FILE"])).get("tasks", [])))
+except Exception:
+    print(0)
+PYEOF2
 }
-
-board_stuck_tasks() { # count tasks in failed/blocked (the dispatch-dead states)
-  [ -f "$BOARD" ] || { echo 0; return; }
-  node -e '
-    const b = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
-    console.log(b.tasks.filter(t => ["failed","blocked"].includes(t.status)).length);
-  ' "$BOARD" 2>/dev/null || echo 0
-}
-
-board_pending_tasks() { # count tasks waiting to become ready
-  [ -f "$BOARD" ] || { echo 0; return; }
-  node -e '
-    const b = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
-    console.log(b.tasks.filter(t => t.status === "pending").length);
-  ' "$BOARD" 2>/dev/null || echo 0
-}
+board_stuck_tasks() { board_count "failed,blocked"; }
+board_pending_tasks() { board_count "pending"; }
 
 echo "[orchestrator] loop start repo=$REPO dry_run=$DRY_RUN plan_only=$PLAN_ONLY poll=${POLL_SECS}s"
 fails=0
@@ -170,24 +175,17 @@ while :; do
     PROBE_ATTEMPT=0
     for _ in 1 2 3; do
       PROBE_ATTEMPT=$(( PROBE_ATTEMPT + 1 ))
-      if timeout 30 omp -p "OK" --mode json --no-prewalk --no-lsp --no-extensions --model "$(node -e 'console.log(JSON.parse(require("fs").readFileSync("devagent.json","utf8")).model || "")' 2>/dev/null)" 2>/dev/null | grep -q '"text":"OK"'; then
+      PROBE_MODEL="$(sed -n 's/.*"model"[: ]*"\([^"]*\)".*/\1/p' devagent.json 2>/dev/null | head -1)"
+      if timeout 30 omp -p "OK" --mode json --no-prewalk --no-lsp --no-extensions --model "$PROBE_MODEL" 2>/dev/null | grep -q '"text":"OK"'; then
         PROBE_OK=1; break
       fi
       sleep 5
     done
     # Operator observability: record the gate decision in the repo-scoped
-    # proxy state that `devagent status --providers` reads. Uses the compiled
-    # module so circuit logic stays in one place.
-    ( \
-      [ -f "$REPO/dist/src/resilience/proxy-state.js" ] || exit 0; \
-      node -e '
-        const stateMod = process.argv[1];
-        const repo = process.argv[2];
-        const ok = process.argv[3];
-        const detail = process.argv[4];
-        import("file://" + stateMod).then((m) => { m.recordProxyProbe(repo, { ok: ok === "1", ...(detail ? { detail } : {}) }); }).catch(() => {});
-      ' "$REPO/dist/src/resilience/proxy-state.js" "$REPO" "$PROBE_OK" "attempt $PROBE_ATTEMPT/3" 2>/dev/null || true \
-    )
+    # proxy state that `devagent status --providers` reads. The compiled
+    # proxy-state module died with the Node implementation (#205); record a
+    # best-effort probe row via the Go binary's preflight seam instead.
+    "${DEVAGENT[@]}" preflight --role orchestrator --repo "$REPO" >/dev/null 2>&1 || true
     if [ "$PROBE_OK" -ne 1 ]; then
       echo "[proxy-down] all 3 probes failed; sleeping ${POLL_SECS}s before retry"
       sleep "$POLL_SECS"

@@ -5,11 +5,11 @@
 #   make agents-on         # re-enable + load them again
 #   make agents-install    # render launchagents/*.plist into ~/Library/LaunchAgents + load
 #   make agents-uninstall  # bootout + disable + delete installed plists (repo copies kept)
-#   make loop-start        # start the selfbuild loop in the background (visible panes)
+#   make loop-start        # start the Go selfbuild loop (./devagent-go loop) in the background
 #   make loop-stop         # stop the background selfbuild loop
 #   make loop-status       # is the loop running? tail of its latest iteration log
 #   make loop-log          # tail -f the running loop's driver output
-#   make daemon-start      # start the FR-CTRL daemon in the background (TUI data source)
+#   make daemon-start      # start the FR-CTRL daemon (./devagent-go daemon) in the background
 #   make daemon-stop       # stop the background daemon
 #   make kill              # kill running devagent loops/workers (no launchctl changes)
 #   make orca-quit         # quit Orca app + background daemon
@@ -43,21 +43,22 @@ ALL_LABELS := $(DEVAGENT_LABELS) $(WATCHDOG_LABELS)
 LOOP_LOG_DIR := .selfbuild/logs
 
 loop-start:
-	@if pgrep -f "bash scripts/selfbuild-loop.sh" >/dev/null 2>&1; then \
-		echo "selfbuild loop already running (pid $$(pgrep -f 'scripts/selfbuild-loop.sh' | head -1))"; exit 0; \
+	@if pgrep -f "devagent-go loop" >/dev/null 2>&1; then \
+		echo "selfbuild loop already running (pid $$(pgrep -f 'devagent-go loop' | head -1))"; exit 0; \
 	fi
+	@if [ ! -x ./devagent-go ]; then echo "no ./devagent-go — run: make build" >&2; exit 1; fi
 	@mkdir -p "$(LOOP_LOG_DIR)"
-	@nohup bash scripts/selfbuild-loop.sh >> "$(LOOP_LOG_DIR)/driver.log" 2>&1 & \
+	@nohup ./devagent-go loop >> "$(LOOP_LOG_DIR)/driver.log" 2>&1 & \
 	echo "selfbuild loop started (pid $$!) — log: $(LOOP_LOG_DIR)/driver.log; TUI: devagent tui"
 
 loop-stop:
-	@if pgrep -f "bash scripts/selfbuild-loop.sh" >/dev/null 2>&1; then \
-		pkill -f "scripts/selfbuild-loop.sh" && echo "selfbuild loop stopped"; \
+	@if pgrep -f "devagent-go loop" >/dev/null 2>&1; then \
+		pkill -f "devagent-go loop" && echo "selfbuild loop stopped"; \
 	else echo "selfbuild loop not running"; fi
 
 loop-status:
-	@if pgrep -f "bash scripts/selfbuild-loop.sh" >/dev/null 2>&1; then \
-		echo "RUNNING (pid $$(pgrep -f 'scripts/selfbuild-loop.sh' | head -1))"; \
+	@if pgrep -f "devagent-go loop" >/dev/null 2>&1; then \
+		echo "RUNNING (pid $$(pgrep -f 'devagent-go loop' | head -1))"; \
 	else echo "STOPPED — start with: make loop-start"; fi
 	@test -f "$(LOOP_LOG_DIR)/driver.log" && tail -3 "$(LOOP_LOG_DIR)/driver.log" || true
 
@@ -68,16 +69,17 @@ loop-log:
 DAEMON_LOG_DIR := .selfbuild/logs
 
 daemon-start:
-	@if pgrep -f "devagent daemon" >/dev/null 2>&1; then \
-		echo "daemon already running (pid $$(pgrep -f 'devagent daemon' | head -1))"; exit 0; \
+	@if pgrep -f "devagent-go daemon" >/dev/null 2>&1; then \
+		echo "daemon already running (pid $$(pgrep -f 'devagent-go daemon' | head -1))"; exit 0; \
 	fi
+	@if [ ! -x ./devagent-go ]; then echo "no ./devagent-go — run: make build" >&2; exit 1; fi
 	@mkdir -p "$(DAEMON_LOG_DIR)"
-	@nohup devagent daemon >> "$(DAEMON_LOG_DIR)/daemon.log" 2>&1 & \
+	@nohup ./devagent-go daemon --repo "$(CURDIR)" >> "$(DAEMON_LOG_DIR)/daemon.log" 2>&1 & \
 	echo "daemon started (pid $$!) — log: $(DAEMON_LOG_DIR)/daemon.log; TUI: devagent tui"
 
 daemon-stop:
-	@if pgrep -f "devagent daemon" >/dev/null 2>&1; then \
-		pkill -f "devagent daemon" && echo "daemon stopped"; \
+	@if pgrep -f "devagent-go daemon" >/dev/null 2>&1; then \
+		pkill -f "devagent-go daemon" && echo "daemon stopped"; \
 	else echo "daemon not running"; fi
 
 PLIST_DIR := launchagents
@@ -139,8 +141,8 @@ agents-status:
 kill:
 	@pkill -f "build-loop.sh" 2>/dev/null && echo "killed build-loop.sh" || true
 	@pkill -f "orchestrate-loop.sh" 2>/dev/null && echo "killed orchestrate-loop.sh" || true
-	@pkill -f "selfbuild-loop.sh" 2>/dev/null && echo "killed selfbuild-loop.sh" || true
-	@pkill -f "cli\.js (scout|track|orchestrate)" 2>/dev/null && echo "killed cli.js workers" || true
+	@pkill -f "devagent-go loop" 2>/dev/null && echo "killed devagent-go loop" || true
+	@pkill -f "devagent-go task" 2>/dev/null && echo "killed devagent-go task workers" || true
 	@pkill -9 -f "opencode/scripts/goal-watchdog.sh" 2>/dev/null && echo "killed goal-watchdog daemon" || true
 	@pkill -9 -f "opencode/scripts/auto-retry-daemon.sh" 2>/dev/null && echo "killed auto-retry daemon" || true
 	@pkill -9 -f "ORPHANED long-running goal" 2>/dev/null && echo "killed orphaned-goal resume run" || true
@@ -155,15 +157,13 @@ orca-quit:
 	@pkill -9 -f "orca/daemon" 2>/dev/null && echo "killed Orca daemon" || true
 	@echo "Orca stopped"
 
-# --- Go binary (FR-GO-15 cutover) --------------------------------------------
+# --- Go binary ---------------------------------------------------------------
 #
-#   make build    # ./devagent-go — the Go CLI the soak runs as
-#                 # SELFBUILD_DEVAGENT_BIN
+#   make build    # ./devagent-go — the production CLI
 #
-# The version is stamped from package.json so the Go and Node CLIs stay in
-# lockstep; the unstamped default in internal/version remains 0.1.0.
-VERSION := $(shell sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' package.json | head -1)
+# The unstamped default in internal/version is 0.1.0; release tooling stamps
+# the version at publish time, so local builds stay unstamped.
 
 .PHONY: build
 build:
-	go build -trimpath -ldflags "-X github.com/FreePeak/devagent/internal/version.Version=$(VERSION)" -o devagent-go ./cmd/devagent
+	go build -trimpath -o devagent-go ./cmd/devagent

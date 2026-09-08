@@ -38,6 +38,11 @@ type LoopConfig struct {
 	// (word-split like the unquoted bash expansion; default omp router).
 	ResearchBin string
 	POBin       string
+	// TestCmd is the post-merge-back repo-level test gate command
+	// (word-split like the unquoted bash expansion; default `npm test`).
+	// SELFBUILD_TEST_CMD overrides it — at FR-GO-16 the Node suite is
+	// deleted, so the loop launches with `go test ./...`.
+	TestCmd string
 	// ClaudeTimeout bounds the PO dispatch (default 600s).
 	ClaudeTimeout int
 	// ResearchTimeout bounds the research dispatch (default 900s).
@@ -97,6 +102,8 @@ const (
 	defaultIssueMax        = 50
 
 	defaultDispatchBin = "omp -p --mode json --no-prewalk --no-lsp --no-extensions --model onegw/free"
+
+	defaultTestCmd = "npm test"
 )
 
 func getenvOr(getenv func(string) string, key, def string) string {
@@ -152,6 +159,9 @@ func (c LoopConfig) WithDefaults() LoopConfig {
 	}
 	if c.POBin == "" {
 		c.POBin = defaultDispatchBin
+	}
+	if c.TestCmd == "" {
+		c.TestCmd = defaultTestCmd
 	}
 	if c.ClaudeTimeout == 0 {
 		c.ClaudeTimeout = defaultClaudeTimeout
@@ -224,6 +234,7 @@ func ConfigFromGetenv(repo string, getenv func(string) string) LoopConfig {
 		PushMode:               getenvOr(getenv, "SELFBUILD_PUSH_MODE", "pr"),
 		ResearchBin:            getenvOr(getenv, "SELFBUILD_RESEARCH_BIN", defaultDispatchBin),
 		POBin:                  getenvOr(getenv, "SELFBUILD_PO_BIN", defaultDispatchBin),
+		TestCmd:                getenvOr(getenv, "SELFBUILD_TEST_CMD", defaultTestCmd),
 		ClaudeTimeout:          getintOr(getenv, "SELFBUILD_CLAUDE_TIMEOUT", defaultClaudeTimeout),
 		ResearchTimeout:        getintOr(getenv, "SELFBUILD_RESEARCH_TIMEOUT", defaultResearchTimeout),
 		Visibility:             visibility,
