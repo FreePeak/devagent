@@ -151,9 +151,11 @@ func existsInRepo(repoPath, rel string) bool {
 var configFilenames = []string{"devagent.json", ".devagent.json"}
 
 // DetectTestCommand mirrors detectTestCommand(): declarative devagent.json
-// override first, then conventional files (package.json, go.mod,
-// pyproject.toml). Returns nil when nothing is detectable. An invalid
-// testCommand type errors like the TS throw (message byte-identical).
+// override first, then conventional files (go.mod, pyproject.toml; the
+// package.json npm convention remains supported for target repos that are
+// themselves npm projects — the devagent repo no longer ships one).
+// Returns nil when nothing is detectable. An invalid testCommand type
+// errors like the TS throw (message byte-identical).
 func DetectTestCommand(repoPath string) (*TestCommand, error) {
 	for _, name := range configFilenames {
 		p := filepath.Join(repoPath, name)

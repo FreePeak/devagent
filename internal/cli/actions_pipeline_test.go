@@ -1,19 +1,20 @@
 package cli
 
-// Go-only tests for the pipeline-family CLI wiring (actions_pipeline.go).
-// The cross-runtime exit/stdout pins live in parity_wired_test.go; these
-// cover behaviors that cannot run both sides hermetically (PRD mutation,
-// worker-dispatch mapping, flag-default wiring, plan-only resume).
+// Go-only tests for the pipeline-family CLI wiring (actions_pipeline.go):
+// behaviors that must run hermetically (PRD mutation, worker-dispatch
+// mapping, flag-default wiring, plan-only resume).
 
 import (
 	"bytes"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/FreePeak/devagent/internal/orchestrator"
+	"github.com/FreePeak/devagent/internal/pipeline"
 )
 
 // runCmdCapture runs the full CLI with the given argv and os.Stdout
@@ -206,5 +207,95 @@ func TestOrchestratePlanOnlyResumesBoard(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(repo, ".devagent-project.json")); err != nil {
 		t.Fatalf("board must persist: %v", err)
+	}
+}
+
+// writePRDFixture writes a minimal docs/PRD.md whose Phase 4 current-backlog
+// section holds the given bullet lines (the heading must case-insensitively
+// contain "current backlog" + "phase 4" for the parser to enter the section).
+// Relocated from the deleted parity_wired_test.go (Node retirement, #205).
+func writePRDFixture(t *testing.T, dir, items string) {
+	t.Helper()
+	prd := "## Phase 4 — current backlog\n\n" + items
+	if err := os.MkdirAll(filepath.Join(dir, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "docs", "PRD.md"), []byte(prd), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestTaskPublishStagePublishesFromRunBranch pins the LIVE publish wiring
+// of `devagent task` (issue #238, soak-169 evidence): after auto-cleanup
+// removed the worktree, publish must consult the surviving run branch and
+// return a PR URL — with NO GITHUB_TOKEN (the soak environment's state),
+// the previous wiring short-circuited to "" before publish ever ran.
+func TestTaskPublishStagePublishesFromRunBranch(t *testing.T) {
+	repo := t.TempDir()
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = repo
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run("init", "-q", "-b", "main")
+	run("config", "user.email", "t@t")
+	run("config", "user.name", "t")
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("base\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("add", "-A")
+	run("commit", "-m", "init")
+	bare := filepath.Join(t.TempDir(), "origin.git")
+	if out, err := exec.Command("git", "init", "--bare", "-q", bare).CombinedOutput(); err != nil {
+		t.Fatalf("bare origin init: %v\n%s", err, out)
+	}
+	run("remote", "add", "origin", bare)
+
+	wt := filepath.Join(repo, ".devagent-worktrees", "TASK-1")
+	run("worktree", "add", "-b", "devagent/TASK-1", wt)
+	if err := os.WriteFile(filepath.Join(wt, "feature.txt"), []byte("fix\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("-C", wt, "add", "-A")
+	run("-C", wt, "commit", "-m", "worker changes")
+	// cleanup=auto: remove the worktree, the run branch survives in the
+	// main repo (already pushed by FinalizeRunWorktree in the live path).
+	run("worktree", "remove", "--force", wt)
+	run("worktree", "prune")
+
+	// Fake gh on PATH: `gh pr create` echoes a PR URL (lastNonEmptyLine).
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "gh"), []byte(`#!/bin/sh
+echo "gh $*" >> "${GH_LOG:?}"
+case "$1 $2" in
+  "pr create") echo "https://example.fake/pull/1"; exit 0 ;;
+esac
+exit 0
+`), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
+	t.Setenv("GH_LOG", filepath.Join(repo, "gh-calls.log"))
+	// The soak condition: no GitHub token in the environment.
+	t.Setenv("GITHUB_TOKEN", "")
+
+	var pubErr error
+	publish := taskPublishStage(repo, "Fix the thing", "main", false, nil, &pubErr)
+	url := publish(pipeline.TaskOptions{RepoPath: repo, AutoPr: true}, pipeline.TicketSpec{}, pipeline.PublishImpl{OK: true, WorktreePath: wt})
+	if pubErr != nil {
+		t.Fatalf("publish error: %v", pubErr)
+	}
+	if url != "https://example.fake/pull/1" {
+		t.Fatalf("url = %q, want the PR opened from the run branch", url)
+	}
+	calls, err := os.ReadFile(filepath.Join(repo, "gh-calls.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(calls), "-H devagent/TASK-1") {
+		t.Fatalf("gh calls must create the PR for the run branch:\n%s", calls)
 	}
 }

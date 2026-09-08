@@ -68,9 +68,9 @@ func cnsGit(t *testing.T, dir string, args ...string) string {
 }
 
 // cnsGitRepo creates a temp git repo on branch `main` with one commit.
-// withPkgJson adds the TS fixture's package.json (test = node -e ""), so
-// the lessons-guard suite step is green without network.
-func cnsGitRepo(t *testing.T, withPkgJson bool) string {
+// withGoSuite adds a minimal green go module, so the lessons-guard
+// suite step (`go test ./...`) is green without network.
+func cnsGitRepo(t *testing.T, withGoSuite bool) string {
 	t.Helper()
 	dir := t.TempDir()
 	cnsGit(t, dir, "init", "-q", "-b", "main")
@@ -82,10 +82,14 @@ func cnsGitRepo(t *testing.T, withPkgJson bool) string {
 	if err := os.WriteFile(filepath.Join(dir, "docs", "PRD.md"), []byte("# PRD\n## 4 Competitive\nfoo\n## 17 Roadmap\nbar\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if withPkgJson {
-		pkg := map[string]any{"name": "fixture", "scripts": map[string]string{"test": `node -e ""`}}
-		raw, _ := json.Marshal(pkg)
-		if err := os.WriteFile(filepath.Join(dir, "package.json"), raw, 0o644); err != nil {
+	if withGoSuite {
+		if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module fixture\n\ngo 1.23\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(dir, "ok"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "ok", "ok.go"), []byte("package ok\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -247,6 +251,7 @@ func TestCnsConsumeFencedCompletionRefused(t *testing.T) {
 
 func TestCnsConsumeTransientRequeuesWithSweep(t *testing.T) {
 	repo := cnsGitRepo(t, false)
+	t.Setenv("DEVAGENT_API_MAX_ATTEMPTS", "")
 	goal := "Goal: queued job does a tiny docs edit with enough description"
 	cnsEnqueue(t, repo, "Q-1", goal, "")
 
@@ -314,6 +319,7 @@ func TestCnsConsumeTransientRequeuesWithSweep(t *testing.T) {
 
 func TestCnsConsumeFencedRequeueRefused(t *testing.T) {
 	repo := cnsGitRepo(t, false)
+	t.Setenv("DEVAGENT_API_MAX_ATTEMPTS", "")
 	goal := "Goal: queued job does a tiny docs edit with enough description"
 	cnsEnqueue(t, repo, "Q-1", goal, "")
 
@@ -376,6 +382,7 @@ func TestCnsConsumeBoundedFailureGoesToFailed(t *testing.T) {
 
 func TestCnsConsumeCrashTransientRequeued(t *testing.T) {
 	repo := cnsGitRepo(t, false)
+	t.Setenv("DEVAGENT_API_MAX_ATTEMPTS", "")
 	cnsEnqueue(t, repo, "Q-1", "Goal: queued job does a tiny docs edit with enough description", "")
 
 	cnsInstallSeams(t, func(config.Credentials, StageConfig, RunLog) PipelineDeps {
@@ -699,13 +706,14 @@ func TestCnsSelfUpdateGreenPath(t *testing.T) {
 	if err := cnsRunSelfUpdate("/tmp/ignored", rec); err != nil {
 		t.Fatal(err)
 	}
-	if len(calls) < 4 || !strings.HasPrefix(calls[0], "git status --porcelain") ||
-		!strings.HasPrefix(calls[1], "git pull --ff-only") {
+	if len(calls) < 3 || !strings.HasPrefix(calls[0], "git status --porcelain") ||
+		!strings.HasPrefix(calls[1], "git pull --ff-only") ||
+		!strings.HasPrefix(calls[2], "go build -trimpath -o devagent-go") {
 		t.Fatalf("calls = %v", calls)
 	}
 	found := false
 	for _, e := range rec.entries {
-		if e.Level == "info" && strings.HasPrefix(e.Message, "self-update ok: pull -> install -> build") {
+		if e.Level == "info" && strings.HasPrefix(e.Message, "self-update ok: pull -> build") {
 			found = true
 		}
 	}

@@ -272,11 +272,17 @@ func PaneForegroundWorker(cli CliRunner, paneID string) bool {
 	return false
 }
 
-// HasLoopDriverAncestor mirrors hasLoopDriverAncestor(): true when any ancestor
-// command of the pane-run owner names the live selfbuild loop driver.
+// HasLoopDriverAncestor mirrors hasLoopDriverAncestor(): true when any
+// ancestor command of the pane-run owner names the live selfbuild loop
+// driver — the Go `devagent loop` command (argv[0] is the built binary, so
+// both `devagent-go loop` and `devagent loop` shapes match), or the retired
+// bash selfbuild-loop.sh (still matched so panes owned by a pre-retirement
+// driver from the soak window are never swept as orphans).
 func HasLoopDriverAncestor(ancestryCommands []string) bool {
 	for _, cmd := range ancestryCommands {
-		if strings.Contains(cmd, "selfbuild-loop.sh") {
+		if strings.Contains(cmd, "selfbuild-loop.sh") ||
+			strings.Contains(cmd, "devagent-go loop") ||
+			strings.Contains(cmd, "devagent loop") {
 			return true
 		}
 	}
@@ -286,7 +292,7 @@ func HasLoopDriverAncestor(ancestryCommands []string) bool {
 // PaneRunOwnerOrphaned mirrors paneRunOwnerOrphaned(): orphan check for one
 // pane's live worker — find the `herdr pane run <paneId>` owner CLI process
 // (spawned by the dispatching `devagent task`), walk its ppid ancestry via ps,
-// and require a live selfbuild-loop.sh driver somewhere in it. Missing owner
+// and require a live selfbuild loop driver somewhere in it. Missing owner
 // CLI = the poller died = orphaned. ps failures are conservative: without
 // evidence the pane is left alone.
 func PaneRunOwnerOrphaned(paneID string) bool {

@@ -277,7 +277,7 @@ func TestRenderDashboardOverlays(t *testing.T) {
 		}
 	}
 	up := plain(RenderDashboard(snap, RenderOptions{Overlay: UpgradeOverlay()}))
-	for _, want := range []string{"Upgrade", "git pull --ff-only", "npm ci && npm run build", "rollback"} {
+	for _, want := range []string{"Upgrade", "git pull --ff-only", "make build", "rollback"} {
 		if !strings.Contains(up, want) {
 			t.Fatalf("upgrade overlay missing %q", want)
 		}

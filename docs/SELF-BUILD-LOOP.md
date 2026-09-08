@@ -60,8 +60,11 @@ the Node tree (FR-GO-16, #205).
    remains available but is not the operating default. **PRD-per-PR policy (2026-09-07):
    every PR lands with its `docs/PRD.md` state update** — the sections the change
    affects plus the *Last updated* footer, applied in the same branch via the
-   dispatch-prompt policy rider. The shipped iteration closes its tracker issue
-   (merge-side auto-close also works when the goal carries an issue reference).
+   dispatch-prompt policy rider. The shipped iteration closes its tracker
+   issue only once the dispatch actually reported a PR: in pr push mode a
+   task that exits 0 without a `PR opened:` line records a non-productive
+   `no-pr` ledger row and leaves the issue open for re-pick (#238);
+   push mode `main` closes on the merge-to-main commit.
 
 ## Running
 
@@ -125,6 +128,11 @@ SELFBUILD_MAX_ITERATIONS=<next> \
 - The iteration cap is checked at loop head (`n >= cap` halts before spending
   tokens), so `<next>` is the first loop number the soak must NOT run: a
   one-iteration soak at loop N sets `SELFBUILD_MAX_ITERATIONS=N+1`.
+- `SELFBUILD_TEST_CMD` is the post-merge-back repo-level test gate the driver
+  runs inside the repo (word-split; default `npm test` — byte-identical to the
+  bash driver). When FR-GO-16 deletes the Node suite, the loop is launched with
+  `SELFBUILD_TEST_CMD="go test ./..."` so the gate keeps gating on the Go suite
+  instead of crashing on the missing `npm test` (issue #230).
 
 **Byte-parity gate.** The Go driver's `.selfbuild/ledger.jsonl` rows must be
 byte-identical to the bash driver's on the same inputs:

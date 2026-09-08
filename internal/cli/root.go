@@ -1,13 +1,11 @@
-// Package cli is the Go port of the commander tree in src/cli.ts (FR-GO-02,
-// issue #193, wave-2 wiring follow-through on tracker #207). Implemented
-// commands: scan-text, config, init, trust agents-md, ledger, log,
-// record release, status, dashboard, validate, clean, rebase-stack,
-// herdr-sweep, sessions, attach, pane-run, sync-docs, scout (read-only
-// --replay), scout-status, track, serve. Every other command is registered
-// with its full flag surface (from the frozen parity fixture) but returns
-// exit 3 with a clear not-ported message — its behavior lands with its
-// owning FR-GO issue, and the Node CLI remains the production entrypoint
-// until the FR-GO-15 cutover soak gate passes.
+// Package cli is the devagent command tree (FR-GO-02, issue #193; wave-2
+// wiring follow-through on tracker #207). Implemented commands: scan-text,
+// config, init, trust agents-md, ledger, log, record release, status,
+// dashboard, validate, clean, rebase-stack, herdr-sweep, sessions, attach,
+// pane-run, sync-docs, scout (read-only --replay), scout-status, track,
+// serve. Every other command is registered with its full flag surface (from
+// the frozen surface table) but returns exit 3 with a clear not-ported
+// message — its behavior lands with its owning FR-GO issue.
 package cli
 
 import (
@@ -58,7 +56,7 @@ func stubRun(dotted string) func(*cobra.Command, []string) error {
 		if issue == "" {
 			issue = "#194"
 		}
-		return &notPortedError{msg: fmt.Sprintf("devagent %s: not yet ported to Go (FR-GO %s) — the Node CLI remains the production entrypoint", dotted, issue)}
+		return &notPortedError{msg: fmt.Sprintf("devagent %s: not yet ported to Go (FR-GO %s)", dotted, issue)}
 	}
 }
 
@@ -266,7 +264,7 @@ func Execute() {
 func registerImplemented(root *cobra.Command) {
 	root.AddCommand(&cobra.Command{
 		Use:   "scan-text",
-		Short: "Print the canonical GRADIENT adjacent-category scan text (src/research/scan-text.ts). Machine-readable: scripts/selfbuild-loop.sh embeds it in RESEARCH_PROMPT/PO_PROMPT verbatim so the prompts cannot drift from the module.",
+		Short: "Print the canonical GRADIENT adjacent-category scan text. Machine-readable: the `devagent loop` driver embeds it in RESEARCH_PROMPT/PO_PROMPT verbatim so the prompts cannot drift from the module.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			fmt.Println(scantext.BuildAdjacentCategoryScanText())
 			return nil
@@ -504,7 +502,7 @@ func registerStubs(root *cobra.Command) {
 		}
 		cmd := &cobra.Command{
 			Use:   name,
-			Short: "Not yet ported to Go (PRD §22 migration) — behavior arrives with the owning FR-GO issue; the Node CLI remains the production entrypoint.",
+			Short: "Not yet ported to Go (PRD §22 migration) — behavior arrives with the owning FR-GO issue.",
 		}
 		if len(frozen.Subcommands) == 0 || stubRuns(dotted) {
 			// A leaf stub (or an action-bearing parent like `lessons`) exits

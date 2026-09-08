@@ -32,7 +32,19 @@ STARVATION_LIMIT="${SELFBUILD_STARVATION_LIMIT:-5}"
 DRY_RUN="${SELFBUILD_DRY_RUN:-0}"
 LESSONS="$STATE/lessons.md"
 LEDGER="$STATE/ledger.jsonl"
-DEVAGENT=(npx tsx "$REPO/src/cli.ts")
+# FR-GO-16 (#205): the Go binary is the only devagent CLI. Resolve it the way
+# scripts/install-scout-launchagent.sh does — the repo-local build first,
+# then PATH, then ~/.local/bin/devagent.
+if [ -z "${DEVAGENT_BIN:-}" ]; then
+  if [ -x "$REPO/devagent-go" ]; then
+    DEVAGENT_BIN="$REPO/devagent-go"
+  else
+    DEVAGENT_BIN="$(command -v devagent || true)"
+    [ -n "$DEVAGENT_BIN" ] || DEVAGENT_BIN="${HOME}/.local/bin/devagent"
+  fi
+fi
+[ -x "$DEVAGENT_BIN" ] || { echo "devagent binary not found (looked in $REPO/devagent-go, PATH, ${HOME}/.local/bin/devagent); run: make build" >&2; exit 1; }
+DEVAGENT=("$DEVAGENT_BIN")
 # Append --model to the research/validate omp invocations so every nested
 # agent uses the same model. The orchestrator's own planner/executor/auditor
 # read this from devagent.json (already set); CLAUDE_BIN carries it explicitly.
@@ -48,14 +60,16 @@ cd "$REPO"
 # `devagent scan-text` subcommand from src/research/scan-text.ts — embedded
 # verbatim in the phase-1 research and phases-2-3 prompts below so they cannot
 # drift from the module. Runs after `cd "$REPO"` like every other DEVAGENT call
-# (a LaunchAgent cwd must not break npx resolution); a failed capture degrades
+# (cwd-independence); a failed capture degrades
 # to empty, not a dead driver.
 GRADIENT_SCAN_TEXT="$("${DEVAGENT[@]}" scan-text 2>/dev/null)" || GRADIENT_SCAN_TEXT=""
 # Degrade with a message (repo convention: selfbuild-state pull, queue-claim) —
 # a silent empty string would hollow out both prompts below with no trace.
 [ -n "$GRADIENT_SCAN_TEXT" ] || echo "[gradient] scan-text dispatch failed — prompts run without the adjacent-category scan" >&2
 
-bash "$REPO/scripts/selfbuild-state.sh" pull >/dev/null 2>&1 || true
+# Durable state sync (scripts/selfbuild-state.sh) was retired with the Node
+# tooling (#205); the Go loop driver (internal/loopdriver) owns
+# origin/selfbuild/state from here on.
 
 ledger_lines() {
   if [ -f "$LEDGER" ]; then wc -l < "$LEDGER" | tr -d ' '; else echo 0; fi
@@ -65,7 +79,7 @@ record() {
   printf '{"loop":%s,"ts":"%s","status":"%s","goal":"%s"}\n' \
     "$1" "$(date -u +%FT%TZ)" "$2" \
     "$(printf '%s' "$3" | tr -d '"' | cut -c1-160)" >> "$LEDGER"
-  bash "$REPO/scripts/selfbuild-state.sh" push >/dev/null 2>&1 || true
+  : # state-sync helper retired with the Node tooling (#205)
 }
 
 # Starvation gate (PRD:888 remainder): the decision lives in
