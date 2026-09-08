@@ -26,9 +26,7 @@ import (
 
 // notPortedIssue maps each stubbed command to the FR-GO issue that owns its
 // port, so the exit-3 message points at the tracker instead of dead-ending.
-var notPortedIssue = map[string]string{
-	"tui": "#198",
-}
+var notPortedIssue = map[string]string{}
 
 // requiredFlags: flags the Node CLI declares with .requiredOption — the
 // cobra tree must reject their absence with exit 1 exactly like commander.
@@ -430,6 +428,7 @@ func wiredCommands() map[string]*cobra.Command {
 		"daemon":       newDaemonCmd(),
 		"record":       recordCommand(),
 		"mcp":          mcpCommand(),
+		"tui":          tuiCommand(),
 
 		// Session-guard family (FR-GO-07 #190 wiring, issue #251).
 		"guard":        guardCommand(),
@@ -547,7 +546,7 @@ func handled(dotted string) bool {
 		"ledger", "log", "record release", "status", "dashboard",
 		"validate", "clean", "rebase-stack", "herdr-sweep", "sessions",
 		"attach", "sync-docs", "scout", "scout-status", "track", "serve", "daemon",
-		"record", "pane-run", "mcp",
+		"record", "pane-run", "mcp", "tui",
 		"selfbuild-gate", "board-recovery", "preflight", "page-degrade-breach",
 		"queue", "queue list", "queue show", "queue bridge",
 		"lessons", "lessons scores", "pr-hygiene", "automerge", "autosweep",

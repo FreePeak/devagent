@@ -277,10 +277,11 @@ func iterationLines(snap *Snapshot) []string {
 	}
 }
 
-// helpLines renders the key help overlay.
 func helpLines() []string {
 	return []string{
 		Bold + "Keys" + Reset,
+		"  n          dispatch sheet (FR-HAND-02): type a one-line goal, Enter → POST /dispatch",
+		"  g          answer a paused task (FR-HAND-07): y/n or free text → POST /approve",
 		"  1 / 2 / 3  switch view: workers / sessions / live log   (s and l toggle back)",
 		"  ↑ ↓ / PgUp PgDn  move the selection (workers, sessions) · scroll (log)",
 		"  g / G      jump to first / last item (log: oldest / newest)",
@@ -394,7 +395,40 @@ func detailOverlayLines(item any, width int) []string {
 	return boxLinesLines(title, body, inner)
 }
 
-// upgradeOverlayLines renders Pilot's `u` recipe (FR-TUI-05): the
+// dispatchOverlayLines renders the dispatch sheet (FR-HAND-02 / FR-TUI-04):
+// one-line goal input. Defaults are the configured worker and the daemon's
+// repo — the sheet asks nothing else, so a goal typed here is enough to
+// start work (1+1 bar).
+func dispatchOverlayLines(overlay *Overlay, width int) []string {
+	inner := maxInt(34, width-4)
+	text := overlay.Input
+	body := []string{
+		" " + Bold + "New goal" + Reset + " " + Dim + "(worker + repo come from your config)" + Reset,
+		"",
+		" > " + Truncate(text, inner-5) + Inverse + " " + Reset,
+		"",
+		" " + Cyan + "Enter" + Reset + Dim + " dispatch · Esc cancel" + Reset,
+	}
+	return boxLinesLines("Dispatch", body, inner)
+}
+
+// approveOverlayLines renders the approve sheet (FR-HAND-07): answer a
+// paused 'ask' task. `y`/`n` submit approve/deny words; any other typing is
+// a free-text answer for the worker.
+func approveOverlayLines(overlay *Overlay, width int) []string {
+	inner := maxInt(34, width-4)
+	text := overlay.Input
+	body := []string{
+		" " + Dim + "task " + Reset + Truncate(orDefault(overlay.TaskID, "?"), 24),
+		"",
+		" > " + Truncate(text, inner-5) + Inverse + " " + Reset,
+		"",
+		" " + Cyan + "y" + Reset + Dim + "/Enter answer · Esc cancel" + Reset,
+	}
+	return boxLinesLines("Answer task", body, inner)
+}
+
+// upgradeOverlayLines renders Pilot's `u` recipe (FR-TUI-05):
 // self-hosted upgrade/rollback hint.
 func upgradeOverlayLines(width int) []string {
 	inner := maxInt(34, width-4)
@@ -482,7 +516,7 @@ func RenderLines(snap *Snapshot, ropts RenderOptions) []string {
 	if ropts.Note != "" {
 		notes = append(notes, ropts.Note)
 	}
-	keysHint := Inverse + " [1] workers [2] sessions [3] log · ↑↓ select · ⏎ detail · a attach · k kill · r refresh [?] help [q] quit " + Reset
+	keysHint := Inverse + " [n] goal [1] workers [2] sessions [3] log · ↑↓ select · ⏎ detail · a attach · k kill · r refresh [?] help [q] quit " + Reset
 	if view == ViewLog {
 		keysHint = Inverse + " [1] workers [2] sessions [3] log · ↑↓ scroll · f follow · r refresh [?] help [q] quit " + Reset
 	}
@@ -491,6 +525,12 @@ func RenderLines(snap *Snapshot, ropts RenderOptions) []string {
 		noteSuffix = "  " + Yellow + Truncate(strings.Join(notes, " · "), maxInt(20, width-62)) + Reset
 	}
 	footer := []string{keysHint + noteSuffix}
+	if ropts.Overlay != nil && ropts.Overlay.Kind == "dispatch" {
+		return fitLines(header, append(dispatchOverlayLines(ropts.Overlay, width), ""), footer, rows, "top")
+	}
+	if ropts.Overlay != nil && ropts.Overlay.Kind == "approve" {
+		return fitLines(header, append(approveOverlayLines(ropts.Overlay, width), ""), footer, rows, "top")
+	}
 
 	if ropts.Overlay != nil && ropts.Overlay.Kind == "upgrade" {
 		return fitLines(header, append(upgradeOverlayLines(width), ""), footer, rows, "top")
