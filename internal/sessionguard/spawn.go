@@ -133,12 +133,21 @@ func SpawnClaude(argv []string, handler LineHandler, opts SpawnOpts) (AttemptRes
 	close(stop)
 
 	var exitCode *int
+	// cmd.Wait returns nil on a clean exit, so the code must come from
+	// ProcessState (set by Start/Wait) — ExitError is only produced for
+	// non-zero exits/signals, and mapping only that path left every clean
+	// exit 0 as TS null, making RunGuard treat success as a failure and
+	// retry forever (unbounded by default).
+	if cmd.ProcessState != nil {
+		if code := cmd.ProcessState.ExitCode(); code >= 0 {
+			exitCode = &code
+		}
+		// Negative code = killed by a signal; stays nil (TS null).
+	}
 	if waitErr != nil {
-		if exitErr, ok := waitErr.(*exec.ExitError); ok {
-			if code := exitErr.ExitCode(); code >= 0 {
-				exitCode = &code
-			}
-			// Negative code = killed by a signal; stays nil (TS null).
+		if _, ok := waitErr.(*exec.ExitError); !ok {
+			// Non-exit errors (e.g. I/O) surface as a spawn rejection.
+			return AttemptResult{}, waitErr
 		}
 	}
 	res.ExitCode = exitCode

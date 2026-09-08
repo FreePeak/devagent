@@ -27,8 +27,7 @@ import (
 // notPortedIssue maps each stubbed command to the FR-GO issue that owns its
 // port, so the exit-3 message points at the tracker instead of dead-ending.
 var notPortedIssue = map[string]string{
-	"mcp":   "#200",
-	"guard": "#190", "guard-status": "#190",
+	"mcp":      "#200",
 	"pane-run": "#201",
 	"tui":      "#198",
 }
@@ -213,6 +212,14 @@ var wiredTypedFlags = map[string]map[string]flagKind{
 	},
 	"prd-audit": {
 		"repo": flagString, "json": flagBool,
+	},
+	"guard": {
+		"resume-prompt": flagString, "max-attempts": flagInt,
+		"base-delay-ms": flagInt, "max-delay-ms": flagInt,
+		"no-progress-timeout-ms": flagInt,
+	},
+	"guard-status": {
+		"project-dir": flagString, "resume": flagBool, "resume-prompt": flagString,
 	},
 }
 
@@ -425,6 +432,10 @@ func wiredCommands() map[string]*cobra.Command {
 		"daemon":       newDaemonCmd(),
 		"record":       recordCommand(),
 
+		// Session-guard family (FR-GO-07 #190 wiring, issue #251).
+		"guard":        guardCommand(),
+		"guard-status": guardStatusCommand(),
+
 		// Orchestrator-era commands (FR-GO-07 #221 / FR-GO-08 #215 wiring).
 		"selfbuild-gate":      newSelfbuildGateCmd(),
 		"board-recovery":      newBoardRecoveryCmd(),
@@ -472,6 +483,8 @@ var wiredFlagDefaults = map[string]map[string]string{
 	"orchestrate":    {"concurrency": "2", "max-task-retries": "1", "max-recoveries": "1", "max-total-attempts": "0"},
 	"consume":        {"once": "true"},
 	"reap-stale":     {"older-than": "600000"},
+	"guard":          {"resume-prompt": "Continue", "base-delay-ms": "2000", "max-delay-ms": "60000"},
+	"guard-status":   {"resume-prompt": "Continue"},
 }
 
 // registerStubs registers every remaining command from the frozen surface
@@ -540,7 +553,7 @@ func handled(dotted string) bool {
 		"queue", "queue list", "queue show", "queue bridge",
 		"lessons", "lessons scores", "pr-hygiene", "automerge", "autosweep",
 		"run", "fleet", "task", "orchestrate", "project", "create",
-		"consume", "backlog-check", "reap-stale", "prd-audit":
+		"consume", "backlog-check", "reap-stale", "prd-audit", "guard", "guard-status":
 		return true
 	}
 	return false
