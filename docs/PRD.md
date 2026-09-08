@@ -916,6 +916,25 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 > the new owner. Legacy records with no lease fields stay reclaimable. 9
 > deterministic lease tests (`test/queue.test.ts:144`); `devagent queue list`
 > output is unchanged.
+> **Completed post-v0.3 (2026-09-08, #239):** doc-sync transient-fetch retry
+> (Go port; the Node module is frozen pre-retirement) — on this operator
+> machine ~10-15% of TLS handshakes to github.com fail (VN ISP), and the
+> single-attempt `git fetch` turned every loop iteration's phase-2 into a
+> provider-degraded/no-sync row, wasting the iteration. `SyncWorkSelectionDocs`
+> now fetches through `docFetchOrigin` (`internal/git/doc_sync.go`): 3
+> attempts total (2 retries) with 1s/3s backoff, retried only when the error
+> text matches case-insensitive network/TLS patterns (`could not resolve
+> host`, `connection`, `timed out`, `tls`, `ssl`, `handshake`, `reset by
+> peer`, `early eof`, `rpc failed`) — the gate covers both failure shapes
+> (non-zero exit and exit 0 with `fatal:` on stderr); auth/not-found
+> failures still fail on attempt 1, the final message keeps the byte-parity
+> `git fetch failed: …` format, and the whole retry ladder shares ONE
+> `timeoutMs` window fixed at entry (each attempt runs under the remaining
+> budget, backoffs count against it), so the fetch phase never outlives the
+> single-fetch ceiling the sync already had. Pinned by a table-driven seam
+> test (`docGitFn`, `internal/git/doc_sync_retry_test.go`): transient
+> retried until success, non-transient fails attempt 1, persistent transient
+> exhausts 3 attempts with the same final message.
 
 #### Phase 4 — history (backlog migrated to GitHub issues 2026-09-07)
 
@@ -1425,7 +1444,7 @@ the existing CLI surface. Parity is defined by three gates:
 |---|---|---|---|
 | FR-GO-01 | Go module scaffold, CI-go workflow (test + golangci-lint, macOS/Linux), baseline RSS/cold-start measurement with a recorded target | M | ✅ [#191](https://github.com/FreePeak/devagent/issues/191) — PR [#208](https://github.com/FreePeak/devagent/pull/208) |
 | FR-GO-02 | Full CLI command-surface parity (cobra) + config/credentials/trust loading, verified by a checked-in parity matrix | M | ✅ [#193](https://github.com/FreePeak/devagent/issues/193) — PR [#209](https://github.com/FreePeak/devagent/pull/209) |
-| FR-GO-03 | Git layer parity: worktrees + clean-main guard, state branch (bounded network ops), rebase-stack, doc-sync | M | ✅ [#195](https://github.com/FreePeak/devagent/issues/195) — PR [#210](https://github.com/FreePeak/devagent/pull/210) |
+| FR-GO-03 | Git layer parity: worktrees + clean-main guard, state branch (bounded network ops), rebase-stack, doc-sync | M | ✅ [#195](https://github.com/FreePeak/devagent/issues/195) — PR [#210](https://github.com/FreePeak/devagent/pull/210); #239 hardening: `docFetchOrigin` retries transient (network/TLS) `git fetch` failures — 3 attempts total (2 retries), 1s/3s backoff, one shared `timeoutMs` window |
 | FR-GO-04 | Run logger + JSONL ledger + analytics, byte-compatible schema both directions | M | ✅ [#197](https://github.com/FreePeak/devagent/issues/197) — PR [#211](https://github.com/FreePeak/devagent/pull/211) |
 | FR-GO-05 | Worker adapters (claude/opencode/omp/pi/grok) + model-id registry + env scrub/sandbox + no-progress watchdog semantics | M | ✅ [#190](https://github.com/FreePeak/devagent/issues/190) — PR [#217](https://github.com/FreePeak/devagent/pull/217) |
 | FR-GO-06 | Scout + `--replay` golden suite + research extractor (abort/empty paths) + prompts/planner | M | ✅ [#192](https://github.com/FreePeak/devagent/issues/192) — PR [#214](https://github.com/FreePeak/devagent/pull/214) |
@@ -1445,4 +1464,4 @@ Master tracker with definition of done: [#207](https://github.com/FreePeak/devag
 
 ---
 
-*Last updated: 2026-09-08 (#238 publish/close integrity — soak-169 evidence: the `devagent task` publish stage no longer short-circuits on an empty `GITHUB_TOKEN` and publishes from the surviving run branch after auto-cleanup removed the worktree, with the live CLI wiring extracted to `taskPublishStage` in internal/cli and pinned by a CLI-level regression test; the Go loop driver only closes the tracker issue when the task dispatch reported a PR (`PR opened:` line) — otherwise it records a non-productive `no-pr` row and leaves the issue open for re-pick. Previous: loopdriver #230 — `SELFBUILD_TEST_CMD` post-merge repo test gate, §22.4 FR-GO-15 row.)*
+*Last updated: 2026-09-08 (#239 doc-sync transient-fetch retry — the Go `SyncWorkSelectionDocs` fetches through `docFetchOrigin` (`internal/git/doc_sync.go`), retrying `git fetch origin <branch>` — 3 attempts total (2 retries) with 1s/3s backoff on case-insensitive network/TLS failures (`could not resolve host|connection|timed out|tls|ssl|handshake|reset by peer|early eof|rpc failed`), covering both failure shapes (non-zero exit and exit 0 with `fatal:` stderr); non-transient errors fail on attempt 1, the final message keeps byte-parity `git fetch failed: …`, and the whole ladder shares ONE `timeoutMs` window (attempts + backoffs count against it) so total wall clock never exceeds the single-fetch ceiling; seam-stubbed table test in `internal/git/doc_sync_retry_test.go`. §17 Phase-3 completion note + §22.4 FR-GO-03 row. Previous: #238 publish/close integrity — soak-169 evidence: the `devagent task` publish stage no longer short-circuits on an empty `GITHUB_TOKEN` and publishes from the surviving run branch after auto-cleanup removed the worktree, with the live CLI wiring extracted to `taskPublishStage` in internal/cli and pinned by a CLI-level regression test; the Go loop driver only closes the tracker issue when the task dispatch reported a PR (`PR opened:` line) — otherwise it records a non-productive `no-pr` row and leaves the issue open for re-pick.)*
