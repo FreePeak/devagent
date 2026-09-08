@@ -155,7 +155,7 @@ describe('curator audit: devagent prd-audit CLI', () => {
     const r = spawnSync('npx', ['tsx', join(repoRoot, 'src/cli.ts'), 'prd-audit', '--repo', repo, ...args], {
       cwd: repoRoot,
       encoding: 'utf8',
-      env: { PATH: process.env.PATH, HOME: process.env.HOME },
+      env: { PATH: process.env.PATH, HOME: process.env.HOME, DEVAGENT_SUPPRESS_DEPRECATION: '1' },
       timeout: 90_000,
     });
     return { status: r.status, out: `${r.stdout}${r.stderr}` };
