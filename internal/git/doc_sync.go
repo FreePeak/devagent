@@ -39,7 +39,11 @@ var WorkSelectionDocs = []string{"docs/PRD.md"}
 type DocSyncOpts struct {
 	// Branch to sync against. Default 'main'.
 	Branch string
-	// TimeoutMs is the per-command wall clock. Default 30s.
+	// TimeoutMs is the wall-clock budget for the whole sync, fetch ladder
+	// included: the retry shares ONE window fixed at entry — each fetch
+	// attempt runs under the remaining budget as its per-command timeout and
+	// the 1s/3s backoffs count against it, so total wall clock never exceeds
+	// a single legacy fetch ceiling. Default 30s.
 	TimeoutMs int
 }
 
@@ -77,6 +81,100 @@ func docErrMessage(stderr string, err error) string {
 	return strings.TrimSpace(err.Error())
 }
 
+// fetchRetryAttempts is the git-fetch retry budget: one initial attempt plus
+// two retries — 3 attempts total, matching issue #239.
+const fetchRetryAttempts = 3
+
+// docFetchBackoffs are the pauses between fetch attempts (1s, 3s) — one
+// fewer than fetchRetryAttempts. The bounds guard in docFetchOrigin also
+// tolerates a shorter/empty ladder. Tests no-op docSyncSleep instead of
+// touching the ladder, so the production values stay under test.
+var docFetchBackoffs = []time.Duration{1 * time.Second, 3 * time.Second}
+
+// docGitFn is the fetch-retry seam: docFetchOrigin goes through it so tests
+// can stub fetch attempts (issue #239) while every other doc-sync command
+// keeps running real git.
+var docGitFn = docGit
+
+// docSyncSleep pauses between fetch attempts; the sleepMs-style seam
+// (internal/orchestrator/executor.go) lets tests no-op the 1s/3s backoff.
+var docSyncSleep = time.Sleep
+
+// isTransientFetchError matches the network/TLS failure classes a flaky
+// upstream (VN-ISP TLS handshakes to github.com, ~10-15% per #239) produces;
+// these are the only fetch failures retried. Auth failures, missing
+// refs/repos, and protocol errors fail immediately.
+func isTransientFetchError(msg string) bool {
+	patterns := []string{
+		"could not resolve host", "connection", "timed out", "tls", "ssl",
+		"handshake", "reset by peer", "early eof", "rpc failed",
+	}
+	lower := strings.ToLower(msg)
+	for _, p := range patterns {
+		if strings.Contains(lower, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// docFetchOrigin runs `git fetch origin <branch>` with transient-error retry:
+// up to fetchRetryAttempts attempts (2 retries), retried only when the
+// failure matches isTransientFetchError — that gate covers BOTH failure
+// shapes the sync recognizes: non-zero exit and exit 0 with "fatal:" on
+// stderr. Non-transient failures return on attempt 1.
+//
+// The retry budget lives inside the existing timeoutMs semantics as ONE
+// shared window fixed at ladder entry: each attempt runs under the remaining
+// budget (now+timeoutMs) as its per-command docGit timeout, and the backoffs
+// count against the same window — total wall clock never exceeds the single
+// fetch ceiling a legacy no-retry sync already had. When the remaining budget
+// cannot cover the next backoff plus a fetch, the loop stops; docGit treats
+// timeoutMs<=0 as "default 30s", so a non-positive remaining budget returns
+// the last failure instead of arming a fresh window. Error text is only
+// built on final failure, byte-parity with the pre-retry format
+// ("git fetch failed: <message>").
+func docFetchOrigin(branch string, repoPath string, timeoutMs int) (stderr string, err error) {
+	deadline := time.Now().Add(time.Duration(timeoutMs) * time.Millisecond)
+	var lastStderr string
+	var lastErr error
+	for attempt := range fetchRetryAttempts {
+		if attempt > 0 {
+			backoff := time.Duration(0)
+			if i := attempt - 1; i < len(docFetchBackoffs) {
+				backoff = docFetchBackoffs[i]
+			}
+			if backoff > 0 {
+				if remaining := time.Until(deadline); remaining <= backoff {
+					break
+				}
+				docSyncSleep(backoff)
+			}
+		}
+		budgetMs := int(time.Until(deadline).Milliseconds())
+		if budgetMs <= 0 {
+			break
+		}
+		_, stderrOut, err := docGitFn([]string{"fetch", "origin", branch}, repoPath, budgetMs)
+		if err == nil && !strings.Contains(stderrOut, "fatal:") {
+			return stderrOut, nil
+		}
+		lastStderr, lastErr = stderrOut, err
+		// Exit 0 with "fatal:" on stderr: git itself signalled a hard
+		// failure. One unified gate over both shapes — docErrMessage covers
+		// the err==nil case — terminal unless the text also looks transient.
+		if !isTransientFetchError(docErrMessage(stderrOut, err)) {
+			break
+		}
+	}
+	if lastStderr == "" && lastErr == nil {
+		// Window exhausted before any fetch recorded a result: fail the sync
+		// the way a timed-out fetch would, never as a fake success.
+		lastErr = context.DeadlineExceeded
+	}
+	return lastStderr, lastErr
+}
+
 // SyncWorkSelectionDocs fetches origin and fast-forwards the current branch
 // so work-selection docs are fresh before any scout/PO read. Refuses to run
 // on a dirty tree for the tracked work-selection files (an operator mid-edit
@@ -103,7 +201,7 @@ func SyncWorkSelectionDocs(repoPath string, opts *DocSyncOpts) RepoSyncResult {
 		}
 	}
 
-	_, fetchStderr, fetchErr := docGit([]string{"fetch", "origin", branch}, repoPath, timeoutMs)
+	fetchStderr, fetchErr := docFetchOrigin(branch, repoPath, timeoutMs)
 	if fetchErr != nil {
 		return RepoSyncResult{OK: false, Detail: "git fetch failed: " + truncate(docErrMessage(fetchStderr, fetchErr), 300)}
 	}
