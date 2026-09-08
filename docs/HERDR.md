@@ -8,7 +8,10 @@ processes, each worker launch becomes a pane in a dedicated named herdr session:
 - The session survives terminal disconnects and machine reboots (persistent server).
 - Completed/failed runs can be kept for inspection instead of vanishing with their process.
 
-The feature is opt-in. Without it, workers run as plain child processes exactly as before.
+Since FR-VIS-01 (and the FR-HAND-05 init flow, #145) the feature is **default-on when
+the `herdr` binary is present**: `devagent init` flips `herdr.enabled: true` in
+`devagent.json` when herdr is found and the key is unset. Without it, workers run as
+invisible child processes with a loud one-line advisory — never silently.
 
 ## Enablement
 
