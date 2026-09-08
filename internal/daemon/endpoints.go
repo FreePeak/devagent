@@ -712,8 +712,7 @@ func dispatchArgv(spec DispatchSpec) []string {
 
 // DefaultDispatchRunner mirrors defaultDispatchRunner: a detached spawn of
 // the real `devagent task` pipeline (FR-CTRL-03). In a compiled binary the
-// executable itself is the CLI; the TS dist/src/cli.js lookup only existed
-// to find the JS entry under npx/tsx (documented divergence).
+// executable itself is the CLI.
 func DefaultDispatchRunner(spec DispatchSpec) DispatchResult {
 	cwd, err := os.Getwd()
 	if err != nil {

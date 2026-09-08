@@ -172,7 +172,7 @@ func TestOrphanDefaultSweepLeavesLiveWorkerAlone(t *testing.T) {
 	cli.paneList = "testdata/sweep/pane-list-live-worker.json"
 	cli.procInfo["wX:p1"] = "testdata/sweep/process-info-omp.json"
 	orphanSeams(t, "4242\n", map[string][]string{
-		"4242": {"timeout 7200 npx tsx src/cli.ts task"},
+		"4242": {"timeout 7200 devagent-go task"},
 	})
 	got := FindStalePanes(cli, "devagent", SweepOptions{Sweep: sweepEnabled()})
 	if len(got) != 0 {
@@ -185,9 +185,8 @@ func TestOrphanClosesLiveWorkerDetachedFromDriver(t *testing.T) {
 	cli.paneList = "testdata/sweep/pane-list-live-worker.json"
 	cli.procInfo["wX:p1"] = "testdata/sweep/process-info-omp.json"
 	orphanSeams(t, "4242\n", map[string][]string{
-		// Owner CLI alive but its ancestry has no selfbuild-loop.sh (driver
-		// died).
-		"4242": {"timeout 7200 npx tsx src/cli.ts task", "launchd"},
+		// Owner CLI alive but its ancestry has no loop driver (driver died).
+		"4242": {"timeout 7200 devagent-go task", "launchd"},
 	})
 	got := FindStalePanes(cli, "devagent", SweepOptions{Orphans: true, Sweep: sweepEnabled()})
 	if len(got) != 1 || got[0].Reason != "orphaned-driver" || got[0].PaneID != "wX:p1" {
@@ -202,12 +201,30 @@ func TestOrphanSparesLiveWorkerWithLoopDriverAncestor(t *testing.T) {
 	orphanSeams(t, "4242\n", map[string][]string{
 		"4242": {
 			"bash /repo/scripts/selfbuild-loop.sh",
-			"timeout 7200 npx tsx src/cli.ts task",
+			"timeout 7200 devagent-go task",
 		},
 	})
 	got := FindStalePanes(cli, "devagent", SweepOptions{Orphans: true, Sweep: sweepEnabled()})
 	if len(got) != 0 {
 		t.Fatalf("stale = %v, want empty (live driver owns it)", got)
+	}
+}
+
+func TestOrphanSparesLiveWorkerWithGoDriverAncestor(t *testing.T) {
+	cli := newFakeCli(t)
+	cli.paneList = "testdata/sweep/pane-list-live-worker.json"
+	cli.procInfo["wX:p1"] = "testdata/sweep/process-info-omp.json"
+	orphanSeams(t, "4242\n", map[string][]string{
+		// The production driver after #205 is `devagent-go loop` (make
+		// loop-start); a pane owned by it is live, not orphaned.
+		"4242": {
+			"./devagent-go loop",
+			"timeout 7200 devagent-go task",
+		},
+	})
+	got := FindStalePanes(cli, "devagent", SweepOptions{Orphans: true, Sweep: sweepEnabled()})
+	if len(got) != 0 {
+		t.Fatalf("stale = %v, want empty (live Go driver owns it)", got)
 	}
 }
 
