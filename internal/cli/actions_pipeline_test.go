@@ -1,9 +1,8 @@
 package cli
 
-// Go-only tests for the pipeline-family CLI wiring (actions_pipeline.go).
-// The cross-runtime exit/stdout pins live in parity_wired_test.go; these
-// cover behaviors that cannot run both sides hermetically (PRD mutation,
-// worker-dispatch mapping, flag-default wiring, plan-only resume).
+// Go-only tests for the pipeline-family CLI wiring (actions_pipeline.go):
+// behaviors that must run hermetically (PRD mutation, worker-dispatch
+// mapping, flag-default wiring, plan-only resume).
 
 import (
 	"bytes"
@@ -206,5 +205,20 @@ func TestOrchestratePlanOnlyResumesBoard(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(repo, ".devagent-project.json")); err != nil {
 		t.Fatalf("board must persist: %v", err)
+	}
+}
+
+// writePRDFixture writes a minimal docs/PRD.md whose Phase 4 current-backlog
+// section holds the given bullet lines (the heading must case-insensitively
+// contain "current backlog" + "phase 4" for the parser to enter the section).
+// Relocated from the deleted parity_wired_test.go (Node retirement, #205).
+func writePRDFixture(t *testing.T, dir, items string) {
+	t.Helper()
+	prd := "## Phase 4 — current backlog\n\n" + items
+	if err := os.MkdirAll(filepath.Join(dir, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "docs", "PRD.md"), []byte(prd), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }

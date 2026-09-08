@@ -307,7 +307,7 @@ func runStatusProviders(repoPath string, degradeThreshold int) error {
 	}
 
 	// Consecutive cross-role provider degradation (Q41): degraded rows are
-	// starvation-gate-exempt (scripts/selfbuild-loop.sh:190), so a sustained
+	// starvation-gate-exempt (the selfbuild loop driver), so a sustained
 	// outage is invisible on every human surface unless aggregated here.
 	// Breach line at >= --degrade-threshold trailing degraded rows.
 	streak := readDegradationStreak(repoPath, degradeThreshold)

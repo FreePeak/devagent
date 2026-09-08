@@ -608,8 +608,8 @@ type HerdrSweepSettings struct {
 
 // ResolveHerdrSweep resolves sweep-safety (PRD §18 Q23, FR-VIS-10): env wins
 // over config, config wins over the defaults — which are today's behavior
-// (sweep on, orphan class left to the caller's --orphans flag), so
-// scripts/selfbuild-loop.sh keeps working with no config at all. (The TS
+// (sweep on, orphan class left to the caller's --orphans flag), so the
+// loop driver keeps working with no config at all. (The TS
 // side names both the interface and the resolver herdrSweepConfig; Go keeps
 // the type HerdrSweepConfig and the resolver ResolveHerdrSweep.)
 func ResolveHerdrSweep(cfg Config) HerdrSweepSettings {
