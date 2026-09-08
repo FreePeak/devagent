@@ -3,6 +3,7 @@ package loopdriver
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"os/exec"
 	"regexp"
 	"sort"
@@ -96,4 +97,51 @@ func (d *driver) closeIssue(num int, comment string) {
 	cmd := exec.CommandContext(ctx, d.cfg.GhBin, "issue", "close", strconv.Itoa(num), "--comment", comment)
 	cmd.Dir = d.cfg.Repo
 	_ = cmd.Run()
+}
+
+// runBranchForGoal derives the task run branch a dispatch would have
+// pushed: devagent/<ticketID>. taskDispatch pins --id TASK-loop-<N>, and
+// the pipeline derives the worktree/branch from that id, so the branch is
+// deterministic. An explicit DEVAGENT_TASK_ID (external harness) still
+// wins.
+func runBranchForGoal(goal string, loopNum int) string {
+	if id := os.Getenv("DEVAGENT_TASK_ID"); id != "" {
+		return "devagent/" + id
+	}
+	return "devagent/TASK-loop-" + itoa(loopNum)
+}
+
+// prExistsForBranch reports the URL of an open PR whose head is branch.
+// A gh failure degrades to no-PR: best effort, like the rest of the
+// issue surface. Empty branch falls back to listing all open PRs (see
+// runBranchForGoal).
+func (d *driver) prExistsForBranch(branch string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	args := []string{"pr", "list", "--repo", d.cfg.GHRepo, "--state", "open",
+		"--limit", "10", "--json", "headRefName,url"}
+	if branch != "" {
+		args = append(args, "--head", branch)
+	}
+	cmd := exec.CommandContext(ctx, d.cfg.GhBin, args...)
+	cmd.Dir = d.cfg.Repo
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	var items []ghPrHead
+	if err := json.Unmarshal(out, &items); err != nil {
+		return ""
+	}
+	for _, it := range items {
+		if branch == "" || it.HeadRefName == branch {
+			return it.URL
+		}
+	}
+	return ""
+}
+
+type ghPrHead struct {
+	HeadRefName string `json:"headRefName"`
+	URL         string `json:"url"`
 }

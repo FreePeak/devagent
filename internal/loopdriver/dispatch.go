@@ -233,8 +233,11 @@ func (d *driver) runNpmTest() int {
 
 // taskDispatch runs the phase-4 implementation dispatch
 // (`devagent task --prompt GOAL --repo REPO --worker W [--model M]
-// [--auto-pr]`) under the outer wall-clock cap; returns rc.
-func (d *driver) taskDispatch(goal string) int {
+// [--auto-pr] --id TASK-loop-N`) under the outer wall-clock cap; returns
+// rc. The --id pin is soak-169 (issue #238) BUG 2: the close path must know
+// the run branch (devagent/<ticketID>) to probe for the PR, and a random
+// synthetic id is unknowable after the fact.
+func (d *driver) taskDispatch(goal string, loopNum int) int {
 	args := []string{"task", "--prompt", goal + "\n\n" + prdPolicy, "--repo", d.cfg.Repo, "--worker", d.cfg.Worker}
 	if d.cfg.Model != "" {
 		args = append(args, "--model", d.cfg.Model)
@@ -242,6 +245,7 @@ func (d *driver) taskDispatch(goal string) int {
 	if d.cfg.PushMode == "pr" {
 		args = append(args, "--auto-pr")
 	}
+	args = append(args, "--id", "TASK-loop-"+itoa(loopNum))
 	_, rc := d.runDevagentWithTimeout(d.cfg.TaskTimeout, args...)
 	return rc
 }

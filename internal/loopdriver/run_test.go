@@ -48,6 +48,7 @@ echo "gh $*" >> "${DEVAGENT_LOG:?}"
 case "$1 $2" in
   "issue list") printf '%s' "$GH_ISSUES_JSON" ;;
   "issue close") exit 0 ;;
+  "pr list") printf '%s' "${GH_PR_LIST_JSON:-}" ;;
 esac
 exit 0
 `,
@@ -163,6 +164,7 @@ func TestRunLoopIssueFirstShip(t *testing.T) {
 	repo := initFixtureRepo(t)
 	installFakes(t, repo)
 	t.Setenv("GH_ISSUES_JSON", `[{"number":202,"title":"Port loop driver","labels":[{"name":"priority:P0"}]},{"number":15,"title":"Older P2","labels":[]}]`)
+	t.Setenv("GH_PR_LIST_JSON", `[{"headRefName":"devagent/TASK-loop-1","url":"https://github.com/o/r/pull/9"}]`)
 	now, _ := frozenClock()
 	cfg := loopConfigFor(t, repo, func(c *LoopConfig) {
 		c.Now = now
@@ -197,6 +199,72 @@ func TestRunLoopIssueFirstShip(t *testing.T) {
 		t.Fatalf("goal text: %v", rows[0]["goal"])
 	}
 	assertFileContains(t, filepath.Join(repo, "devagent-calls.log"), "gh issue close")
+}
+
+// TestRunLoopIssueNotClosedWithoutPR is the soak-169 regression (issue
+// #238, BUG 2): the driver closed the tracker issue right after the task
+// dispatch returned rc 0, although no PR existed (BUG 1 had silently
+// skipped publishing). The close must fire only when a PR for the run
+// branch actually exists; without one the row is recorded non-productive
+// and the issue stays open.
+func TestRunLoopIssueNotClosedWithoutPR(t *testing.T) {
+	repo := initFixtureRepo(t)
+	installFakes(t, repo)
+	// The fake devagent task exits 0 but ships no PR, and gh knows of no
+	// open PR for the run branch.
+	t.Setenv("GH_ISSUES_JSON", `[{"number":238,"title":"Go task pipeline soak bugs","labels":[]}]`)
+	now, _ := frozenClock()
+	cfg := loopConfigFor(t, repo, func(c *LoopConfig) { c.Now = now })
+	cfg.DryRun = false
+	rc := RunLoop(cfg)
+	if rc != 0 {
+		t.Fatalf("rc = %d, want 0", rc)
+	}
+	calls, err := os.ReadFile(filepath.Join(repo, "devagent-calls.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(calls), "issue close") {
+		t.Fatalf("issue must NOT be closed without a PR; gh calls:\n%s", calls)
+	}
+	rows := readLedger(t, repo)
+	if len(rows) == 0 {
+		t.Fatal("no ledger rows")
+	}
+	if rows[len(rows)-1]["status"] != "failed" {
+		t.Fatalf("status = %v, want non-productive 'failed' (issue stays open)", rows[len(rows)-1]["status"])
+	}
+}
+
+// TestRunLoopIssueClosedWhenPrexists proves the close path still fires
+// when a PR for the run branch exists: rc 0 + gh pr list hit -> issue
+// closed with the shipped comment and the ok row.
+func TestRunLoopIssueClosedWhenPrexists(t *testing.T) {
+	repo := initFixtureRepo(t)
+	installFakes(t, repo)
+	t.Setenv("GH_ISSUES_JSON", `[{"number":202,"title":"Port loop driver","labels":[{"name":"priority:P0"}]}]`)
+	t.Setenv("GH_PR_LIST_JSON", `[{"headRefName":"devagent/TASK-loop-1","url":"https://github.com/o/r/pull/9"}]`)
+	now, _ := frozenClock()
+	cfg := loopConfigFor(t, repo, func(c *LoopConfig) { c.Now = now })
+	cfg.DryRun = false
+	rc := RunLoop(cfg)
+	if rc != 0 {
+		t.Fatalf("rc = %d, want 0", rc)
+	}
+	calls, err := os.ReadFile(filepath.Join(repo, "devagent-calls.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(calls), "issue close") {
+		t.Fatalf("issue must be closed when the PR exists; gh calls:\n%s", calls)
+	}
+	if !strings.Contains(string(calls), "pr list --repo") || !strings.Contains(string(calls), "--head devagent/") {
+		t.Fatalf("expected a gh pr list --head probe before closing; gh calls:\n%s", calls)
+	}
+	rows := readLedger(t, repo)
+	if rows[len(rows)-1]["status"] != "ok" {
+		t.Fatalf("status = %v, want ok", rows[len(rows)-1]["status"])
+	}
 }
 
 func TestRunLoopPreflightBreaker(t *testing.T) {

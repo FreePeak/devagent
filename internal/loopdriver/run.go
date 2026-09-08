@@ -300,19 +300,39 @@ func (d *driver) runIteration(n int, logF io.Writer, gradient, clusters string) 
 		}
 	}
 
-	// OK path.
-	d.record(logF, n, "ok", goal)
-	if queued != nil {
-		_ = markQueueTaskDone(cfg.Repo, queued.ID, "done", "", queued)
+	// OK path — but soak-169 (issue #238) BUG 2: task rc 0 alone does not
+	// mean the goal shipped. The close-comment fires only when a PR for the
+	// run branch actually exists; otherwise the row is recorded
+	runBranch := runBranchForGoal(goal, n)
+	prURL := d.prExistsForBranch(runBranch)
+	if prURL != "" {
+		d.record(logF, n, "ok", goal)
+		if queued != nil {
+			_ = markQueueTaskDone(cfg.Repo, queued.ID, "done", "", queued)
+		}
+		if issueNum != 0 {
+			d.closeIssue(issueNum, fmt.Sprintf("self-build loop %d shipped this issue: %s (PR %s)", n, goal, prURL))
+		}
+		if cfg.PushMode == "pr" {
+			d.scheduleCleanup(n)
+		}
+		_, _ = fmt.Fprintf(logF, "[ok] loop %d complete\n", n)
+		return outcomeFallThrough
 	}
 	if issueNum != 0 {
-		d.closeIssue(issueNum, fmt.Sprintf("self-build loop %d shipped this issue: %s", n, goal))
+		_, _ = fmt.Fprintf(logF, "[implement] task rc 0 but no PR for %s — issue #%d stays open\n", runBranch, issueNum)
+	} else {
+		_, _ = fmt.Fprintln(logF, "[implement] task rc 0 but no PR for the run — recording non-productive")
 	}
-	if cfg.PushMode == "pr" {
-		d.scheduleCleanup(n)
+	d.record(logF, n, "failed", goal)
+	if queued != nil {
+		_ = markQueueTaskDone(cfg.Repo, queued.ID, "failed", fmt.Sprintf("task rc 0 but no PR at loop %d", n), queued)
 	}
-	_, _ = fmt.Fprintf(logF, "[ok] loop %d complete\n", n)
-	return outcomeFallThrough
+	*d.fails++
+	if d.breakerTripped(logF) {
+		return outcomeExit1
+	}
+	return outcomeSkip // bash: continue
 }
 
 // runSyncDocs ports the sync-docs rc classification (0 ok / 1 generic /
@@ -410,7 +430,7 @@ func (d *driver) runPOPhase(n int, logF io.Writer, prevTail, lessonsCtx, gradien
 // (failed row + queue done + breaker consult).
 func (d *driver) runTaskPhase(n int, logF io.Writer, goal string, queued *claimedTask) outcome {
 	d.phase(n, "task", firstLineCapped(goal, 100))
-	if rc := d.taskDispatch(goal); rc != 0 {
+	if rc := d.taskDispatch(goal, n); rc != 0 {
 		_, _ = fmt.Fprintln(logF, "[implement] task failed")
 		d.record(logF, n, "failed", goal)
 		if queued != nil {
