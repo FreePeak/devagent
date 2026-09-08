@@ -59,7 +59,7 @@ The factory can run as a **self-build team over this repo** (see
 |---|---|---|---|
 | PRD writer (opencode) | `devagent scout --interval 30` | PRD `.devagent/prds/<id>.md` + task `.devagent/queue/<id>.json` | `com.devagent.scout` |
 | Progress tracker | `devagent track --interval 15` | `.selfbuild/progress.{md,json}` + `.devagent/tracker.heartbeat.json` | `com.devagent.tracker` |
-| Builder (consume loop) | `scripts/build-loop.sh` / `consume --auto-pr --auto-merge` | PR `devagent/<id>` + `.selfbuild/ledger.jsonl` entry | `com.devagent.builder` |
+| Builder (consume loop) | `devagent consume --auto-pr --auto-merge` (wrapped by `scripts/build-loop.sh`) | PR `devagent/<id>` + `.selfbuild/ledger.jsonl` entry | `com.devagent.builder` |
 
 Coordinator wiring: `devagent create --repo <repo> --scout --tracker --builder` creates all three plists
 (`plutil -lint` clean) plus the Orca worktrees; `scripts/build-loop.sh` has its own circuit-breaker,
@@ -116,10 +116,11 @@ file (`done` / `failed` + `lastError`).
 ## Auto-merge and self-update
 
 `config.autoMerge` (or `--auto-merge`) merges green PRs via
-`gh pr merge --auto --squash` (`src/integrations/github.ts: autoMergePr`).
-After a published run, `config.selfUpdate` triggers `runSelfUpdate`
-(`src/self-update.ts`): refuse on dirty tree, `git pull --ff-only`,
-`npm ci|install`, `npm run build`, then `launchctl kickstart com.devagent.scout`.
+`gh pr merge --auto --squash` (`internal/integrations/github.go: AutoMergePr`).
+After a published run, `config.selfUpdate` triggers the self-update sequence in
+`internal/pipeline/consume.go`: refuse on dirty tree, `git pull --ff-only`,
+rebuild the binary (`make build` → `./devagent-go`), then
+`launchctl kickstart com.devagent.scout`.
 Error details are redacted (`redactSecrets`) so tokens from git remotes never
 reach logs. The same sequence is available as `scripts/self-update.sh <repo>`.
 

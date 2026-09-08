@@ -27,7 +27,8 @@ Stacked PRs (#7/#12/#13, #9/#10/#11) conflict only against main by design —
 they resolve as each parent lands.
 
 After all land: 253+ tests green on the combined tree (verified per-branch;
-re-run `npm test` after each merge).
+re-run the repo test suite after each merge — `npm test` at the time, `go test
+./...` since the FR-GO-16 Go retirement, #205).
 
 ## Unblocked backlog (research doc priorities)
 

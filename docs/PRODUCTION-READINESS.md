@@ -7,6 +7,11 @@
 > the Go binary (`cmd/devagent`); the Node CLI reviewed here is demoted to a
 > legacy fallback until FR-GO-16. This review is preserved as written on
 > 2026-08-25 and predates the Go migration.
+>
+> **2026-09-08 (FR-GO-16, #205):** the Node tree this review examined (src/,
+> test/, dist/, package.json) has been deleted; every `src/*.ts` file:line
+> citation below refers to that removed tree and is historical evidence only.
+> The Go implementation carries the surviving behaviors in `internal/`.
 
 ## Verdict
 

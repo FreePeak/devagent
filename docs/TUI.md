@@ -86,17 +86,17 @@ circuit state, herdr session, spawn visibility.
 The TUI remains a pure HTTP + SSE client of the daemon (§20.3 anti-pattern: no
 PTY parsing, no second event system). `/status`, `/agents`, `/history`,
 `/sessions` and `/events` are its only data sources — embedding changes who
-*starts* the daemon, never how it is talked to (`ensureDaemon` in tui.ts probes
-`/healthz`, then either attaches or calls `startDaemon({ port: 0 })` in-process
-and tears it down in `runTui`'s finally, on every exit path).
+*starts* the daemon, never how it is talked to (`ensureDaemon` in
+`internal/tui` probes `/healthz`, then either attaches or starts an in-process
+daemon on port 0 and tears it down on every exit path).
 
 | Module | Role |
 | --- | --- |
-| `src/tui/tui.ts` | views, overlays, key handling, interactive loop, one-shot mode, daemon resolution (attach/embed) |
-| `src/tui/transport.ts` | bearer-token HTTP + SSE subscriber (reconnect, Last-Event-ID resume) |
-| `src/tui/input.ts` | raw-stdin key decoding (arrows/PgUp/Home as whole escape sequences) |
-| `src/tui/frame.ts` | incremental frame differ: rewrites only changed rows, never clears the screen |
-| `src/tui/viz.ts` | sparkline, meter bar, log-line parse/format primitives |
+| `internal/tui/tui.go` | views, overlays, key handling, interactive loop, one-shot mode, daemon resolution (attach/embed) |
+| `internal/tui/transport.go` | bearer-token HTTP + SSE subscriber (reconnect, Last-Event-ID resume) |
+| `internal/tui/input.go` | raw-stdin key decoding (arrows/PgUp/Home as whole escape sequences) |
+| `internal/tui/frame.go` | incremental frame differ: rewrites only changed rows, never clears the screen |
+| `internal/tui/viz.go` | sparkline, meter bar, log-line parse/format primitives |
 
 Rendering pipeline: `renderLines()` builds a plain line array → `renderFrame()`
 diffs it against the previous frame and emits the minimal escape sequence
@@ -111,9 +111,8 @@ metrics it cannot source.
 
 ## Testing
 
-`test/tui.test.ts` renders every view/overlay from a fixed snapshot (including
-terminal-height fitting and the never-cut log title); `test/tui-input.test.ts`
-pins escape-sequence decoding; `test/tui-viz.test.ts` covers sparkline/meter/
-log-line/frame-diff math; `test/tui-events.test.ts` exercises the SSE
-subscriber against a live daemon seeded with run-log lines. `scripts/tui-smoke.ts`
-prints every view for eyeballing (`npx tsx scripts/tui-smoke.ts`).
+The `internal/tui` tests render every view/overlay from fixed snapshots
+(including terminal-height fitting and the never-cut log title), pin
+escape-sequence decoding, cover the sparkline/meter/log-line/frame-diff math,
+and exercise the SSE subscriber against a live daemon seeded with run-log
+lines — run them with `go test ./internal/tui/...`.

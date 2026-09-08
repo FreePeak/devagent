@@ -8,6 +8,12 @@ this file only with fresh measurements, never projections.
 > the Go binary at this cutover; the Node CLI becomes a legacy fallback until
 > FR-GO-16. The measurements below remain the reference baseline from
 > 2026-09-07.
+>
+> **2026-09-08 (FR-GO-16 cutover complete, #205):** the Node implementation
+> (src/, test/, dist/, package.json, npm tooling) has been deleted — the Go
+> binary is the one implementation. Build via `make build` → `./devagent-go`;
+> tests are `go vet ./... && go test ./...`. The "Node baseline" rows below
+> are kept verbatim as the historical reference they were measured to be.
 
 ## Node baseline
 

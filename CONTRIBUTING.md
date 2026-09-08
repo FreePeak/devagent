@@ -6,15 +6,19 @@ basics; the engineering rules of the road live in `docs/SELF-BUILD-LOOP.md`
 
 ## Development setup
 
+DevAgent is a single-language Go project (since FR-GO-16, #205). Clone,
+build, and test with the Go toolchain only:
+
 ```sh
 git clone git@github.com:FreePeak/devagent.git && cd devagent
-npm install
-npm test          # vitest, full suite
-npm run typecheck # tsc --noEmit
+go build ./...            # compile
+go vet ./...              # static checks
+go test ./...             # full suite
+make build                # → ./devagent-go, the production CLI binary
 ```
 
-Node 20+ required. Worker CLIs (claude-code, opencode) are optional; tests do
-not call them.
+Go 1.25+ required, plus `git` and `gh` for PR workflows. Worker CLIs
+(claude-code, opencode, omp, pi, grok) are optional; tests do not call them.
 
 ## How we work
 
@@ -23,9 +27,9 @@ not call them.
   without it.
 - Product code always lands via pull request - never push directly to `main`.
 - Commit messages: imperative mood, no AI attribution footers.
-- If your change touches the orchestration pipeline (`src/orchestrator/`,
-  `src/integrations/`), say so explicitly in the PR body; those paths have the
-  widest blast radius.
+- If your change touches the orchestration pipeline (`internal/orchestrator/`,
+  `internal/integrations/`), say so explicitly in the PR body; those paths have
+  the widest blast radius.
 
 ## Filing issues
 
@@ -38,7 +42,7 @@ not call them.
 ## Local verification checklist
 
 ```sh
-npx vitest run            # all green
-npm run typecheck         # clean
-npx tsx src/cli.ts --help # smoke
+go vet ./...              # clean
+go test ./...             # all green
+./devagent-go --help      # smoke
 ```

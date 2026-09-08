@@ -28,17 +28,14 @@ iteration simply reruns under its own number.
 **Durable state across workspaces.** `.selfbuild/` is gitignored and Orca spawns each
 run in a fresh workspace, so without help every run would restart at loop 1 (this
 actually happened on 2026-08-24: runs improvised loop numbers from ambient context).
-`scripts/selfbuild-state.sh` mirrors `ledger.jsonl` + `lessons.md` to the orphan branch
-`selfbuild/state` on origin:
-
-```sh
-scripts/selfbuild-state.sh pull   # merge origin state into local .selfbuild/ before numbering
-scripts/selfbuild-state.sh push   # publish after every recorded iteration (failures included)
-```
-
-Merge policy: ledger is keyed by loop number, later `ts` wins on collision; lessons are
-a ratchet-only union. `selfbuild-loop.sh` calls both automatically; hand-run iterations
-(one-shot automation prompts) MUST call `pull` first and `push` after recording.
+The driver mirrors `ledger.jsonl` + `lessons.md` to the orphan branch `selfbuild/state`
+on origin (`internal/loopdriver/state.go`): it merges origin state before numbering an
+iteration and pushes after every recorded iteration, failures included. Merge policy:
+ledger is keyed by loop number, later `ts` wins on collision; lessons are a ratchet-only
+union. The driver performs both sides automatically — hand-run iterations must go
+through `devagent loop` (with `SELFBUILD_MAX_ITERATIONS` pinned) so the pull/push stays
+automatic; the bash-era `scripts/selfbuild-state.sh pull|push` helper was retired with
+the Node tree (FR-GO-16, #205).
 
 ## Phases
 
@@ -49,12 +46,14 @@ a ratchet-only union. `selfbuild-loop.sh` calls both automatically; hand-run ite
    testable in one pass); no open dependency on an earlier failed loop. Written
    to `.selfbuild/goals/loop-N.md`.
 4. **Plan** — `devagent task --prompt "<goal>"` plans via the built-in planner.
-5. **Implement** — same `devagent task` invocation drives worker CLIs (claude-code /
-   opencode) in isolated worktrees through its internal plan-implement-test loops.
+5. **Implement** — same `devagent task` invocation drives worker CLIs (omp by
+   default; claude-code / opencode / pi / grok selectable) in isolated worktrees
+   through its internal plan-implement-test loops.
 6. **Testing** — `devagent task` gates internally (test-gate, migration rules,
-   async-review); after merge-back the driver additionally runs the repo-level
-   test gate (`SELFBUILD_TEST_CMD`, default `npm test`). Failure marks the
-   iteration failed and feeds diagnostics into the next Research phase.
+   async-review); after merge-back the driver additionally runs the repo-level test
+   gate (`SELFBUILD_TEST_CMD`; default `npm test` until FR-GO-16 lands, then
+   `go test ./...`). Failure marks the iteration failed and feeds diagnostics into
+   the next Research phase.
 7. **Push** — `--auto-pr` pushes the branch and opens a PR. **Policy (locked 2026-08-24):
    product code always ships as a PR, never direct to origin/main**; direct main is
    reserved for docs and `.selfbuild` protocol chores. `SELFBUILD_PUSH_MODE=main`
@@ -69,34 +68,49 @@ a ratchet-only union. `selfbuild-loop.sh` calls both automatically; hand-run ite
 
 ## Running
 
-Single-process infinite runner:
+Single-process infinite runner (the Go driver, `internal/loopdriver` — production
+since FR-GO-16, #205; the bash driver `scripts/selfbuild-loop.sh` was deleted in the
+same change):
 
 ```sh
-npm run selfbuild                 # uses defaults below
+devagent loop                     # uses defaults below
 ```
 
 Environment knobs (all optional):
 
 | Var | Default | Meaning |
 |---|---|---|
-| `SELFBUILD_MAX_ITERATIONS` | `0` | 0 = run until circuit-breaker trips |
-| `SELFBUILD_MAX_CONSECUTIVE_FAILURES` | `3` | Circuit breaker: abort after N failed loops in a row |
+| `SELFBUILD_MAX_ITERATIONS` | `0` | 0 = run until circuit-breaker trips (checked at loop head) |
+| `SELFBUILD_MAX_FAILS` | `3` | Circuit breaker: abort after N failed loops in a row |
+| `SELFBUILD_STARVATION_LIMIT` | `5` | Halt after N consecutive non-productive iterations across all runs |
 | `SELFBUILD_WORKER` | `omp` | Worker CLI passed to `devagent task` |
+| `SELFBUILD_MODEL` | *(unset)* | Model pin forwarded to `devagent task` |
 | `SELFBUILD_PUSH_MODE` | `pr` | `pr` (branch + PR via auto-pr) or `main` (direct commit) |
-| `SELFBUILD_CLAUDE` | `omp … --model router/dev` | Research/PO headless invocation (research + PO both use pane-run via herdr with this binary as fallback) |
-| `SELFBUILD_WORKER` | `omp` | Worker CLI passed to `devagent task` |
+| `SELFBUILD_TEST_CMD` | `npm test` until FR-GO-16 lands, then `go test ./...` | Post-merge-back repo-level test gate (seam #230) |
 | `SELFBUILD_ISSUE_LABEL` | `selfbuild` | Issue label defining the loop's tracker queue |
 | `SELFBUILD_ISSUE_MAX` | `50` | Max issues fetched per pick (deterministic sort: priority rank, then issue number) |
 | `SELFBUILD_GH_REPO` | derived from `git remote get-url origin` | Target repo for the tracker pick (`gh issue`) |
-| `SELFBUILD_DRY_RUN` | `0` | `1` executes all phases without side effects (stub outputs, no claude/task/push) |
-| `SELFBUILD_TEST_CMD` | `npm test` | Post-merge-back repo-level test gate (word-split); at FR-GO-16 launch with `go test ./...` |
+| `SELFBUILD_DEVAGENT_BIN` | `devagent` | CLI binary the driver shells out to (pane-run, task, preflight, sync-docs, scan-text, ledger, herdr-sweep, page-degrade-breach) |
+| `SELFBUILD_RESEARCH_BIN` / `SELFBUILD_PO_BIN` | `omp -p --mode json --no-prewalk --no-lsp --no-extensions --model onegw/free` | Research / PO phase headless dispatch commands (research + PO dispatch through pane-run via herdr with this binary as fallback) |
+| `SELFBUILD_TASK_TIMEOUT` | `7200` | Wall-clock cap (seconds) on the task dispatch |
+| `SELFBUILD_RESEARCH_TIMEOUT` / `SELFBUILD_CLAUDE_TIMEOUT` | `900` / `600` | Wall-clock caps (seconds) on the research / PO dispatches |
+| `SELFBUILD_API_MAX_ATTEMPTS` | `40` | Executor retry budget |
+| `SELFBUILD_NO_PROGRESS_TIMEOUT_MS` | `600000` | Executor no-progress hang detection |
+| `SELFBUILD_CLEANUP_DELAY` | `1800` | Auto-pr leftover grace period (seconds) |
+| `SELFBUILD_SYNC_RETRY_SECS` | `60` | Pause between degraded iterations (seconds) |
+| `SELFBUILD_VISIBILITY` | `visible` | Spawn visibility (flag > `DEVAGENT_VISIBILITY` > `SELFBUILD_VISIBILITY` > visible) |
+| `SELFBUILD_NO_SYNC_DOCS` | *(unset)* | `1` skips the doc-freshness gate |
+| `SELFBUILD_DRY_RUN` | `0` | `1` executes all phases without side effects (stub outputs, no research/task/push) |
 
 
 ## Go soak (FR-GO-15)
 
 At the FR-GO-15 cutover (#204) the Go loop driver (`internal/loopdriver`,
-exposed as `devagent loop`, FR-GO-13) is soaked against the live loop before
-the bash driver (`scripts/selfbuild-loop.sh`) hands over production.
+exposed as `devagent loop`, FR-GO-13) was soaked against the live loop before
+the bash driver (`scripts/selfbuild-loop.sh`) handed over production. The
+bash driver was deleted at FR-GO-16 (#205); this section is retained as the
+historical record of that soak.
+
 Procedure:
 
 ```sh
@@ -107,10 +121,10 @@ SELFBUILD_MAX_ITERATIONS=<next> \
     bin/devagent loop
 ```
 
-- `SELFBUILD_DEVAGENT_BIN` points the driver's shelled subcommands (pane-run,
+- `SELFBUILD_DEVAGENT_BIN` pointed the driver's shelled subcommands (pane-run,
   task, preflight, sync-docs, scan-text, ledger, herdr-sweep, page-degrade-breach)
-  at the Go binary instead of the npm-linked Node CLI — every executed surface
-  must be the Go implementation for the soak to count.
+  at the cutover binary instead of the default `devagent` on PATH — every executed
+  surface had to be the Go implementation for the soak to count.
 - The iteration cap is checked at loop head (`n >= cap` halts before spending
   tokens), so `<next>` is the first loop number the soak must NOT run: a
   one-iteration soak at loop N sets `SELFBUILD_MAX_ITERATIONS=N+1`.
@@ -128,10 +142,11 @@ driver writes with its `date -u +%FT%TZ` printf. The full contract (events,
 state sync, queue protocol) is pinned in `internal/loopdriver/DECISION.md`.
 
 **Driver takeover rule** (`internal/loopdriver/DECISION.md`): the Go driver
-takes over production only after it survives at least one full live iteration
+took over production only after it survived at least one full live iteration
 against the real devagent CLI with byte-identical ledger/event rows verified
-against the bash driver's output on the same inputs. Until that gate passes,
-the bash driver remains the production default.
+against the bash driver's output on the same inputs. That gate passed during
+the FR-GO-15 soak; with FR-GO-16 (#205) the Go driver is the production
+default and the bash driver is gone.
 
 ## Tracker + PRD policy (2026-09-07 operator decision)
 
@@ -186,7 +201,7 @@ orca automations create \
   --repo name:devagent \
   --workspace-mode new-per-run \
   --base-branch main \
-  --prompt "Execute exactly ONE iteration of the DevAgent self-build loop per docs/SELF-BUILD-LOOP.md. FIRST run scripts/selfbuild-state.sh pull, then read .selfbuild/ledger.jsonl for the next loop number (ledger lines + 1), then run phases 1-7 end to end. Pick the highest-priority open GitHub issue labeled selfbuild (priority:P0 > P1 > P2; the tracker is refilled by the prd-curator automation). After recording the iteration outcome in the ledger, run scripts/selfbuild-state.sh push. PUSH CODE AS A PULL REQUEST; never direct to origin/main for product code. Do not start a second iteration." \
+  --prompt "Read .selfbuild/ledger.jsonl for the next loop number (ledger lines + 1). Then run exactly ONE iteration of the DevAgent self-build loop per docs/SELF-BUILD-LOOP.md through the Go driver with its cap pinned one past that number: SELFBUILD_MAX_ITERATIONS=<next+1> devagent loop. The driver performs state pull/push and picks the highest-priority open GitHub issue labeled selfbuild (priority:P0 > P1 > P2; the tracker is refilled by the prd-curator automation). PUSH CODE AS A PULL REQUEST; never direct to origin/main for product code. Do not start a second iteration." \
   --enabled --json
 ```
 
@@ -202,8 +217,8 @@ section 18). Tracker mutations are live on GitHub immediately; the PRD state dif
 ships as a docs PR:
 
 ```sh
-npm run prdcurate                 # one pass, opens a PR when the PRD changes
-SELFBUILD_DRY_RUN=1 npm run prdcurate   # preview only
+bash scripts/prd-curator.sh                 # one pass, opens a PR when the PRD changes
+SELFBUILD_DRY_RUN=1 bash scripts/prd-curator.sh   # preview only
 ```
 
 Schedule it alongside the build loop so goals never go stale:
@@ -241,8 +256,8 @@ the parent otherwise. The LaunchAgent writes `~/Library/Logs/orca-selfbuild-clea
 Other knobs: `ORCA_SELFBUILD_REPO` (repo selector, default `name:devagent`),
 `ORCA_MAIN_REPO` (git context for merge checks).
 
-**B. Long-lived terminal.** Run `npm run selfbuild` inside an Orca terminal tab
-(`orca terminal create`); the script loops internally. Pair with cc-guard
+**B. Long-lived terminal.** Run `devagent loop` inside an Orca terminal tab
+(`orca terminal create`); the driver loops internally. Pair with cc-guard
 (`devagent guard-status --resume`) for API-failure recovery.
 
 **C. Factory (scout + Orca workers).** `devagent create --repo . --scout --workers 3` supersedes the single-process loop with a decoupled factory:
