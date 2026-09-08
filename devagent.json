@@ -1,6 +1,6 @@
 {
   "worker": "omp",
-  "model": "router/dev",
+  "model": "onegw/free",
   "herdr": {
     "enabled": true,
     "session": "devagent"
@@ -8,9 +8,8 @@
   "scout": {
     "enabled": true,
     "worker": "omp",
-    "intervalMinutes": 30,
-    "maxQueued": 3,
-    "model": "router/dev"
+    "model": "onegw/free",
+    "maxQueued": 3
   },
   "autoMerge": true,
   "selfUpdate": true,
