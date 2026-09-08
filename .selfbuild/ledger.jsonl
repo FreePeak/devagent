@@ -133,3 +133,4 @@
 {"loop":172,"ts":"2026-09-08T10:08:59Z","status":"provider-degraded","goal":"doc-sync failed: Aborting"}
 {"loop":173,"ts":"2026-09-08T10:10:56Z","status":"provider-degraded","goal":"doc-sync failed: Aborting"}
 {"loop":174,"ts":"2026-09-08T10:12:37Z","status":"provider-degraded","goal":"doc-sync failed: Aborting"}
+{"loop":175,"ts":"2026-09-08T10:17:12Z","status":"provider-degraded","goal":"doc-sync failed: Aborting"}
