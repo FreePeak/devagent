@@ -129,3 +129,4 @@
 {"loop":168,"ts":"2026-09-08T06:57:45Z","status":"ok","goal":"Goal: Implement GitHub issue #145 (PRD: Easy handoff — 1 setup + 1 use (init → tui → tested PR)) in full and verifiably. Read the issue body for scope, acceptan"}
 {"loop":169,"ts":"2026-09-08T08:32:08Z","status":"ok","goal":"Goal: Implement GitHub issue #230 (loopdriver: make the post-merge repo test gate configurable (SELFBUILD_TEST_CMD) — required before Node retirement) in full a"}
 {"loop":170,"ts":"2026-09-08T09:11:21Z","status":"ok","goal":"Goal: noop marker dispatch — immediately kill"}
+{"loop":171,"ts":"2026-09-08T10:06:50Z","status":"ok","goal":"Goal: Implement GitHub issue #238 (Go task pipeline: publish stage silently skipped after auto-cleanup + autopr close fires without a PR (soak-169 evidence)) in"}
