@@ -62,7 +62,7 @@ jobs:
         with:
           version: v2.13.2
 
-  # Issue #205 single-implementation gate: the Go CLI is the only
+  # Issues #205/#250 single-implementation gate: the Go CLI is the only
   # implementation. Fails CI when any Node-era artifact or Node toolchain
   # invocation reappears. The pattern literals below are written so this
   # file never matches its own checks.
@@ -83,9 +83,16 @@ jobs:
             [ ! -e "$path" ] || fail "Node remnant '$path' exists — the Go CLI is the only implementation (issue #205)"
           done
 
-          # Workflows must not invoke the Node toolchain (npm/npx/tsx).
-          if grep -rnE '(npm|npx|tsx) ' .github/workflows/*.yml; then
-            fail "Node toolchain invocation found in .github/workflows — CI runs the Go suite only (issue #205)"
+          # Workflows must not invoke the Node toolchain (npm/npx/tsx/node).
+          if grep -rnE '(npm|npx|tsx|node) ' .github/workflows/*.yml; then
+            fail "Node toolchain invocation found in .github/workflows — CI runs the Go suite only (issues #205, #250)"
+          fi
+
+          # Version tooling is Go-only (issue #250): no .mjs/.cjs scripts may
+          # exist under .github or scripts/release — the semver tool lives at
+          # scripts/release/nextversion (Go main package).
+          if find .github scripts/release -type f \( -name '*.mjs' -o -name '*.cjs' \) | grep -q .; then
+            fail ".mjs/.cjs script found under .github/ or scripts/release/ — version tooling is Go-only (issues #205, #250)"
           fi
 
           # Docs must not instruct Node package-manager ci/link installs.
