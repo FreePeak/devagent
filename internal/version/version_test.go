@@ -6,7 +6,7 @@ import (
 )
 
 // semverRe pins the shape of Version (MAJOR.MINOR.PATCH). Release tooling
-// (scripts/release/next-version.mjs) and the git v* tags emit this shape;
+// (scripts/release/nextversion) and the git v* tags emit this shape;
 // a drift means someone hand-edited the constant.
 var semverRe = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
 
