@@ -193,6 +193,21 @@ describe("daemon API", () => {
     expect(readProxyState(repo)?.circuit).toBe("open");
   });
 
+  it("surfaces the newest paused ask task through /status (FR-HAND-07)", async () => {
+    writeFileSync(join(repo, ".devagent-project.json"), JSON.stringify({
+      goal: "probe board",
+      tasks: [
+        { id: "TASK-done-1", title: "done task", status: "done" },
+        { id: "TASK-ask-9", title: "needs your call", status: "ask" },
+      ],
+    }));
+    const h = await start();
+    const res = await get(h, "/status", { headers: { Authorization: `Bearer ${h.token}` } });
+    const body = (await res.json()) as { ask?: { id?: string } | null };
+    expect(body.ask?.id).toBe("TASK-ask-9");
+    rmSync(join(repo, ".devagent-project.json"), { force: true });
+  });
+
   it("lists session panes through the stubbed herdr CLI", async () => {
     const h = await start();
     const res = await get(h, "/sessions", { headers: { Authorization: `Bearer ${h.token}` } });
@@ -250,6 +265,53 @@ describe("daemon API", () => {
     expect(agentsBody.queued.map((t) => t.id)).toContain(body.taskId);
     const queuedRow = agentsBody.queued.find((t) => t.id === body.taskId)!;
     expect(queuedRow.source).toBe("daemon");
+  });
+
+  it("threads autoPr through /dispatch and names the token step when GITHUB_TOKEN is missing (FR-HAND-03)", async () => {
+    const seen: DispatchSpec[] = [];
+    const h = await start({
+      dispatchRunner: async (spec: DispatchSpec) => {
+        seen.push(spec);
+        return { pid: 1 };
+      },
+    });
+    const prevToken = process.env.GITHUB_TOKEN;
+    delete process.env.GITHUB_TOKEN;
+    try {
+      const res = await get(h, "/dispatch", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${h.token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: "tui goal", autoPr: true }),
+      });
+      expect(res.status).toBe(202);
+      const body = (await res.json()) as { autoPr?: boolean; note?: string };
+      expect(seen[0]?.autoPr).toBe(true);
+      expect(body.autoPr).toBe(false);
+      expect(body.note).toContain("GITHUB_TOKEN not set");
+
+      process.env.GITHUB_TOKEN = "t";
+      const res2 = await get(h, "/dispatch", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${h.token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: "tui goal 2", autoPr: true }),
+      });
+      const body2 = (await res2.json()) as { autoPr?: boolean; note?: string };
+      expect(body2.autoPr).toBe(true);
+      expect(body2.note).toBeUndefined();
+
+      // scripts may pass false: no flag either way
+      const res3 = await get(h, "/dispatch", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${h.token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: "script goal", autoPr: false }),
+      });
+      const body3 = (await res3.json()) as { autoPr?: boolean };
+      expect(seen[2]?.autoPr).toBe(false);
+      expect(body3.autoPr).toBe(false);
+    } finally {
+      if (prevToken === undefined) delete process.env.GITHUB_TOKEN;
+      else process.env.GITHUB_TOKEN = prevToken;
+    }
   });
 
   it("rejects dispatch without a prompt (400)", async () => {
@@ -554,5 +616,33 @@ describe("daemon UDS transport", () => {
     } finally {
       await handle.stop();
     }
+  });
+});
+
+// FR-HAND-03 argv pinning: pure builder so the flag threading is testable
+// without spawning a real pipeline (unit-test argv; no live GitHub required).
+describe("dispatchArgv (auto-pr flag threading)", () => {
+  const base = { repoPath: "/repo", prompt: "ship it" };
+
+  it("omits --auto-pr by default", () => {
+    const argv = dispatchArgv({ ...base }, { GITHUB_TOKEN: "t" });
+    expect(argv).not.toContain("--auto-pr");
+  });
+
+  it("appends --auto-pr when spec.autoPr and GITHUB_TOKEN are both set", () => {
+    const argv = dispatchArgv({ ...base, autoPr: true }, { GITHUB_TOKEN: "t" });
+    expect(argv).toContain("--auto-pr");
+    expect(argv.indexOf("--auto-pr")).toBe(argv.length - 1); // last, after --repo
+  });
+
+  it("keeps the run local when autoPr is set but the token is missing", () => {
+    const argv = dispatchArgv({ ...base, autoPr: true }, {});
+    expect(argv).not.toContain("--auto-pr");
+  });
+
+  it("threads worker/budget flags ahead of the auto-pr tail", () => {
+    const argv = dispatchArgv({ ...base, worker: "omp", maxLoops: 2, timeoutMinutes: 15, autoPr: true }, { GITHUB_TOKEN: "t" });
+    expect(argv).toEqual(expect.arrayContaining(["--worker", "omp", "--max-loops", "2", "--timeout", "15", "--auto-pr"]));
+    expect(argv[argv.indexOf("--prompt") + 1]).toBe("ship it");
   });
 });

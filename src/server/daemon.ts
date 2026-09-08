@@ -19,7 +19,7 @@ import {
   type SessionPaneInfo,
 } from "../integrations/herdr.js";
 import { appendAuditRecord, appendOperatorAttachRecord, auditLedgerRecord, readLedgerTail } from "../orchestrator/ledger.js";
-import { applyAnswerToRepo, type AnswerEndpointResult } from "../orchestrator/store.js";
+import { applyAnswerToRepo, loadBoard, type AnswerEndpointResult } from "../orchestrator/store.js";
 import { enqueueTask, listTasks, readTask, taskCount, type QueuedTask } from "../queue.js";
 import { readProxyState } from "../resilience/proxy-state.js";
 import { findStaleWorkerPids, killStaleProcessTree } from "../resilience/reaper.js";
@@ -54,6 +54,11 @@ export interface DispatchSpec {
   worker?: string;
   maxLoops?: number;
   timeoutMinutes?: number;
+  /**
+   * Publish a PR when green (FR-HAND-03): the TUI dispatch sheet defaults
+   * this to true; scripts may pass false. Effective argv still gates on
+   * GITHUB_TOKEN — without it the run stays local (gates still gate).
+   */
   autoPr?: boolean;
 }
 
@@ -207,7 +212,7 @@ class RunLogFollower {
   private readonly sources: Array<{ path: string; loaded: number }> = [];
   private buffer: string[] = [];
   private loaded = 0;
-  private pollTimer: NodeJS.Timeout | null = null;
+  private pollTimer: NodeJS.Timeout | undefined;
 
   constructor(home: string, extraSources: string[] = []) {
     const runLog = newestRunLog(home);
@@ -270,22 +275,27 @@ class RunLogFollower {
   }
 
   stop(): void {
-    if (this.pollTimer) clearInterval(this.pollTimer);
-    this.pollTimer = null;
+    clearInterval(this.pollTimer);
+    this.pollTimer = undefined;
   }
 }
 
-/** Spawned argv for one dispatched run — pure so tests can pin flag threading. */
-export function dispatchArgv(spec: DispatchSpec): string[] {
+/**
+ * Spawned argv for one dispatched run — pure so tests can pin flag threading
+ * (FR-HAND-03): `--auto-pr` reaches the existing `devagent task` pipeline
+ * only when the spec asked for it AND GITHUB_TOKEN is present. Without the
+ * token the run stays local (gates still run); the endpoint names the token
+ * step as the next action instead of inventing a third setup command.
+ */
+export function dispatchArgv(spec: DispatchSpec, env: NodeJS.ProcessEnv = process.env): string[] {
   const repoRoot = process.cwd();
-  const distCli = join(repoRoot, "dist", "src", "cli.js");
-  const argv: string[] = existsSync(distCli)
-    ? [process.execPath, distCli, "task", "--prompt", spec.prompt, "--repo", spec.repoPath]
+  const argv: string[] = existsSync(join(repoRoot, "dist", "src", "cli.js"))
+    ? [process.execPath, join(repoRoot, "dist", "src", "cli.js"), "task", "--prompt", spec.prompt, "--repo", spec.repoPath]
     : ["npx", "tsx", join(repoRoot, "src", "cli.ts"), "task", "--prompt", spec.prompt, "--repo", spec.repoPath];
   if (spec.worker) argv.push("--worker", spec.worker);
   if (spec.maxLoops !== undefined) argv.push("--max-loops", String(spec.maxLoops));
   if (spec.timeoutMinutes !== undefined) argv.push("--timeout", String(spec.timeoutMinutes));
-  if (spec.autoPr) argv.push("--auto-pr");
+  if (spec.autoPr && env.GITHUB_TOKEN) argv.push("--auto-pr");
   return argv;
 }
 
@@ -326,7 +336,10 @@ function parseDispatch(
   };
   if (typeof p.worker === "string" && p.worker) spec.worker = p.worker;
   if (typeof p.role === "string" && p.role) spec.role = p.role;
+  // FR-HAND-03: explicit-only threading — the TUI dispatch sheet sends
+  // autoPr: true; scripts may pass false. Absent = no auto-PR argv.
   if (p.autoPr === true) spec.autoPr = true;
+  if (p.autoPr === false) spec.autoPr = false;
   const budget = p.budget as Record<string, unknown> | undefined;
   if (budget) {
     const loops = Number(budget.maxLoops);
@@ -375,6 +388,9 @@ async function statusEndpoint(res: ServerResponse, ctx: RouteContext): Promise<v
   const cfg = loadConfig(ctx.repoPath);
   const counts = taskCount(ctx.repoPath);
   const proxy = readProxyState(ctx.repoPath);
+  // FR-HAND-07: surface the newest paused 'ask' task so clients (the TUI
+  // approve sheet) can answer it via POST /approve without a second CLI.
+  const ask = loadBoard(ctx.repoPath)?.tasks.find((t) => t.status === "ask");
   sendJson(res, 200, {
     now: new Date().toISOString(),
     uptime_s: Math.floor((Date.now() - ctx.startedAt) / 1000),
@@ -383,6 +399,7 @@ async function statusEndpoint(res: ServerResponse, ctx: RouteContext): Promise<v
     circuit: proxy?.circuit ?? "closed",
     herdr: { enabled: herdrEnabled(cfg), session: herdrSessionName(cfg) },
     spawn: { visibility: spawnVisibility(cfg) },
+    ask: ask ? { id: ask.id, title: ask.title, status: ask.status } : null,
     capabilities: DEVAGENT_CAPABILITIES,
   });
 }
@@ -425,7 +442,20 @@ async function dispatchEndpoint(req: IncomingMessage, res: ServerResponse, ctx: 
     return;
   }
   const { pid } = await ctx.dispatchRunner(spec);
-  sendJson(res, 202, { ok: true, taskId: queued.id, pid });
+  // FR-HAND-03 next-action: when auto-PR was requested but GITHUB_TOKEN is
+  // missing, the run stays local — the caller (TUI note) names the token/PR
+  // step instead of a third mandatory setup command.
+  const autoPrRequested = spec.autoPr === true;
+  const autoPrEffective = autoPrRequested && Boolean(process.env.GITHUB_TOKEN);
+  sendJson(res, 202, {
+    ok: true,
+    taskId: queued.id,
+    pid,
+    autoPr: autoPrEffective,
+    ...(autoPrRequested && !autoPrEffective
+      ? { note: "GITHUB_TOKEN not set — the task runs local and the worktree stays for review; set GITHUB_TOKEN to publish a PR" }
+      : {}),
+  });
 }
 
 async function approveEndpoint(req: IncomingMessage, res: ServerResponse, ctx: RouteContext): Promise<void> {

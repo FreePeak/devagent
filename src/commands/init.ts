@@ -14,7 +14,7 @@
  * and a ≤3-line post-init orientation from buildStatusView (FR-SIMPLE-05).
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { accessSync, constants, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { credentialStatus, loadConfig } from '../config.js';
 import { runPreflightProbe } from '../resilience/preflight.js';
@@ -22,6 +22,7 @@ import type { PreflightProbe } from '../resilience/preflight.js';
 import { chipFor, dim } from '../tui/tui.js';
 import { buildStatusView } from './status.js';
 import { buildProbeArgvFor } from './probe-argv.js';
+import { ensureOrcaRepo } from '../integrations/orca.js';
 
 export interface PrereqCheck {
   name: string;
@@ -42,6 +43,8 @@ export interface InitOptions {
   worker?: string;
   model?: string;
   probe?: ProbeFn;
+  /** Test seam: Orca repo registration (defaults to the real ensureOrcaRepo). */
+  ensureOrca?: (repoPath: string) => Promise<boolean>;
   /**
    * When true, after the checklist write run a hermetic stub smoke
    * (fixture → done). Default off so existing scripts stay fast (#144 R2).
@@ -116,12 +119,19 @@ function commandOnPath(cmd: string, env: NodeJS.ProcessEnv): boolean {
 }
 
 function which(cmd: string, env: NodeJS.ProcessEnv): string | null {
-  try {
-    const out = execFileSync('which', [cmd], { encoding: 'utf8', env, timeout: 5_000 }).trim();
-    return out || null;
-  } catch {
-    return null;
+  // Manual PATH scan: shelling out to `which` fails when the PATH under
+  // test is restricted (stubs only) and can't resolve `which` itself.
+  for (const dir of (env.PATH ?? '').split(':')) {
+    if (!dir) continue;
+    const candidate = join(dir, cmd);
+    try {
+      accessSync(candidate, constants.X_OK);
+      return candidate;
+    } catch {
+      // not here / not executable
+    }
   }
+  return null;
 }
 
 async function defaultProbe(cmd: string, args: string[], opts: { cwd: string }): Promise<PreflightProbe> {
@@ -246,17 +256,44 @@ export async function runInit(opts: InitOptions = {}): Promise<InitResult> {
   ];
 
   const file = mergeConfigFile(repoPath);
-  const worker = opts.worker ?? (typeof file.cfg.worker === 'string' ? file.cfg.worker : 'omp');
+  // FR-HAND-04: --worker wins; otherwise keep the recorded choice; otherwise
+  // default omp if present, else the first detected worker CLI. Detection
+  // scans every supported binary so the checklist can show all chips.
+  const WORKER_BINS: Array<{ worker: string; bin: string; hint: string }> = [
+    { worker: 'omp', bin: 'omp', hint: 'npm i -g omp' },
+    { worker: 'claude-code', bin: 'claude', hint: 'npm i -g @anthropic-ai/claude-code' },
+    { worker: 'opencode', bin: 'opencode', hint: 'curl -fsSL https://opencode.ai/install | bash' },
+    { worker: 'pi', bin: 'pi', hint: 'npm i -g @mariozechner/pi' },
+  ];
+  const detected = WORKER_BINS.map((w) => ({ ...w, path: which(w.bin, env) }));
+  const firstDetected = detected.find((w) => w.path);
+  const worker =
+    opts.worker ??
+    (typeof file.cfg.worker === 'string' ? file.cfg.worker : (firstDetected?.worker ?? 'omp'));
   const model = opts.model ?? (typeof file.cfg.model === 'string' ? file.cfg.model : undefined);
 
   // Worker CLI on PATH (worker name → binary; claude-code's binary is claude).
   const workerBin = worker === 'claude-code' ? 'claude' : worker === 'both' ? 'omp' : worker;
   const workerPath = which(workerBin, env);
+
   checks.push({
     name: 'worker',
     ok: workerPath !== null,
     required: true,
     detail: workerPath ? `worker CLI ${workerBin} found (${workerPath})` : `worker CLI ${workerBin} not found`,
+  });
+  // FR-HAND-04: chips for every supported worker; one-line install advice
+  // per missing binary. Advisory only — missing tools never fail `ok`.
+  checks.push({
+    name: 'workers',
+    ok: true,
+    detail: detected
+      .map((w) =>
+        w.path
+          ? `${w.worker}: ${w.worker === worker ? 'selected' : 'found'}`
+          : `${w.worker}: missing — install with ${w.hint}`,
+      )
+      .join(', '),
   });
 
   // Provider probe, best-effort, scoped to the workers whose answer shape
@@ -301,13 +338,46 @@ export async function runInit(opts: InitOptions = {}): Promise<InitResult> {
     unlocks: 'G2 migration apply / compose sandboxes',
   });
 
+  // FR-HAND-05: herdr advisory row. Present + no explicit `herdr.enabled`
+  // → flip the FR-VIS-01 default on in the config; absent → loud one-liner,
+  // still exit 0 (workers degrade to invisible child processes).
+  const herdrOk = which('herdr', env) !== null;
+  checks.push({
+    name: 'herdr',
+    ok: herdrOk,
+    required: false,
+    detail: herdrOk
+      ? 'herdr found — worker panes default on (FR-VIS-01)'
+      : 'herdr not found (optional) — workers run as invisible child processes; install it for visible panes',
+    unlocks: 'visible worker panes in the TUI',
+  });
+
+  // FR-HAND-06: orca advisory row. Present → best-effort repo registration
+  // (never a worktree provision — `create --workers` stays factory-only);
+  // absent → skip silently from the required path.
+  const orcaOk = which('orca', env) !== null;
+  if (orcaOk) {
+    const registered = await (opts.ensureOrca ?? ensureOrcaRepo)(repoPath);
+    checks.push({
+      name: 'orca',
+      ok: registered,
+      required: false,
+      detail: registered
+        ? 'orca found — repo registered with Orca'
+        : 'orca found — repo registration failed (continuing without Orca)',
+      unlocks: 'Orca-managed worker worktrees via devagent create --workers',
+    });
+  }
+
   // Sane defaults: write only what is absent — existing choices always win.
+  const herdrCfg = (file.cfg.herdr ?? {}) as Record<string, unknown>;
   const next = {
     ...file.cfg,
     worker: file.cfg.worker ?? worker,
     maxLoops: file.cfg.maxLoops ?? 3,
     timeoutMinutes: file.cfg.timeoutMinutes ?? 30,
     ...(file.cfg.githubBaseBranch === undefined ? { githubBaseBranch: 'main' } : {}),
+    ...(herdrOk && herdrCfg.enabled === undefined ? { herdr: { ...herdrCfg, enabled: true } } : {}),
   };
   writeFileSync(file.path, `${JSON.stringify(next, null, 2)}\n`);
   loadConfig(repoPath); // validates the shape we just wrote; throws on garbage
@@ -335,7 +405,9 @@ export function renderInitReport(r: InitResult, render: (s: string) => void = (s
   lines.push('');
   const failed = r.checks.filter((c) => !c.ok);
   const requiredFailed = failed.filter((c) => c.required);
-  const goalLines = ['Next: state your goal in one sentence —', dim('  devagent orchestrate --goal "Add CSV export to the orders API"')];
+  // FR-HAND-01 (1+1 bar): the only next action is `devagent tui` — a goal
+  // typed there (press n) starts work. No third mandatory command.
+  const goalLines = ['Next: state your goal in one sentence —', dim('  devagent tui   (press n, type the goal, Enter)')];
   if (failed.length === 0) {
     lines.push('All checks passed.', ...goalLines);
   } else if (requiredFailed.length === 0) {

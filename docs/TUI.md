@@ -9,6 +9,11 @@ exit 0 — the smoke-testable path.
 devagent tui   # that's it — attaches to a daemon, or embeds one for the session
 ```
 
+It is also the **use command of the 1+1 handoff path (FR-HAND, #145)**: after
+`devagent init`, press `n` and state your goal in one sentence — the dispatch
+sheet posts it to `POST /dispatch` and a worker card appears. No third
+terminal, no flag maze.
+
 ## Daemon modes (one command, three behaviors)
 
 The glances standalone/client/server pattern: one command covers all cases.
@@ -31,9 +36,11 @@ Notes:
 
 | Key | Action |
 | --- | --- |
+| `n` | **dispatch sheet** (FR-HAND-02): type the goal in one line, `Enter` posts it to `POST /dispatch` (worker + repo come from your config; auto-PR on when `GITHUB_TOKEN` is set — FR-HAND-03). Esc cancels. |
+| `g` | **answer a paused task** (FR-HAND-07): `y`/`n` approve/deny or free text, `Enter` posts it to `POST /approve`. The header shows a `paused for you — press g` cue when a task is waiting. Without a paused task, `g` still jumps to the first item. |
 | `1` / `2` / `3` | switch view: **workers** / **sessions** / **live log** (`s` and `l` toggle back to workers) |
 | `↑` `↓`, PgUp/PgDn | move the selection (workers, sessions) · scroll the log |
-| `g` / `G` | jump to first / last item (log: oldest / newest) |
+| `Home` / `G` | jump to first / last item (log: oldest / newest) |
 | `f` | toggle follow-tail in the log view (Esc also snaps back to the tail) |
 | `Enter` / `o` | expand the selected worker/queued card into a detail panel |
 | `u` | upgrade hint — the self-hosted upgrade/rollback recipe (pilot's `u` key, FR-TUI-05) |
