@@ -408,3 +408,26 @@ func TestSpawnClaudeWatchdogKillsSilentChild(t *testing.T) {
 		t.Fatalf("expected non-zero/nil exit code: %+v", outcome.ExitCode)
 	}
 }
+
+// TestSpawnClaudeCleanExitZero: a successful child must report exit code 0
+// (TS close code 0), not null — cmd.Wait returns nil on success, so the
+// code has to come from ProcessState. The RunGuard retry loop treats a nil
+// exit code as a failure and would retry forever against a healthy child.
+func TestSpawnClaudeCleanExitZero(t *testing.T) {
+	var lines sgoLineCollector
+	outcome, err := SpawnClaude([]string{"/bin/sh", "-c",
+		`printf '%s\n' '{"type":"system","subtype":"init","session_id":"ok-1"}' '{"type":"result","is_error":false,"session_id":"ok-1"}'`},
+		&lines, SpawnOpts{})
+	if err != nil {
+		t.Fatalf("SpawnClaude: %v", err)
+	}
+	if outcome.ExitCode == nil || *outcome.ExitCode != 0 {
+		t.Fatalf("exitCode: %v, want 0", outcome.ExitCode)
+	}
+	if outcome.TimedOut || outcome.ResultIsError || outcome.SyntheticErrorText != "" {
+		t.Fatalf("outcome: %+v", outcome)
+	}
+	if outcome.SessionID != "ok-1" {
+		t.Fatalf("sessionId: %q", outcome.SessionID)
+	}
+}

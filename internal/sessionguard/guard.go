@@ -87,8 +87,11 @@ type GuardOptions struct {
 	// nil falls back to DEVAGENT_API_MAX_ATTEMPTS (when set to a positive
 	// integer) and otherwise means unbounded.
 	MaxAttempts *int
-	// Backoff overrides individual BackoffOptions fields (zero fields
-	// keep the DEFAULT_BACKOFF value, mirroring the TS Partial merge).
+	// Backoff mirrors the TS spread {...DEFAULT_BACKOFF, ...options.backoff}:
+	// BaseDelayMs/MaxDelayMs apply verbatim when set (an explicit 0 is a
+	// real value — the CLI accepts --base-delay-ms 0 / --max-delay-ms 0),
+	// while a zero Factor keeps DEFAULT_BACKOFF.Factor (the CLI never
+	// exposes --factor). nil uses DEFAULT_BACKOFF unchanged.
 	Backoff *BackoffOptions
 	// NoProgressTimeoutMs kills + resumes when the child emits nothing
 	// for this long. 0 disables.
@@ -166,14 +169,15 @@ func RunGuard(options GuardOptions) (GuardResult, error) {
 	if resumePrompt == "" {
 		resumePrompt = defaultResumePrompt
 	}
+	// The TS merge `{ ...DEFAULT_BACKOFF, ...options.backoff }` applies
+	// provided keys verbatim, so an explicit 0 is a real value (the guard
+	// CLI can pass --base-delay-ms 0 / --max-delay-ms 0). Factor has no CLI
+	// flag and 0 is not a meaningful curve, so a zero falls back to the
+	// package default.
 	backoff := DEFAULT_BACKOFF
 	if options.Backoff != nil {
-		if options.Backoff.BaseDelayMs != 0 {
-			backoff.BaseDelayMs = options.Backoff.BaseDelayMs
-		}
-		if options.Backoff.MaxDelayMs != 0 {
-			backoff.MaxDelayMs = options.Backoff.MaxDelayMs
-		}
+		backoff.BaseDelayMs = options.Backoff.BaseDelayMs
+		backoff.MaxDelayMs = options.Backoff.MaxDelayMs
 		if options.Backoff.Factor != 0 {
 			backoff.Factor = options.Backoff.Factor
 		}
