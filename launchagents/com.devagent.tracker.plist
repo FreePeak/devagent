@@ -10,8 +10,7 @@
   </dict>
   <key>ProgramArguments</key>
   <array>
-    <string>${HOME}/.local/bin/node</string>
-    <string>${HOME}/orca/workspaces/devagent-orchestrator-dev/dist/src/cli.js</string>
+    <string>${HOME}/orca/workspaces/devagent-orchestrator-dev/devagent-go</string>
     <string>track</string>
     <string>--repo</string>
     <string>${HOME}/orca/workspaces/devagent-orchestrator-dev</string>
