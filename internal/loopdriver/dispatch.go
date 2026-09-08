@@ -221,11 +221,15 @@ func (d *driver) extractText(rawPath, outPath, abortPath, failDiag string) {
 	_ = os.WriteFile(outPath, []byte(res.Out), 0o644)
 }
 
-// runNpmTest runs the post-merge-back repo-level test gate.
-func (d *driver) runNpmTest() int {
-	cmd := exec.Command("npm", "test")
+// runRepoTests runs the post-merge-back repo-level test gate: the word-split
+// cfg.TestCmd (SELFBUILD_TEST_CMD, default `npm test`) inside cfg.Repo.
+func (d *driver) runRepoTests() int {
+	words := splitWords(d.cfg.TestCmd)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cmd := exec.CommandContext(ctx, words[0], words[1:]...)
 	cmd.Dir = d.cfg.Repo
-	if err := cmd.Run(); err != nil {
+	if err := runCmd(ctx, cmd); err != nil {
 		return 1
 	}
 	return 0
@@ -233,8 +237,11 @@ func (d *driver) runNpmTest() int {
 
 // taskDispatch runs the phase-4 implementation dispatch
 // (`devagent task --prompt GOAL --repo REPO --worker W [--model M]
-// [--auto-pr]`) under the outer wall-clock cap; returns rc.
-func (d *driver) taskDispatch(goal string) int {
+// [--auto-pr]`) under the outer wall-clock cap; returns (combined output, rc).
+// The output matters in pr push mode: a shipped iteration must carry a
+// "PR opened: <url>" line before the driver may close the tracker issue
+// (issue #238: soak-169 closed an issue with no PR behind it).
+func (d *driver) taskDispatch(goal string) (string, int) {
 	args := []string{"task", "--prompt", goal + "\n\n" + prdPolicy, "--repo", d.cfg.Repo, "--worker", d.cfg.Worker}
 	if d.cfg.Model != "" {
 		args = append(args, "--model", d.cfg.Model)
@@ -242,8 +249,7 @@ func (d *driver) taskDispatch(goal string) int {
 	if d.cfg.PushMode == "pr" {
 		args = append(args, "--auto-pr")
 	}
-	_, rc := d.runDevagentWithTimeout(d.cfg.TaskTimeout, args...)
-	return rc
+	return d.runDevagentWithTimeout(d.cfg.TaskTimeout, args...)
 }
 
 // runCmd starts cmd and waits for it (ctx cancellation kills the process

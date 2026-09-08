@@ -272,12 +272,22 @@ func (d *driver) runIteration(n int, logF io.Writer, gradient, clusters string) 
 	}
 
 	// Phases 4-5-6: task dispatch under the outer wall-clock cap.
-	if out := d.runTaskPhase(n, logF, goal, queued); out != outcomeNext {
+	out, prURL := d.runTaskPhase(n, logF, goal, queued)
+	if out != outcomeNext {
 		return out
+	}
+	// Issue #238: in pr push mode a task rc 0 is NOT shipped until a PR
+	// exists. Without one, record a non-productive row and leave the issue
+	// open for re-pick (soak-169 closed #230 on rc 0 with zero publish
+	// events). push mode "main" commits+pushes below, so its close stays.
+	if cfg.PushMode == "pr" && prURL == "" {
+		_, _ = fmt.Fprintln(logF, "[publish] task succeeded without opening a PR — leaving the issue open for re-pick")
+		d.record(logF, n, "no-pr", goal)
+		return outcomeSkip // bash: continue
 	}
 
 	// Post-merge-back repo-level test gate.
-	if rc := d.runNpmTest(); rc != 0 {
+	if rc := d.runRepoTests(); rc != 0 {
 		_, _ = fmt.Fprintln(logF, "[testing] repo tests failed after merge-back")
 		d.record(logF, n, "failed-tests", goal)
 		*d.fails++
@@ -406,11 +416,17 @@ func (d *driver) runPOPhase(n int, logF io.Writer, prevTail, lessonsCtx, gradien
 	return outcomeNext
 }
 
+// prOpenedRe matches the `devagent task` success line carrying the PR URL
+// ("PR opened: <url>", the RunTask note printed by the CLI).
+var prOpenedRe = regexp.MustCompile(`PR opened: (https?://\S+)`)
+
 // runTaskPhase ports the phase-4-7 task dispatch with the failure path
-// (failed row + queue done + breaker consult).
-func (d *driver) runTaskPhase(n int, logF io.Writer, goal string, queued *claimedTask) outcome {
+// (failed row + queue done + breaker consult) and returns the PR URL the
+// dispatch reported ("" = no PR was opened).
+func (d *driver) runTaskPhase(n int, logF io.Writer, goal string, queued *claimedTask) (outcome, string) {
 	d.phase(n, "task", firstLineCapped(goal, 100))
-	if rc := d.taskDispatch(goal); rc != 0 {
+	out, rc := d.taskDispatch(goal)
+	if rc != 0 {
 		_, _ = fmt.Fprintln(logF, "[implement] task failed")
 		d.record(logF, n, "failed", goal)
 		if queued != nil {
@@ -418,11 +434,15 @@ func (d *driver) runTaskPhase(n int, logF io.Writer, goal string, queued *claime
 		}
 		*d.fails++
 		if d.breakerTripped(logF) {
-			return outcomeExit1
+			return outcomeExit1, ""
 		}
-		return outcomeSkip // bash: continue
+		return outcomeSkip, "" // bash: continue
 	}
-	return outcomeNext
+	m := prOpenedRe.FindStringSubmatch(out)
+	if m == nil {
+		return outcomeNext, ""
+	}
+	return outcomeNext, m[1]
 }
 
 // prevLedgerTail mirrors `tail -k "$STATE/ledger.jsonl"`.
