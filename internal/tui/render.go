@@ -403,12 +403,12 @@ func upgradeOverlayLines(width int) []string {
 		"",
 		" " + Dim + "upgrade — clean worktree only:" + Reset,
 		"   " + Cyan + "git pull --ff-only" + Reset,
-		"   " + Cyan + "npm ci && npm run build" + Reset,
+		"   " + Cyan + "make build" + Reset,
 		"",
 		" " + Dim + "rollback:" + Reset,
-		"   " + Cyan + "git checkout <previous-commit> && npm run build" + Reset,
+		"   " + Cyan + "git checkout <previous-commit> && make build" + Reset,
 		"",
-		" " + Dim + "the daemon dispatches dist/src/cli.js — rebuild, then restart" + Reset,
+		" " + Dim + "the daemon dispatches its own binary — rebuild, then restart" + Reset,
 		" " + Dim + "devagent tui so new tasks run the fresh build" + Reset,
 	}
 	return boxLinesLines("Upgrade", body, inner)

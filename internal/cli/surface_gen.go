@@ -1,10 +1,10 @@
-// Package cli carries the frozen command-surface table generated from
-// internal/cli/testdata/commands.json (the live Node CLI surface, frozen
-// 2026-09-07 for FR-GO-02). Do not hand-edit; regenerate with
-// scripts/go/extract-commands.mjs and `npm run build` first.
+// Package cli carries the command-surface table frozen from the Node CLI
+// help surface on 2026-09-07 (FR-GO-02). With the Node implementation
+// retired (FR-GO-16, issue #205) this table is the surface of record for
+// the cobra wiring below: edit it together with each command's real port.
 package cli
 
-// frozenCmd is one command row from the Node CLI help surface.
+// frozenCmd is one command row of the CLI help surface.
 type frozenCmd struct {
 	Flags       []string
 	Subcommands []string

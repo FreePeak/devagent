@@ -945,19 +945,11 @@ func cnsRunSelfUpdate(repoPath string, log RunLog) error {
 	}
 	steps = append(steps, "pull")
 
-	// 3) npm ci (or npm install fallback) + build
-	install := run("npm", []string{"ci", "--ignore-scripts"}, 120_000)
-	if install.TimedOut || install.ExitCode != 0 {
-		install = run("npm", []string{"install", "--ignore-scripts"}, 120_000)
-		if install.TimedOut || install.ExitCode != 0 {
-			return fmt.Errorf("self-update: npm install failed")
-		}
-	}
-	steps = append(steps, "install")
-
-	build := run("npm", []string{"run", "build"}, 60_000)
+	// 3) rebuild the Go binary (the make build target's exact recipe; the
+	// unstamped internal/version default is 0.1.0)
+	build := run("go", []string{"build", "-trimpath", "-o", "devagent-go", "./cmd/devagent"}, 120_000)
 	if build.TimedOut || build.ExitCode != 0 {
-		return fmt.Errorf("self-update: build failed")
+		return fmt.Errorf("self-update: go build failed")
 	}
 	steps = append(steps, "build")
 

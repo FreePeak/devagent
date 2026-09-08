@@ -26,7 +26,7 @@ func writeRepoFile(t *testing.T, repo string, rel string, content string) {
 	}
 }
 
-// greenRunner / redRunner stand in for `npm test` (hermetic suite seam).
+// greenRunner / redRunner stand in for `go test ./...` (hermetic suite seam).
 func greenRunner(cmd string, args []string, dir string, timeoutMs int) (string, int) {
 	return "green suite output\n", 0
 }
@@ -169,7 +169,7 @@ func TestRunLessonsSuite(t *testing.T) {
 	})
 
 	t.Run("runLessonsSuite never throws: an unrunnable suite is a red result", func(t *testing.T) {
-		dir := t.TempDir() // no package.json at all: npm test cannot run
+		dir := t.TempDir() // no go.mod at all: go test cannot run
 		r := RunLessonsSuite(dir, &RunLessonsSuiteOpts{TimeoutMs: 30_000, Runner: unrunnableRunner})
 		if r.OK {
 			t.Fatal("unrunnable suite reported ok")
@@ -179,12 +179,12 @@ func TestRunLessonsSuite(t *testing.T) {
 		}
 	})
 
-	t.Run("default os/exec runner runs a real command (hermetic node fixture)", func(t *testing.T) {
+	t.Run("default os/exec runner runs a real command (hermetic sh fixture)", func(t *testing.T) {
 		dir := t.TempDir()
-		if out, code := defaultSuiteRunner("node", []string{"-e", "process.stdout.write(\"ok\")"}, dir, 30_000); code != 0 || strings.TrimSpace(out) != "ok" {
+		if out, code := defaultSuiteRunner("sh", []string{"-c", "printf ok"}, dir, 30_000); code != 0 || strings.TrimSpace(out) != "ok" {
 			t.Fatalf("got (%q, %d), want (\"ok\", 0)", out, code)
 		}
-		if _, code := defaultSuiteRunner("node", []string{"-e", "process.exit(3)"}, dir, 30_000); code != 3 {
+		if _, code := defaultSuiteRunner("sh", []string{"-c", "exit 3"}, dir, 30_000); code != 3 {
 			t.Fatalf("got %d, want 3", code)
 		}
 	})

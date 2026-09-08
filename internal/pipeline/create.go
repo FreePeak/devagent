@@ -103,11 +103,9 @@ func xmlEsc(s string) string {
 	return s
 }
 
-// BuildLaunchAgentPlist mirrors buildLaunchAgentPlist — the template bytes are
-// identical to the TS original. Deviation: the TS programArgs embed
-// [nodePath, dist/src/cli.js, ...]; the Go build is a single self-contained
-// binary, so the two interpreter argv slots collapse onto the running
-// executable path.
+// BuildLaunchAgentPlist mirrors buildLaunchAgentPlist. The Go build is a
+// single self-contained binary, so the interpreter-argv slots the TS template
+// needed collapse onto the running executable path.
 func BuildLaunchAgentPlist(spec plistSpec) string {
 	home := os.Getenv("HOME")
 	if home == "" {

@@ -469,8 +469,14 @@ func TestPidSeamsDirect(t *testing.T) {
 	if !HasLoopDriverAncestor([]string{"timeout", "bash scripts/selfbuild-loop.sh"}) {
 		t.Error("loop driver ancestor undetected")
 	}
-	if HasLoopDriverAncestor([]string{"timeout 7200 npx tsx"}) {
+	if HasLoopDriverAncestor([]string{"timeout 7200 devagent-go task"}) {
 		t.Error("false driver ancestor")
+	}
+	if !HasLoopDriverAncestor([]string{"timeout", "./devagent-go loop"}) {
+		t.Error("Go loop driver ancestor undetected")
+	}
+	if !HasLoopDriverAncestor([]string{"nohup devagent loop"}) {
+		t.Error("installed-binary loop driver ancestor undetected")
 	}
 	// Missing ancestry entry = no evidence = orphaned.
 	orphanSeams(t, "4242\n", map[string][]string{})
