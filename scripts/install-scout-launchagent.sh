@@ -1,5 +1,12 @@
 #!/usr/bin/env bash
 # Install/validate/uninstall the devagent scout LaunchAgent (macOS).
+#
+# FR-GO-15 cutover (#204): the plist launches the PATH-resolved devagent
+# binary (command -v devagent, falling back to ~/.local/bin/devagent) — the
+# Go binary after cutover, the npm-linked Node CLI during the soak window —
+# with `scout` as the first argument. DEVAGENT_SUPPRESS_DEPRECATION=1 is
+# written into the plist environment so the Node fallback's deprecation
+# banner never pollutes the scout log.
 # Usage:
 #   scripts/install-scout-launchagent.sh --repo <path> [--interval <min>] [--worker opencode|claude-code|omp|pi]
 #   scripts/install-scout-launchagent.sh --validate                 # plutil -lint only
@@ -48,14 +55,14 @@ fi
 
 [ -n "$REPO" ] || { echo "--repo <path> is required (or use --validate/--uninstall)" >&2; exit 2; }
 REPO="$(cd "$REPO" && pwd)"
-CLI_JS="${REPO}/dist/src/cli.js"
-[ -f "$CLI_JS" ] || { echo "missing ${CLI_JS}; run npm run build first" >&2; exit 1; }
+DEVAGENT_BIN="$(command -v devagent || true)"
+[ -n "$DEVAGENT_BIN" ] || DEVAGENT_BIN="${HOME}/.local/bin/devagent"
+[ -x "$DEVAGENT_BIN" ] || { echo "devagent binary not found (looked on PATH and ${HOME}/.local/bin/devagent); install it first" >&2; exit 1; }
 
 mkdir -p "$PLIST_DIR" "$(dirname "$LOG_FILE")"
 
-NODE_BIN="$(command -v node)"
 # LaunchAgents get a minimal default PATH; embed this shell's PATH so the
-# scout can find opencode/claude/git installed in user locations.
+# scout can find opencode/claude/git/gh installed in user locations.
 INSTALL_PATH="$PATH"
 
 cat > "$PLIST" <<EOF
@@ -68,11 +75,11 @@ cat > "$PLIST" <<EOF
   <dict>
     <key>PATH</key><string>${INSTALL_PATH}</string>
     <key>HOME</key><string>${HOME}</string>
+    <key>DEVAGENT_SUPPRESS_DEPRECATION</key><string>1</string>
   </dict>
   <key>ProgramArguments</key>
   <array>
-    <string>${NODE_BIN}</string>
-    <string>${CLI_JS}</string>
+    <string>${DEVAGENT_BIN}</string>
     <string>scout</string>
     <string>--repo</string><string>${REPO}</string>
     <string>--interval</string><string>${INTERVAL}</string>

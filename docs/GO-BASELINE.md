@@ -4,6 +4,11 @@ Measured 2026-09-07 on the reference machine (Apple M2 Pro, macOS 26 arm64,
 Go 1.25.x). These are the numbers the Go implementation must beat. Update
 this file only with fresh measurements, never projections.
 
+> **2026-09-08 (FR-GO-15 cutover, #204):** the production entrypoint flips to
+> the Go binary at this cutover; the Node CLI becomes a legacy fallback until
+> FR-GO-16. The measurements below remain the reference baseline from
+> 2026-09-07.
+
 ## Node baseline
 
 | Metric | Value | How measured |

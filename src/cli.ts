@@ -25,6 +25,17 @@ import { buildAdjacentCategoryScanText } from './research/scan-text.js';
 import { auditPrdCoverage } from './curator/audit.js';
 import { trustAgentsMd, AGENTS_MD_FILE } from './prompt.js';
 
+// FR-GO-15 cutover (#204): the production entrypoint is the Go binary
+// (cmd/devagent; see README install). This Node CLI is the legacy fallback
+// until FR-GO-16. The notice goes to STDERR only — stdout stays clean for
+// NDJSON/headless consumers — and prints on every startup (including
+// --version/--help) unless DEVAGENT_SUPPRESS_DEPRECATION=1.
+if (process.env.DEVAGENT_SUPPRESS_DEPRECATION !== '1') {
+  process.stderr.write(
+    'devagent (Node CLI) is deprecated: the production entrypoint is now the Go binary (see README install). Silence with DEVAGENT_SUPPRESS_DEPRECATION=1.\n',
+  );
+}
+
 function parseConcurrency(v: string): number | 'auto' {
   if (v === 'auto' || v.toLowerCase() === 'auto') return 'auto';
   const n = Number(v);
