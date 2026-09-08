@@ -1715,8 +1715,9 @@ piece can be replaced</td>
 <td>Go port regression in the loop long tail (model-id predicates,
 watchdog semantics, NDJSON parsing edge cases)</td>
 <td>Port golden fixtures first; soak gate compares ledger rows between
-implementations before any cutover (FR-GO-15); Node stays the fallback
-until FR-GO-16</td>
+implementations before any cutover (FR-GO-15); Node stayed the fallback
+until FR-GO-16 (resolved 2026-09-08 — the soak caught the publish/close
+long-tail #238, which is exactly what the gate exists for)</td>
 </tr>
 <tr>
 <td>R9</td>
@@ -2193,11 +2194,15 @@ migration: #144–#148 (existing operator items) and #179 daemon control
 API (P1), #180 network sandbox allowlist (P2), #181 desktop control app
 (P2). Struck lines below are the shipped history.</p>
 <p><strong>Go migration (2026-09-07, operator decision):</strong> the
-core (CLI, daemon, orchestrator, loop drivers, TUI) migrates from
+core (CLI, daemon, orchestrator, loop drivers, TUI) migrated from
 TypeScript/Node to a single Go binary — PRD §22, master tracker issue
-#207, phases G0/G1/G2/G3 filed as #190–#206. The selfbuild loop keeps
-running on Node throughout the migration; Node source is deleted only at
-FR-GO-16 (#205) after the cutover soak gate (FR-GO-15, #204).</p>
+#207 (closed), phases G0–G3 (#190–#206). <strong>Complete
+2026-09-08:</strong> all 16 FR-GO requirements shipped (FR-GO-01..14 in
+the G1 wave, FR-GO-15 cutover + FR-GO-16 retirement the following day);
+the selfbuild loop self-hosts on the Go binary
+(<code>SELFBUILD_DEVAGENT_BIN</code> + <code>SELFBUILD_TEST_CMD</code>),
+Node is deleted from main, and CI/release are single-language Go (issue
+#204/#205 closed).</p>
 </blockquote>
 <p><del>- <strong>Cross-board retry memory beyond the SHA guard</strong>
 — commit 60638d3 stops re-issuing shipped goals, but re-queued failures
@@ -2275,8 +2280,22 @@ support.</p>
 tracked as GitHub issues, not here — #179 daemon control API (P1), #181
 desktop control app (P2); network sandbox allowlist (#180) is the
 remaining Phase 4 leftover (P2). Shipped from this phase: Grok/xAI
-worker adapter (<code>src/workers/grok.ts</code>), visible worker
-sessions (FR-VIS, herdr panes), terminal TUI dashboard
+worker adapter (<code>src/workers/grok.ts</code>),</p>
+</blockquote>
+<ul>
+<li><strong>Easy handoff / control plane (FR-HAND, #145)</strong> —
+Shipped 2026-09-08: cold path is exactly <code>devagent init</code> →
+<code>devagent tui</code> (optional <code>start</code> alias); TUI
+dispatch sheet (<code>n</code>, FR-HAND-02) + approve sheet
+(<code>g</code>, FR-HAND-07); <code>POST /dispatch</code> threads
+<code>autoPr</code> into the spawned <code>task --auto-pr</code> argv
+gated on <code>GITHUB_TOKEN</code> (FR-HAND-03); init adds worker-detect
+chips (FR-HAND-04), herdr default-on advisory (FR-HAND-05), Orca repo
+registration without worktree provisioning (FR-HAND-06). Look/feel bar:
+#146.</li>
+</ul>
+<blockquote>
+<p>visible worker sessions (FR-VIS, herdr panes), terminal TUI dashboard
 (<code>devagent tui</code>; polish tracked in #146). Bot-style UX scope
 stays open as Q45.</p>
 </blockquote>
@@ -3585,7 +3604,11 @@ headers (drive-by CSRF — the Vibe Kanban <code>ALLOWED_ORIGINS</code>
 <td>FR-CTRL-03</td>
 <td>Every dispatch through the control API goes through the same
 pipeline/budget/gate machinery as CLI dispatch — the API is a transport,
-not a bypass</td>
+not a bypass. FR-HAND-03 (#145): <code>POST /dispatch</code> accepts
+<code>autoPr</code> (TUI sends true; scripts may pass false) and threads
+it into the spawned <code>devagent task --auto-pr</code> argv only when
+<code>GITHUB_TOKEN</code> is set — without the token the run stays local
+and the response names the token/PR step as the next action</td>
 <td>M</td>
 </tr>
 <tr>
@@ -4082,7 +4105,11 @@ the TUI is the discovery surface for FR-VIS-02 jump-in</td>
 <td>FR-TUI-04</td>
 <td>Interactive v1 scope (Q47): approval hotkeys (approve/deny pending
 gates via <code>POST /approve</code>) + dispatch sheet mirroring
-FR-UI-02; ship read-only cards first if Q47 resolves conservative</td>
+FR-UI-02; ship read-only cards first if Q47 resolves conservative.
+Shipped via FR-HAND-02/07 (#145): <code>n</code> opens the one-line goal
+dispatch sheet, <code>g</code> answers a paused 'ask' task
+(<code>y</code>/<code>n</code>/free text → <code>POST /approve</code>);
+look/feel polish tracked in #146</td>
 <td>S</td>
 </tr>
 <tr>
@@ -4252,8 +4279,10 @@ itself.</li>
 <ul>
 <li><strong>In scope:</strong> <code>src/**</code> (CLI, orchestrator,
 workers, integrations, gates, TUI, daemon), the <code>selfbuild-*</code>
-script helpers, the install path (<code>~/.local/bin/devagent</code>
-becomes the Go binary at FR-GO-16).</li>
+script helpers, the install path (<code>~/.local/bin/devagent</code> is
+the release Go binary since FR-GO-16; the Node link survives as
+<code>~/.local/bin/devagent-node-legacy</code> only on the operator
+machine).</li>
 <li><strong>Unchanged:</strong> worker CLIs (claude, opencode, omp, pi,
 grok — external processes behind the WorkerAdapter contract, §9); herdr
 (already Go); Docker sandboxing; the ledger/run-log JSONL schemas (the
@@ -4426,23 +4455,45 @@ UDS equivalent (NFR-05)</td>
 href="https://github.com/FreePeak/devagent/issues/203">#203</a> — PR <a
 href="https://github.com/FreePeak/devagent/pull/218">#218</a>
 (windows-cross + windows-build CI green; pipe listener is a documented
-stub, Node daemon serves the pipe natively)</td>
+stub; Windows named-pipe coverage is a follow-up now that the Node
+daemon is retired (#205))</td>
 </tr>
 <tr>
 <td>FR-GO-15</td>
 <td>Cutover: production entrypoint flips to Go, release artifacts,
 self-hosting soak gate</td>
 <td>M</td>
-<td><a
-href="https://github.com/FreePeak/devagent/issues/204">#204</a></td>
+<td>✅ <a
+href="https://github.com/FreePeak/devagent/issues/204">#204</a> —
+shipped 2026-09-08: soak iterations 169 (Go driver + Go CLI pane
+dispatch, byte-parity <code>ok</code> row) and 171 (task→publish→merge
+end-to-end, PR #242) on the live loop; publish/close integrity fixed
+(#238: <code>taskPublishStage</code> publishes from the surviving run
+branch, <code>no-pr</code> non-productive row instead of closing the
+issue); <code>SELFBUILD_TEST_CMD</code> seam (#230, PR #237); release
+pipeline publishes Go binaries on 5 targets (PR #232 — Release v1.0.0
+was the first all-Go release); install flow = release binary (PR #231:
+README install, Node deprecation banner
+<code>DEVAGENT_SUPPRESS_DEPRECATION=1</code>, scout LaunchAgent plist
+runs the Go-resolved binary); production
+<code>~/.local/bin/devagent</code> now the Go binary,
+<code>devagent daemon</code> wired to internal/daemon (PR #243, last
+exit-3 stub blocking cutover)</td>
 </tr>
 <tr>
 <td>FR-GO-16</td>
 <td>Node retirement: delete src/test/dist/package.json, docs rewritten,
 single-language CI</td>
 <td>C</td>
-<td><a
-href="https://github.com/FreePeak/devagent/issues/205">#205</a></td>
+<td>✅ <a
+href="https://github.com/FreePeak/devagent/issues/205">#205</a> —
+shipped 2026-09-08: Node tree deleted (PR #240: src/ 106 files, test/
+110, package.json, tsconfig, vitest, ci.yml, selfbuild bash/mjs helpers;
+Node-dependent Go behavior re-based — lessons guard, consume
+self-update, TUI upgrade, herdr sweep ancestry, Makefile targets on
+<code>devagent-go</code>); Go-only CI + single-implementation grep gate,
+Go-only release pipeline (PR #235); all non-PRD docs rewritten to Go
+reality (PR #236); #206 tracks the vitest-coverage port to Go</td>
 </tr>
 </tbody>
 </table>
@@ -4451,30 +4502,34 @@ href="https://github.com/FreePeak/devagent/issues/206">#206</a>. Master
 tracker with definition of done: <a
 href="https://github.com/FreePeak/devagent/issues/207">#207</a>.</p>
 <hr />
-<p><em>Last updated: 2026-09-08 (pane-run --timeout typed as Int in
-wiredTypedFlags + addFlags no longer drops required marking on typed
-flags — root cause of the loop-167 indefinite hang inside
-paneRunDispatch; +wiring regression test; §22 Go migration: G0+G1
-COMPLETE — all 16 FR-GO requirement rows shipped to main via parallel
-agent waves, 26 Go packages green (build/vet/test + golangci-lint v2 +
-windows cross-compile), issues #190–#203 + #223 closed, PRs #208–#218 +
-#221–#226; remaining: FR-GO-15 cutover + soak (#204 — gated on the Go
-loop driver surviving one full live selfbuild iteration per DECISION.md)
-and FR-GO-16 Node retirement (#205 — deletion gated on soak); §19.7
-added: five-scout internet research pass (~90 sources) distilled into a
-15-item prioritized adoption backlog —
-docs/research/2026-09-07-internet-scout-synthesis.md + five scout docs;
-§22 added: full Go migration of the core — operator decision,
-FR-GO-01..16, phases G0/G1/G2/G3 tracked via master issue #207 +
-#190–#206; risks R8–R10 added; §17 roadmap carries the migration note;
-earlier same day: PRD §18 Q11 resolved —
-<code>.devagent/AGENTS.md</code> auto-load ships with the one-time
-per-repo trust confirm — <code>context.agentsMd</code> config,
-<code>loadAgentsMd</code> loader, <code>devagent trust agents-md</code>
-CLI; task tracker moved from the static §17 Phase 4 backlog to
-priority-labeled GitHub issues — selfbuild loop is issue-first,
-prd-curator reconciles the tracker, every PR lands with its PRD state
-update per the PRD-per-PR policy; see docs/SELF-BUILD-LOOP.md "Tracker +
-PRD policy")</em></p>
+<p><em>Last updated: 2026-09-08 (#238 publish/close integrity — soak-169
+evidence: the <code>devagent task</code> publish stage no longer
+short-circuits on an empty <code>GITHUB_TOKEN</code> and publishes from
+the surviving run branch after auto-cleanup removed the worktree, with
+the live CLI wiring extracted to <code>taskPublishStage</code> in
+internal/cli and pinned by a CLI-level regression test; the Go loop
+driver only closes the tracker issue when the task dispatch reported a
+PR (<code>PR opened:</code> line) — otherwise it records a
+non-productive <code>no-pr</code> row and leaves the issue open for
+re-pick. Previous: loopdriver #230 — <code>SELFBUILD_TEST_CMD</code>
+post-merge repo test gate, §22.4 FR-GO-15 row.)</em> <em>Last updated:
+2026-09-08 (FR-GO cutover + Node retirement COMPLETE — §22 phases G2/G3
+done: soak iterations 169+171 passed the byte-parity and end-to-end
+gates on the live selfbuild loop; publish/close integrity #238 fixed and
+live-proven (PR #242); SELFBUILD_TEST_CMD seam #230 (PR #237);
+Go-artifact release pipeline #232 (first all-Go release v1.0.0); install
+flow #231 (release binary at ~/.local/bin/devagent, Node deprecation
+banner, scout plist on Go); Node tree deleted #240; single-language CI +
+grep gate #235; docs rewritten #236; daemon CLI wired #243 — production
+daemon serving HTTP 200 on 7788. Issues #204/#205 closed. Previous: #238
+publish/close integrity — soak-169 evidence: the
+<code>devagent task</code> publish stage no longer short-circuits on an
+empty <code>GITHUB_TOKEN</code> and publishes from the surviving run
+branch after auto-cleanup removed the worktree, with the live CLI wiring
+extracted to <code>taskPublishStage</code> in internal/cli and pinned by
+a CLI-level regression test; the Go loop driver only closes the tracker
+issue when the task dispatch reported a PR (<code>PR opened:</code>
+line) — otherwise it records a non-productive <code>no-pr</code> row and
+leaves the issue open for re-pick.)</em></p>
 </body>
 </html>
