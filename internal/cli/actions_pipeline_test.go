@@ -9,11 +9,14 @@ import (
 	"bytes"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/FreePeak/devagent/internal/config"
 	"github.com/FreePeak/devagent/internal/orchestrator"
+	"github.com/FreePeak/devagent/internal/pipeline"
 )
 
 // runCmdCapture runs the full CLI with the given argv and os.Stdout
@@ -206,5 +209,103 @@ func TestOrchestratePlanOnlyResumesBoard(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(repo, ".devagent-project.json")); err != nil {
 		t.Fatalf("board must persist: %v", err)
+	}
+}
+
+// TestTaskPublishStageAfterAutoCleanup is the soak-169 regression (issue
+// #238, BUG 1): with cleanup=auto a succeeded implement removes its
+// worktree, so PublishStage used to see WorktreePath pointing at the
+// removed dir and the old `WorktreePath == ""`-style guard silently
+// skipped publishing — RunTask fell through to "no remote credentials;
+// branch preserved locally" and the loop shipped no PR. The wiring must
+// publish from the surviving run branch instead and surface the PR URL.
+func TestTaskPublishStageAfterAutoCleanup(t *testing.T) {
+	repo := t.TempDir()
+	gitBin := "git"
+	run := func(args ...string) string {
+		t.Helper()
+		cmd := exec.Command(gitBin, args...)
+		cmd.Dir = repo
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
+			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	run("init", "-q", "-b", "main")
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("base\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("add", "-A")
+	run("commit", "-m", "init")
+
+	wt := filepath.Join(repo, ".devagent-worktrees", "TASK-soakfix")
+	run("worktree", "add", "-b", "devagent/TASK-soakfix", wt)
+	if err := os.WriteFile(filepath.Join(wt, "feature.txt"), []byte("fix\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("-C", wt, "add", "-A")
+	run("-C", wt, "commit", "-m", "worker output")
+	// cleanup=auto: the worktree is gone; only the run branch survives.
+	run("worktree", "remove", "--force", wt)
+	run("worktree", "prune")
+
+	// The wiring under test: the real taskPublishStage with an EMPTY token
+	// (the daemon env after the GITHUB_TOKEN cleanup) and stubbed remote
+	// seams. The git seams stay real so the removed-worktree path runs.
+	var pushed []string
+	var prReqs []pipeline.TaskPublishPrRequest
+	wiring := taskPublishWiring{
+		Creds:      config.Credentials{},
+		RepoPath:   repo,
+		Prompt:     "Fix the soak publish path",
+		BaseBranch: "main",
+		PushBranch: func(_ string, branch string) error {
+			pushed = append(pushed, branch)
+			return nil
+		},
+		CreatePr: func(o pipeline.TaskPublishPrRequest) (string, error) {
+			prReqs = append(prReqs, o)
+			return "https://github.com/acme/repo/pull/77", nil
+		},
+	}
+
+	var pubErr error
+	url := taskPublishStage(wiring, pipeline.PublishImpl{OK: true, WorktreePath: wt}, &pubErr)
+	if pubErr != nil {
+		t.Fatalf("pubErr: %v", pubErr)
+	}
+	if url == "" {
+		t.Fatal("publish after auto-cleanup returned no PR URL — the soak-169 silent skip is back (issue #238)")
+	}
+	if url != "https://github.com/acme/repo/pull/77" {
+		t.Fatalf("url = %q", url)
+	}
+	if len(pushed) != 1 || pushed[0] != "devagent/TASK-soakfix" {
+		t.Fatalf("pushed = %q, want [devagent/TASK-soakfix]", pushed)
+	}
+	if len(prReqs) != 1 || prReqs[0].Branch != "devagent/TASK-soakfix" {
+		t.Fatalf("pr requests = %+v", prReqs)
+	}
+
+	// The RunTask level: with the wiring returning a URL, the result note is
+	// "PR opened: ..." — never the misleading credentials note.
+	res := pipeline.RunTask(pipeline.TaskOptions{Prompt: "Fix the soak publish path", RepoPath: repo, AutoPr: true}, pipeline.TaskDeps{
+		ImplementStage: func(pipeline.TaskOptions, pipeline.TicketSpec, pipeline.RunLog) pipeline.TaskImplResult {
+			return pipeline.TaskImplResult{OK: true, Worker: "omp", Attempts: 1, WorktreePath: wt}
+		},
+		PublishStage: func(_ pipeline.TaskOptions, _ pipeline.TicketSpec, impl pipeline.PublishImpl) string {
+			u := taskPublishStage(wiring, impl, &pubErr)
+			if u == "" {
+				t.Fatal("publish stage returned empty URL for a removed-worktree impl")
+			}
+			return u
+		},
+	})
+	if !res.OK || res.PRURL == "" || !strings.HasPrefix(res.Note, "PR opened: ") {
+		t.Fatalf("RunTask result = %+v, want note 'PR opened: ...', not 'no remote credentials'", res)
 	}
 }

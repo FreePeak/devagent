@@ -374,10 +374,16 @@ type taskPublishWiring struct {
 // cleanup=auto removed it, from the surviving run branch in the main repo
 // (PublishTaskBranch's tested contract). pubErr captures the publish failure
 // for the CLI error path (the PublishStage seam has no error channel).
+//
+// soak-169 (issue #238): the old wiring skipped the stage silently when
+// impl.WorktreePath was empty or GITHUB_TOKEN was unset. Publishing needs
+// neither: `git push` authenticates via the remote itself and `gh pr create`
+// via the gh keyring, so a missing GITHUB_TOKEN must not turn a successful
+// run into a silent "no remote credentials" note (the soak run ended
+// task -> implement -> END with zero publish events and no PR). Every
+// outcome now logs a publish-stage event; real failures surface through
+// pubErr.
 func taskPublishStage(w taskPublishWiring, impl pipeline.PublishImpl, pubErr *error) string {
-	if impl.WorktreePath == "" || w.Creds.GithubToken == "" {
-		return ""
-	}
 	prURL, err := pipeline.PublishTaskBranch(pipeline.TaskPublishOptions{
 		RepoPath: w.RepoPath, Prompt: w.Prompt, BaseBranch: w.BaseBranch, Log: w.Log,
 	}, impl, pipeline.TaskPublishDeps{
@@ -389,7 +395,15 @@ func taskPublishStage(w taskPublishWiring, impl pipeline.PublishImpl, pubErr *er
 	})
 	if err != nil {
 		*pubErr = err
+		if w.Log != nil {
+			w.Log.Error(ledger.StagePublish, "publish failed: "+err.Error(), nil)
+		}
 		return ""
+	}
+	if prURL != "" && w.Log != nil {
+		w.Log.Info(ledger.StagePublish, "PR opened: "+prURL, []ledger.KV{
+			{Key: "worktreePath", Value: impl.WorktreePath},
+		})
 	}
 	return prURL
 }
