@@ -64,6 +64,11 @@ type LoopConfig struct {
 	// DevagentBin is the CLI invoked for the not-yet-ported surfaces
 	// (pane-run, task, preflight, sync-docs, scan-text, ledger --clusters,
 	// herdr-sweep, page-degrade-breach). Default "devagent".
+	// SELFBUILD_DEVAGENT_BIN overrides it — the FR-GO-15 self-hosting soak
+	// sets this to the Go binary so every shelled subcommand executes the
+	// Go implementation instead of the npm-linked Node CLI. As subcommand
+	// ports land on main, the honest-soak goal is DevagentBin == the Go
+	// binary and the shelled set shrinking to empty.
 	DevagentBin string
 	// DevagentArgs are prepended to every DevagentBin invocation (e.g. an
 	// npx/tsx wrapper for a from-source checkout).
@@ -229,5 +234,6 @@ func ConfigFromGetenv(repo string, getenv func(string) string) LoopConfig {
 		APIMaxAttempts:         getintOr(getenv, "SELFBUILD_API_MAX_ATTEMPTS", defaultAPIMaxAttempts),
 		NoProgressTimeoutMS:    getintOr(getenv, "SELFBUILD_NO_PROGRESS_TIMEOUT_MS", defaultNoProgressMS),
 		SyncRetrySecs:          getintOr(getenv, "SELFBUILD_SYNC_RETRY_SECS", defaultSyncRetrySecs),
+		DevagentBin:            getenv("SELFBUILD_DEVAGENT_BIN"),
 	}
 }
