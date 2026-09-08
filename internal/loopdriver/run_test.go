@@ -405,3 +405,45 @@ func TestRunLoopQueueFirstDone(t *testing.T) {
 	// stays claimed until its lease lapses.
 	assertFileContains(t, filepath.Join(repo, ".devagent", "queue", "TASK-1.json"), `"status": "claimed"`)
 }
+
+func TestRunLoopRepoTestGateFailure(t *testing.T) {
+	repo := initFixtureRepo(t)
+	installFakes(t, repo)
+	// The gate is the TestCmd override — no npm fake involved here: a
+	// failing command (the `go test ...` shape at FR-GO-16) records the
+	// failed-tests row and feeds the breaker, exactly like the bash
+	// driver's hardcoded `npm test` failure.
+	if _, err := queue.EnqueueTask(repo, queue.EnqueueInput{
+		ID:    "TASK-1",
+		Title: "Fix the loop ledger numbering",
+		Goal:  "Goal: Fix the loop ledger numbering",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	now, _ := frozenClock()
+	cfg := loopConfigFor(t, repo, func(c *LoopConfig) {
+		c.Now = now
+		c.TestCmd = "false"
+	})
+	cfg.DryRun = false
+	rc := RunLoop(cfg)
+	if rc != 0 {
+		logData, _ := os.ReadFile(filepath.Join(repo, ".selfbuild", "logs", "loop-1.log"))
+		t.Fatalf("rc = %d, want 0 (skip, not breaker at fails=1)\nlog:\n%s", rc, logData)
+	}
+	rows := readLedger(t, repo)
+	if len(rows) != 1 || rows[0]["status"] != "failed-tests" || rows[0]["goal"] != "Goal: Fix the loop ledger numbering" {
+		t.Fatalf("rows: %v", rows)
+	}
+	logData, err := os.ReadFile(filepath.Join(repo, ".selfbuild", "logs", "loop-1.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(logData), "[testing] repo tests failed after merge-back") {
+		t.Fatalf("gate failure not logged:\n%s", logData)
+	}
+	// Bash parity: the failing gate skips the push phase and leaves the
+	// queue task claimed (queue-done is only written on the task-failure
+	// path); loop 2 halts at the cap.
+	assertFileContains(t, filepath.Join(repo, ".devagent", "queue", "TASK-1.json"), `"status": "claimed"`)
+}

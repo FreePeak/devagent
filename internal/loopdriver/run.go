@@ -277,7 +277,7 @@ func (d *driver) runIteration(n int, logF io.Writer, gradient, clusters string) 
 	}
 
 	// Post-merge-back repo-level test gate.
-	if rc := d.runNpmTest(); rc != 0 {
+	if rc := d.runRepoTests(); rc != 0 {
 		_, _ = fmt.Fprintln(logF, "[testing] repo tests failed after merge-back")
 		d.record(logF, n, "failed-tests", goal)
 		*d.fails++
