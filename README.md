@@ -6,9 +6,9 @@
 
 **The Autonomous Backend Delivery Agent — ticket in, tested pull request out.**
 
-[![CI](https://github.com/FreePeak/devagent/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/FreePeak/devagent/actions/workflows/ci.yml)
+[![CI (Go)](https://github.com/FreePeak/devagent/actions/workflows/ci-go.yml/badge.svg?branch=main)](https://github.com/FreePeak/devagent/actions/workflows/ci-go.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-6366F1.svg)](LICENSE)
-[![Node](https://img.shields.io/badge/node-%E2%89%A520-22D3EE)](package.json)
+[![Go](https://img.shields.io/badge/go-1.25-00ADD8)](go.mod)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
 </div>
@@ -39,8 +39,9 @@ required to reach a first tested PR.
 
 ## Install
 
-Since the FR-GO-15 cutover (#204), the production entrypoint is the **Go
-binary** (`cmd/devagent`). Install it from a release:
+The production entrypoint is the **Go binary** (`cmd/devagent`) — since the
+FR-GO-16 Node retirement (#205) it is the one implementation; no Node runtime
+is involved. Install it from a release:
 
 ```bash
 # GitHub CLI
@@ -56,10 +57,6 @@ chmod +x /tmp/devagent && mkdir -p ~/.local/bin && mv /tmp/devagent ~/.local/bin
 # devagent-windows-amd64.exe — swap the asset name for your platform.
 ```
 
-> **Deprecated (legacy fallback):** `npm link` still works — the Node CLI in
-> this repo (`src/cli.ts`) remains functional until FR-GO-16 and prints a
-> deprecation notice on stderr (silence with `DEVAGENT_SUPPRESS_DEPRECATION=1`).
-> New installs should use the release binary.
 
 ## Dashboard
 
@@ -185,13 +182,13 @@ See [docs/HERDR.md](docs/HERDR.md) for the full behavior contract.
 |---|---|---|
 | [Product Requirements Document](docs/PRD.md) | Markdown | Full PRD: problem, personas, requirements (FR/NFR), architecture, pipeline, validation gates, CLI spec, integrations, metrics, risks, roadmap |
 | [Product Requirements Document](docs/PRD.html) | HTML | Same document, styled single-file HTML for sharing — regenerate after editing PRD.md: `pandoc docs/PRD.md -f gfm -t html5 -s --toc --toc-depth=2 --metadata title="DevAgent - Product Requirements Document" -H docs/prd-style.html -o docs/PRD.html` (pandoc 3.10.x) |
-| [War Room mode](docs/WAR-ROOM.md) | Markdown | Goal-driven infinity loop: abstract idea → research → spec-until-clear → implement-until-evidenced. Built for new products and hackathons (`npm run warroom`) |
+| [War Room mode](docs/WAR-ROOM.md) | Markdown | Goal-driven infinity loop: abstract idea → research → spec-until-clear → implement-until-evidenced. Built for new products and hackathons (`scripts/warroom-loop.sh --goal ...`) |
 | [TUI dashboard](docs/TUI.md) | Markdown | `devagent tui` full-screen live dashboard: keyboard reference, daemon attach/embed modes, architecture |
 | [cc-guard: auto-resume for headless sessions](docs/cc-guard.md) | Markdown | Supervisor that restarts Claude Code sessions killed by API failures ("Connection lost mid-response") via `devagent guard` |
 | [LongHorizon-Harness analysis](docs/research/longhorizon-harness.md) | Markdown | Research backing evidence-gated orchestration: MEA loop, audit economics, recovery strategy (arXiv:2608.01964) |
 | [Scout + Factory (24/7)](docs/SCOUT.md) | Markdown | 24/7 scout (opencode research → PRD → queue) + Orca workers (queue → PR → auto-merge → self-update) on macOS |
 | [Scout + Factory PRD](docs/SCOUT-CREATE-PRD.md) | Markdown | Factory requirements: queue, scout daemon, `devagent create`, LaunchAgent, auto-merge, self-update |
-| [Self-Build Loop](docs/SELF-BUILD-LOOP.md) | Markdown | Infinity loop driver (`scripts/selfbuild-loop.sh`) + Orca automation modes |
+| [Self-Build Loop](docs/SELF-BUILD-LOOP.md) | Markdown | Infinity loop driver (`devagent loop`) + Orca automation modes |
 | [Git cleanup of merged MRs/PRs](docs/cleanup-merged.md) | Markdown | `scripts/git-cleanup-merged.sh`: delete local branches + worktrees whose GitLab MR / GitHub PR was merged, across all nested repos in `~/work` (dry-run default, launchd automation) |
 | [Herdr runtime support](docs/HERDR.md) | Markdown | Run worker launches inside herdr panes (persistent terminal workspace manager): visible, reattachable, disconnect-proof; default-on with loud fallback, opt-out via `spawn.visibility: "headless"` |
 | [DevAgent × Grok](docs/GROK.md) | Markdown | Grok/xAI integration plan (worker adapter M0–M2), 2026-09 competitive install-ease scan, and the few-tools easy-install path |
@@ -213,7 +210,7 @@ appends a `release-created` row to the orchestration ledger. Current surface:
 - **Resilience** — provider preflight with circuit breakers + degradation paging, typed board-recovery and selfbuild gates, doc-sync freshness gate, PR merge hygiene (`automerge`, `autosweep`, `pr-hygiene`), `rebase-stack` merge-queue refresh, prompt-size and lifetime-attempt caps
 - **Self-knowledge** — orchestration ledger (PR, fixer, and release outcomes), lessons eval guard, markdown + LeanKG layered context digest
 - **Simplicity pass (PRD §21)** — `devagent init` guided setup with verified smoke; card/chip human-readable `status`/`validate`/`ledger` output with `--json` opt-out
-- 1300+ tests green, including end-to-end over real git fixtures
+- 870+ Go tests green (`go test ./...`), including end-to-end over real git fixtures
 
 Deferred: deeper sandbox profiles beyond seatbelt/compose, pooled multi-tenant
 remote execution.
@@ -253,10 +250,10 @@ See [docs/SCOUT.md](docs/SCOUT.md) for the full factory runbook (LaunchAgent man
 ## Development
 
 ```bash
-npm install
-npm run typecheck && npm test   # verify
-npm run dev -- --help           # command overview
-npm run dev -- config           # smoke-test the CLI
+make build                      # -> ./devagent-go (or: go build ./cmd/devagent)
+go vet ./... && go test ./...   # verify
+./devagent-go --help            # command overview
+./devagent-go config            # smoke-test the CLI
 ```
 
 Credentials via environment only: `LINEAR_API_KEY`, `GITHUB_TOKEN`, `LINEAR_WEBHOOK_SECRET` (for `serve`). See [PRD section 12](docs/PRD.md#12-cli-specification) for the full CLI contract.

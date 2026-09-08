@@ -44,7 +44,9 @@ devagent run --ticket ENG-123 --repo /path/to/repo
 
 ## Setup
 
-Requires Node 20+, `git`, and at least one worker CLI on PATH (`claude` or
-`opencode`). Optional credentials: `GITHUB_TOKEN`/`gh auth` for PR delivery,
-`LINEAR_API_KEY`/`JIRA_*` for tracker mode. See the repo README:
-https://github.com/FreePeak/devagent
+Requires the DevAgent binary on PATH (grab a release from
+https://github.com/FreePeak/devagent/releases, or build with `make build` →
+`./devagent-go`), `git`, and at least one worker CLI on PATH (`omp`, `claude`,
+`opencode`, `pi`, or `grok`). Optional credentials: `GITHUB_TOKEN`/`gh auth`
+for PR delivery, `LINEAR_API_KEY`/`JIRA_*` for tracker mode. See the repo
+README: https://github.com/FreePeak/devagent

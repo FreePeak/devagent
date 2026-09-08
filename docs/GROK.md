@@ -9,6 +9,17 @@
 
 ---
 
+> **2026-09-08 status (FR-GO-16, #205):** the repo is Go-only — the Node tree
+> (src/, package.json, npm tooling) this plan was written against has been
+> deleted. M0 shipped ahead of that: the Grok Build CLI adapter lives at
+> `internal/workers/grok.go` (registered like the other adapters; env allowlist
+> adds `XAI_API_KEY` in `internal/workers/sandbox.go`). Install is the release
+> binary (README "Install"); `npm i -g devagent` and the `src/*.ts` file:line
+> citations below describe the pre-migration tree and are kept as the
+> historical record of the plan and its evidence.
+
+---
+
 ## 1. TL;DR
 
 - **The market moved to "install and go."** Every serious competitor now leads with a
@@ -62,6 +73,10 @@ Current adapters: `claude-code`, `opencode`, `omp` (default), `pi` (`src/types.t
 
 ### 2.2 The Grok worker touch list (copy the omp.ts pattern)
 
+*(Node-tree touch list as specced 2026-09-06; the adapter shipped in Go —
+`internal/workers/grok.go` — with the same semantics: argv builder, NDJSON
+interpret, model-id predicate, allowlist widening, probe branch.)*
+
 1. `src/types.ts:53` — add `'grok'` to `WorkerName`.
 2. **New `src/workers/grok.ts`** — pure `buildGrokArgs` (`grok -p --output-format
    streaming-json`, model forwarded only when exact-slug or `xai/`-qualified), `interpretGrok`
@@ -90,12 +105,13 @@ Later per-role upgrades (already specced, not needed for M0): FR-GROK-03 exact-c
 rows from `usage.cost_in_usd_ticks`, FR-GROK-04 `prompt_cache_key` stickiness per task,
 FR-GROK-06 xAI 429-RPS/TPM classification + in-xAI fallback chain, FR-GROK-05 Batch routing.
 
-### 2.3 Install & first-run story today — the honest list
+### 2.3 Install & first-run story at writing time — the honest list
 
-What a new user does today: clone → `npm install` → `npm run build` → make `devagent`
-resolvable (undocumented `npm link`) → separately install a worker CLI and log into its
+What a new user did then: clone → install deps → build the TS bundle → make `devagent`
+resolvable (an undocumented global link) → separately install a worker CLI and log into its
 provider → export `LINEAR_API_KEY`/`GITHUB_TOKEN` → `devagent init` → dispatch. Frictions,
-verified:
+verified at the time (F1's no-installable-package gap closed by the release binaries —
+README "Install"):
 
 | # | Friction | Evidence |
 |---|---|---|
@@ -108,8 +124,8 @@ verified:
 | F7 | Doc drift: `docs/SELF-BUILD-LOOP.md` says `SELFBUILD_WORKER` default `claude-code`; script default is `omp` | selfbuild-loop.sh:45 vs docs/SELF-BUILD-LOOP.md |
 
 F6 cuts both ways: it is a doc lie, **and** it is an install win — the main path already
-needs only `node ≥20`, `git`, one worker CLI, and `gh` (for PRs). The "few tools" story is
-nearly true; the docs and the packaging just don't say so.
+needs only the devagent binary, `git`, one worker CLI, and `gh` (for PRs). The "few tools"
+story is nearly true; the docs and the packaging just didn't say so.
 
 ---
 
@@ -254,14 +270,15 @@ is the interaction. Defer until M0/M1 land; when picked up, the transport alread
 
 ## 5. Easy install & use — the "few tools" contract
 
-Target: **`npm i -g devagent && devagent init && devagent orchestrate --goal "..."`** —
-three commands, one login moment, no Docker, no herdr, no tracker credentials for the first
-run.
+Target (realized at FR-GO-15/16): **download the release binary, `devagent init`,
+`devagent orchestrate --goal "..."`** — three commands, one login moment, no Docker, no
+herdr, no tracker credentials for the first run.
 
 ### 5.1 Few tools, stated honestly
 
-Required: Node ≥ 20, git, one worker CLI (any of grok/claude/opencode/omp/pi — pick one at
-init), `gh` for PR delivery. Explicitly *not* required for the main path: Docker (G1 runs
+Required: the devagent binary (release download; Go 1.25+ only when building from
+source), git, one worker CLI (any of grok/claude/opencode/omp/pi — pick one at init),
+`gh` for PR delivery. Explicitly *not* required for the main path: Docker (G1 runs
 tests directly; G2 gracefully skips), herdr (panes are opt-in visibility), Linear/Jira keys
 (`task`/`orchestrate` are prompt-driven; tracker keys unlock `run`/`fleet`/`serve` only).
 The docs must say exactly this (F6) — it converts the install story from "heavy platform"
@@ -269,9 +286,9 @@ to "one CLI plus the agent CLI you already have."
 
 ### 5.2 Work items (maps to FR-SIMPLE-01/02 and F1–F5)
 
-1. **Publish the CLI** (F1): `npm i -g devagent` (scoped name if taken), `bin` already
-   correct; README leads with the one-liner + `curl` installer script (mirror the
-   competitor pattern: script is the headline, npm the fallback).
+1. **Publish the CLI** (F1): release binaries per platform (README "Install" leads with
+   the `gh release download` / `curl` one-liner — the competitor pattern: script/one-liner
+   is the headline).
 2. **Init completes FR-SIMPLE-01** (F2/F3): check git; offer to install the chosen worker
    CLI (grok: the official curl installer; claude/opencode likewise) or detect it; per-worker
    provider probe (extend `buildProbeArgvFor` — omp keeps its hardening flags, grok gets

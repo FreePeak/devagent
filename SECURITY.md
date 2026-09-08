@@ -28,4 +28,6 @@ DevAgent enforces a few rules reviewers should treat as security boundaries:
 - Workers inherit repo-local env only; no secret material flows into prompts
   (`docs/SELF-BUILD-LOOP.md`, guardrails section)
 - Product code reaches `main` exclusively through PRs with green CI
+- The shipped surface is a single Go binary (`cmd/devagent`); no install-time
+  script execution or package-manager postinstall steps are involved
 - Sandbox validation gates run inside isolated containers before delivery

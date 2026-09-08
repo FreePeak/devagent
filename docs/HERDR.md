@@ -40,7 +40,7 @@ visibility enhancement, never a hard dependency.
 
 ## How it works
 
-For each worker attempt, `src/integrations/herdr.ts`:
+For each worker attempt, `internal/workers/herdrruntime.go`:
 
 1. Ensures the named session's headless server is running
    (`herdr --session <name> server`, started detached if needed).
@@ -146,11 +146,11 @@ not automatic.
 
 ## Tests
 
-`test/herdr.test.ts` exercises the full protocol against a functional stub CLI
-(`DEVAGENT_HERDR_BIN` injects the binary): stdout capture, exit-code propagation,
-env injection without leakage, timeout teardown, keep-panes mode, fallback behavior,
-and config validation. `test/herdr-sweep.test.ts` covers the sweep guards above —
-FR-VIS-07 per-pane checks, the FR-VIS-10 deny toggle, and the operator-attach
-exemption — plus `herdr.sweep` parsing, validation, and env precedence. The
-orphaned-broker class is tested against a real child process that traps SIGTERM,
-so the SIGTERM→SIGKILL escalation is proven rather than stubbed.
+The `internal/herdr` and `internal/workers` tests exercise the full protocol
+against a functional stub CLI (`DEVAGENT_HERDR_BIN` injects the binary): stdout
+capture, exit-code propagation, env injection without leakage, timeout teardown,
+keep-panes mode, fallback behavior, and config validation — plus the sweep guards
+above (FR-VIS-07 per-pane checks, the FR-VIS-10 deny toggle, the operator-attach
+exemption, `herdr.sweep` parsing/validation/env precedence). The orphaned-broker
+class is tested against a real child process that traps SIGTERM, so the
+SIGTERM→SIGKILL escalation is proven rather than stubbed.
