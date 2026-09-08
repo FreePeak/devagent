@@ -4502,7 +4502,24 @@ href="https://github.com/FreePeak/devagent/issues/206">#206</a>. Master
 tracker with definition of done: <a
 href="https://github.com/FreePeak/devagent/issues/207">#207</a>.</p>
 <hr />
-<p><em>Last updated: 2026-09-08 (#238 publish/close integrity — soak-169
+<p><em>Last updated: 2026-09-08 (FR-GO cutover + Node retirement
+COMPLETE — §22 phases G2/G3 done: soak iterations 169+171 passed the
+byte-parity and end-to-end gates on the live selfbuild loop;
+publish/close integrity #238 fixed and live-proven (PR #242);
+SELFBUILD_TEST_CMD seam #230 (PR #237); Go-artifact release pipeline
+#232 (first all-Go release v1.0.0); install flow #231 (release binary at
+~/.local/bin/devagent, Node deprecation banner, scout plist on Go); Node
+tree deleted #240; single-language CI + grep gate #235; docs rewritten
+#236; daemon CLI wired #243 — production daemon serving HTTP 200 on
+7788. Issues #204/#205 closed. Cutover follow-ups from post-migration
+review: #249 (release binaries still report 0.1.0 — no
+<code>-X internal/version.Version</code> stamping at release.yml:99),
+#250 (release.yml still requires Node 22 +
+<code>next-version.mjs</code>; the #235 gate greps only
+<code>(npm|npx|tsx) </code> and misses <code>node </code>), #251
+(<code>tui</code>/<code>mcp</code>/<code>guard</code>/<code>guard-status</code>/<code>prd-audit</code>
+remain exit-3 CLI stubs in internal/cli/root.go despite their owning
+FR-GO issues closed). Previous: #238 publish/close integrity — soak-169
 evidence: the <code>devagent task</code> publish stage no longer
 short-circuits on an empty <code>GITHUB_TOKEN</code> and publishes from
 the surviving run branch after auto-cleanup removed the worktree, with
@@ -4511,25 +4528,22 @@ internal/cli and pinned by a CLI-level regression test; the Go loop
 driver only closes the tracker issue when the task dispatch reported a
 PR (<code>PR opened:</code> line) — otherwise it records a
 non-productive <code>no-pr</code> row and leaves the issue open for
-re-pick. Previous: loopdriver #230 — <code>SELFBUILD_TEST_CMD</code>
-post-merge repo test gate, §22.4 FR-GO-15 row.)</em> <em>Last updated:
-2026-09-08 (FR-GO cutover + Node retirement COMPLETE — §22 phases G2/G3
-done: soak iterations 169+171 passed the byte-parity and end-to-end
-gates on the live selfbuild loop; publish/close integrity #238 fixed and
-live-proven (PR #242); SELFBUILD_TEST_CMD seam #230 (PR #237);
-Go-artifact release pipeline #232 (first all-Go release v1.0.0); install
-flow #231 (release binary at ~/.local/bin/devagent, Node deprecation
-banner, scout plist on Go); Node tree deleted #240; single-language CI +
-grep gate #235; docs rewritten #236; daemon CLI wired #243 — production
-daemon serving HTTP 200 on 7788. Issues #204/#205 closed. Previous: #238
-publish/close integrity — soak-169 evidence: the
-<code>devagent task</code> publish stage no longer short-circuits on an
-empty <code>GITHUB_TOKEN</code> and publishes from the surviving run
-branch after auto-cleanup removed the worktree, with the live CLI wiring
-extracted to <code>taskPublishStage</code> in internal/cli and pinned by
-a CLI-level regression test; the Go loop driver only closes the tracker
-issue when the task dispatch reported a PR (<code>PR opened:</code>
-line) — otherwise it records a non-productive <code>no-pr</code> row and
-leaves the issue open for re-pick.)</em></p>
+re-pick.)</em></p>
+<p><em>Last updated: 2026-09-08 (cutover follow-ups #249/#250/#251
+CLOSED: release binaries now version-stamped —
+<code>next-version.mjs</code> ported to Go at
+scripts/release/nextversion with byte-identical output,
+<code>setup-node</code> dropped from release.yml,
+<code>-X internal/version.Version=$TAG</code> stamping +
+<code>--version</code>==tag CI assertion added, single-implementation
+gate widened to <code>node </code>/<code>.mjs</code> (PR #254); CLI
+surface now fully wired — <code>tui</code> raw-mode Loop implemented on
+the FR-GO-13 seam (no new deps, termios via stdlib syscalls; PR #258
+closes #252), <code>mcp</code> six-tool stdio server (PR #255),
+<code>guard</code>/<code>guard-status</code> cc-guard parity (PR #256),
+<code>prd-audit</code> advisory scanner (PR #253) —
+<code>notPortedIssue</code> is now empty and pinned by
+TestNotPortedIssueConsistent (PR #257). Full build+vet+test+lint green
+on merged main; all five commands smoke-tested live.)</em></p>
 </body>
 </html>
