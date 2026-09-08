@@ -3,8 +3,11 @@ name: Release
 # On merge to the default branch (push to main), compute the next semantic
 # version from Conventional-Commit PR titles since the last v* tag, gate on
 # Go CI, then publish a GitHub release with generated notes, the five
-# cross-compiled Go binaries (issue #204), and a ledger release record
+# cross-compiled Go binaries (issue #204) stamped with that version via
+# -X internal/version.Version (issue #249), and a ledger release record
 # written by the freshly built linux-amd64 binary itself.
+# Version computation is the Go tool scripts/release/nextversion (issue
+# #250): the Go toolchain is the only runtime this workflow needs.
 on:
   push:
     branches: [main]
@@ -13,6 +16,33 @@ permissions:
   contents: write
 
 jobs:
+  # Compute the next semantic version BEFORE the build (issue #249): the
+  # stamp lands in every release binary via -X internal/version.Version,
+  # so `devagent --version` reports the exact published tag.
+  # The Go tool scripts/release/nextversion (issue #250) reads the
+  # authoritative remote tag list itself; fetch-depth 0 supplies full
+  # history and local tags for its fallback paths and the tag-range
+  # subject log.
+  semver:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.next.outputs.version }}
+      tag: ${{ steps.next.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - id: next
+        run: |
+          OUT="$(go run ./scripts/release/nextversion)"
+          echo "$OUT"
+          NEXT="$(printf '%s' "$OUT" | jq -r .next)"
+          echo "version=$NEXT" >> "$GITHUB_OUTPUT"
+          echo "tag=v$NEXT" >> "$GITHUB_OUTPUT"
+
   # Go gate mirroring .github/workflows/ci-go.yml: the release proves Go
   # health on its own checkout regardless of CI timing on the same SHA.
   # Build + vet + test across the two unix runners.
@@ -74,9 +104,14 @@ jobs:
 
   # Issue #204: cross-compile the five release binaries. CGO off for hermetic
   # static artifacts, -trimpath for reproducible paths, -s -w to strip
-  # symbol/DWARF weight. Asset name: devagent-<goos>-<goarch>[.exe].
+  # symbol/DWARF weight — plus -X to stamp the computed version into
+  # internal/version so the binary self-reports its release (issue #249).
+  # Asset name: devagent-<goos>-<goarch>[.exe].
   build:
+    needs: semver
     runs-on: ubuntu-latest
+    env:
+      TAG: ${{ needs.semver.outputs.tag }}
     strategy:
       fail-fast: false
       matrix:
@@ -96,7 +131,17 @@ jobs:
           CGO_ENABLED: "0"
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
-        run: go build -trimpath -ldflags "-s -w" -o dist/devagent-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }} ./cmd/devagent
+        run: go build -trimpath -ldflags "-s -w -X github.com/FreePeak/devagent/internal/version.Version=${TAG}" -o dist/devagent-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }} ./cmd/devagent
+      - name: Assert stamped version (issue #249)
+        if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
+        run: |
+          chmod +x dist/devagent-linux-amd64
+          OUT="$(./dist/devagent-linux-amd64 --version)"
+          echo "--version -> $OUT"
+          case "$OUT" in
+            *"$TAG"*) ;;
+            *) echo "binary reports '$OUT', want it to contain stamped '$TAG'" >&2; exit 1 ;;
+          esac
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
@@ -105,7 +150,7 @@ jobs:
           if-no-files-found: error
 
   release:
-    needs: [go-test, go-windows-cross, go-windows-build, go-lint, build]
+    needs: [semver, go-test, go-windows-cross, go-windows-build, go-lint, build]
     # Skip release runs themselves (tag pushes) and fork pushes.
     if: github.ref == 'refs/heads/main' && !startsWith(github.event.head_commit.message, 'Release v')
     runs-on: ubuntu-latest
@@ -114,29 +159,16 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
       - name: Download Go binaries
         uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
 
-      - name: Compute next semantic version
-        id: semver
-        run: |
-          OUT="$(node scripts/release/next-version.mjs)"
-          echo "$OUT"
-          NEXT="$(node -e 'console.log(JSON.parse(process.argv[1]).next)' "$OUT")"
-          echo "version=$NEXT" >> "$GITHUB_OUTPUT"
-          echo "tag=v$NEXT" >> "$GITHUB_OUTPUT"
-
       - name: Create tag and GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.semver.outputs.tag }}
+          TAG: ${{ needs.semver.outputs.tag }}
         run: |
           # Idempotent guard for the tag race: if a concurrent release run
           # already created this tag (mid-race checkout computed the same
@@ -155,7 +187,7 @@ jobs:
       - name: Upload binaries to the release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.semver.outputs.tag }}
+          TAG: ${{ needs.semver.outputs.tag }}
         run: |
           # --clobber keeps the tag-race path idempotent: two runs that both
           # computed the same version re-upload the same asset names, and
@@ -164,7 +196,7 @@ jobs:
 
       - name: Record release event in ledger (Go binary)
         env:
-          TAG: ${{ steps.semver.outputs.tag }}
+          TAG: ${{ needs.semver.outputs.tag }}
           SHA: ${{ github.sha }}
         run: |
           chmod +x dist/devagent-linux-amd64
