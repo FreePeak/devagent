@@ -1,3 +1,5 @@
+//go:build darwin || linux
+
 package tui
 
 // Raw-mode terminal driver for the interactive loop (runInteractive's
