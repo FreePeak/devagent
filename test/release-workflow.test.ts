@@ -73,7 +73,15 @@ describe('release workflow CI gating', () => {
 
   it('gates the release job on the test job via needs', () => {
     expect(release.jobs.release).toBeDefined();
-    expect(release.jobs.release.needs).toEqual(['test']);
+    // Node gate + Go gate mirror (ci-go.yml jobs) + binary build matrix.
+    expect(release.jobs.release.needs).toEqual([
+      'test',
+      'go-test',
+      'go-windows-cross',
+      'go-windows-build',
+      'go-lint',
+      'build',
+    ]);
   });
 
   it('test job is the root of the gate (no needs of its own)', () => {
