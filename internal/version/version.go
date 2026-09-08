@@ -5,4 +5,7 @@ package version
 
 // Version is the CLI version reported by `devagent --version` and embedded
 // in ledger metadata. Must equal the DEVAGENT_VERSION in src/version.ts.
-const Version = "0.1.0"
+// A var (not a const) so -ldflags -X can stamp it at build time; the
+// unstamped default stays 0.1.0 and TestVersionMatchesPackageJSON keeps
+// that value in lockstep with package.json.
+var Version = "0.1.0"
