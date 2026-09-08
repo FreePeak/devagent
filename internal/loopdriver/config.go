@@ -96,7 +96,7 @@ const (
 	defaultSyncRetrySecs   = 60
 	defaultIssueMax        = 50
 
-	defaultDispatchBin = "omp -p --mode json --no-prewalk --no-lsp --no-extensions --model router/dev"
+	defaultDispatchBin = "omp -p --mode json --no-prewalk --no-lsp --no-extensions --model onegw/free"
 )
 
 func getenvOr(getenv func(string) string, key, def string) string {
