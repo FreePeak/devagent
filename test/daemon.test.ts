@@ -349,13 +349,18 @@ describe("daemon API", () => {
     expect(seen[1]?.autoPr).toBeUndefined();
   });
 
-  it("dispatch argv appends --auto-pr iff spec.autoPr is set", () => {
+  it("dispatch argv appends --auto-pr iff spec.autoPr is set and GITHUB_TOKEN is present", () => {
     const base: DispatchSpec = { repoPath: "/repo", prompt: "p" };
-    expect(dispatchArgv(base).includes("--auto-pr")).toBe(false);
-    expect(dispatchArgv({ ...base, autoPr: true }).includes("--auto-pr")).toBe(true);
-    expect(dispatchArgv({ ...base, autoPr: false }).includes("--auto-pr")).toBe(false);
+    // Pin the env: the --auto-pr gate reads GITHUB_TOKEN, and CI runners do
+    // not provide it — inheriting process.env made this job-dependent.
+    const token = { GITHUB_TOKEN: "t" };
+    expect(dispatchArgv(base, token).includes("--auto-pr")).toBe(false);
+    expect(dispatchArgv({ ...base, autoPr: true }, token).includes("--auto-pr")).toBe(true);
+    expect(dispatchArgv({ ...base, autoPr: false }, token).includes("--auto-pr")).toBe(false);
+    // No token: autoPr alone never publishes.
+    expect(dispatchArgv({ ...base, autoPr: true }, {}).includes("--auto-pr")).toBe(false);
     // existing budget/worker threading untouched
-    const full = dispatchArgv({ ...base, worker: "omp", maxLoops: 3, timeoutMinutes: 45, autoPr: true });
+    const full = dispatchArgv({ ...base, worker: "omp", maxLoops: 3, timeoutMinutes: 45, autoPr: true }, token);
     expect(full.slice(full.indexOf("--auto-pr"))).toEqual(["--auto-pr"]);
     expect(full).toContain("--worker");
     expect(full).toContain("--max-loops");

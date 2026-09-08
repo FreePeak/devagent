@@ -208,8 +208,22 @@ describe('runInit (FR-SIMPLE-01 guided setup)', () => {
   });
 
   it('FR-HAND-04: --worker wins over detection', async () => {
-    const r = await runInit({ repoPath, worker: 'claude-code' });
-    expect(r.checks.find((c) => c.name === 'workers')?.detail).toContain('claude-code: selected');
+    // Deterministic: the machine may not have a real claude binary — a stub
+    // on the front of PATH makes the "selected" chip reachable everywhere
+    // (CI runners ship no claude-code).
+    const claudeDir = mkdtempSync(join(tmpdir(), 'devagent-init-claude-'));
+    writeFileSync(join(claudeDir, 'claude'), '#!/usr/bin/env node\nprocess.exit(0);\n');
+    chmodSync(join(claudeDir, 'claude'), 0o755);
+    process.env.PATH = `${claudeDir}:${process.env.PATH ?? ''}`;
+    try {
+      const r = await runInit({ repoPath, worker: 'claude-code' });
+      expect(r.checks.find((c) => c.name === 'workers')?.detail).toContain('claude-code: selected');
+      // The flag wins over detection/config for the resolved worker.
+      const cfg = JSON.parse(readFileSync(r.configPath, 'utf8')) as Record<string, unknown>;
+      expect(cfg.worker).toBe('claude-code');
+    } finally {
+      rmSync(claudeDir, { recursive: true, force: true });
+    }
   });
 
   it('FR-HAND-05: herdr stub present flips herdr.enabled on when unset; absent stays unset', async () => {
