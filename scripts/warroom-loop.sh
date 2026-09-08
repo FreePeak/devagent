@@ -7,7 +7,7 @@
 # as the only exit besides failure guards.
 #
 # Usage:
-#   npm run warroom -- --goal "<what to build>" [--repo /path/to/target]
+#   scripts/warroom-loop.sh --goal "<what to build>" [--repo /path/to/target]
 #
 # Knobs (env): WARMROOM_WORKER WARMROOM_MODEL WARMROOM_AGENT_BIN
 #   WARMROOM_MAX_ITERS (0=∞) WARMROOM_MAX_HOURS (0=∞)
@@ -38,7 +38,19 @@ DRY_RUN="${WARMROOM_DRY_RUN:-0}"
 LEDGER="$STATE/progress.jsonl"
 
 read -ra AGENT <<< "${WARMROOM_AGENT_BIN:-claude -p}"
-DEVAGENT=(npx tsx "$REPO/src/cli.ts")
+# FR-GO-16 (#205): the Go binary is the only devagent CLI. Resolve it the way
+# scripts/install-scout-launchagent.sh does — the repo-local build first,
+# then PATH, then ~/.local/bin/devagent.
+if [ -z "${DEVAGENT_BIN:-}" ]; then
+  if [ -x "$REPO/devagent-go" ]; then
+    DEVAGENT_BIN="$REPO/devagent-go"
+  else
+    DEVAGENT_BIN="$(command -v devagent || true)"
+    [ -n "$DEVAGENT_BIN" ] || DEVAGENT_BIN="${HOME}/.local/bin/devagent"
+  fi
+fi
+[ -x "$DEVAGENT_BIN" ] || { echo "devagent binary not found (looked in $REPO/devagent-go, PATH, ${HOME}/.local/bin/devagent); run: make build" >&2; exit 1; }
+DEVAGENT=("$DEVAGENT_BIN")
 
 mkdir -p "$STATE/logs"
 cd "$REPO"
@@ -207,8 +219,8 @@ suite passes, output exactly 'JUDGE: DONE'. Otherwise output exactly
 'JUDGE: NEXT <single most important gap>'." > "$JUDGE_OUT"
       fi
       if grep -q 'JUDGE: DONE' "$JUDGE_OUT"; then
-        if [ "$DRY_RUN" = 1 ]; then echo "[dry-run] final npm test skipped"; record judge-done "(dry-run)"; echo "WAR ROOM COMPLETE"; exit 0; fi
-        if npm test; then
+        if [ "$DRY_RUN" = 1 ]; then echo "[dry-run] final test gate skipped"; record judge-done "(dry-run)"; echo "WAR ROOM COMPLETE"; exit 0; fi
+        if go test ./...; then
           record judge-done "all criteria evidenced; suite green"
           echo "WAR ROOM COMPLETE — goal achieved after $((N-1)) implementation iterations."
           exit 0

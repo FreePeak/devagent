@@ -21,6 +21,20 @@ if [ -z "${SELFBUILD_CLAUDE:-}" ] && [ -n "${SELFBUILD_MODEL:-}" ]; then
   CLAUDE_BIN="$CLAUDE_BIN --model $SELFBUILD_MODEL"
 fi
 
+# FR-GO-16 (#205): the Go binary is the only devagent CLI. Resolve it the way
+# scripts/install-scout-launchagent.sh does — the repo-local build first,
+# then PATH, then ~/.local/bin/devagent.
+if [ -z "${DEVAGENT_BIN:-}" ]; then
+  if [ -x "$REPO/devagent-go" ]; then
+    DEVAGENT_BIN="$REPO/devagent-go"
+  else
+    DEVAGENT_BIN="$(command -v devagent || true)"
+    [ -n "$DEVAGENT_BIN" ] || DEVAGENT_BIN="${HOME}/.local/bin/devagent"
+  fi
+fi
+[ -x "$DEVAGENT_BIN" ] || { echo "devagent binary not found (looked in $REPO/devagent-go, PATH, ${HOME}/.local/bin/devagent); run: make build" >&2; exit 1; }
+DEVAGENT=("$DEVAGENT_BIN")
+
 mkdir -p "$CURLOG/research"
 cd "$REPO"
 
@@ -35,7 +49,7 @@ echo "=== prd curation start $STAMP ==="
 # Operator preflight (Q40): probe the provider before spending the cycle on
 # the curator agent. On failure the operator-degraded ledger row is written
 # and this cycle exits nonzero - visible degradation, not a silent noop.
-if [ "$DRY_RUN" != 1 ] && ! npx tsx "$REPO/src/cli.ts" preflight --role prd-curator --repo "$REPO"; then
+if [ "$DRY_RUN" != 1 ] && ! "${DEVAGENT[@]}" preflight --role prd-curator --repo "$REPO"; then
   echo "[preflight] provider degraded - skipping curation this cycle (ledger row written)"
   exit 1
 fi
@@ -47,7 +61,7 @@ fi
   # cycle's log for the next scout cycle to read. Advisory-only: `prd-audit`
   # never enqueues and always exits 0, and the `|| echo` absorbs a crashed CLI,
   # so a broken audit can never stall curation under `set -e`.
-  npx tsx "$REPO/src/cli.ts" prd-audit --repo "$REPO" \
+  "${DEVAGENT[@]}" prd-audit --repo "$REPO" \
     || echo "[prd-audit] skipped (audit errored; advisory only - cycle continues)"
 
   # Phase 1-3: research, analyze, propose (single agent pass).

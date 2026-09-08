@@ -24,7 +24,19 @@ MAX_LOOPS="${BUILDER_MAX_LOOPS:-2}"
 POLL_SECS="${BUILDER_POLL_SECS:-300}"
 DRY_RUN="${BUILDER_DRY_RUN:-0}"
 NO_MERGE="${BUILDER_NO_MERGE:-0}"
-DEVAGENT=(node "$REPO/dist/src/cli.js")
+# FR-GO-16 (#205): the Go binary is the only devagent CLI. Resolve it the way
+# scripts/install-scout-launchagent.sh does — the repo-local build first,
+# then PATH, then ~/.local/bin/devagent.
+if [ -z "${DEVAGENT_BIN:-}" ]; then
+  if [ -x "$REPO/devagent-go" ]; then
+    DEVAGENT_BIN="$REPO/devagent-go"
+  else
+    DEVAGENT_BIN="$(command -v devagent || true)"
+    [ -n "$DEVAGENT_BIN" ] || DEVAGENT_BIN="${HOME}/.local/bin/devagent"
+  fi
+fi
+[ -x "$DEVAGENT_BIN" ] || { echo "devagent binary not found (looked in $REPO/devagent-go, PATH, ${HOME}/.local/bin/devagent); run: make build" >&2; exit 1; }
+DEVAGENT=("$DEVAGENT_BIN")
 
 mkdir -p "$STATE"
 cd "$REPO"
