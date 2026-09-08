@@ -52,8 +52,9 @@ a ratchet-only union. `selfbuild-loop.sh` calls both automatically; hand-run ite
 5. **Implement** — same `devagent task` invocation drives worker CLIs (claude-code /
    opencode) in isolated worktrees through its internal plan-implement-test loops.
 6. **Testing** — `devagent task` gates internally (test-gate, migration rules,
-   async-review); after merge-back the driver additionally runs repo-level `npm test`.
-   Failure marks the iteration failed and feeds diagnostics into the next Research phase.
+   async-review); after merge-back the driver additionally runs the repo-level
+   test gate (`SELFBUILD_TEST_CMD`, default `npm test`). Failure marks the
+   iteration failed and feeds diagnostics into the next Research phase.
 7. **Push** — `--auto-pr` pushes the branch and opens a PR. **Policy (locked 2026-08-24):
    product code always ships as a PR, never direct to origin/main**; direct main is
    reserved for docs and `.selfbuild` protocol chores. `SELFBUILD_PUSH_MODE=main`
@@ -85,6 +86,7 @@ Environment knobs (all optional):
 | `SELFBUILD_ISSUE_MAX` | `50` | Max issues fetched per pick (deterministic sort: priority rank, then issue number) |
 | `SELFBUILD_GH_REPO` | derived from `git remote get-url origin` | Target repo for the tracker pick (`gh issue`) |
 | `SELFBUILD_DRY_RUN` | `0` | `1` executes all phases without side effects (stub outputs, no claude/task/push) |
+| `SELFBUILD_TEST_CMD` | `npm test` | Post-merge-back repo-level test gate (word-split); at FR-GO-16 launch with `go test ./...` |
 
 
 ## Go soak (FR-GO-15)
@@ -109,6 +111,11 @@ SELFBUILD_MAX_ITERATIONS=<next> \
 - The iteration cap is checked at loop head (`n >= cap` halts before spending
   tokens), so `<next>` is the first loop number the soak must NOT run: a
   one-iteration soak at loop N sets `SELFBUILD_MAX_ITERATIONS=N+1`.
+- `SELFBUILD_TEST_CMD` is the post-merge-back repo-level test gate the driver
+  runs inside the repo (word-split; default `npm test` — byte-identical to the
+  bash driver). When FR-GO-16 deletes the Node suite, the loop is launched with
+  `SELFBUILD_TEST_CMD="go test ./..."` so the gate keeps gating on the Go suite
+  instead of crashing on the missing `npm test` (issue #230).
 
 **Byte-parity gate.** The Go driver's `.selfbuild/ledger.jsonl` rows must be
 byte-identical to the bash driver's on the same inputs:

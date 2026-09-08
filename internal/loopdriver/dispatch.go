@@ -221,11 +221,15 @@ func (d *driver) extractText(rawPath, outPath, abortPath, failDiag string) {
 	_ = os.WriteFile(outPath, []byte(res.Out), 0o644)
 }
 
-// runNpmTest runs the post-merge-back repo-level test gate.
-func (d *driver) runNpmTest() int {
-	cmd := exec.Command("npm", "test")
+// runRepoTests runs the post-merge-back repo-level test gate: the word-split
+// cfg.TestCmd (SELFBUILD_TEST_CMD, default `npm test`) inside cfg.Repo.
+func (d *driver) runRepoTests() int {
+	words := splitWords(d.cfg.TestCmd)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cmd := exec.CommandContext(ctx, words[0], words[1:]...)
 	cmd.Dir = d.cfg.Repo
-	if err := cmd.Run(); err != nil {
+	if err := runCmd(ctx, cmd); err != nil {
 		return 1
 	}
 	return 0
