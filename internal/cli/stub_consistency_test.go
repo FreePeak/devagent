@@ -3,11 +3,12 @@ package cli
 import "testing"
 
 // stubAllowlist records stubs that may legitimately remain in notPortedIssue
-// while their owning issue is still open. tui stays stubbed (exit 3) until
-// its wiring lands (#252); when it does, remove the entry from this map too.
-var stubAllowlist = map[string]string{
-	"tui": "#252",
-}
+// even though their command is wired — wired-but-still-stubbed exceptions.
+// It is empty today: tui is the last stub and its wiring lands via #252,
+// which removes the notPortedIssue entry outright. Any row added here must
+// still exist in notPortedIssue (checked below); prune the row when the
+// stub goes away.
+var stubAllowlist = map[string]string{}
 
 // TestNotPortedIssueConsistent guards the stub map against the #251 drift
 // class: a command that is wired in wiredCommands() must not linger in
