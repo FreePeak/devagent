@@ -90,6 +90,17 @@ type StatusPayload struct {
 	Herdr        *HerdrStatus       `json:"herdr,omitempty"`
 	Spawn        *SpawnStatus       `json:"spawn,omitempty"`
 	Capabilities []string           `json:"capabilities,omitempty"`
+	// Ask is the newest paused 'ask' task (FR-HAND-07) the approve sheet
+	// can answer. The daemon's /status answers it directly; the loop's
+	// pickPausedTask also falls back to the ledger tail 'ask' verdict.
+	Ask *StatusAsk `json:"ask,omitempty"`
+}
+
+// StatusAsk is the paused 'ask' task block of /status.
+type StatusAsk struct {
+	ID     string `json:"id,omitempty"`
+	Title  string `json:"title,omitempty"`
+	Status string `json:"status,omitempty"`
 }
 
 // RunsPayload is the runs block of /status.
@@ -152,13 +163,30 @@ const (
 	ViewLog
 )
 
-// Overlay is a modal panel: per-item detail (Claude Code's expand) or the
-// upgrade hint. Exactly one of Pane/Queued/Upgrade is set per Kind.
+// Overlay is a modal panel: per-item detail (Claude Code's expand), the
+// upgrade hint, the dispatch sheet (FR-HAND-02 — one-line goal → POST
+// /dispatch) or the approve sheet (FR-HAND-07 — answer a paused 'ask' via
+// POST /approve). Exactly one of Pane/Queued/Upgrade/Input applies per Kind.
 type Overlay struct {
-	Kind    string // 'detail' | 'upgrade'
+	Kind    string // 'detail' | 'upgrade' | 'dispatch' | 'approve'
 	Pane    *TuiPane
 	Queued  *TuiQueuedTask
 	Upgrade bool
+	// Input is the typed one-line goal (dispatch) or free-text answer
+	// (approve).
+	Input string
+	// TaskID is the taskId being answered (approve).
+	TaskID string
+}
+
+// DispatchOverlay builds the `n` one-line goal dispatch sheet.
+func DispatchOverlay() *Overlay {
+	return &Overlay{Kind: "dispatch"}
+}
+
+// ApproveOverlay builds the `g` answer sheet for one paused task.
+func ApproveOverlay(taskID string) *Overlay {
+	return &Overlay{Kind: "approve", TaskID: taskID}
 }
 
 // DetailOverlay builds a detail overlay for one roster item.
@@ -369,8 +397,14 @@ func AggregateStatus(status *StatusPayload, panes []TuiPane) string {
 			runningPanes++
 		}
 	}
-	if num(status.Runs != nil, status.Runs.Active) > 0 || runningPanes > 0 ||
-		num(status.Queue != nil, status.Queue.Claimed) > 0 {
+	runsActive, queueClaimed := 0.0, 0.0
+	if status.Runs != nil && status.Runs.Active != nil {
+		runsActive = *status.Runs.Active
+	}
+	if status.Queue != nil && status.Queue.Claimed != nil {
+		queueClaimed = *status.Queue.Claimed
+	}
+	if runsActive > 0 || runningPanes > 0 || queueClaimed > 0 {
 		return "RUNNING"
 	}
 	if status.Circuit == "open" {
@@ -398,14 +432,6 @@ func fmtElapsed(startedAt string, now time.Time) string {
 		return itoa(hours) + "h"
 	}
 	return itoa(hours/24) + "d"
-}
-
-// num extracts an optional float pointer, defaulting to 0.
-func num(has bool, v *float64) float64 {
-	if has && v != nil {
-		return *v
-	}
-	return 0
 }
 
 // fmtClock renders an ISO ts → local HH:MM:SS for the history rows; blanks
