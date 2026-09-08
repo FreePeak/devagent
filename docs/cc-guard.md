@@ -19,10 +19,10 @@ matching.
 
 ```sh
 # basic
-npx tsx src/cli.ts guard -- claude -p "refactor module X"
+devagent guard -- claude -p "refactor module X"
 
 # tuned: up to 8 launches, 5s first backoff, kill if silent for 10 minutes
-npx tsx src/cli.ts guard \
+devagent guard \
   --max-attempts 8 \
   --base-delay-ms 5000 \
   --no-progress-timeout-ms 600000 \
@@ -56,12 +56,12 @@ project and reports whether its last assistant turn died on an API error
 (persisted as a synthetic `<synthetic>` message with `isApiErrorMessage`):
 
 ```sh
-npx tsx src/cli.ts guard-status
+devagent guard-status
 # INTERRUPTED session <id> (...)
 # resume with: claude --resume <id>
 
 # detect AND recover in one step (runs devagent guard against the session)
-npx tsx src/cli.ts guard-status --resume
+devagent guard-status --resume
 ```
 
 Exit code 1 means interrupted (and still interrupted after `--resume`

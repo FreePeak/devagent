@@ -3,7 +3,7 @@
 > Goal: `devagent create` bootstraps a 24/7 autonomous factory:
 > 1 opencode scout (research → PRD → tasks) + N Orca-workspace devagents (queue → implement → test → PR → auto-merge → self-update) on macOS.
 
-Status: Draft 2026-08-25. Implements gap in docs/PRD.md §17 + docs/SELF-BUILD-LOOP.md (single-process loop → factory).
+Status: Draft 2026-08-25 (implemented). Implements gap in docs/PRD.md §17 + docs/SELF-BUILD-LOOP.md (single-process loop → factory). The `src/*.ts` module citations below refer to the pre-migration Node tree, removed in FR-GO-16 (#205); the behavior ships in Go under `internal/` (queue, scout, consume, create).
 
 ## 1. Problem
 
@@ -44,7 +44,7 @@ Status: Draft 2026-08-25. Implements gap in docs/PRD.md §17 + docs/SELF-BUILD-L
 - After green gates, `src/integrations/github.ts` `autoMergePr(repoPath, prUrl)` runs `gh pr merge --auto --squash` (or API). Controlled by `config.autoMerge` / `--auto-merge`. Never merges on red.
 
 ### FR-SELF-01 — Self-update
-- `scripts/self-update.sh` + `src/self-update.ts` helper: `git pull --ff-only`, `npm ci && npm run build`, `launchctl kickstart` scout if installed. Only runs on demand or after successful merge when `selfUpdate=true`; never auto-pulls with dirty worktree.
+- `scripts/self-update.sh` + the self-update helper: `git pull --ff-only`, install deps and rebuild (the then-Node build; now `make build` → `./devagent-go`), `launchctl kickstart` scout if installed. Only runs on demand or after successful merge when `selfUpdate=true`; never auto-pulls with dirty worktree.
 
 ### FR-PERSIST-01 — macOS persistence
 - `scripts/install-scout-launchagent.sh` writes `~/Library/LaunchAgents/com.devagent.scout.plist` running `devagent scout --interval <n>` with `KeepAlive`+`RunAtLoad`, heartbeat file, log to `~/Library/Logs/devagent-scout.log`. `plutil -lint` clean, install/uninstall idempotent.
@@ -72,12 +72,12 @@ Existing commands (`run`, `task`, `fleet`, `orchestrate`, guard, serve) unchange
 ## 7. Architecture delta
 
 - New modules: `src/queue.ts`, `src/scout.ts`, `src/create.ts`, `src/consume.ts` (or queue-consumer), `src/self-update.ts`.
-- Extend: `src/config.ts` (scout/queue/create fields), `src/cli.ts` (new commands), `src/integrations/orca.ts` (create/list), `src/integrations/github.ts` (autoMerge).
+- Extend: the config module (scout/queue/create fields), the CLI module (new commands), the orca integration (create/list), the github integration (autoMerge).
 - State dirs: `.devagent/queue/`, `.devagent/prds/`, `.devagent/scout.heartbeat.json` (gitignored). Reuse `.selfbuild/ledger.jsonl` and `lessons.md`.
 
 ## 8. Verification
 
-- `npm run typecheck && npm test` (skips real CLIs).
+- Then-Node verification: typecheck + test suite (skips real CLIs; now `go vet ./... && go test ./...`).
 - `devagent scout --once --dry-run` produces `.devagent/prds/<id>.md` + `.devagent/queue/<id>.json`.
 - `devagent create --dry-run --repo /tmp/empty` creates dirs + prints plan without mutating.
 - With mocked `orca` runner, fleet creates worktrees; with mocked `gh`, PR+auto-merge path covered.

@@ -11,7 +11,6 @@ scripts/reclaim-disk.sh report                  # sizes only, no changes
 scripts/reclaim-disk.sh clean                   # dry-run removal plan
 scripts/reclaim-disk.sh clean --yes             # apply all categories
 scripts/reclaim-disk.sh clean --yes caches      # single category
-npm run reclaim                                 # dry-run via npm
 ```
 
 Scan root defaults to `~/work/harvey/freepeak`; override with

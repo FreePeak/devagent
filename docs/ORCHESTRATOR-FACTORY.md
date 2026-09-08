@@ -1,5 +1,9 @@
 # Orchestrator × Factory — bridge decision (devagent self-build)
 
+> **Historical record (2026-08-25).** The bridge decision shipped as described;
+> the `src/*.ts` file:line citations below refer to the pre-migration Node tree,
+> removed in FR-GO-16 (#205). The Go implementation lives under `internal/`.
+
 Date: 2026-08-25 · orchestrator `main@e0079ab` (planner `src/orchestrator/planner.ts:23` / scheduler `src/orchestrator/scheduler.ts:76` / auditor `src/orchestrator/auditor.ts:18` / `types.ts:104 BOARD_FILE .devagent-project.json`) vs factory `3-role` (`src/queue.ts` + `src/scout.ts` + `scripts/build-loop.sh` + `src/tracker.ts` + `src/create.ts:114 rolePlistSpecs`).
 
 ## What each does

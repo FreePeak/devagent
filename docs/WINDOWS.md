@@ -38,13 +38,14 @@ equivalent: named pipe". The Go port owns that seam in
 `internal/platform`:
 
 - **unix** — `platform.Listen` binds a real unix socket (with the same
-  stale-socket unlink the Node daemon performs) and `platform.DialContext`
-  dials it; covered by tests.
+  stale-socket unlink the pre-migration Node daemon performed) and
+  `platform.DialContext` dials it; covered by tests.
 - **Windows** — `platform.DialContext` and `platform.Listen` are
-  **documented stubs returning `ErrNotImplemented`**. Rationale: the only
-  shipped Windows daemon is the Node one, which already serves named pipes
-  natively (Node's `server.listen('\\\\.\\pipe\\name')`), so nothing needs a
-  Go pipe listener yet; and a hand-rolled winio-style listener
+  **documented stubs returning `ErrNotImplemented`**. Rationale at porting
+  time: the only shipped Windows daemon was the Node one (since deleted,
+  FR-GO-16), which served named pipes natively via
+  `server.listen('\\\\.\\pipe\\name')`, so nothing needed a Go pipe listener
+  yet; and a hand-rolled winio-style listener
   (`CreateNamedPipeW` + overlapped `ConnectNamedPipe` + `CancelIoEx`) cannot
   be runtime-verified by this CI (no Windows test runner). The Go TUI on
   Windows therefore uses the default TCP endpoint; a configured pipe endpoint
@@ -73,13 +74,13 @@ Windows herdr build ever exists, `DEVAGENT_HERDR=1` needs no Go change.
 
 ## Sandbox: the seatbelt gap
 
-The worker sandbox has two layers in the TS source (`src/workers/sandbox.ts`):
+The worker sandbox has two layers (`internal/workers/sandbox.go`):
 env scrubbing (default, pure map filtering — portable) and seatbelt
 confinement (`DEVAGENT_SANDBOX=seatbelt`, **darwin only** —
 `sandbox-exec` + an SBPL profile). There is no Windows equivalent wired:
 
 - `DEVAGENT_SANDBOX=seatbelt` on Windows fails loudly (the port mirrors the
-  TS behavior of refusing non-darwin), never silently unconfined.
+  pre-migration TS behavior of refusing non-darwin), never silently unconfined.
 - The native Windows successor (Job Objects / AppContainer confinement for
   worker processes) is **unimplemented and untracked** — a maintainer picking
   this up should open a dedicated FR before writing code; do not approximate

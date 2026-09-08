@@ -3,7 +3,7 @@
 **One command, one goal, run forever until it ships.** Built for new products and hackathons: you bring an idea — even a vague one — and the war room researches it, writes the spec it needs, then loops DevAgent implementation iterations until every acceptance criterion has evidence.
 
 ```bash
-npm run warroom -- --goal "Build a CLI that turns podcast feeds into daily digests" [--repo /path/to/target]
+bash scripts/warroom-loop.sh --goal "Build a CLI that turns podcast feeds into daily digests" [--repo /path/to/target]
 ```
 
 ## Lifecycle
@@ -18,7 +18,7 @@ npm run warroom -- --goal "Build a CLI that turns podcast feeds into daily diges
 │                    → devagent task --auto-pr (isolated worktree,│
 │                    gates G1-G4, PR) → tick AC → JUDGE           │
 │ PHASE 4  JUDGE     every AC evidenced? repo suite green?        │
-│                    ├─ DONE → final npm test → exit 0            │
+│                    ├─ DONE → final repo test gate → exit 0       │
 │                    └─ NEXT → top gap fed into next iteration    │
 └─────────────────────────────────────────────────────────────────┘
    guards: circuit breaker · starvation gate · optional time budget
@@ -58,6 +58,6 @@ All phases are idempotent: kill the process anywhere, re-run the same command, a
 - **Starvation gate** — halts when the last K ledger entries contain no productive status (`ok | pr-open | merged | pushed | judge-done | spec-refined`). Status vocabulary drift bug fixed in the shared ancestor logic.
 - **Evidence over claims** — the judge must cite file paths/tests per criterion; worker self-reports are treated as untrusted, matching the orchestrator's audit philosophy.
 
-## Relationship to `npm run selfbuild`
+## Relationship to the selfbuild loop (`devagent loop`)
 
 Selfbuild picks its own backlog item from the PRD each loop (product evolving itself). War room points the same machinery at **your** goal (product built for you). Both share the task pipeline, PR delivery, and guard semantics.
