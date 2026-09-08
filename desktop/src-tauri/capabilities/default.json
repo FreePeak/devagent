@@ -1,0 +1,13 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Capabilities for the DevAgent control app main window. The webview is a thin FR-CTRL client: daemon traffic goes over loopback HTTP, and OS surfaces (tray, notifications, autostart, updater) are reached through the app's own Tauri commands, so only core window/event permissions are granted.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-set-focus",
+    "core:window:allow-unminimize"
+  ]
+}

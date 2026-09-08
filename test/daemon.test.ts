@@ -7,9 +7,9 @@ import { join } from "node:path";
 import { appendAuditRecord, auditLedgerRecord } from "../src/orchestrator/ledger.js";
 import { readProxyState } from "../src/resilience/proxy-state.js";
 import { enqueueTask } from "../src/queue.js";
+import { saveBoard } from "../src/orchestrator/store.js";
+import type { AuditVerdict, ProjectBoard } from "../src/orchestrator/types.js";
 import { startDaemon, devagentHome, type DispatchSpec } from "../src/server/daemon.js";
-import type { AnswerEndpointResult } from "../src/orchestrator/store.js";
-import type { AuditVerdict } from "../src/orchestrator/types.js";
 
 // Stub herdr CLI (same env-file protocol as test/herdr.test.ts): `agent list`
 // returns two panes — a running TASK-abc pane and an idle pane parked in a
@@ -167,6 +167,38 @@ describe("daemon API", () => {
     expect(evilOrigin.status).toBe(403);
     const ok = await get(h, "/status", { headers: { Authorization: `Bearer ${h.token}` } });
     expect(ok.status).toBe(200);
+  });
+
+  it("CORS: echoes loopback and Tauri-webview origins so the desktop UI can fetch", async () => {
+    const h = await start();
+    for (const origin of ["http://127.0.0.1:5188", "http://localhost:1420", "tauri://localhost", "http://tauri.localhost"]) {
+      const res = await get(h, "/status", {
+        headers: { Authorization: `Bearer ${h.token}`, Origin: origin },
+      });
+      expect(res.status, origin).toBe(200);
+      expect(res.headers.get("access-control-allow-origin"), origin).toBe(origin);
+    }
+    // no Origin header (curl / TUI / CLI): no CORS headers at all
+    const bare = await get(h, "/status", { headers: { Authorization: `Bearer ${h.token}` } });
+    expect(bare.headers.get("access-control-allow-origin")).toBeNull();
+  });
+
+  it("CORS: answers preflights before auth and exposes 401s to the browser", async () => {
+    const h = await start();
+    // Preflight carries no Authorization (browser behavior) — must still 204.
+    const pre = await get(h, "/dispatch", {
+      method: "OPTIONS",
+      headers: { Origin: "http://127.0.0.1:5188", "Access-Control-Request-Method": "POST" },
+    });
+    expect(pre.status).toBe(204);
+    expect(pre.headers.get("access-control-allow-origin")).toBe("http://127.0.0.1:5188");
+    expect(pre.headers.get("access-control-allow-methods")).toContain("POST");
+    expect(pre.headers.get("access-control-allow-headers")).toContain("Authorization");
+    // A 401 under an allowed Origin must be readable by fetch (the UI's
+    // authFailed detection reads the status): ACAO present on the 401 too.
+    const unauth = await get(h, "/status", { headers: { Origin: "http://127.0.0.1:5188" } });
+    expect(unauth.status).toBe(401);
+    expect(unauth.headers.get("access-control-allow-origin")).toBe("http://127.0.0.1:5188");
   });
 
   it("reports status shape with capabilities, queue counts, herdr and spawn blocks", async () => {
@@ -341,6 +373,58 @@ describe("daemon API", () => {
     });
     expect(res.status).toBe(200);
     expect(applied).toEqual(["T-9:continue with option b"]);
+  });
+
+  it("lists auditor-paused (status ask) board tasks as pending approvals", async () => {
+    const h = await start();
+    const board: ProjectBoard = {
+      goal: "approval probe",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      tasks: [
+        {
+          id: "T-ask",
+          title: "needs human",
+          prompt: "p",
+          dependsOn: [],
+          status: "ask",
+          attempts: 2,
+          failureDetail: "needs human input: which provider for the model id?",
+        },
+        {
+          id: "T-done",
+          title: "already done",
+          prompt: "p",
+          dependsOn: [],
+          status: "done",
+          attempts: 1,
+        },
+      ],
+    };
+    saveBoard(repo, board);
+    try {
+      const res = await get(h, "/approvals", { headers: { Authorization: `Bearer ${h.token}` } });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        pending: Array<{ taskId: string; title: string; question: string; attempts: number }>;
+      };
+      expect(body.pending).toHaveLength(1);
+      expect(body.pending[0]).toMatchObject({
+        taskId: "T-ask",
+        title: "needs human",
+        question: "which provider for the model id?",
+        attempts: 2,
+      });
+    } finally {
+      rmSync(join(repo, ".devagent-project.json"), { force: true });
+    }
+  });
+
+  it("approvals endpoint is empty when no board exists", async () => {
+    const h = await start();
+    const res = await get(h, "/approvals", { headers: { Authorization: `Bearer ${h.token}` } });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ pending: [] });
   });
 
   it("attach returns 404 when no pane matches the task", async () => {

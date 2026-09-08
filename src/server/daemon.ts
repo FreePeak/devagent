@@ -19,7 +19,7 @@ import {
   type SessionPaneInfo,
 } from "../integrations/herdr.js";
 import { appendAuditRecord, appendOperatorAttachRecord, auditLedgerRecord, readLedgerTail } from "../orchestrator/ledger.js";
-import { applyAnswerToRepo, type AnswerEndpointResult } from "../orchestrator/store.js";
+import { applyAnswerToRepo, loadBoard, type AnswerEndpointResult } from "../orchestrator/store.js";
 import { enqueueTask, listTasks, readTask, taskCount, type QueuedTask } from "../queue.js";
 import { readProxyState } from "../resilience/proxy-state.js";
 import { findStaleWorkerPids, killStaleProcessTree } from "../resilience/reaper.js";
@@ -151,12 +151,17 @@ function hostAllowed(host: string | undefined): boolean {
   return bare === "127.0.0.1" || bare === "localhost" || bare === "[::1]";
 }
 
-/** Origin guard: when a browser sends Origin, only loopback origins pass. */
+/** Origin guard: only local origins pass — loopback, plus the packaged Tauri webview origins. */
 function originAllowed(origin: string | undefined): boolean {
   if (!origin) return true;
   try {
     const url = new URL(origin);
-    return url.hostname === "127.0.0.1" || url.hostname === "localhost" || url.hostname === "[::1]";
+    if (url.hostname === "127.0.0.1" || url.hostname === "localhost" || url.hostname === "[::1]") {
+      return true;
+    }
+    // Tauri 2 webviews are local apps but their origin is a custom scheme
+    // (macOS/Linux `tauri://localhost`, Windows `http(s)://tauri.localhost`).
+    return origin === "tauri://localhost" || url.hostname === "tauri.localhost";
   } catch {
     return false;
   }
@@ -560,6 +565,25 @@ async function historyEndpoint(res: ServerResponse, ctx: RouteContext, url: URL)
   sendJson(res, 200, { records: records.slice(-limit) });
 }
 
+/**
+ * Approval inbox source (FR-UI-04): tasks the orchestrator auditor paused for
+ * human input (board status 'ask'). Read-only — decisions still go through
+ * POST /approve, which applies them via the same answer pipeline the CLI uses.
+ */
+function approvalsEndpoint(res: ServerResponse, ctx: RouteContext): void {
+  const board = loadBoard(ctx.repoPath);
+  const pending = (board?.tasks ?? [])
+    .filter((t) => t.status === "ask")
+    .map((t) => ({
+      taskId: t.id,
+      title: t.title,
+      question: (t.failureDetail ?? "").replace(/^needs human input:\s*/, ""),
+      attempts: t.attempts,
+      updatedAt: t.audit ? (t.audit.summary ? board?.updatedAt ?? null : null) : null,
+    }));
+  sendJson(res, 200, { pending });
+}
+
 async function sessionsEndpoint(res: ServerResponse): Promise<void> {
   let panes: SessionPaneInfo[] = [];
   try {
@@ -624,6 +648,26 @@ async function route(
     return;
   }
 
+  // CORS for the desktop app's browser-grade client (FR-UI-07): echo the exact
+  // loopback/app origin that passed the guard (never `*`), so the packaged
+  // webview and a vite dev server can drive the API from a browser context.
+  // Authorization is not a safelisted header, so token-carrying requests
+  // preflight; answer OPTIONS here, before auth (browsers do not send the
+  // token on preflights). Guards and auth above are unchanged for real calls.
+  const corsOrigin = req.headers.origin;
+  if (corsOrigin !== undefined) {
+    res.setHeader("Access-Control-Allow-Origin", corsOrigin);
+    res.setHeader("Vary", "Origin");
+    res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type, Last-Event-ID");
+    if (method === "OPTIONS") {
+      res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+      res.setHeader("Access-Control-Max-Age", "600");
+      res.statusCode = 204;
+      res.end();
+      return;
+    }
+  }
+
   const auth = req.headers.authorization ?? "";
   const expected = `Bearer ${ctx.token}`;
   if (!timingSafeEq(auth, expected)) {
@@ -642,13 +686,14 @@ async function route(
   if (method === "GET" && path === "/events") return eventsEndpoint(req, res, ctx);
   if (method === "GET" && path === "/history") return historyEndpoint(res, ctx, url);
   if (method === "GET" && path === "/sessions") return sessionsEndpoint(res);
+  if (method === "GET" && path === "/approvals") return approvalsEndpoint(res, ctx);
   if (method === "POST" && path.startsWith("/attach/")) {
     return attachEndpoint(res, ctx, decodeURIComponent(path.slice("/attach/".length)));
   }
 
   // A known path hit with the wrong method -> 405; everything else -> 404.
   const known =
-    ["/status", "/agents", "/dispatch", "/approve", "/events", "/history", "/sessions"].includes(path) ||
+    ["/status", "/agents", "/dispatch", "/approve", "/events", "/history", "/sessions", "/approvals"].includes(path) ||
     ["/agents/", "/attach/"].some((p) => path.startsWith(p));
   sendJson(res, known ? 405 : 404, { ok: false, note: known ? "method not allowed" : "not found" });
 }
