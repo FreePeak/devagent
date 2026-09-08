@@ -3,9 +3,7 @@ name: CI-Go
 on:
   push:
     branches: [main]
-    paths: ["**.go", "go.mod", "go.sum", ".golangci.yml", ".github/workflows/ci-go.yml"]
   pull_request:
-    paths: ["**.go", "go.mod", "go.sum", ".golangci.yml", ".github/workflows/ci-go.yml"]
 
 jobs:
   test:
@@ -63,3 +61,36 @@ jobs:
       - uses: golangci/golangci-lint-action@v7
         with:
           version: v2.13.2
+
+  # Issue #205 single-implementation gate: the Go CLI is the only
+  # implementation. Fails CI when any Node-era artifact or Node toolchain
+  # invocation reappears. The pattern literals below are written so this
+  # file never matches its own checks.
+  single-implementation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Single-implementation gate (Go only, issue #205)
+        run: |
+          set -euo pipefail
+          fail() {
+            echo "::error::$1"
+            exit 1
+          }
+
+          # Node-era artifacts must not exist.
+          for path in src test package.json package-lock.json tsconfig.json dist; do
+            [ ! -e "$path" ] || fail "Node remnant '$path' exists — the Go CLI is the only implementation (issue #205)"
+          done
+
+          # Workflows must not invoke the Node toolchain (npm/npx/tsx).
+          if grep -rnE '(npm|npx|tsx) ' .github/workflows/*.yml; then
+            fail "Node toolchain invocation found in .github/workflows — CI runs the Go suite only (issue #205)"
+          fi
+
+          # Docs must not instruct Node package-manager ci/link installs.
+          if grep -rnE 'npm[ ](ci|link)' README.md docs --include='*.md' --exclude-dir=archive; then
+            fail "Node package-manager ci/link instruction found in README/docs — Go install only (issue #205)"
+          fi
+
+          echo "single-implementation gate passed: no Node remnants found"
