@@ -132,3 +132,4 @@
 {"loop":171,"ts":"2026-09-08T10:06:50Z","status":"ok","goal":"Goal: Implement GitHub issue #238 (Go task pipeline: publish stage silently skipped after auto-cleanup + autopr close fires without a PR (soak-169 evidence)) in"}
 {"loop":172,"ts":"2026-09-08T10:08:59Z","status":"provider-degraded","goal":"doc-sync failed: Aborting"}
 {"loop":173,"ts":"2026-09-08T10:10:56Z","status":"provider-degraded","goal":"doc-sync failed: Aborting"}
+{"loop":174,"ts":"2026-09-08T10:12:37Z","status":"provider-degraded","goal":"doc-sync failed: Aborting"}
