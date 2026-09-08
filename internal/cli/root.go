@@ -27,8 +27,7 @@ import (
 // notPortedIssue maps each stubbed command to the FR-GO issue that owns its
 // port, so the exit-3 message points at the tracker instead of dead-ending.
 var notPortedIssue = map[string]string{
-	"pane-run": "#201",
-	"tui":      "#198",
+	"tui": "#198",
 }
 
 // requiredFlags: flags the Node CLI declares with .requiredOption — the
