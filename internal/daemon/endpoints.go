@@ -189,6 +189,11 @@ func parseDispatch(raw string, defaultRepoPath string) (DispatchSpec, string, *e
 	if v, ok := p["role"].(string); ok && v != "" {
 		spec.Role = v
 	}
+	// Mirrors `if (p.autoPr === true) spec.autoPr = true;` — only an explicit
+	// JSON true enables headless publish; absent/false/string leave it off.
+	if b, ok := p["autoPr"].(bool); ok && b {
+		spec.AutoPr = true
+	}
 	if budget, present := p["budget"]; present && jsTruthy(budget) {
 		// Number(budget.maxLoops): a truthy non-object budget (string,
 		// number, array) has undefined properties → Number(undefined) is NaN
@@ -684,6 +689,27 @@ func herdrSessionNameFromCwd() (string, error) {
 	return config.HerdrSessionName(cfg), nil
 }
 
+// dispatchArgv mirrors the TS dispatchArgv: the spawned `devagent task`
+// arguments for one dispatched run, pure so tests can pin flag threading.
+func dispatchArgv(spec DispatchSpec) []string {
+	argv := []string{"task",
+		"--prompt", spec.Prompt,
+		"--repo", spec.RepoPath}
+	if spec.Worker != "" {
+		argv = append(argv, "--worker", spec.Worker)
+	}
+	if spec.MaxLoops != nil {
+		argv = append(argv, "--max-loops", formatJSNumber(*spec.MaxLoops))
+	}
+	if spec.TimeoutMinutes != nil {
+		argv = append(argv, "--timeout", formatJSNumber(*spec.TimeoutMinutes))
+	}
+	if spec.AutoPr {
+		argv = append(argv, "--auto-pr")
+	}
+	return argv
+}
+
 // DefaultDispatchRunner mirrors defaultDispatchRunner: a detached spawn of
 // the real `devagent task` pipeline (FR-CTRL-03). In a compiled binary the
 // executable itself is the CLI; the TS dist/src/cli.js lookup only existed
@@ -697,18 +723,7 @@ func DefaultDispatchRunner(spec DispatchSpec) DispatchResult {
 	if err != nil {
 		return DispatchResult{PID: nil}
 	}
-	argv := []string{"task",
-		"--prompt", spec.Prompt,
-		"--repo", spec.RepoPath}
-	if spec.Worker != "" {
-		argv = append(argv, "--worker", spec.Worker)
-	}
-	if spec.MaxLoops != nil {
-		argv = append(argv, "--max-loops", formatJSNumber(*spec.MaxLoops))
-	}
-	if spec.TimeoutMinutes != nil {
-		argv = append(argv, "--timeout", formatJSNumber(*spec.TimeoutMinutes))
-	}
+	argv := dispatchArgv(spec)
 	cmd := exec.Command(exe, argv...)
 	cmd.Dir = cwd
 	cmd.Env = append(os.Environ(), "DEVAGENT_VISIBILITY="+visibilityEnv())

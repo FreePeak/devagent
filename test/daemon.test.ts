@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { appendAuditRecord, auditLedgerRecord } from "../src/orchestrator/ledger.js";
 import { readProxyState } from "../src/resilience/proxy-state.js";
 import { enqueueTask } from "../src/queue.js";
-import { startDaemon, devagentHome, type DispatchSpec } from "../src/server/daemon.js";
+import { startDaemon, devagentHome, dispatchArgv, type DispatchSpec } from "../src/server/daemon.js";
 import type { AnswerEndpointResult } from "../src/orchestrator/store.js";
 import type { AuditVerdict } from "../src/orchestrator/types.js";
 
@@ -261,6 +261,45 @@ describe("daemon API", () => {
     });
     expect(res.status).toBe(400);
   });
+
+  it("threads autoPr through parseDispatch to the runner (unset by default)", async () => {
+    const seen: DispatchSpec[] = [];
+    const h = await start({
+      dispatchRunner: async (spec: DispatchSpec) => {
+        seen.push(spec);
+        return { pid: null };
+      },
+    });
+    const on = await get(h, "/dispatch", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${h.token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt: "headless run", autoPr: true }),
+    });
+    expect(on.status).toBe(202);
+    const off = await get(h, "/dispatch", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${h.token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt: "interactive run" }),
+    });
+    expect(off.status).toBe(202);
+    expect(seen).toHaveLength(2);
+    expect(seen[0]?.autoPr).toBe(true);
+    expect(seen[1]?.autoPr).toBeUndefined();
+  });
+
+  it("dispatch argv appends --auto-pr iff spec.autoPr is set", () => {
+    const base: DispatchSpec = { repoPath: "/repo", prompt: "p" };
+    expect(dispatchArgv(base).includes("--auto-pr")).toBe(false);
+    expect(dispatchArgv({ ...base, autoPr: true }).includes("--auto-pr")).toBe(true);
+    expect(dispatchArgv({ ...base, autoPr: false }).includes("--auto-pr")).toBe(false);
+    // existing budget/worker threading untouched
+    const full = dispatchArgv({ ...base, worker: "omp", maxLoops: 3, timeoutMinutes: 45, autoPr: true });
+    expect(full.slice(full.indexOf("--auto-pr"))).toEqual(["--auto-pr"]);
+    expect(full).toContain("--worker");
+    expect(full).toContain("--max-loops");
+    expect(full).toContain("--timeout");
+  });
+
 
   it("approve routes through the injectable answer applier", async () => {
     let applied: { repoPath: string; taskId: string; answer: string } | null = null;

@@ -54,6 +54,7 @@ export interface DispatchSpec {
   worker?: string;
   maxLoops?: number;
   timeoutMinutes?: number;
+  autoPr?: boolean;
 }
 
 /** Handle returned by startDaemon; stop() tears down every listener and SSE client. */
@@ -274,8 +275,8 @@ class RunLogFollower {
   }
 }
 
-/** Default dispatch: detached spawn of the real `devagent task` pipeline (FR-CTRL-03). */
-async function defaultDispatchRunner(spec: DispatchSpec): Promise<{ pid: number | null }> {
+/** Spawned argv for one dispatched run — pure so tests can pin flag threading. */
+export function dispatchArgv(spec: DispatchSpec): string[] {
   const repoRoot = process.cwd();
   const distCli = join(repoRoot, "dist", "src", "cli.js");
   const argv: string[] = existsSync(distCli)
@@ -284,6 +285,14 @@ async function defaultDispatchRunner(spec: DispatchSpec): Promise<{ pid: number 
   if (spec.worker) argv.push("--worker", spec.worker);
   if (spec.maxLoops !== undefined) argv.push("--max-loops", String(spec.maxLoops));
   if (spec.timeoutMinutes !== undefined) argv.push("--timeout", String(spec.timeoutMinutes));
+  if (spec.autoPr) argv.push("--auto-pr");
+  return argv;
+}
+
+/** Default dispatch: detached spawn of the real `devagent task` pipeline (FR-CTRL-03). */
+async function defaultDispatchRunner(spec: DispatchSpec): Promise<{ pid: number | null }> {
+  const repoRoot = process.cwd();
+  const argv = dispatchArgv(spec);
   const head = argv.shift();
   if (!head) return { pid: null };
   const child = cpSpawn(head, argv, {
@@ -317,6 +326,7 @@ function parseDispatch(
   };
   if (typeof p.worker === "string" && p.worker) spec.worker = p.worker;
   if (typeof p.role === "string" && p.role) spec.role = p.role;
+  if (p.autoPr === true) spec.autoPr = true;
   const budget = p.budget as Record<string, unknown> | undefined;
   if (budget) {
     const loops = Number(budget.maxLoops);
