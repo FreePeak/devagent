@@ -73,26 +73,27 @@ func addFlags(cmd *cobra.Command, flags []string, required map[string]bool) {
 		if cmd.Flags().Lookup(f[2:]) != nil {
 			continue
 		}
-		if isTyped {
-			switch typed[f[2:]] {
-			case flagInt:
-				cmd.Flags().Int(f[2:], 0, "")
-				continue
-			case flagBool:
-				cmd.Flags().Bool(f[2:], false, "")
-				continue
-			case flagStringArray:
-				cmd.Flags().StringArray(f[2:], nil, "")
-				continue
-			}
-		}
+		kind := flagString
 		switch f {
 		case "--dry-run", "--smoke", "--auto-pr", "--interactive", "--auto-merge",
 			"--drop-orca-workspace", "--json", "--exec", "--stale-prs", "--strike",
 			"--apply", "--autostash", "--no-sync-docs", "--once", "--skip-pr",
 			"--daemon", "--attach-only", "--headless", "--visible", "--orphans",
 			"--all", "--force":
+			kind = flagBool
+		}
+		if isTyped {
+			if k, ok := typed[f[2:]]; ok {
+				kind = k
+			}
+		}
+		switch kind {
+		case flagInt:
+			cmd.Flags().Int(f[2:], 0, "")
+		case flagBool:
 			cmd.Flags().Bool(f[2:], false, "")
+		case flagStringArray:
+			cmd.Flags().StringArray(f[2:], nil, "")
 		default:
 			cmd.Flags().String(f[2:], "", "")
 		}
@@ -145,6 +146,10 @@ var wiredTypedFlags = map[string]map[string]flagKind{
 	},
 	"attach": {
 		"exec": flagBool, "repo": flagString,
+	},
+	"pane-run": {
+		"cwd": flagString, "timeout": flagInt, "out": flagString,
+		"err": flagString, "done": flagString, "session": flagString,
 	},
 	"sync-docs": {
 		"json": flagBool, "repo": flagString, "branch": flagString,
