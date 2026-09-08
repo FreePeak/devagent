@@ -94,6 +94,7 @@ type DispatchSpec struct {
 	Worker         string
 	MaxLoops       *float64
 	TimeoutMinutes *float64
+	AutoPr         bool
 }
 
 // DispatchResult mirrors the TS `{ pid: number | null }` runner result.

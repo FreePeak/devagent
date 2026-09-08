@@ -9,7 +9,9 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
+
 	"testing"
 	"time"
 
@@ -440,6 +442,29 @@ func TestDispatchHappyPath(t *testing.T) {
 	}
 	if captured.TimeoutMinutes != nil {
 		t.Fatalf("spec.timeoutMinutes = %v, want unset", captured.TimeoutMinutes)
+	}
+
+	// autoPr: explicit true threads through; absent defaults to false.
+	code, out = authedPost(t, base+"/dispatch", `{"prompt":"headless","autoPr":true}`)
+	if code != http.StatusAccepted {
+		t.Fatalf("autoPr dispatch status = %d (%v)", code, out)
+	}
+	if !captured.AutoPr {
+		t.Fatalf("spec.autoPr = false, want true")
+	}
+	code, _ = authedPost(t, base+"/dispatch", `{"prompt":"interactive"}`)
+	if code != http.StatusAccepted {
+		t.Fatalf("plain dispatch status = %d", code)
+	}
+	if captured.AutoPr {
+		t.Fatalf("spec.autoPr = true, want false when the field is absent")
+	}
+	// Only a JSON true enables it (mirrors `p.autoPr === true`).
+	if spec, _, _ := parseDispatch(`{"prompt":"p","autoPr":"true"}`, repo); spec.AutoPr {
+		t.Fatalf("string autoPr enabled the flag")
+	}
+	if spec, _, _ := parseDispatch(`{"prompt":"p"}`, repo); spec.AutoPr {
+		t.Fatalf("absent autoPr enabled the flag")
 	}
 
 	// Queue row: source daemon, title = first line, goal = full prompt.
@@ -1050,6 +1075,28 @@ func TestParseDispatchBudgetEdges(t *testing.T) {
 	spec, _, errBody = parseDispatch(`{"prompt":"p","budget":"yes"}`, repo)
 	if errBody != nil || spec.MaxLoops != nil || spec.TimeoutMinutes != nil {
 		t.Fatalf("string budget: %+v %v", spec, errBody)
+	}
+}
+
+func TestDispatchArgvAutoPr(t *testing.T) {
+	// --auto-pr is appended iff spec.AutoPr is set; budget/worker threading
+	// stays untouched.
+	base := DispatchSpec{RepoPath: "/repo", Prompt: "p"}
+	got := dispatchArgv(base)
+	if slices.Contains(got, "--auto-pr") {
+		t.Fatalf("absent autoPr produced %v", got)
+	}
+	got = dispatchArgv(DispatchSpec{RepoPath: "/repo", Prompt: "p", AutoPr: true})
+	if !slices.Contains(got, "--auto-pr") || got[len(got)-1] != "--auto-pr" {
+		t.Fatalf("autoPr argv = %v", got)
+	}
+	loops, minutes := 5.0, 45.0
+	full := dispatchArgv(DispatchSpec{RepoPath: "/repo", Prompt: "p", Worker: "omp",
+		MaxLoops: &loops, TimeoutMinutes: &minutes, AutoPr: true})
+	for _, flag := range []string{"--worker", "--max-loops", "--timeout", "--auto-pr"} {
+		if !slices.Contains(full, flag) {
+			t.Fatalf("argv missing %s: %v", flag, full)
+		}
 	}
 }
 

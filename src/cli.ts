@@ -1787,6 +1787,11 @@ program
     });
   });
 
+// FR-HAND-01: optional power-path alias — `start` IS `tui` (still one use
+// command; no third verb on the 1+1 happy path). Commander-level alias:
+// same options, same handler, listed in --help as the alternative name.
+program.commands.find((c) => c.name() === 'tui')!.alias('start');
+
 program
   .command('scout')
   .description('24/7 opencode scout: research backlog -> PRD -> queue (FR-SCOUT-01)')

@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { runInit, renderInitReport } from '../src/commands/init.js';
 
 /**
@@ -83,10 +83,14 @@ describe('runInit (FR-SIMPLE-01 guided setup)', () => {
     expect(r.created).toBe(true);
     const cfg = JSON.parse(readFileSync(r.configPath, 'utf8')) as Record<string, unknown>;
     expect(cfg).toMatchObject({ worker: 'omp', maxLoops: 3, timeoutMinutes: 30, githubBaseBranch: 'main' });
-    // The written config must load (valid shape). 'docker' is the advisory
-    // optional row (#144 R2) — present on every run, never gates ok.
+    // The written config must load (valid shape). Advisory rows: 'workers'
+    // chips (FR-HAND-04), 'docker' (#144 R2), 'herdr' (FR-HAND-05) — present
+    // on every run, never gating ok. Orca appears only when the binary does.
     const names = r.checks.map((c) => c.name);
-    expect(names).toEqual(['git', 'worker', 'provider', 'LINEAR_API_KEY', 'GITHUB_TOKEN', 'docker']);
+    expect(names.slice(0, 3)).toEqual(['git', 'worker', 'workers']);
+    expect(names).toContain('provider');
+    expect(names).toContain('herdr');
+    expect(names).toContain('docker');
     expect(r.checks.find((c) => c.name === 'provider')?.ok).toBe(true);
   });
 
@@ -164,12 +168,112 @@ describe('runInit (FR-SIMPLE-01 guided setup)', () => {
     const r = await runInit({ repoPath });
     renderInitReport(r);
     const out = plain(logs.join('\n'));
-    expect(out).toContain('DevAgent setup —');
-    expect(out).toContain('● git'); // chip: required check
-    expect(out).toContain('● LINEAR_API_KEY'); // optional credential chip
-    expect(out).toContain('unlocks: pushing branches and opening PRs');
-    expect(out).toContain('devagent orchestrate --goal');
+    expect(out).toContain('devagent tui');
+    expect(out).toContain('press n, type the goal, Enter');
+    // 1+1 bar: no third mandatory command is named as required.
+    expect(out).not.toContain('orchestrate --goal');
     // Success never dumps raw logs: no probe stdout/stderr echo.
     expect(out).not.toContain('result');
+  });
+
+  it('FR-HAND-04: lists every worker with found/missing chips and install hints', async () => {
+    // Restrict PATH to the stub dir: the machine may have real claude/
+    // opencode/pi on PATH — the test must stay deterministic.
+    process.env.PATH = stubDir;
+    const r = await runInit({ repoPath });
+    const chips = r.checks.find((c) => c.name === 'workers');
+    expect(chips?.ok).toBe(true);
+    expect(chips?.detail).toContain('omp: selected');
+    expect(chips?.detail).toContain('claude-code: missing — install with npm i -g @anthropic-ai/claude-code');
+    expect(chips?.detail).toContain('opencode: missing');
+    expect(chips?.detail).toContain('pi: missing');
+  });
+
+  it('FR-HAND-04: defaults to the first detected worker when omp is absent and config is clean', async () => {
+    // Only the pi stub is on the worker path: worker must resolve to pi.
+    const piDir = mkdtempSync(join(tmpdir(), 'devagent-init-pi-'));
+    writeFileSync(join(piDir, 'git'), GIT_STUB);
+    chmodSync(join(piDir, 'git'), 0o755);
+    writeFileSync(join(piDir, 'pi'), '#!/usr/bin/env node\nprocess.exit(0);\n');
+    chmodSync(join(piDir, 'pi'), 0o755);
+    process.env.PATH = piDir;
+    try {
+      const r = await runInit({ repoPath });
+      const cfg = JSON.parse(readFileSync(r.configPath, 'utf8')) as Record<string, unknown>;
+      expect(cfg.worker).toBe('pi');
+      expect(r.checks.find((c) => c.name === 'worker')?.ok).toBe(true);
+    } finally {
+      rmSync(piDir, { recursive: true, force: true });
+    }
+  });
+
+  it('FR-HAND-04: --worker wins over detection', async () => {
+    // Deterministic: the machine may not have a real claude binary — a stub
+    // on the front of PATH makes the "selected" chip reachable everywhere
+    // (CI runners ship no claude-code).
+    const claudeDir = mkdtempSync(join(tmpdir(), 'devagent-init-claude-'));
+    writeFileSync(join(claudeDir, 'claude'), '#!/usr/bin/env node\nprocess.exit(0);\n');
+    chmodSync(join(claudeDir, 'claude'), 0o755);
+    process.env.PATH = `${claudeDir}:${process.env.PATH ?? ''}`;
+    try {
+      const r = await runInit({ repoPath, worker: 'claude-code' });
+      expect(r.checks.find((c) => c.name === 'workers')?.detail).toContain('claude-code: selected');
+      // The flag wins over detection/config for the resolved worker.
+      const cfg = JSON.parse(readFileSync(r.configPath, 'utf8')) as Record<string, unknown>;
+      expect(cfg.worker).toBe('claude-code');
+    } finally {
+      rmSync(claudeDir, { recursive: true, force: true });
+    }
+  });
+
+  it('FR-HAND-05: herdr stub present flips herdr.enabled on when unset; absent stays unset', async () => {
+    const stub = mkdtempSync(join(tmpdir(), 'devagent-init-herdr-'));
+    writeFileSync(join(stub, 'herdr'), '#!/bin/sh\nexit 0;\n');
+    chmodSync(join(stub, 'herdr'), 0o755);
+    // stubDir first (git/omp stubs), the herdr stub appended; node itself
+    // resolves from the real PATH.
+    process.env.PATH = `${stubDir}:${stub}:${priorPath ?? ''}`;
+    try {
+      const r = await runInit({ repoPath });
+      const cfg = JSON.parse(readFileSync(r.configPath, 'utf8')) as Record<string, unknown>;
+      expect((cfg.herdr as Record<string, unknown>).enabled).toBe(true);
+      expect(r.checks.find((c) => c.name === 'herdr')?.ok).toBe(true);
+    } finally {
+      rmSync(stub, { recursive: true, force: true });
+    }
+    // Absent binary: no flip, loud advisory row, ok untouched (fresh repo:
+    // the previous run's config already recorded the flip). PATH restricted
+    // to the stub dir + the running node's dir so the machine's real herdr
+    // (this repo's own tooling) can never leak into the scan.
+    const nodeDir = dirname(process.execPath);
+    process.env.PATH = `${stubDir}:${nodeDir}`;
+    const repo2 = mkdtempSync(join(tmpdir(), 'devagent-init-repo2-'));
+    try {
+      const r2 = await runInit({ repoPath: repo2 });
+      const cfg2 = JSON.parse(readFileSync(join(repo2, 'devagent.json'), 'utf8')) as Record<string, unknown>;
+      expect(cfg2.herdr).toBeUndefined();
+      expect(r2.checks.find((c) => c.name === 'herdr')?.ok).toBe(false);
+      expect(r2.ok).toBe(true);
+    } finally {
+      rmSync(repo2, { recursive: true, force: true });
+    }
+  });
+
+  it('FR-HAND-06: orca on PATH registers the repo (no worktrees) and missing orca is skipped', async () => {
+    const ensured: string[] = [];
+    const stub = mkdtempSync(join(tmpdir(), 'devagent-init-orca-'));
+    writeFileSync(join(stub, 'orca'), '#!/bin/sh\nexit 0;\n');
+    chmodSync(join(stub, 'orca'), 0o755);
+    process.env.PATH = `${stubDir}:${stub}`;
+    try {
+      const r = await runInit({ repoPath, ensureOrca: async (p) => { ensured.push(p); return true; } });
+      expect(ensured).toEqual([repoPath]);
+      expect(r.checks.find((c) => c.name === 'orca')?.ok).toBe(true);
+    } finally {
+      rmSync(stub, { recursive: true, force: true });
+    }
+    // No orca binary: no row at all.
+    const r2 = await runInit({ repoPath, ensureOrca: async () => true });
+    expect(r2.checks.find((c) => c.name === 'orca')).toBeUndefined();
   });
 });
