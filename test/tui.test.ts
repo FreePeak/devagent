@@ -253,6 +253,31 @@ describe('renderDashboard', () => {
     expect(help).toContain('q or Ctrl+C  quit');
   });
 
+  it('FR-HAND-02/07: dispatch + approve overlays render the draft and empty state names the n key', () => {
+    const plain = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, '');
+    const empty = plain(renderDashboard({ ...snap, agents: { panes: [], queued: [] } }));
+    expect(empty).toContain('Type `n` and state your goal in one sentence.');
+
+    const goal = plain(renderDashboard(snap, { overlay: { kind: 'dispatch', input: 'add CSV export' } }));
+    expect(goal).toContain('New goal');
+    expect(goal).toContain('> add CSV export');
+    expect(goal).toContain('Enter dispatch · Esc cancel');
+
+    const approve = plain(renderDashboard(snap, { overlay: { kind: 'approve', taskId: 'TASK-abc', input: 'yes' } }));
+    expect(approve).toContain('Answer task');
+    expect(approve).toContain('TASK-abc');
+    expect(approve).toContain('> yes');
+  });
+
+  it('FR-HAND-07: a paused ask task surfaces the press-g cue in the header', () => {
+    const withAsk = renderDashboard({
+      ...snap,
+      status: { ...snap.status!, ask: { id: 'TASK-pause', title: 'confirm schema', status: 'ask' } },
+    }).replace(/\x1b\[[0-9;]*m/g, '');
+    expect(withAsk).toContain('paused for you');
+    expect(withAsk).toContain('press g');
+  });
+
   it('fitLines: the help overlay on a tiny terminal still fits rows (no scroll desync)', () => {
     // A frame taller than the terminal scrolls the alternate screen and
     // desyncs the incremental renderer — used to garble everything on short

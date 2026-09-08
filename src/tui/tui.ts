@@ -80,6 +80,8 @@ interface StatusPayload {
   herdr?: { enabled?: boolean; session?: string };
   spawn?: { visibility?: string };
   capabilities?: string[];
+  /** Newest paused 'ask' task (FR-HAND-07) the approve sheet can answer. */
+  ask?: { id?: string; title?: string; status?: string } | null;
 }
 
 interface AgentPayload {
@@ -159,10 +161,18 @@ export function cyan(s: string): string {
 /** The three dashboard views; 1/2/3 switch, s and l toggle (htop-like tabs). */
 export type TuiView = 'workers' | 'sessions' | 'log';
 
-/** Modal panels: per-item detail (Claude Code's expand) or the upgrade hint. */
+/**
+ * Modal panels: per-item detail (Claude Code's expand), the upgrade hint,
+ * the dispatch sheet (FR-HAND-02 — one-line goal → POST /dispatch) and the
+ * approve sheet (FR-HAND-07 — answer a paused 'ask' via POST /approve).
+ */
 export interface OverlayState {
-  kind: 'detail' | 'upgrade';
+  kind: 'detail' | 'upgrade' | 'dispatch' | 'approve';
   item?: TuiPane | TuiQueuedTask;
+  /** Typed one-line goal (dispatch) or free-text answer (approve). */
+  input?: string;
+  /** Approve sheet: the taskId being answered. */
+  taskId?: string;
 }
 
 /** Client-sampled activity series for the header sparkline (pilot cue). */
@@ -445,6 +455,9 @@ function headerLines(snap: Snapshot, ropts: RenderOptions): string[] {
     `${C.bold}${C.inverse}${padTo(barBody, Math.max(width, visibleLen(barBody) + 1))}${C.reset}`,
     meta,
     '',
+    ...(status.ask?.id
+      ? [`${C.yellow}● paused for you${C.reset} — task ${C.bold}${truncate(status.ask.id, 24)}${C.reset}${C.dim} needs your answer: press g (FR-HAND-07)${C.reset}`, '']
+      : []),
     ...iterationLines(snap),
   ];
 }
@@ -467,9 +480,11 @@ function iterationLines(snap: Snapshot): string[] {
 function helpLines(): string[] {
   return [
     `${C.bold}Keys${C.reset}`,
+    '  n          dispatch sheet (FR-HAND-02): type a one-line goal, Enter → POST /dispatch',
+    '  g          answer a paused task (FR-HAND-07): y/n or free text → POST /approve',
     '  1 / 2 / 3  switch view: workers / sessions / live log   (s and l toggle back)',
     '  ↑ ↓ / PgUp PgDn  move the selection (workers, sessions) · scroll (log)',
-    '  g / G      jump to first / last item (log: oldest / newest)',
+    '  Home / G   jump to first / last item (log: oldest / newest)',
     '  f         toggle follow-tail in the log view',
     '  Enter / o  expand the selected worker into a detail panel',
     '  a         attach inline (FR-TUI-06): dashboard suspends, herdr owns the terminal; detach to return',
@@ -552,6 +567,7 @@ function upgradeOverlayLines(width: number): string[] {
     `   ${C.cyan}git pull --ff-only${C.reset}`,
     `   ${C.cyan}npm ci && npm run build${C.reset}`,
     '',
+
     ` ${C.dim}rollback:${C.reset}`,
     `   ${C.cyan}git checkout <previous-commit> && npm run build${C.reset}`,
     '',
@@ -559,6 +575,41 @@ function upgradeOverlayLines(width: number): string[] {
     ` ${C.dim}devagent tui so new tasks run the fresh build${C.reset}`,
   ];
   return boxLines('Upgrade', body, inner);
+}
+
+/**
+ * Dispatch sheet (FR-HAND-02 / FR-TUI-04): one-line goal input. Defaults are
+ * the configured worker and the daemon's repo — the sheet asks nothing else,
+ * so a goal typed here is enough to start work (1+1 bar).
+ */
+function dispatchOverlayLines(overlay: OverlayState, width: number): string[] {
+  const inner = Math.max(34, width - 4);
+  const text = overlay.input ?? '';
+  const body = [
+    ` ${C.bold}New goal${C.reset} ${C.dim}(worker + repo come from your config)${C.reset}`,
+    '',
+    ` > ${truncate(text, inner - 5)}${C.inverse} ${C.reset}`,
+    '',
+    ` ${C.cyan}Enter${C.reset}${C.dim} dispatch · Esc cancel${C.reset}`,
+  ];
+  return boxLines('Dispatch', body, inner);
+}
+
+/**
+ * Approve sheet (FR-HAND-07): answer a paused 'ask' task. `y`/`n` submit
+ * approve/deny words; any other typing is a free-text answer for the worker.
+ */
+function approveOverlayLines(overlay: OverlayState, width: number): string[] {
+  const inner = Math.max(34, width - 4);
+  const text = overlay.input ?? '';
+  const body = [
+    ` ${C.dim}task ${C.reset}${truncate(overlay.taskId || '?', 24)}`,
+    '',
+    ` > ${truncate(text, inner - 5)}${C.inverse} ${C.reset}`,
+    '',
+    ` ${C.cyan}y${C.reset}${C.dim}/Enter answer · Esc cancel${C.reset}`,
+  ];
+  return boxLines('Answer task', body, inner);
 }
 
 /**
@@ -596,7 +647,7 @@ export function renderLines(snap: Snapshot, ropts: RenderOptions = {}): string[]
   const keysHint =
     view === 'log'
       ? `${C.inverse} [1] workers [2] sessions [3] log · ↑↓ scroll · f follow · r refresh [?] help [q] quit ${C.reset}`
-      : `${C.inverse} [1] workers [2] sessions [3] log · ↑↓ select · ⏎ detail · a attach · k kill · r refresh [?] help [q] quit ${C.reset}`;
+      : `${C.inverse} [n] goal [1] workers [2] sessions [3] log · ↑↓ select · ⏎ detail · a attach · k kill · r refresh [?] help [q] quit ${C.reset}`;
   const footer = [
     keysHint + (notes.length ? `  ${C.yellow}${truncate(notes.join(' · '), Math.max(20, width - 62))}${C.reset}` : ''),
   ];
@@ -606,6 +657,12 @@ export function renderLines(snap: Snapshot, ropts: RenderOptions = {}): string[]
   }
   if (ropts.overlay?.kind === 'detail' && ropts.overlay.item) {
     return fitLines(header, [...detailOverlayLines(ropts.overlay.item, width), ''], footer, rows, 'top');
+  }
+  if (ropts.overlay?.kind === 'dispatch') {
+    return fitLines(header, [...dispatchOverlayLines(ropts.overlay, width), ''], footer, rows, 'top');
+  }
+  if (ropts.overlay?.kind === 'approve') {
+    return fitLines(header, [...approveOverlayLines(ropts.overlay, width), ''], footer, rows, 'top');
   }
 
   if (view === 'log') {
@@ -633,7 +690,10 @@ export function renderLines(snap: Snapshot, ropts: RenderOptions = {}): string[]
     ...panes.map((p, i) => paneCardLines(p, half - 2, i === ropts.selection)),
     ...queued.map((t, i) => queuedCardLines(t, half - 2, panes.length + i === ropts.selection)),
   ];
-  if (!cards.length) body.push(dim('  no workers, queue empty'));
+  if (!cards.length) {
+    body.push(dim('  no workers, queue empty'));
+    body.push(dim('  Type `n` and state your goal in one sentence.'));
+  }
   for (let i = 0; i < cards.length; i += 2) {
     const a = cards[i]!;
     const b = cards[i + 1];
@@ -1019,6 +1079,25 @@ async function runInteractive(opts: TuiOptions, daemonMode: 'attach' | 'embedded
       quit();
       return;
     }
+    // Typed-input overlays (FR-HAND-02/07): printable chars append to the
+    // draft, Backspace trims, Enter submits, Esc closes; every other key is
+    // swallowed so dashboard hotkeys never fire mid-sentence.
+    if (overlay && (overlay.kind === 'dispatch' || overlay.kind === 'approve')) {
+      if (key.kind === 'esc') {
+        overlay = null;
+      } else if (key.kind === 'enter') {
+        const draft = overlay;
+        overlay = null;
+        await submitOverlay(draft);
+        return;
+      } else if (key.kind === 'ctrl' && (key.ch === '\x7f' || key.ch === '\x08')) {
+        overlay = { ...overlay, input: (overlay.input ?? '').slice(0, -1) };
+      } else if (key.kind === 'char') {
+        overlay = { ...overlay, input: (overlay.input ?? '') + key.ch };
+      }
+      draw();
+      return;
+    }
     if (key.kind === 'esc') {
       if (overlay) overlay = null;
       else if (showHelp) showHelp = false;
@@ -1029,7 +1108,6 @@ async function runInteractive(opts: TuiOptions, daemonMode: 'attach' | 'embedded
       draw();
       return;
     }
-    // Modal overlays swallow every key except Ctrl+C (handled above).
     if (overlay) {
       overlay = null;
       draw();
@@ -1061,6 +1139,20 @@ async function runInteractive(opts: TuiOptions, daemonMode: 'attach' | 'embedded
       case 'k':
         beginKill();
         break;
+      case 'n': {
+        // Dispatch sheet (FR-HAND-02): one-line goal → POST /dispatch.
+        // Defaults: configured worker, daemon repo — nothing else to answer.
+        overlay = { kind: 'dispatch', input: '' };
+        break;
+      }
+      case 'g': {
+        // Approve sheet (FR-HAND-07): answer the newest paused 'ask' task.
+        // Without a paused task, g stays the jump-to-first binding.
+        const paused = pickPausedTask();
+        if (paused) overlay = { kind: 'approve', taskId: paused, input: '' };
+        else selection = 0;
+        break;
+      }
       case 'a': {
         // Inline attach (FR-TUI-06): suspend the dashboard, hand the
         // terminal to the selected pane's herdr attach child, restore on
@@ -1171,7 +1263,7 @@ async function runInteractive(opts: TuiOptions, daemonMode: 'attach' | 'embedded
       draw();
       return;
     }
-    if (key.kind === 'home' || ch === 'g') {
+    if (key.kind === 'home') {
       if (view === 'log') {
         logScroll = Math.max(0, logLines.length - 1);
         logFollow = logScroll === 0;
@@ -1223,6 +1315,64 @@ async function runInteractive(opts: TuiOptions, daemonMode: 'attach' | 'embedded
       return;
     }
     pendingKill = target;
+  };
+
+  /**
+   * Newest paused task (FR-HAND-07): /status.ask carries the board's 'ask'
+   * task directly; the ledger-tail 'ask' verdict is the fallback. Null when
+   * nothing is paused.
+   */
+  const pickPausedTask = (): string | null => {
+    const askId = snap.status?.ask?.id;
+    if (askId) return askId;
+    for (let i = snap.history.length - 1; i >= 0; i--) {
+      const row = snap.history[i] as Record<string, unknown>;
+      if (typeof row.taskId === 'string' && row.taskId && row.verdict === 'ask') return row.taskId;
+    }
+    return null;
+  };
+
+
+  /** Submit a typed overlay draft to the daemon's control plane. */
+  const submitOverlay = async (draft: OverlayState): Promise<void> => {
+    const repoPath = opts.repoPath ?? process.cwd();
+    if (draft.kind === 'dispatch') {
+      const goal = (draft.input ?? '').trim();
+      if (!goal) {
+        note = 'dispatch: empty goal';
+        return;
+      }
+      note = 'dispatching goal…';
+      draw();
+      try {
+        // autoPr defaults on (FR-HAND-03): with GITHUB_TOKEN the dispatched
+        // task publishes a PR after gates; without it the run stays local.
+        const r = await postJson(opts, '/dispatch', { prompt: goal, repoPath, autoPr: true });
+        note = r.ok ? `goal dispatched — watch the workers view` : `dispatch failed: ${r.note}`.slice(0, 80);
+      } catch (err) {
+        note = `dispatch failed: ${err instanceof Error ? err.message : String(err)}`.slice(0, 80);
+      }
+      void poll();
+      return;
+    }
+    if (draft.kind === 'approve') {
+      const taskId = draft.taskId ?? '';
+      const raw = (draft.input ?? '').trim();
+      if (!raw) {
+        note = 'approve: empty answer';
+        return;
+      }
+      // y/n shorthand → approve/deny wording; anything else is the free-text
+      // answer the worker resumes with (open question 2 in #145).
+      const answer = raw.toLowerCase() === 'y' ? 'yes' : raw.toLowerCase() === 'n' ? 'no' : raw;
+      try {
+        const r = await postJson(opts, '/approve', { repoPath, taskId, answer });
+        note = r.ok ? `answered ${taskId}` : `approve failed: ${r.note}`.slice(0, 80);
+      } catch (err) {
+        note = `approve failed: ${err instanceof Error ? err.message : String(err)}`.slice(0, 80);
+      }
+      void poll();
+    }
   };
 
   const poll = async () => {

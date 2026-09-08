@@ -23,15 +23,19 @@ validates every change inside sandboxed Docker containers, and delivers
 tested Pull Requests with auto-generated documentation for frontend teams.
 
 ```bash
-# From zero: guided setup (checks prerequisites, writes devagent.json)
+# 1. Setup: guided checks (git, worker CLIs, herdr, orca, credentials),
+#    writes devagent.json with sane defaults
 devagent init
 
-# Process a ticket headlessly
-devagent run --ticket LINEAR-204 --repo ./backend-service --auto-pr
-
-# Interactive mode with mid-step human approvals
-devagent run --ticket JIRA-8821 --interactive
+# 2. Use: state a goal, watch it run, get a tested PR
+devagent tui        # press `n`, type the goal in one sentence, Enter
 ```
+
+That's the whole cold path — two commands. `devagent start` is an alias of
+`devagent tui`. Power paths (`devagent run --ticket …`, `devagent task
+--prompt …`, `devagent orchestrate --goal …`, the 24/7 `create`/`consume`
+factory) are documented below and stay scriptable, but none of them is
+required to reach a first tested PR.
 
 ## Dashboard
 
