@@ -357,6 +357,43 @@ func fleetCommand() *cobra.Command {
 // task
 // ---------------------------------------------------------------------------
 
+// taskPublishWiring bundles the task command's publish inputs plus the
+// remote seams; the wiring regression test stubs PushBranch/CreatePr here.
+type taskPublishWiring struct {
+	Creds      config.Credentials
+	RepoPath   string
+	Prompt     string
+	BaseBranch string
+	Log        pipeline.RunLog
+	PushBranch func(repoPath, branch string) error
+	CreatePr   func(o pipeline.TaskPublishPrRequest) (string, error)
+}
+
+// taskPublishStage is the task command's PublishStage body: it publishes the
+// run branch over the real git/gh seams — from the live worktree, or, after
+// cleanup=auto removed it, from the surviving run branch in the main repo
+// (PublishTaskBranch's tested contract). pubErr captures the publish failure
+// for the CLI error path (the PublishStage seam has no error channel).
+func taskPublishStage(w taskPublishWiring, impl pipeline.PublishImpl, pubErr *error) string {
+	if impl.WorktreePath == "" || w.Creds.GithubToken == "" {
+		return ""
+	}
+	prURL, err := pipeline.PublishTaskBranch(pipeline.TaskPublishOptions{
+		RepoPath: w.RepoPath, Prompt: w.Prompt, BaseBranch: w.BaseBranch, Log: w.Log,
+	}, impl, pipeline.TaskPublishDeps{
+		CommitAllChanges: git.CommitAllChanges,
+		CurrentBranch:    git.CurrentBranch,
+		ListChangedFiles: git.ListChangedFiles,
+		PushBranch:       w.PushBranch,
+		CreatePr:         w.CreatePr,
+	})
+	if err != nil {
+		*pubErr = err
+		return ""
+	}
+	return prURL
+}
+
 func taskCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "task",
@@ -529,19 +566,16 @@ func taskCommand() *cobra.Command {
 					return pipeline.TaskImplResult{OK: res.OK, Worker: res.Worker, Attempts: res.Attempts, WorktreePath: res.WorktreePath}
 				},
 				PublishStage: func(c pipeline.TaskOptions, ticket pipeline.TicketSpec, impl pipeline.PublishImpl) string {
-					if impl.WorktreePath == "" || creds.GithubToken == "" {
-						return ""
-					}
 					base := cfg.GithubBaseBranch
 					if base == "" {
 						base = "main"
 					}
-					prURL, perr := pipeline.PublishTaskBranch(pipeline.TaskPublishOptions{
-						RepoPath: c.RepoPath, Prompt: prompt, BaseBranch: base, Log: logger,
-					}, impl, pipeline.TaskPublishDeps{
-						CommitAllChanges: git.CommitAllChanges,
-						CurrentBranch:    git.CurrentBranch,
-						ListChangedFiles: git.ListChangedFiles,
+					prURL := taskPublishStage(taskPublishWiring{
+						Creds:      creds,
+						RepoPath:   c.RepoPath,
+						Prompt:     prompt,
+						BaseBranch: base,
+						Log:        logger,
 						PushBranch: func(repoPath, branch string) error {
 							return integrations.PushBranch(repoPath, branch, integrations.GitHubOptions{})
 						},
@@ -550,11 +584,7 @@ func taskCommand() *cobra.Command {
 								RepoPath: o.RepoPath, Branch: o.Branch, Title: o.Title, Body: o.Body, BaseBranch: base,
 							}, integrations.GitHubOptions{})
 						},
-					})
-					if perr != nil {
-						pubErr = perr
-						return ""
-					}
+					}, impl, &pubErr)
 					if prURL == "" {
 						return ""
 					}
