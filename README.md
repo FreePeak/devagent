@@ -33,6 +33,30 @@ devagent run --ticket LINEAR-204 --repo ./backend-service --auto-pr
 devagent run --ticket JIRA-8821 --interactive
 ```
 
+## Install
+
+Since the FR-GO-15 cutover (#204), the production entrypoint is the **Go
+binary** (`cmd/devagent`). Install it from a release:
+
+```bash
+# GitHub CLI
+gh release download --repo FreePeak/devagent --pattern 'devagent-darwin-arm64' --dir /tmp/devagent-install
+chmod +x /tmp/devagent-install/devagent-darwin-arm64
+mkdir -p ~/.local/bin && mv /tmp/devagent-install/devagent-darwin-arm64 ~/.local/bin/devagent
+
+# or plain curl
+curl -fL -o /tmp/devagent https://github.com/FreePeak/devagent/releases/latest/download/devagent-darwin-arm64
+chmod +x /tmp/devagent && mkdir -p ~/.local/bin && mv /tmp/devagent ~/.local/bin/devagent
+
+# Releases carry plain binaries for darwin/linux (amd64 + arm64) and
+# devagent-windows-amd64.exe — swap the asset name for your platform.
+```
+
+> **Deprecated (legacy fallback):** `npm link` still works — the Node CLI in
+> this repo (`src/cli.ts`) remains functional until FR-GO-16 and prints a
+> deprecation notice on stderr (silence with `DEVAGENT_SUPPRESS_DEPRECATION=1`).
+> New installs should use the release binary.
+
 ## Dashboard
 
 Every orchestration run is observable. `devagent dashboard` renders a static

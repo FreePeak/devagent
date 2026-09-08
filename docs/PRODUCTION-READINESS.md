@@ -3,6 +3,11 @@
 **Date:** 2026-08-25 · **Scope:** full src/ (~6k LOC, 43 modules), test/ (~4.5k LOC), CI, scripts, docs.
 **Method:** four parallel deep-dives (architecture, reliability/concurrency, security/sandboxing, testing/release). All headline claims re-verified against source by hand.
 
+> **2026-09-08 (FR-GO-15 cutover, #204):** the production entrypoint flips to
+> the Go binary (`cmd/devagent`); the Node CLI reviewed here is demoted to a
+> legacy fallback until FR-GO-16. This review is preserved as written on
+> 2026-08-25 and predates the Go migration.
+
 ## Verdict
 
 DevAgent has an unusually honest core for an agent product: dependency-injected pipeline state machine, worktree-per-run isolation, evidence-gated trust in the orchestrator, and ~261 tests including real-git e2e. But it is **not production ready**, for three reasons:

@@ -1,5 +1,11 @@
 #!/usr/bin/env bash
 # Install/validate/uninstall the devagent scout LaunchAgent (macOS).
+#
+# FR-GO-15 cutover note (#204): after the cutover, ~/.local/bin/devagent
+# resolves to the Go binary. This script is unchanged: it still installs the
+# scout against the Node CLI build (node <repo>/dist/src/cli.js), which
+# prints a deprecation notice to stderr — it lands in the scout log; silence
+# with DEVAGENT_SUPPRESS_DEPRECATION=1 in the plist environment.
 # Usage:
 #   scripts/install-scout-launchagent.sh --repo <path> [--interval <min>] [--worker opencode|claude-code|omp|pi]
 #   scripts/install-scout-launchagent.sh --validate                 # plutil -lint only

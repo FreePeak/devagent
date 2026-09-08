@@ -16,7 +16,7 @@ All loop state lives in `.selfbuild/` (gitignored):
 
 | Path | Purpose |
 |---|---|
-| `.selfbuild/ledger.jsonl` | Append-only log: one JSON line per completed iteration `{loop,ts,goal,status,duration_s}` |
+| `.selfbuild/ledger.jsonl` | Append-only log: one JSON line per completed iteration `{"loop":N,"ts":"<RFC3339 UTC>","status":S,"goal":G}` (key order loop/ts/status/goal, second-precision timestamps) |
 | `.selfbuild/research/loop-N.md` | Phase 1 output for iteration N |
 | `.selfbuild/goals/loop-N.md` | Phase 2-3 output: validated goal statement |
 | `.selfbuild/logs/loop-N.log` | Full phase log |
@@ -86,6 +86,42 @@ Environment knobs (all optional):
 | `SELFBUILD_GH_REPO` | derived from `git remote get-url origin` | Target repo for the tracker pick (`gh issue`) |
 | `SELFBUILD_DRY_RUN` | `0` | `1` executes all phases without side effects (stub outputs, no claude/task/push) |
 
+
+## Go soak (FR-GO-15)
+
+At the FR-GO-15 cutover (#204) the Go loop driver (`internal/loopdriver`,
+exposed as `devagent loop`, FR-GO-13) is soaked against the live loop before
+the bash driver (`scripts/selfbuild-loop.sh`) hands over production.
+Procedure:
+
+```sh
+# Build the Go binary, then run the soak with it as both driver and CLI:
+go build -o bin/devagent ./cmd/devagent
+SELFBUILD_DEVAGENT_BIN="$PWD/bin/devagent" \
+SELFBUILD_MAX_ITERATIONS=<next> \
+    bin/devagent loop
+```
+
+- `SELFBUILD_DEVAGENT_BIN` points the driver's shelled subcommands (pane-run,
+  task, preflight, sync-docs, scan-text, ledger, herdr-sweep, page-degrade-breach)
+  at the Go binary instead of the npm-linked Node CLI — every executed surface
+  must be the Go implementation for the soak to count.
+- The iteration cap is checked at loop head (`n >= cap` halts before spending
+  tokens), so `<next>` is the first loop number the soak must NOT run: a
+  one-iteration soak at loop N sets `SELFBUILD_MAX_ITERATIONS=N+1`.
+
+**Byte-parity gate.** The Go driver's `.selfbuild/ledger.jsonl` rows must be
+byte-identical to the bash driver's on the same inputs:
+`{"loop":N,"ts":"<RFC3339, second precision, UTC>","status":"<S>","goal":"<G>"}`
+in exactly that key order (loop, ts, status, goal) — the same shape the bash
+driver writes with its `date -u +%FT%TZ` printf. The full contract (events,
+state sync, queue protocol) is pinned in `internal/loopdriver/DECISION.md`.
+
+**Driver takeover rule** (`internal/loopdriver/DECISION.md`): the Go driver
+takes over production only after it survives at least one full live iteration
+against the real devagent CLI with byte-identical ledger/event rows verified
+against the bash driver's output on the same inputs. Until that gate passes,
+the bash driver remains the production default.
 
 ## Tracker + PRD policy (2026-09-07 operator decision)
 
