@@ -154,3 +154,16 @@ orca-quit:
 	@pkill -9 -f "Orca.app" 2>/dev/null || true
 	@pkill -9 -f "orca/daemon" 2>/dev/null && echo "killed Orca daemon" || true
 	@echo "Orca stopped"
+
+# --- Go binary (FR-GO-15 cutover) --------------------------------------------
+#
+#   make build    # ./devagent-go — the Go CLI the soak runs as
+#                 # SELFBUILD_DEVAGENT_BIN
+#
+# The version is stamped from package.json so the Go and Node CLIs stay in
+# lockstep; the unstamped default in internal/version remains 0.1.0.
+VERSION := $(shell sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' package.json | head -1)
+
+.PHONY: build
+build:
+	go build -trimpath -ldflags "-X github.com/FreePeak/devagent/internal/version.Version=$(VERSION)" -o devagent-go ./cmd/devagent
