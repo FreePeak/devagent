@@ -8,8 +8,9 @@
   "scout": {
     "enabled": true,
     "worker": "omp",
-    "model": "onegw/free",
-    "maxQueued": 3
+    "intervalMinutes": 30,
+    "maxQueued": 3,
+    "model": "onegw/free"
   },
   "autoMerge": true,
   "selfUpdate": true,
