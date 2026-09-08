@@ -16,9 +16,12 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/FreePeak/devagent/internal/config"
+	"github.com/FreePeak/devagent/internal/daemon"
 	"github.com/FreePeak/devagent/internal/integrations"
 	"github.com/FreePeak/devagent/internal/ledger"
 	"github.com/spf13/cobra"
@@ -215,4 +218,54 @@ func serveOnEvent(v integrations.VerifiedWebhook) {
 	}
 	logger.Info(ledger.StageFetch, fmt.Sprintf("Webhook-dispatched run %s starting", logger.RunID()), []ledger.KV{{Key: "ticket", Value: ticketID}})
 	fmt.Fprintln(os.Stderr, "[serve] run pipeline not yet ported to Go (FR-GO-07 #194) — webhook accepted, no run dispatched")
+}
+
+// newDaemonCmd wires the FR-CTRL control-plane daemon (FR-GO-12, #200) to
+// the CLI: HTTP+SSE on 127.0.0.1 (UDS with --uds-path), the FR-GO-15
+// cutover entrypoint for LaunchAgents/launchers. Mirrors the Node
+// `daemon` command flags (src/cli.ts:1749-1767, frozen surface).
+func newDaemonCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "daemon",
+		Short: "Run the FR-CTRL control-plane daemon (HTTP+SSE on 127.0.0.1; UDS with --uds-path)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			portFlag, _ := cmd.Flags().GetInt("port")
+			repoFlag, _ := cmd.Flags().GetString("repo")
+			udsFlag, _ := cmd.Flags().GetString("uds-path")
+			tokenFlag, _ := cmd.Flags().GetString("token")
+			if repoFlag == "" {
+				repoFlag, _ = os.Getwd()
+			}
+			opts := daemon.Options{RepoPath: repoFlag}
+			port := portFlag
+			opts.Port = &port
+			if udsFlag != "" {
+				opts.UDSPath = udsFlag
+			}
+			if tokenFlag != "" {
+				opts.Token = tokenFlag
+			}
+			handle, err := daemon.Start(opts)
+			if err != nil {
+				return err
+			}
+			where := handle.UDSPath
+			if where == "" {
+				where = fmt.Sprintf("http://127.0.0.1:%d", *handle.Port)
+			}
+			fmt.Printf("devagent daemon listening on %s (token: %s)\n", where, handle.Token)
+			// Foreground service: block until signalled, then shut down
+			// cleanly (SSE clients unblocked via RegisterOnShutdown).
+			sig := make(chan os.Signal, 1)
+			signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
+			<-sig
+			handle.Stop()
+			return nil
+		},
+	}
+	cmd.Flags().Int("port", 7788, "TCP port (0 = ephemeral)")
+	cmd.Flags().String("repo", "", "repo the API reads from and dispatches into")
+	cmd.Flags().String("uds-path", "", "listen on a Unix-domain socket instead of TCP")
+	cmd.Flags().String("token", "", "bearer token (default DEVAGENT_DAEMON_TOKEN or a fresh one persisted to daemon-token)")
+	return cmd
 }

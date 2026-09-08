@@ -31,7 +31,7 @@ var notPortedIssue = map[string]string{
 	"mcp":       "#200",
 	"guard":     "#190", "guard-status": "#190",
 	"pane-run": "#201",
-	"daemon":   "#200", "tui": "#198",
+	"tui":      "#198",
 }
 
 // requiredFlags: flags the Node CLI declares with .requiredOption — the
@@ -420,6 +420,7 @@ func wiredCommands() map[string]*cobra.Command {
 		"scout-status": scoutStatusCommand(),
 		"track":        trackCommand(),
 		"serve":        serveCommand(),
+		"daemon":       newDaemonCmd(),
 		"record":       recordCommand(),
 
 		// Orchestrator-era commands (FR-GO-07 #221 / FR-GO-08 #215 wiring).
@@ -528,7 +529,7 @@ func handled(dotted string) bool {
 	case "scan-text", "config", "init", "trust", "trust agents-md",
 		"ledger", "log", "record release", "status", "dashboard",
 		"validate", "clean", "rebase-stack", "herdr-sweep", "sessions",
-		"attach", "sync-docs", "scout", "scout-status", "track", "serve",
+		"attach", "sync-docs", "scout", "scout-status", "track", "serve", "daemon",
 		"record", "pane-run",
 		"selfbuild-gate", "board-recovery", "preflight", "page-degrade-breach",
 		"queue", "queue list", "queue show", "queue bridge",
