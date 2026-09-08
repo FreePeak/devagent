@@ -27,7 +27,6 @@ import (
 // notPortedIssue maps each stubbed command to the FR-GO issue that owns its
 // port, so the exit-3 message points at the tracker instead of dead-ending.
 var notPortedIssue = map[string]string{
-	"mcp":      "#200",
 	"pane-run": "#201",
 	"tui":      "#198",
 }
@@ -431,6 +430,7 @@ func wiredCommands() map[string]*cobra.Command {
 		"serve":        serveCommand(),
 		"daemon":       newDaemonCmd(),
 		"record":       recordCommand(),
+		"mcp":          mcpCommand(),
 
 		// Session-guard family (FR-GO-07 #190 wiring, issue #251).
 		"guard":        guardCommand(),
@@ -548,7 +548,7 @@ func handled(dotted string) bool {
 		"ledger", "log", "record release", "status", "dashboard",
 		"validate", "clean", "rebase-stack", "herdr-sweep", "sessions",
 		"attach", "sync-docs", "scout", "scout-status", "track", "serve", "daemon",
-		"record", "pane-run",
+		"record", "pane-run", "mcp",
 		"selfbuild-gate", "board-recovery", "preflight", "page-degrade-breach",
 		"queue", "queue list", "queue show", "queue bridge",
 		"lessons", "lessons scores", "pr-hygiene", "automerge", "autosweep",
