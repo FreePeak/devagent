@@ -247,6 +247,7 @@ func TestCnsConsumeFencedCompletionRefused(t *testing.T) {
 
 func TestCnsConsumeTransientRequeuesWithSweep(t *testing.T) {
 	repo := cnsGitRepo(t, false)
+	t.Setenv("DEVAGENT_API_MAX_ATTEMPTS", "")
 	goal := "Goal: queued job does a tiny docs edit with enough description"
 	cnsEnqueue(t, repo, "Q-1", goal, "")
 
@@ -314,6 +315,7 @@ func TestCnsConsumeTransientRequeuesWithSweep(t *testing.T) {
 
 func TestCnsConsumeFencedRequeueRefused(t *testing.T) {
 	repo := cnsGitRepo(t, false)
+	t.Setenv("DEVAGENT_API_MAX_ATTEMPTS", "")
 	goal := "Goal: queued job does a tiny docs edit with enough description"
 	cnsEnqueue(t, repo, "Q-1", goal, "")
 
@@ -376,6 +378,7 @@ func TestCnsConsumeBoundedFailureGoesToFailed(t *testing.T) {
 
 func TestCnsConsumeCrashTransientRequeued(t *testing.T) {
 	repo := cnsGitRepo(t, false)
+	t.Setenv("DEVAGENT_API_MAX_ATTEMPTS", "")
 	cnsEnqueue(t, repo, "Q-1", "Goal: queued job does a tiny docs edit with enough description", "")
 
 	cnsInstallSeams(t, func(config.Credentials, StageConfig, RunLog) PipelineDeps {
