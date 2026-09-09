@@ -486,7 +486,10 @@ devagent run --ticket LINEAR-204 --worker claude-code   # or opencode | both
 
 ### Environment variables (credentials only — FR-OPS-02)
 
-`LINEAR_API_KEY`, `GITHUB_TOKEN` (scoped to contents:write + pull-requests:write on target repos), `DEVAGENT_HOME` (run state/logs).
+`LINEAR_API_KEY`, `GITHUB_TOKEN` (scoped to contents:write + pull-requests:write
+on target repos), `DEVAGENT_HOME` (run state/logs). `GITHUB_TOKEN` env wins; the
+`gh auth token` keyring fallback (issue #234) resolves with a 5s timeout and
+tests stub the resolver seam rather than exec gh (#262).
 
 ## 13. Integrations
 
@@ -1469,11 +1472,10 @@ Master tracker with definition of done: [#207](https://github.com/FreePeak/devag
 
 ---
 
-*Last updated: 2026-09-09 (TUI conventions-research polish wave landed: NO_COLOR/TERM=dumb
-mono degradation, PAUSED aggregate + hero attention banner, `/` log search with n/N match
-walking, selection-following viewports with hidden-count indicators, OSC-2 title, grouped
-help, IUTF8, live version in the upgrade overlay — commit f3d21f9, research in
-docs/research/tui-conventions.md. Supersedes the 09-09 all-four-open-issues stamp: #248
-worker observability (WatchdogSink default-wired, omp NDJSON events, stream metrics,
-productive-wall-kill classification, PR #266); #206 scoreboard closed; #181 desktop app
-v1 (PR #267); #146 TUI polish FR-TUI-P-01..12 (PR #268).)*
+*Last updated: 2026-09-09 (#262) — test hardening for the `gh auth token`
+credential fallback: `ghAuthToken` is now an injectable seam
+(`ghAuthTokenExec` keeps the real 5s-timeout exec; no production behavior
+change), trimming moved into `resolveGithubToken`, and the previously
+PATH-shim-based token tests stub the seam so the 5s exec timeout can no longer
+flake under machine load; real-exec coverage retained for gh-absent and
+non-zero-exit paths.*

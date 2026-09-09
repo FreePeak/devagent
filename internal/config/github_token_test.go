@@ -29,6 +29,21 @@ func installFakeGh(t *testing.T, dir, token string, exit int) string {
 	return counter
 }
 
+// stubGhAuthToken replaces the gh resolver seam with a function returning
+// token (or empty) and counting invocations in *int. Restores the real
+// implementation on cleanup and resets the process-level cache (issue #262:
+// no real exec under test, so the 5s timeout cannot flake under load).
+func stubGhAuthToken(t *testing.T, token string, calls *int) {
+	t.Helper()
+	old := ghAuthToken
+	ghAuthToken = func() string {
+		*calls++
+		return token
+	}
+	t.Cleanup(func() { ghAuthToken = old })
+	resetGithubTokenCacheForTest()
+}
+
 // unsetGithubTokenForTest makes GITHUB_TOKEN genuinely absent (not just
 // empty) for the test and restores the original state afterwards.
 func unsetGithubTokenForTest(t *testing.T) {
@@ -45,26 +60,22 @@ func unsetGithubTokenForTest(t *testing.T) {
 }
 
 func TestResolveGithubTokenEnvWins(t *testing.T) {
-	dir := t.TempDir()
-	counter := installFakeGh(t, dir, "gh-must-not-run", 0)
-	t.Setenv("PATH", dir)
+	calls := 0
+	stubGhAuthToken(t, "gh-must-not-run", &calls)
 	t.Setenv("GITHUB_TOKEN", "env-token")
-	resetGithubTokenCacheForTest()
 
 	if got := LoadCredentials().GithubToken; got != "env-token" {
 		t.Fatalf("GithubToken = %q, want env value", got)
 	}
-	if _, err := os.Stat(counter); !os.IsNotExist(err) {
-		t.Fatalf("gh was invoked despite env GITHUB_TOKEN (counter: %v)", err)
+	if calls != 0 {
+		t.Fatalf("gh resolver invoked %d times despite env GITHUB_TOKEN, want 0", calls)
 	}
 }
 
 func TestResolveGithubTokenGhFallback(t *testing.T) {
-	dir := t.TempDir()
-	installFakeGh(t, dir, "  gh-keyring-token  ", 0) // padded: resolution must trim
-	t.Setenv("PATH", dir)
+	calls := 0
+	stubGhAuthToken(t, "  gh-keyring-token  ", &calls) // padded: resolution must trim
 	unsetGithubTokenForTest(t)
-	resetGithubTokenCacheForTest()
 
 	if got := LoadCredentials().GithubToken; got != "gh-keyring-token" {
 		t.Fatalf("GithubToken = %q, want trimmed gh output", got)
@@ -94,11 +105,9 @@ func TestResolveGithubTokenGhFailure(t *testing.T) {
 }
 
 func TestResolveGithubTokenEmptyEnvFallsThrough(t *testing.T) {
-	dir := t.TempDir()
-	installFakeGh(t, dir, "gh-empty-env", 0)
-	t.Setenv("PATH", dir)
+	calls := 0
+	stubGhAuthToken(t, "gh-empty-env", &calls)
 	t.Setenv("GITHUB_TOKEN", "") // empty counts as unset
-	resetGithubTokenCacheForTest()
 
 	if got := LoadCredentials().GithubToken; got != "gh-empty-env" {
 		t.Fatalf("GithubToken = %q, want gh fallback for empty env", got)
@@ -106,11 +115,9 @@ func TestResolveGithubTokenEmptyEnvFallsThrough(t *testing.T) {
 }
 
 func TestResolveGithubTokenCachedPerProcess(t *testing.T) {
-	dir := t.TempDir()
-	counter := installFakeGh(t, dir, "gh-cached", 0)
-	t.Setenv("PATH", dir)
+	calls := 0
+	stubGhAuthToken(t, "gh-cached", &calls)
 	unsetGithubTokenForTest(t)
-	resetGithubTokenCacheForTest()
 
 	if got := LoadCredentials().GithubToken; got != "gh-cached" {
 		t.Fatalf("first call = %q, want gh token", got)
@@ -118,8 +125,8 @@ func TestResolveGithubTokenCachedPerProcess(t *testing.T) {
 	if got := LoadCredentials().GithubToken; got != "gh-cached" {
 		t.Fatalf("second call = %q, want cached gh token", got)
 	}
-	if data, err := os.ReadFile(counter); err != nil || string(data) != "x" {
-		t.Fatalf("gh invocation count wrong: data=%q err=%v, want exactly one exec", data, err)
+	if calls != 1 {
+		t.Fatalf("gh resolver invoked %d times, want exactly one exec", calls)
 	}
 
 	// A later-set env GITHUB_TOKEN still wins over the primed cache.
@@ -127,7 +134,7 @@ func TestResolveGithubTokenCachedPerProcess(t *testing.T) {
 	if got := LoadCredentials().GithubToken; got != "later-env" {
 		t.Fatalf("GithubToken = %q, want later env value over cache", got)
 	}
-	if data, err := os.ReadFile(counter); err != nil || string(data) != "x" {
-		t.Fatalf("env-wins check re-executed gh: data=%q err=%v", data, err)
+	if calls != 1 {
+		t.Fatalf("env-wins check re-executed gh: %d calls", calls)
 	}
 }
