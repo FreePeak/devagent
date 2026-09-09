@@ -81,9 +81,13 @@ func TestSpawnCliStreaming_MeaningfulOutputResetsClockAndCompletes(t *testing.T)
 	// counting raw bytes as progress meant the clock never fired for
 	// deliberation-only runs; here we pin the inverse — real work passes).
 	// Deadlines stay >= 1s: a freshly written binary can cost ~600ms on
-	// its first macOS execution (Gatekeeper scan) before any output.
+	// its first macOS execution (Gatekeeper scan) before any output — and
+	// `go test ./...` parallel-package load has pushed the first exec past
+	// the old 1500ms budget (observed ColdStart kill at 1.5s), so the cold
+	// start rides a 5s budget; the kill-on-cold-start contract is pinned by
+	// TestSpawnCliStreaming_ColdStartDeadlineKillsThinkingOnlyStream.
 	bin := fakeBin(t, "fake-worker", progressThenExitBody)
-	res := spawnCliStreaming(bin, nil, SpawnCliOptions{TimeoutMs: 10_000, NoProgressTimeoutMs: intPtr(1500), ColdStartTimeoutMs: 1500})
+	res := spawnCliStreaming(bin, nil, SpawnCliOptions{TimeoutMs: 10_000, NoProgressTimeoutMs: intPtr(1500), ColdStartTimeoutMs: 5000})
 	if res.TimedOut {
 		t.Fatalf("expected clean completion, got %+v", res)
 	}

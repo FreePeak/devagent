@@ -1508,4 +1508,14 @@ Run-driven tests no longer race the loop's poller/input goroutines (14 DATA
 RACE reports under `go test -race` across 9 tests; on loaded CI runners
 these torn reads surface as the same environment-dependent failure class
 #271 pins). `go test -race -count=5 -shuffle=on ./internal/tui` is now
-clean. Test-only change (no product behavior change).*
+clean. Load-hardening wave (#262 class, all test-only): config.Load tests
+scrub the DEVAGENT_* resilience env overrides the daemon's dispatch env
+exports (Fixes #280 — worker sessions inherit them, masking the invalid
+file-value error and leaking noProgressTimeoutMs into exact marshals);
+TestGuardExplicitZeroBackoffRetriesImmediately asserts the computed "in
+0ms" retry line off stderr instead of a wall-clock bound the correct path
+also breached under load; TestLoopPollCadence's deadline is 4× the 2s poll
+chain; tui runWaitFor's failure budget and the workers spawn cold-start
+budget run wide of their awaited intervals. `go test -count=1 ./...` exits
+0 fresh and under 10-core CPU saturation. Test-only change (no product
+behavior change).*

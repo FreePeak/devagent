@@ -20,7 +20,24 @@ func writeRepo(t *testing.T, files map[string]string) string {
 	return dir
 }
 
+// scrubResilienceEnv clears the DEVAGENT_* resilience overrides that
+// config.Load folds into Resilience (config.go). Worker sessions inherit
+// them from the daemon's dispatch env, so unset-by-assertion keeps the
+// defaults/error-shape tests hermetic (same treatment pipeline tests get;
+// issue #280).
+func scrubResilienceEnv(t *testing.T) {
+	t.Helper()
+	for _, v := range []string{
+		"DEVAGENT_API_MAX_ATTEMPTS", "DEVAGENT_NO_PROGRESS_TIMEOUT_MS",
+		"DEVAGENT_COLD_START_TIMEOUT_MS", "DEVAGENT_DEGRADE_WEBHOOK_URL",
+		"DEVAGENT_ARCHIVE_KEEP", "DEVAGENT_MAX_PROMPT_BYTES",
+	} {
+		t.Setenv(v, "")
+	}
+}
+
 func TestLoadDefaults(t *testing.T) {
+	scrubResilienceEnv(t)
 	cfg, err := Load(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -118,6 +135,9 @@ func TestLoadInvalidScoutMaxQueued(t *testing.T) {
 }
 
 func TestLoadInvalidAPIMaxAttempts(t *testing.T) {
+	// A valid DEVAGENT_API_MAX_ATTEMPTS overrides the invalid file value in
+	// the merged config, masking the error — scrub it first.
+	scrubResilienceEnv(t)
 	dir := writeRepo(t, map[string]string{"devagent.json": `{"resilience": {"apiMaxAttempts": -1}}`})
 	_, err := Load(dir)
 	if err == nil || err.Error() != `Invalid resilience.apiMaxAttempts "-1"; expected positive number or Infinity` {
@@ -138,6 +158,7 @@ func TestLoadInfinityAPIMaxAttempts(t *testing.T) {
 }
 
 func TestLoadEnvInfinityAPIMaxAttempts(t *testing.T) {
+	scrubResilienceEnv(t) // other overrides would leak into the exact marshal
 	dir := t.TempDir()
 	t.Setenv("DEVAGENT_API_MAX_ATTEMPTS", "Infinity")
 	cfg, err := Load(dir)
