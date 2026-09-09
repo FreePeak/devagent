@@ -4545,5 +4545,19 @@ closes #252), <code>mcp</code> six-tool stdio server (PR #255),
 <code>notPortedIssue</code> is now empty and pinned by
 TestNotPortedIssueConsistent (PR #257). Full build+vet+test+lint green
 on merged main; all five commands smoke-tested live.)</em></p>
+<p><em>Last updated: 2026-09-09 (post-cutover debt burned — doc-sync
+dirty-tree misclassification #245 fixed: whole-tree
+<code>status --porcelain</code> pre-check excludes
+<code>.devagent</code>/<code>.selfbuild</code>, behind+dirty refuses
+<code>Dirty:true</code>→exit 2 operator-degraded, diverged+dirty→exit 3,
+ff-abort stderr reclassified (PR #260); gh-keyring token fallback #234
+shipped: <code>resolveGithubToken()</code> env-wins + cached
+<code>gh auth token</code> fallback (PR #259); autopr grace-window
+fixtures made wall-clock-relative + curator same-millisecond flake fixed
+(PR #261, 6928332); tui command wired #252 (PR #258); operator install
+consolidated to <code>~/.local/bin/devagent</code> → repo
+<code>devagent-go</code>; flaky config-token tests follow-up filed #262.
+Genuinely open: #248 worker observability, #206 parity scoreboard, #146
+TUI polish, #181 Tauri app.)</em></p>
 </body>
 </html>
