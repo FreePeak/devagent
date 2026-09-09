@@ -174,6 +174,11 @@ func headerLines(snap *Snapshot, ropts RenderOptions) []string {
 	if ropts.DaemonMode == "embedded" {
 		barBody += "  " + Cyan + "· daemon:embedded" + Reset
 	}
+	// SGR is not a stack: every Reset inside the body (tagline, spinner,
+	// chip, embedded marker) would end the Bold+Inverse highlight early and
+	// leave the bar plain from there on. Re-assert the bar attributes after
+	// each internal Reset so the inverse strip runs edge to edge.
+	barBody = strings.ReplaceAll(barBody, Reset, Reset+Bold+Inverse)
 	// Metric strip (FR-TUI-P-06): ONE dense row — queue meter p/c/d, live
 	// runs, activity sparkline. Uptime/herdr/vis demoted to the dim suffix;
 	// circuit is highlighted only when not closed. Header stays ≤2 lines

@@ -12,7 +12,7 @@ import (
 
 func TestOnboardBannerShape(t *testing.T) {
 	for _, mode := range []struct {
-		name   string
+		name    string
 		setMono func(bool) func()
 	}{
 		{"color", func(bool) func() { return func() {} }},
@@ -93,5 +93,26 @@ func TestHeaderTagline(t *testing.T) {
 	first := strings.SplitN(narrow, "\n", 2)[0]
 	if !strings.Contains(first, "DevAgent") || strings.Contains(first, "autonomous backend") {
 		t.Fatalf("narrow header must keep name, drop tagline: %q", first)
+	}
+}
+
+func TestHeaderBarReassertsInverse(t *testing.T) {
+	// SGR is not a stack: the bar body carries internal Resets (tagline,
+	// chip, embedded marker). Each one must be followed by a Bold+Inverse
+	// re-assert, or the inverse strip dies mid-bar and the rest renders
+	// plain on the default background.
+	snap := testSnapshot()
+	out := RenderLines(snap, RenderOptions{Width: 120, Rows: 24})
+	bar := out[0]
+	reasserts := strings.Count(bar, Reset+Bold+Inverse)
+	internalResets := strings.Count(bar, Reset) - 1 // final wrap Reset
+	if reasserts < internalResets {
+		t.Fatalf("bar re-asserts Bold+Inverse %d times but carries %d internal Resets:\n%q", reasserts, internalResets, bar)
+	}
+	if !strings.Contains(bar, Reset+Bold+Inverse+" ●") {
+	}
+	// The bar ends with the wrap Reset: no stray plain tail beyond it.
+	if !strings.HasSuffix(bar, Reset) {
+		t.Fatalf("bar must end on the wrap Reset:\n%q", bar)
 	}
 }

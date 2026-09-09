@@ -230,8 +230,9 @@ type LedgerListRecord struct {
 	Summary    string
 }
 
-// RenderLedgerListLines renders the CloddsBot-style outcome-glyph lines for
-// default `devagent ledger` list (✓/✗/●; replaces +/x/? ascii).
+// RenderLedgerListLines renders the chip lines for default `devagent ledger`
+// list (● state chips; replaces +/x/? ascii). The CloddsBot ✓/✗ glyphs stay
+// on the checklist surfaces (init/smoke) where the outcome is the point.
 func RenderLedgerListLines(records []LedgerListRecord) []string {
 	if len(records) == 0 {
 		return []string{"No ledger records. Audits append to .devagent/runs/orchestration/events.jsonl."}
