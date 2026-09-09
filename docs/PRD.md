@@ -1518,8 +1518,15 @@ the dispatch env); TestGuardExplicitZeroBackoffRetriesImmediately asserts
 the computed "in 0ms" retry line off stderr instead of a wall-clock bound;
 TestLoopPollCadence's deadline is 4× the 2s poll chain; tui runWaitFor's
 failure budget and the workers spawn cold-start budget run wide of their
-awaited intervals. Residual loaded-box kill (loop-208 gate evidence,
-reproduced under concurrent `go test` gates): the no-progress branch fired
+awaited intervals. TestRunOneShotRendersDashboard is hermetic: it used to
+hit the live daemon (127.0.0.1:7788 — a ~4s stall matching the
+evidence-era 4.146s package timing) and spray real dashboard rows into
+RunTestGate's 15-line stdout tail, hiding the actual --- FAIL line for
+six loops; it now stubs the daemon over httptest and captures stdout,
+asserting the one-shot contract (footer, roster, no alt-screen);
+TestApplyKeysKillFlow's killDone wait now shares runWaitFor's 10s budget
+instead of a 2s sub-deadline. Residual loaded-box kill (loop-208 gate
+evidence, reproduced under concurrent `go test` gates): the no-progress branch fired
 inside the cold-start window whenever `noProgressMs < coldStartMs` —
 a slow fork+exec breached the 1.5s silence budget before any output
 (`WatchdogFired=true ClockResets=0 MeaningfulBytes=0`) despite the 5s
