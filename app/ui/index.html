@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DevAgent Control</title>
+  <link rel="stylesheet" href="main.css" />
+</head>
+<body>
+  <header id="topbar">
+    <span id="conn-dot" class="dot offline" title="daemon reachability"></span>
+    <span id="conn-label">connecting…</span>
+    <span class="spacer"></span>
+    <span id="aggregate-label"></span>
+    <span class="spacer"></span>
+    <button id="open-dispatch">Dispatch…</button>
+    <button id="open-settings">Settings</button>
+  </header>
+
+  <nav id="tabs">
+    <button data-tab="roster" class="active">Agents</button>
+    <button data-tab="approvals">Approvals <span id="approval-count" class="badge" hidden>0</span></button>
+    <button data-tab="pipeline">Pipeline</button>
+    <button data-tab="history">History</button>
+  </nav>
+
+  <main>
+    <!-- FR-UI-03: agent roster + live log tail -->
+    <section id="tab-roster" class="tab active">
+      <div id="roster-pane">
+        <h2>Agent roster</h2>
+        <ul id="roster"></ul>
+        <h2>Queue</h2>
+        <ul id="queue"></ul>
+      </div>
+      <div id="log-pane">
+        <h2>Live log <span id="log-run" class="muted"></span></h2>
+        <div id="log-tail" aria-live="polite"></div>
+      </div>
+    </section>
+
+    <!-- FR-UI-04: approval inbox -->
+    <section id="tab-approvals" class="tab">
+      <h2>Approval inbox</h2>
+      <p class="muted">Tasks paused for input. Approve resumes the task with your answer; Deny answers "no".</p>
+      <ul id="approvals"></ul>
+    </section>
+
+    <!-- FR-UI-08: pipeline timeline -->
+    <section id="tab-pipeline" class="tab">
+      <h2>Pipeline</h2>
+      <label for="run-select">Run</label>
+      <select id="run-select"></select>
+      <button id="pipeline-refresh">Refresh</button>
+      <div id="pipeline-view"></div>
+    </section>
+
+    <!-- FR-UI-03b: task history -->
+    <section id="tab-history" class="tab">
+      <h2>History</h2>
+      <ul id="history-list"></ul>
+    </section>
+  </main>
+
+  <!-- FR-UI-02: dispatch sheet (dialog) -->
+  <dialog id="dispatch-sheet">
+    <form id="dispatch-form" method="dialog">
+      <h2>Dispatch run</h2>
+      <label>Prompt <textarea name="prompt" rows="5" required placeholder="What should the agent do?"></textarea></label>
+      <label>Role
+        <select name="role">
+          <option value="">(repo default)</option>
+          <option value="scout">scout</option>
+          <option value="plan">plan</option>
+          <option value="implement">implement</option>
+          <option value="selfbuild">selfbuild</option>
+        </select>
+      </label>
+      <label>Worker
+        <select name="worker">
+          <option value="">(repo default)</option>
+          <option value="claude-code">claude-code</option>
+          <option value="opencode">opencode</option>
+          <option value="omp">omp</option>
+          <option value="pi">pi</option>
+          <option value="grok">grok</option>
+        </select>
+      </label>
+      <label>Target repo (absolute path; empty = daemon's repo) <input name="repoPath" type="text" placeholder="/path/to/repo" /></label>
+      <div class="row">
+        <label class="check"><input type="checkbox" name="autoPr" /> Auto-PR (needs GITHUB_TOKEN on the daemon host)</label>
+      </div>
+      <details>
+        <summary>Budget</summary>
+        <label>Max loops <input name="maxLoops" type="number" min="1" step="1" /></label>
+        <label>Timeout (minutes) <input name="timeoutMinutes" type="number" min="1" step="1" /></label>
+      </details>
+      <p id="dispatch-result" class="muted"></p>
+      <div class="row right">
+        <button type="button" id="dispatch-cancel">Cancel</button>
+        <button type="submit" id="dispatch-submit" class="primary">Dispatch</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Daemon connection settings -->
+  <dialog id="settings-sheet">
+    <form id="settings-form" method="dialog">
+      <h2>Daemon connection</h2>
+      <label>Base URL <input name="baseUrl" type="text" placeholder="http://127.0.0.1:7788" /></label>
+      <label>Bearer token (from DEVAGENT_HOME/daemon-token; empty keeps current) <input name="token" type="password" /></label>
+      <p class="muted">The app is a thin client (FR-UI-07): it stores no credentials beyond this session's token view and holds no business logic. Without the daemon, use the CLI.</p>
+      <div class="row right">
+        <button type="button" id="settings-cancel">Cancel</button>
+        <button type="submit" class="primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="main.js"></script>
+</body>
+</html>
