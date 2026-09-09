@@ -10,14 +10,18 @@
 package config
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"math"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/FreePeak/devagent/internal/workers/modelid"
 )
@@ -630,13 +634,48 @@ func ResolveHerdrSweep(cfg Config) HerdrSweepSettings {
 	return out
 }
 
-// LoadCredentials: credentials come exclusively from the environment
-// (FR-OPS-02).
+// LoadCredentials resolves credentials (FR-OPS-02): LINEAR_API_KEY from the
+// environment; the GitHub token prefers env GITHUB_TOKEN (env wins so CI
+// secrets override) and falls back to `gh auth token` for keyring-auth
+// machines with no exported token (issue #234).
 func LoadCredentials() Credentials {
 	return Credentials{
 		LinearAPIKey: os.Getenv("LINEAR_API_KEY"),
-		GithubToken:  os.Getenv("GITHUB_TOKEN"),
+		GithubToken:  resolveGithubToken(),
 	}
+}
+
+// githubTokenOnce caches the `gh auth token` fallback for the process
+// lifetime so repeated LoadCredentials calls do not re-exec gh. The env
+// check runs before the cache: a later-set GITHUB_TOKEN still wins.
+var githubTokenOnce struct {
+	sync.Once
+	value string
+}
+
+// resolveGithubToken returns the effective GitHub token: env GITHUB_TOKEN
+// when non-empty, otherwise `gh auth token` (5s timeout). Any failure — gh
+// absent, timeout, non-zero exit, empty output — degrades to "" without
+// erroring or logging the value (issue #234).
+func resolveGithubToken() string {
+	if tok := os.Getenv("GITHUB_TOKEN"); tok != "" {
+		return tok
+	}
+	githubTokenOnce.Do(func() {
+		githubTokenOnce.value = ghAuthToken()
+	})
+	return githubTokenOnce.value
+}
+
+func ghAuthToken() string {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "gh", "auth", "token").Output()
+	if err != nil {
+		return ""
+	}
+	tok := strings.TrimSpace(string(out))
+	return tok
 }
 
 // CredentialStatus reports which credentials are present without ever

@@ -349,7 +349,9 @@ func TestConfigCommandJSONShape(t *testing.T) {
 
 func TestCredentialStatus(t *testing.T) {
 	t.Setenv("LINEAR_API_KEY", "x")
+	t.Setenv("PATH", t.TempDir()) // no gh on PATH: keep the #234 fallback out of this env-only test
 	t.Setenv("GITHUB_TOKEN", "")
+	resetGithubTokenCacheForTest()
 	creds := LoadCredentials()
 	status := CredentialStatus(creds)
 	if !status["LINEAR_API_KEY"] || status["GITHUB_TOKEN"] {
