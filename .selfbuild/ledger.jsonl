@@ -162,3 +162,4 @@
 {"loop":201,"ts":"2026-09-09T16:09:46Z","status":"failed","goal":"Goal: Implement GitHub issue #262 (test(config): fake-gh token tests hit the 5s exec timeout under load — harden or inject the resolver) in full and verifiably."}
 {"loop":202,"ts":"2026-09-09T18:08:31Z","status":"failed-tests","goal":"Goal: Implement GitHub issue #271 (tui: TestApplyKeysApproveSheet fails only on CI — y/n overlay key handling races the free-text path) in full and verifiably. "}
 {"loop":203,"ts":"2026-09-09T18:50:51Z","status":"failed-tests","goal":"Goal: Implement GitHub issue #271 (tui: TestApplyKeysApproveSheet fails only on CI — y/n overlay key handling races the free-text path) in full and verifiably. "}
+{"loop":204,"ts":"2026-09-09T20:07:47Z","status":"failed-tests","goal":"Goal: Implement GitHub issue #271 (tui: TestApplyKeysApproveSheet fails only on CI — y/n overlay key handling races the free-text path) in full and verifiably. "}
