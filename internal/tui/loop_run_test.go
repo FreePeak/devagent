@@ -127,9 +127,14 @@ func (e *bufEnv) attaches() []string {
 }
 
 // runWaitFor adapts the shared waitFor(cond, ms) with a failure message.
+// The budget is failure latency only — conds go true in milliseconds when
+// healthy — so it runs wide of the awaited interval: under `go test ./...`
+// parallel-package load the tui package itself runs ~2.5× slower than
+// standalone, and a tight deadline is the remaining environment-dependent
+// flake class (issue #271).
 func runWaitFor(t *testing.T, cond func() bool, msg string) {
 	t.Helper()
-	waitFor(t, cond, 3000)
+	waitFor(t, cond, 10000)
 	if !cond() {
 		t.Fatal(msg)
 	}
@@ -296,7 +301,7 @@ func TestLoopPollCadence(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- l.Run() }()
 
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(8 * time.Second) // 4× the 2s poll chain: two fetches need ~2s; loaded CI boxes eat the slack
 	for tr.pollCount() < 2 && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
