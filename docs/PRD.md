@@ -1518,5 +1518,14 @@ the dispatch env); TestGuardExplicitZeroBackoffRetriesImmediately asserts
 the computed "in 0ms" retry line off stderr instead of a wall-clock bound;
 TestLoopPollCadence's deadline is 4× the 2s poll chain; tui runWaitFor's
 failure budget and the workers spawn cold-start budget run wide of their
-awaited intervals. `go test -race -count=30 -shuffle=on -v ./internal/tui`
-and `go test -count=1 ./...` exit 0, fresh and under CPU saturation.*
+awaited intervals. Residual loaded-box kill (loop-208 gate evidence,
+reproduced under concurrent `go test` gates): the no-progress branch fired
+inside the cold-start window whenever `noProgressMs < coldStartMs` —
+a slow fork+exec breached the 1.5s silence budget before any output
+(`WatchdogFired=true ClockResets=0 MeaningfulBytes=0`) despite the 5s
+cold-start budget. The silence clock now defers until the first
+meaningful line (or an absent cold-start budget), matching Q31's
+"coldStartMs is the binding budget" contract; pinned deterministically by
+TestSpawnCliStreaming_NoProgressClockDefersToColdStart. `go test -race
+-count=30 -shuffle=on -v ./internal/tui` and `go test -count=1 ./...`
+exit 0, fresh and under CPU saturation.*
