@@ -449,7 +449,14 @@ func spawnCliStreaming(name string, args []string, opts SpawnCliOptions) SpawnCl
 						_ = cmd.Process.Kill()
 						continue
 					}
-					if noProgressMs > 0 && now.Sub(lastProgressAt) >= time.Duration(noProgressMs)*time.Millisecond {
+					// The cold-start window owns the clock until the first
+					// meaningful line: a slow fork+exec (loaded box,
+					// first-exec cost) must not be killed by the tighter
+					// no-progress budget before it ever produced output —
+					// the environment-dependent kill class of issue #271.
+					// Once any progress lands (clockResets > 0), or when no
+					// cold-start budget is armed, the silence clock applies.
+					if noProgressMs > 0 && (clockResets > 0 || coldStartMs <= 0) && now.Sub(lastProgressAt) >= time.Duration(noProgressMs)*time.Millisecond {
 						watchdogFired = true
 						timedOut = true
 						mu.Unlock()

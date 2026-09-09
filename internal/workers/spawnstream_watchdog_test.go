@@ -99,6 +99,29 @@ func TestSpawnCliStreaming_MeaningfulOutputResetsClockAndCompletes(t *testing.T)
 	}
 }
 
+// TestSpawnCliStreaming_NoProgressClockDefersToColdStart pins the Q31
+// window semantics: while clockResets == 0 the no-progress clock never
+// fires, even when noProgressMs < coldStartMs and the child stays silent
+// well past noProgressMs. Pre-fix, a loaded box's slow fork+exec breached
+// the tighter no-progress budget first and killed a healthy startup
+// (WatchdogFired at ~noProgressMs with MeaningfulBytes 0, issue #271
+// class). Deterministic: the child sleeps past noProgressMs, emits one
+// meaningful line (the deference contract covers this transition), and
+// the run must complete cleanly.
+func TestSpawnCliStreaming_NoProgressClockDefersToColdStart(t *testing.T) {
+	bin := fakeBin(t, "fake-worker", `sleep 1.2
+echo '{"type":"tool_execution_start","toolName":"read"}'
+exit 0`)
+	res := spawnCliStreaming(bin, nil, SpawnCliOptions{TimeoutMs: 15_000, NoProgressTimeoutMs: intPtr(500), ColdStartTimeoutMs: 5000})
+	if res.TimedOut || res.WatchdogFired || res.ColdStart {
+		t.Fatalf("cold-start window must defer the no-progress clock, got %+v", res)
+	}
+	if res.ExitCode != 0 {
+		t.Fatalf("expected exit 0, got %d (stderr %q)", res.ExitCode, res.Stderr)
+	}
+}
+
+
 func TestSpawnCliStreaming_WatchdogHealthRow(t *testing.T) {
 	// Q34: an armed clock + ledger context emits a watchdog-health row with
 	// the TS field names and the firing evidence.
