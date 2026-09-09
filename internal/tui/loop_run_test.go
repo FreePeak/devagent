@@ -3,11 +3,11 @@ package tui
 // Driver-level tests for the interactive loop (issue #252): Run() over an
 // injected fake stdin reader and fake Transport — the seams keep the whole
 // raw-mode session testable without a PTY (the env never enters raw mode,
-// frames land in a buffer, and the sizes are pinned).
-
 import (
 	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"sync"
@@ -313,13 +313,48 @@ func TestLoopPollCadence(t *testing.T) {
 }
 
 // TestRunOneShotRendersDashboard pins the non-TTY degrade: one dashboard
-// render + newline, no alternate-screen escapes.
+// render + newline, no alternate-screen escapes. Fully hermetic: the
+// snapshot comes from a stub daemon over httptest (never the live
+// 127.0.0.1:7788 — a live daemon both stalls the fetch ~4s and sprayed
+// real dashboard rows into gate tails, hiding real failures for six
+// #271-class loops), and stdout is captured so the gate's 15-line tail
+// can no longer be polluted with dashboard pixels.
 func TestRunOneShotRendersDashboard(t *testing.T) {
-	tr := &countingTransport{killDone: make(chan struct{}, 4)}
-	RunOneShot(TuiOptions{}, "embedded")
-	// RunOneShot writes to real stdout; assert via the transport instead.
-	if tr.pollCount() != 0 {
-		t.Fatal("RunOneShot must use StdTransport, not the injected one")
+	mux := http.NewServeMux()
+	mux.HandleFunc("/agents", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"panes":[{"taskId":"T1","state":"running"}]}`))
+	})
+	mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	stdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	done := make(chan string, 1)
+	go func() {
+		var buf strings.Builder
+		_, _ = io.Copy(&buf, r)
+		done <- buf.String()
+	}()
+	RunOneShot(TuiOptions{URL: srv.URL}, "embedded")
+	_ = w.Close()
+	os.Stdout = stdout
+	out := <-done
+
+	if strings.Contains(out, "\x1b[?1049") {
+		t.Fatal("one-shot render must not enter the alternate screen")
+	}
+	if !strings.Contains(out, "help [q] quit") {
+		t.Fatalf("one-shot render must carry the dashboard footer, got %q", truncStr(out, 300))
+	}
+	if !strings.Contains(out, "T1") {
+		t.Fatalf("one-shot render must carry the stub roster pane, got %q", truncStr(out, 300))
 	}
 }
 

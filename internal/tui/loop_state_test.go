@@ -197,9 +197,13 @@ func TestApplyKeysKillFlow(t *testing.T) {
 	if l.pendingKill != "" {
 		t.Fatalf("y must clear pendingKill, got %q", l.pendingKill)
 	}
+	// 10s budget matches runWaitFor: the POST fires in microseconds when
+	// healthy — under `go test ./...` parallel-package load the spawned
+	// goroutine can be starved well past 2s (the 4.146s evidence-era tui
+	// package failure fits only this sub-5s deadline; issue #271 class).
 	select {
 	case <-tr.killDone:
-	case <-time.After(2 * time.Second):
+	case <-time.After(10 * time.Second):
 		t.Fatal("kill POST never ran")
 	}
 	// The kill goroutine's last act is the mu-held note write (executeKill
