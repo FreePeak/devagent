@@ -1343,6 +1343,15 @@ opencode TUI, Charm/bubbletea+lipgloss canon, dry, cointop, superfile; full note
    clean quit) and across the palette ladder (truecolor 2072 B / 16-color 1423 B /
    mono 1236 B frames).
 
+**Post-approval poll lifecycle (2026-09-09, #271).** A successful `g`-sheet
+submit (`submitOverlayLocked` → `POST /approve`) fires the TS-parity
+fire-and-forget refresh (`pollNowLocked` → out-of-band `poll` → `FetchSnapshot`
+replaces `l.snap`), so an answered ask disappears from the snapshot as soon as
+the next poll lands — by design, the `g` sheet reflects the daemon's live
+`/status.ask`, not a local cache. `TestApplyKeysApproveSheet` (the 2026-09-08
+CI-only flake) raced its later rounds' `g` presses against that refresh and
+is now pinned per-round on a fresh loop so no poll can interleave mid-round.
+
 Boundary with §20.4: the Tauri desktop app and the TUI are two renderers over the same
 FR-CTRL API — the TUI is the SSH/headless-server surface, the app is the desktop surface;
 neither parses PTYs (anti-pattern in §20.3). The PTY lives in the herdr server (FR-VIS),
@@ -1472,10 +1481,10 @@ Master tracker with definition of done: [#207](https://github.com/FreePeak/devag
 
 ---
 
-*Last updated: 2026-09-09 (#262) — test hardening for the `gh auth token`
-credential fallback: `ghAuthToken` is now an injectable seam
-(`ghAuthTokenExec` keeps the real 5s-timeout exec; no production behavior
-change), trimming moved into `resolveGithubToken`, and the previously
-PATH-shim-based token tests stub the seam so the 5s exec timeout can no longer
-flake under machine load; real-exec coverage retained for gh-absent and
-non-zero-exit paths.*
+*Last updated: 2026-09-10 (#271) — validation-hardening follow-up: the
+#271 change above plus (a) `config` tests now clear ambient `DEVAGENT_*`
+resilience overrides so a daemon-exported shell (DEVAGENT_API_MAX_ATTEMPTS,
+DEVAGENT_NO_PROGRESS_TIMEOUT_MS) can't flip defaults or mask file-invalid
+values in `Load()` tests; (b) `TestGuardExplicitZeroBackoffRetriesImmediately`
+asserts the logged `in 0ms` retry delay instead of a wall-clock bound that
+flaked under full-suite load. Test-only, no production change.*

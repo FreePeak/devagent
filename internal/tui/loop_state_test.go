@@ -284,11 +284,24 @@ func TestApplyKeysDispatchSheet(t *testing.T) {
 }
 
 // TestApplyKeysApproveSheet pins the g sheet: /status.ask picked up,
-// y/n shorthand words, free text passthrough, ledger-tail fallback.
+// y/n shorthand words, free text passthrough, empty-answer refusal.
+//
+// Each round runs on a fresh loop: a successful submit fires an
+// out-of-band poll (submitOverlayLocked → pollNowLocked → poll) whose
+// FetchSnapshot answer replaces l.snap, dropping /status.ask. Sharing
+// one loop across rounds raced the next round's `g` against that poll
+// on slow CI (issue #271); a fresh loop makes every round deterministic
+// because its only poll lands after the round's final assertion.
 func TestApplyKeysApproveSheet(t *testing.T) {
-	tr := &countingTransport{killDone: make(chan struct{}, 4)}
-	l := NewLoop(TuiOptions{RepoPath: "/repo"}, tr, nullEnv{}, "attach").(*loop)
-	l.snap = &Snapshot{Status: &StatusPayload{Ask: &StatusAsk{ID: "TASK-ask"}}}
+	newAskLoop := func() (*loop, *countingTransport) {
+		tr := &countingTransport{killDone: make(chan struct{}, 4)}
+		l := NewLoop(TuiOptions{RepoPath: "/repo"}, tr, nullEnv{}, "attach").(*loop)
+		l.snap = &Snapshot{Status: &StatusPayload{Ask: &StatusAsk{ID: "TASK-ask"}}}
+		return l, tr
+	}
+
+	// y shorthand → "yes".
+	l, tr := newAskLoop()
 	l.ApplyKeys(DecodeKeys("g", false))
 	if l.overlay == nil || l.overlay.Kind != "approve" || l.overlay.TaskID != "TASK-ask" {
 		t.Fatalf("g overlay = %+v, want approve of TASK-ask", l.overlay)
@@ -298,21 +311,28 @@ func TestApplyKeysApproveSheet(t *testing.T) {
 	if tr.approves != 1 || tr.lastApproveAnswer != "yes" {
 		t.Fatalf("approve = %d answer=%q, want 1 yes", tr.approves, tr.lastApproveAnswer)
 	}
+
 	// n → no.
+	l, tr = newAskLoop()
 	l.ApplyKeys(DecodeKeys("g", false))
 	l.ApplyKeys(DecodeKeys("n", false))
 	l.ApplyKeys(DecodeKeys("\r", false))
 	if tr.lastApproveAnswer != "no" {
 		t.Fatalf("n shorthand answer = %q, want no", tr.lastApproveAnswer)
 	}
+
 	// Free text passes through.
+	l, tr = newAskLoop()
 	l.ApplyKeys(DecodeKeys("g", false))
 	l.ApplyKeys(DecodeKeys("use the", false))
 	l.ApplyKeys(DecodeKeys("\r", false))
 	if tr.lastApproveAnswer != "use the" {
 		t.Fatalf("free-text answer = %q", tr.lastApproveAnswer)
 	}
-	// Empty answer refused.
+
+	// Empty answer refused — asserted with no prior submit in the loop,
+	// so no out-of-band poll can clear the note mid-round.
+	l, _ = newAskLoop()
 	l.ApplyKeys(DecodeKeys("g", false))
 	l.ApplyKeys(DecodeKeys("\r", false))
 	if l.note != "approve: empty answer" {

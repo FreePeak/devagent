@@ -20,7 +20,26 @@ func writeRepo(t *testing.T, files map[string]string) string {
 	return dir
 }
 
+// clearResilienceEnv makes tests hermetic against ambient DEVAGENT_* resilience
+// overrides (e.g. exported in the operator shell for the daemon): Load() reads
+// them via os.Getenv, so a machine with DEVAGENT_API_MAX_ATTEMPTS set would
+// otherwise flip defaults and mask file-invalid values.
+func clearResilienceEnv(t *testing.T) {
+	t.Helper()
+	for _, k := range []string{
+		"DEVAGENT_API_MAX_ATTEMPTS",
+		"DEVAGENT_NO_PROGRESS_TIMEOUT_MS",
+		"DEVAGENT_COLD_START_TIMEOUT_MS",
+		"DEVAGENT_ARCHIVE_KEEP",
+		"DEVAGENT_MAX_PROMPT_BYTES",
+		"DEVAGENT_DEGRADE_WEBHOOK_URL",
+	} {
+		t.Setenv(k, "")
+	}
+}
+
 func TestLoadDefaults(t *testing.T) {
+	clearResilienceEnv(t)
 	cfg, err := Load(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -118,6 +137,7 @@ func TestLoadInvalidScoutMaxQueued(t *testing.T) {
 }
 
 func TestLoadInvalidAPIMaxAttempts(t *testing.T) {
+	clearResilienceEnv(t)
 	dir := writeRepo(t, map[string]string{"devagent.json": `{"resilience": {"apiMaxAttempts": -1}}`})
 	_, err := Load(dir)
 	if err == nil || err.Error() != `Invalid resilience.apiMaxAttempts "-1"; expected positive number or Infinity` {
@@ -138,8 +158,9 @@ func TestLoadInfinityAPIMaxAttempts(t *testing.T) {
 }
 
 func TestLoadEnvInfinityAPIMaxAttempts(t *testing.T) {
-	dir := t.TempDir()
+	clearResilienceEnv(t)
 	t.Setenv("DEVAGENT_API_MAX_ATTEMPTS", "Infinity")
+	dir := t.TempDir()
 	cfg, err := Load(dir)
 	if err != nil {
 		t.Fatal(err)
