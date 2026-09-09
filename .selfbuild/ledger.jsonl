@@ -150,3 +150,4 @@
 {"loop":189,"ts":"2026-09-09T15:50:14Z","status":"provider-degraded","goal":"preflight: provider probe failed"}
 {"loop":190,"ts":"2026-09-09T15:50:32Z","status":"provider-degraded","goal":"preflight: provider probe failed"}
 {"loop":191,"ts":"2026-09-09T15:50:55Z","status":"provider-degraded","goal":"preflight: provider probe failed"}
+{"loop":192,"ts":"2026-09-09T15:51:14Z","status":"provider-degraded","goal":"preflight: provider probe failed"}
