@@ -102,17 +102,42 @@ func TestHeaderBarReassertsInverse(t *testing.T) {
 	// re-assert, or the inverse strip dies mid-bar and the rest renders
 	// plain on the default background.
 	snap := testSnapshot()
-	out := RenderLines(snap, RenderOptions{Width: 120, Rows: 24})
-	bar := out[0]
-	reasserts := strings.Count(bar, Reset+Bold+Inverse)
-	internalResets := strings.Count(bar, Reset) - 1 // final wrap Reset
-	if reasserts < internalResets {
-		t.Fatalf("bar re-asserts Bold+Inverse %d times but carries %d internal Resets:\n%q", reasserts, internalResets, bar)
-	}
-	if !strings.Contains(bar, Reset+Bold+Inverse+" ●") {
-	}
-	// The bar ends with the wrap Reset: no stray plain tail beyond it.
-	if !strings.HasSuffix(bar, Reset) {
-		t.Fatalf("bar must end on the wrap Reset:\n%q", bar)
+	// Every composition path (tagline, narrow fallback, embedded marker)
+	// must be re-asserted back into the inverse strip after its Reset.
+	for _, tc := range []struct {
+		name     string
+		embedded bool
+	}{
+		{"wide", false},
+		{"narrow", false},
+		{"embedded", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			width := 120
+			if tc.name == "narrow" {
+				width = 40
+			}
+			out := RenderLines(snap, RenderOptions{
+				Width: width, Rows: 24,
+				DaemonMode: map[bool]string{true: "embedded", false: ""}[tc.embedded],
+			})
+			bar := out[0]
+			// The header must be the bar: a healthy snapshot's first frame
+			// line always carries the inverse wrap.
+			if !strings.HasPrefix(bar, Bold+Inverse) {
+				t.Fatalf("out[0] is not the title bar: %q", bar)
+			}
+			reasserts := strings.Count(bar, Reset+Bold+Inverse)
+			internalResets := strings.Count(bar, Reset) - 1 // final wrap Reset
+			if reasserts < internalResets {
+				t.Fatalf("bar re-asserts Bold+Inverse %d times but carries %d internal Resets:\n%q", reasserts, internalResets, bar)
+			}
+			if !strings.Contains(bar, Reset+Bold+Inverse+" ●") {
+				t.Fatalf("state chip must sit back inside the inverse strip:\n%q", bar)
+			}
+			if !strings.HasSuffix(bar, Reset) {
+				t.Fatalf("bar must end on the wrap Reset:\n%q", bar)
+			}
+		})
 	}
 }
