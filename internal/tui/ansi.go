@@ -10,11 +10,13 @@ import (
 	"strings"
 )
 
-// Muted dashboard palette (FR-TUI-P-09, pilot's chart colors):
+// CloddsBot-skin dashboard palette (restyled 2026-09 after CloddsBot's
+// terminal language; keeps the FR-TUI-P-09 state slots):
 //
 //	running → steel  #7eb8da      ok → sage  #7ec699
 //	fail    → rose   #d48a8a      warn → amber #e0af68
-//	border  → slate  #3d4450      dim/accents → gray
+//	border  → clodds cyan #56b6c2  (CloddsBot boxes are cyan-bordered)
+//	dim/accents → gray            accent Cyan → clodds cyan
 //
 // Truecolor when COLORTERM advertises it (truecolor / 24bit), a 16-color
 // fallback otherwise, and a monochrome palette when the terminal says it
@@ -25,12 +27,13 @@ import (
 // one visual language; only the resolved values differ per mode:
 //
 //	Green  → sage        Red    → rose       Yellow → amber
-//	Cyan   → accent (steel)         Steel → running       Border → slate
+//	Cyan   → accent (clodds cyan)   Steel → running    Border → cyan
+//	BgCyan → step plate (CloddsBot's bgCyan wizard chips)
 //	Dim    → gray           Magenta is retired (rainbow color).
 //
 // Mono keeps the structural attributes (Bold / Dim-faint / Inverse) —
 // htop's -C does the same — and empties every color; state still reads
-// through the glyphs (● / ▸) and labels.
+// through the glyphs (● / ▸ / ✓ / ✗ / ⚠) and labels.
 var (
 	Reset   = "\x1b[0m"
 	Dim     = "\x1b[2m"
@@ -40,8 +43,9 @@ var (
 	Red     = "\x1b[31m"
 	Cyan    = "\x1b[36m"
 	Steel   = "\x1b[36m"
-	Border  = "\x1b[2m"
+	Border  = "\x1b[36m"
 	Inverse = "\x1b[7m"
+	BgCyan  = "\x1b[46m"
 )
 
 // TruecolorSGR renders a hex color (#rrggbb) as an SGR truecolor prefix.
@@ -65,9 +69,10 @@ func applyPalette(truecolor bool) {
 		Green = TruecolorSGR("#7ec699")
 		Red = TruecolorSGR("#d48a8a")
 		Yellow = TruecolorSGR("#e0af68")
-		Cyan = TruecolorSGR("#7eb8da") // accent tracks the running steel
+		Cyan = TruecolorSGR("#56b6c2") // CloddsBot cyan identity
 		Dim = TruecolorSGR("#828a97")
-		Border = TruecolorSGR("#3d4450")
+		Border = TruecolorSGR("#56b6c2")
+		BgCyan = "\x1b[48;2;86;182;194m"
 		return
 	}
 	// 16-color fallback: nearest ANSI slots (steel ≈ cyan, amber ≈ yellow,
@@ -78,12 +83,13 @@ func applyPalette(truecolor bool) {
 	Yellow = "\x1b[33m"
 	Cyan = "\x1b[36m"
 	Dim = "\x1b[2m"
-	Border = "\x1b[2m"
+	Border = "\x1b[36m"
+	BgCyan = "\x1b[46m"
 }
 
 // applyMono empties every color var, keeping Bold/Dim/Inverse structure.
 func applyMono() {
-	Steel, Green, Red, Yellow, Cyan, Border = "", "", "", "", "", ""
+	Steel, Green, Red, Yellow, Cyan, Border, BgCyan = "", "", "", "", "", "", ""
 	Dim = ""
 }
 
@@ -176,3 +182,34 @@ func ChipFor(state string, label string) string {
 	}
 	return dot + "●" + Reset + " " + StatusColor(state) + Truncate(label, 18) + Reset
 }
+
+// StatusGlyph renders the CloddsBot outcome glyph (✓ / ✗ / ⚠ / ℹ / ●) in
+// the state color, without a trailing label — for checklist rows.
+func StatusGlyph(state string) string {
+	g, c := "●", Dim
+	switch state {
+	case "ok", "done":
+		g, c = "✓", Green
+	case "failed", "fail":
+		g, c = "✗", Red
+	case "warn", "stale":
+		g, c = "⚠", Yellow
+	}
+	return c + g + Reset
+}
+
+// StepChip renders the CloddsBot onboard-wizard step plate: " N " on a
+// cyan background. Mono collapses to plain " N ".
+func StepChip(n int) string {
+	s := fmt.Sprintf(" %d ", n)
+	if BgCyan == "" {
+		return s
+	}
+	return BgCyan + s + Reset
+}
+
+// SuccessText / WarnText / FailText wrap a message in the CloddsBot
+// success/warn/error outcome colors (the ✓/⚠/✗ log lines).
+func SuccessText(s string) string { return Green + s + Reset }
+func WarnText(s string) string    { return Yellow + s + Reset }
+func FailText(s string) string    { return Red + s + Reset }

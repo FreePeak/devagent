@@ -25,19 +25,29 @@ func PadTo(s string, n int) string {
 	return s + strings.Repeat(" ", pad)
 }
 
-// BoxLines renders rounded-box panel lines for visible width w: ╭─ title ─╮
-// / body / ╰──╯. VisibleLen measures title+body so ANSI colors never skew
-// borders (Pilot-style panel).
+// BoxLines renders rounded-box panel lines for visible width w, CloddsBot
+// box() style: the title sits CENTERED in the top rule (╭──── Title ────╮)
+// and the whole frame draws in the Border color (CloddsBot's cyan-bordered
+// boxes). VisibleLen measures title+body so ANSI colors never skew borders.
 func BoxLines(title string, body []string, w int) string {
 	tl := VisibleLen(title)
+	gap := w - tl - 4 // 2 corners + one space each side of the title
+	left := gap / 2
+	if left < 1 {
+		left = 1 // keep the box top starting with ╭─ at any width
+	}
+	right := gap - left
+	if right < 0 {
+		right = 0
+	}
 	var out []string
-	head := Dim + "╭─" + Reset + " " + title + " " + Dim +
-		strings.Repeat("─", maxInt(1, w-tl-5)) + "╮" + Reset
+	head := Border + "╭" + strings.Repeat("─", left) + Reset + " " + title + " " +
+		Border + strings.Repeat("─", right) + "╮" + Reset
 	out = append(out, head)
 	for _, b := range body {
-		out = append(out, PadTo(b+" ", w-1)+Dim+"│"+Reset)
+		out = append(out, PadTo(b+" ", w-1)+Border+"│"+Reset)
 	}
-	foot := Dim + "╰" + strings.Repeat("─", maxInt(1, w-2)) + "╯" + Reset
+	foot := Border + "╰" + strings.Repeat("─", maxInt(1, w-2)) + "╯" + Reset
 	return strings.Join(append(out, foot), "\n")
 }
 
@@ -146,16 +156,21 @@ func headerLines(snap *Snapshot, ropts RenderOptions) []string {
 		claimed = orNum(status.Queue.Claimed)
 		done = orNum(status.Queue.Done)
 	}
-	// Spinner (Claude Code cue) animates only while work is live. Steel =
-	// the muted running color (FR-TUI-P-09).
+	// Spinner (CloddsBot dots cue) animates only while work is live. Steel =
+	// the running color (FR-TUI-P-09).
 	spin := ""
 	if agg == "RUNNING" {
 		spin = Steel + spinnerAt(ropts.SpinnerFrame) + Reset + " "
 	}
 	chip := StatusColor(agg) + "● " + agg + Reset
+	// CloddsBot title composition: bold name + dim tagline, then the state
+	// chip. Narrow terminals drop the tagline (the bar must never clamp).
+	barBody := " DevAgent " + Dim + "· autonomous backend delivery agent" + Reset + "  " + spin + chip
+	if VisibleLen(barBody)+2 > width {
+		barBody = " DevAgent  " + spin + chip
+	}
 	// Embedded-daemon cue in the title bar (cyan = "the TUI started this one
 	// for you") — the bar is short, so the marker survives narrow terminals.
-	barBody := " DevAgent  " + spin + chip
 	if ropts.DaemonMode == "embedded" {
 		barBody += "  " + Cyan + "· daemon:embedded" + Reset
 	}

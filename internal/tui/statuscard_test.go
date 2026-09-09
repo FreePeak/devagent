@@ -127,7 +127,7 @@ func TestRenderStatusCardLanguage(t *testing.T) {
 	v := ComposeStatusView(statusBoard([]StatusTask{statusTask("T1", "dispatched")}),
 		QueueCounts{}, []StatusPane{statusPane("T1", "running")}, true)
 	card := plain(RenderStatusCard(v, 100))
-	for _, want := range []string{"╭─ Project status", "●", "implementing", "next:", "devagent attach T1", "╰"} {
+	for _, want := range []string{"Project status ─", "●", "implementing", "next:", "devagent attach T1", "╰"} {
 		if !strings.Contains(card, want) {
 			t.Fatalf("card missing %q:\n%s", want, card)
 		}

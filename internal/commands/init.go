@@ -15,6 +15,7 @@ import (
 	"github.com/FreePeak/devagent/internal/config"
 	"github.com/FreePeak/devagent/internal/resilience"
 	"github.com/FreePeak/devagent/internal/tui"
+	"github.com/FreePeak/devagent/internal/version"
 )
 
 // PrereqCheck: one guided-setup check row.
@@ -296,19 +297,24 @@ func RunInit(opts InitOptions) (InitResult, error) {
 	return result, nil
 }
 
-// RenderInitReport: plain-language checklist (FR-SIMPLE-01) — chips, one
-// advice line per miss.
+// RenderInitReport: CloddsBot-style onboarding wizard (FR-SIMPLE-01) —
+// banner, numbered step chips with ✓/✗ outcomes, one advice line per miss.
 func RenderInitReport(r InitResult, render func(string)) {
-	lines := []string{"DevAgent setup — " + r.ConfigPath, ""}
-	for _, c := range r.Checks {
-		chip := tui.ChipFor(map[bool]string{true: "ok", false: "failed"}[c.OK], c.Name)
-		line := "  " + chip + "  " + c.Detail
-		if c.Unlocks != "" {
-			line += " — unlocks: " + c.Unlocks
-		}
-		lines = append(lines, line)
+	for _, line := range tui.OnboardBanner(version.Version) {
+		render(line)
 	}
-	lines = append(lines, "")
+	render("DevAgent setup — " + r.ConfigPath)
+	render("")
+	for i, c := range r.Checks {
+		glyph := tui.StatusGlyph(map[bool]string{true: "ok", false: "failed"}[c.OK])
+		detail := c.Detail
+		if c.Unlocks != "" {
+			detail += " — unlocks: " + c.Unlocks
+		}
+		render("  " + tui.StepChip(i+1) + " " + glyph + " " +
+			tui.Bold + c.Name + tui.Reset + "  " + tui.DimText(detail))
+	}
+	render("")
 	var failed, requiredFailed []PrereqCheck
 	for _, c := range r.Checks {
 		if !c.OK {
@@ -320,40 +326,43 @@ func RenderInitReport(r InitResult, render func(string)) {
 	}
 	goalLines := []string{
 		"Next: state your goal in one sentence —",
-		tui.DimText("  devagent orchestrate --goal \"Add CSV export to the orders API\""),
+		tui.CyanText("  devagent orchestrate --goal \"Add CSV export to the orders API\""),
 	}
 	switch {
 	case len(failed) == 0:
-		lines = append(lines, "All checks passed.")
-		lines = append(lines, goalLines...)
-	case len(requiredFailed) == 0:
-		lines = append(lines, "Setup complete. Optional items to fix later:")
-		for _, c := range failed {
-			lines = append(lines, tui.DimText("  "+c.Name+": "+FailureAdvice(c.Name)))
+		render(tui.SuccessText("All checks passed."))
+		for _, l := range goalLines {
+			render("  " + l)
 		}
-		lines = append(lines, "")
-		lines = append(lines, goalLines...)
+	case len(requiredFailed) == 0:
+		render("Setup complete. Optional items to fix later:")
+		for _, c := range failed {
+			render(tui.WarnText("  "+c.Name) + tui.DimText(": "+FailureAdvice(c.Name)))
+		}
+		render("")
+		for _, l := range goalLines {
+			render("  " + l)
+		}
 	default:
 		unit := "checks"
 		if len(requiredFailed) == 1 {
 			unit = "check"
 		}
-		lines = append(lines, fmt.Sprintf("Setup wrote %s; %d required %s failed:", r.ConfigPath, len(requiredFailed), unit))
+		render(tui.FailText(fmt.Sprintf("Setup wrote %s; %d required %s failed:", r.ConfigPath, len(requiredFailed), unit)))
 		for _, c := range failed {
-			lines = append(lines, tui.DimText("  "+c.Name+": "+FailureAdvice(c.Name)))
+			render(tui.WarnText("  "+c.Name) + tui.DimText(": "+FailureAdvice(c.Name)))
 		}
-	}
-	for _, line := range lines {
-		render(line)
 	}
 }
 
-// RenderSmokeReport: plain-language smoke checklist chips; never raw logs.
+// RenderSmokeReport: CloddsBot-style smoke checklist — ✓/✗ glyph rows,
+// never raw logs.
 func RenderSmokeReport(smoke SmokeResult, render func(string)) {
 	render("")
-	render("Smoke checklist — hermetic fixture")
+	render(tui.Bold + "Smoke checklist" + tui.Reset + tui.DimText(" — hermetic fixture"))
 	for _, s := range smoke.Steps {
-		render("  " + tui.ChipFor(map[bool]string{true: "ok", false: "failed"}[s.OK], s.Name) + "  " + s.Detail)
+		glyph := tui.StatusGlyph(map[bool]string{true: "ok", false: "failed"}[s.OK])
+		render("  " + glyph + " " + tui.Bold + s.Name + tui.Reset + "  " + tui.DimText(s.Detail))
 	}
 	if !smoke.OK {
 		next := smoke.NextAction
@@ -362,7 +371,7 @@ func RenderSmokeReport(smoke SmokeResult, render func(string)) {
 		}
 		render(tui.DimText("  next: " + next))
 	} else {
-		render(tui.DimText("  smoke ok — fixture reached done"))
+		render(tui.SuccessText("  smoke ok — fixture reached done"))
 	}
 }
 

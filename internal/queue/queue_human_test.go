@@ -32,7 +32,7 @@ func TestQueueListHumanCard(t *testing.T) {
 				nextCount++
 			}
 		}
-		for _, want := range []string{"╭─ Queue", "pending 0", "next:", "devagent status", "╰"} {
+		for _, want := range []string{"Queue ─", "pending 0", "next:", "devagent status", "╰"} {
 			if !strings.Contains(card, want) {
 				t.Fatalf("card missing %q:\n%s", want, card)
 			}

@@ -11,7 +11,7 @@ import (
 
 func TestRenderQueueCardEmpty(t *testing.T) {
 	card := plain(RenderQueueCard(nil, QueueCounts{}, 100))
-	for _, want := range []string{"╭─ Queue", "pending 0", "next:", "devagent status", "╰"} {
+	for _, want := range []string{"Queue ─", "pending 0", "next:", "devagent status", "╰"} {
 		if !strings.Contains(card, want) {
 			t.Fatalf("empty queue card missing %q:\n%s", want, card)
 		}
@@ -74,7 +74,7 @@ func TestRenderValidateCards(t *testing.T) {
 		{Label: "G3", Gate: "G3-migration-static", Passed: false, Detail: "static failed"},
 	}
 	out := plain(RenderValidateCards(rows, 100))
-	for _, want := range []string{"╭─ Gate G1", "G1 PASS", "first line", "╭─ Gate G3", "G3 FAIL", "next: fix tests / inspect gate detail above"} {
+	for _, want := range []string{"Gate G1 ─", "G1 PASS", "first line", "Gate G3 ─", "G3 FAIL", "next: fix tests / inspect gate detail above"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("validate cards missing %q:\n%s", want, out)
 		}
@@ -110,7 +110,7 @@ func TestRenderLedgerSummaryCard(t *testing.T) {
 	card := plain(RenderLedgerSummaryCard(LedgerSummary{
 		Tasks: 10, Audits: 14, Resolved: 8, MeanAttemptsToPass: &mean, Unresolved: 2,
 	}, 100))
-	for _, want := range []string{"╭─ Ledger summary", "audits", "resolved", "unresolved", "tasks 10 · mean attempts-to-pass 1.5", "next: inspect open work: devagent ledger"} {
+	for _, want := range []string{"Ledger summary ─", "audits", "resolved", "unresolved", "tasks 10 · mean attempts-to-pass 1.5", "next: inspect open work: devagent ledger"} {
 		if !strings.Contains(card, want) {
 			t.Fatalf("ledger summary missing %q:\n%s", want, card)
 		}

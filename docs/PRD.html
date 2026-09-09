@@ -1487,7 +1487,10 @@ config and opens workers like normal interactive sessions (FR-IMPL-07) |
 variables (credentials only — FR-OPS-02)</h3>
 <p><code>LINEAR_API_KEY</code>, <code>GITHUB_TOKEN</code> (scoped to
 contents:write + pull-requests:write on target repos),
-<code>DEVAGENT_HOME</code> (run state/logs).</p>
+<code>DEVAGENT_HOME</code> (run state/logs). <code>GITHUB_TOKEN</code>
+env wins; the <code>gh auth token</code> keyring fallback (issue #234)
+resolves with a 5s timeout and tests stub the resolver seam rather than
+exec gh (#262).</p>
 <h2 id="13-integrations">13. Integrations</h2>
 <h3 id="131-linear-v1-tracker">13.1 Linear (v1 tracker)</h3>
 <ul>
@@ -4168,6 +4171,41 @@ verified end-to-end over a PTY against the live daemon (help overlay,
 live search echo, filtered viewport, clean quit) and across the palette
 ladder (truecolor 2072 B / 16-color 1423 B / mono 1236 B frames).</li>
 </ol>
+<p><strong>CloddsBot skin wave (2026-09-09, operator request "make my
+devagent look like CloddsBot")</strong> — the visual language was
+re-skinned after <a
+href="https://github.com/alsk1992/CloddsBot">CloddsBot</a>'s terminal
+toolkit (<code>src/tui/index.ts</code> + its onboard wizard),
+presentation only — every state, keybinding, payload and the
+mono/truecolor degradation contract are unchanged:</p>
+<ol type="1">
+<li><strong>Cyan identity + centered box titles</strong> —
+<code>BoxLines</code> now draws CloddsBot's signature
+<code>╭──── Title ────╮</code> (title centered in the rule) with the
+whole frame in the CloddsBot cyan <code>#56b6c2</code> (truecolor; ANSI
+36 fallback; empty in mono), replacing the dim left-gutter title and
+slate border.</li>
+<li><strong>Header tagline</strong> — the title bar composes
+CloddsBot-style:
+<code>DevAgent · autonomous backend delivery agent</code> + state chip;
+narrow terminals drop the tagline instead of clamping the bar.</li>
+<li><strong>Onboarding wizard</strong> — <code>devagent init</code>
+renders the CloddsBot onboard composition: ANSI-Shadow "DEVAGENT"
+wordmark (cyan), bold product line + dim tagline + dim
+<code>·</code>-separated stats + dim rule, then numbered step chips
+(<code>bgCyan " 1 "</code>) with bold check names and ✓/✗/⚠ outcome
+glyphs; the smoke checklist uses the same glyph language. Pinned
+literals ("DevAgent setup —", "git found", "Next: state your goal in one
+sentence") survive for scripts.</li>
+<li><strong>Outcome glyphs</strong> —
+<code>StatusGlyph</code>/<code>SuccessText</code>/<code>WarnText</code>/<code>FailText</code>
+mirror CloddsBot's ✓/✗/⚠/ℹ/● marks; chips keep the <code>● state</code>
+convention.</li>
+<li>Contract-pinned in <code>internal/tui/clodds_skin_test.go</code>
+(banner shape, centered title, glyph map, step chip, tagline
+width-gating); verified live over a PTY (dashboard frame,
+<code>init</code>, <code>status</code>) across the palette ladder.</li>
+</ol>
 <p>Boundary with §20.4: the Tauri desktop app and the TUI are two
 renderers over the same FR-CTRL API — the TUI is the SSH/headless-server
 surface, the app is the desktop surface; neither parses PTYs
@@ -4531,16 +4569,10 @@ href="https://github.com/FreePeak/devagent/issues/206">#206</a>. Master
 tracker with definition of done: <a
 href="https://github.com/FreePeak/devagent/issues/207">#207</a>.</p>
 <hr />
-<p><em>Last updated: 2026-09-09 (TUI conventions-research polish wave
-landed: NO_COLOR/TERM=dumb mono degradation, PAUSED aggregate + hero
-attention banner, <code>/</code> log search with n/N match walking,
-selection-following viewports with hidden-count indicators, OSC-2 title,
-grouped help, IUTF8, live version in the upgrade overlay — commit
-f3d21f9, research in docs/research/tui-conventions.md. Supersedes the
-09-09 all-four-open-issues stamp: #248 worker observability
-(WatchdogSink default-wired, omp NDJSON events, stream metrics,
-productive-wall-kill classification, PR #266); #206 scoreboard closed;
-#181 desktop app v1 (PR #267); #146 TUI polish FR-TUI-P-01..12 (PR
-#268).)</em></p>
+<p><em>Last updated: 2026-09-09 (CloddsBot skin) — dashboard/CLI visual
+language re-skinned after CloddsBot's terminal toolkit (§20.8): cyan
+centered box titles, header tagline, init-wizard wordmark + step chips +
+✓/✗ outcome glyphs; presentation only (no behavior/payload change),
+pinned by internal/tui/clodds_skin_test.go.</em></p>
 </body>
 </html>

@@ -1343,6 +1343,31 @@ opencode TUI, Charm/bubbletea+lipgloss canon, dry, cointop, superfile; full note
    clean quit) and across the palette ladder (truecolor 2072 B / 16-color 1423 B /
    mono 1236 B frames).
 
+**CloddsBot skin wave (2026-09-09, operator request "make my devagent look like
+CloddsBot")** — the visual language was re-skinned after
+[CloddsBot](https://github.com/alsk1992/CloddsBot)'s terminal toolkit
+(`src/tui/index.ts` + its onboard wizard), presentation only — every state,
+keybinding, payload and the mono/truecolor degradation contract are unchanged:
+
+1. **Cyan identity + centered box titles** — `BoxLines` now draws CloddsBot's
+   signature `╭──── Title ────╮` (title centered in the rule) with the whole
+   frame in the CloddsBot cyan `#56b6c2` (truecolor; ANSI 36 fallback; empty in
+   mono), replacing the dim left-gutter title and slate border.
+2. **Header tagline** — the title bar composes CloddsBot-style:
+   `DevAgent · autonomous backend delivery agent` + state chip; narrow terminals
+   drop the tagline instead of clamping the bar.
+3. **Onboarding wizard** — `devagent init` renders the CloddsBot onboard
+   composition: ANSI-Shadow "DEVAGENT" wordmark (cyan), bold product line + dim
+   tagline + dim `·`-separated stats + dim rule, then numbered step chips
+   (`bgCyan " 1 "`) with bold check names and ✓/✗/⚠ outcome glyphs; the smoke
+   checklist uses the same glyph language. Pinned literals ("DevAgent setup —",
+   "git found", "Next: state your goal in one sentence") survive for scripts.
+4. **Outcome glyphs** — `StatusGlyph`/`SuccessText`/`WarnText`/`FailText` mirror
+   CloddsBot's ✓/✗/⚠/ℹ/● marks; chips keep the `● state` convention.
+5. Contract-pinned in `internal/tui/clodds_skin_test.go` (banner shape, centered
+   title, glyph map, step chip, tagline width-gating); verified live over a PTY
+   (dashboard frame, `init`, `status`) across the palette ladder.
+
 Boundary with §20.4: the Tauri desktop app and the TUI are two renderers over the same
 FR-CTRL API — the TUI is the SSH/headless-server surface, the app is the desktop surface;
 neither parses PTYs (anti-pattern in §20.3). The PTY lives in the herdr server (FR-VIS),
@@ -1471,11 +1496,8 @@ Test-parity scoreboard across all of the above: [#206](https://github.com/FreePe
 Master tracker with definition of done: [#207](https://github.com/FreePeak/devagent/issues/207).
 
 ---
-
-*Last updated: 2026-09-09 (#262) — test hardening for the `gh auth token`
-credential fallback: `ghAuthToken` is now an injectable seam
-(`ghAuthTokenExec` keeps the real 5s-timeout exec; no production behavior
-change), trimming moved into `resolveGithubToken`, and the previously
-PATH-shim-based token tests stub the seam so the 5s exec timeout can no longer
-flake under machine load; real-exec coverage retained for gh-absent and
-non-zero-exit paths.*
+*Last updated: 2026-09-09 (CloddsBot skin) — dashboard/CLI visual language
+re-skinned after CloddsBot's terminal toolkit (§20.8): cyan centered box
+titles, header tagline, init-wizard wordmark + step chips + ✓/✗ outcome
+glyphs; presentation only (no behavior/payload change), pinned by
+internal/tui/clodds_skin_test.go.*
