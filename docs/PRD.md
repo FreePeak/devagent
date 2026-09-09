@@ -1497,25 +1497,26 @@ Master tracker with definition of done: [#207](https://github.com/FreePeak/devag
 
 ---
 *Last updated: 2026-09-10 (issue #271) — TestApplyKeysApproveSheet CI flake
-fixed: the approve-sheet state test seeds countingTransport's canned
-/status snapshot (paused ask kept, Reachable) so the async post-submit poll
-can no longer race the next g press on slow runners, and moves the
-empty-answer refusal before the first submit so no in-flight poll can
-clobber its note assertion. Follow-up: tui test doubles made thread-safe —
-bufEnv (buffer, raw-mode counters, attach log, geometry) and
-countingTransport.polls are mutex-guarded behind accessor methods, so
-Run-driven tests no longer race the loop's poller/input goroutines (14 DATA
-RACE reports under `go test -race` across 9 tests; on loaded CI runners
-these torn reads surface as the same environment-dependent failure class
-#271 pins). `go test -race -count=5 -shuffle=on ./internal/tui` is now
-clean. Load-hardening wave (#262 class, all test-only): config.Load tests
-scrub the DEVAGENT_* resilience env overrides the daemon's dispatch env
-exports (Fixes #280 — worker sessions inherit them, masking the invalid
-file-value error and leaking noProgressTimeoutMs into exact marshals);
-TestGuardExplicitZeroBackoffRetriesImmediately asserts the computed "in
-0ms" retry line off stderr instead of a wall-clock bound the correct path
-also breached under load; TestLoopPollCadence's deadline is 4× the 2s poll
-chain; tui runWaitFor's failure budget and the workers spawn cold-start
-budget run wide of their awaited intervals. `go test -count=1 ./...` exits
-0 fresh and under 10-core CPU saturation. Test-only change (no product
-behavior change).*
+fixed in three layers. (1) State-test determinism: the approve-sheet test
+seeds countingTransport's canned /status snapshot and moves the
+empty-answer refusal before the first submit. (2) Tui test doubles made
+thread-safe — bufEnv (buffer, raw-mode counters, attach log, geometry) and
+countingTransport.polls mutex-guarded behind accessor methods, and
+TestApplyKeysKillFlow waits on the kill goroutine's mu-held note write
+before its l.note assertions (DATA RACE reports across 10 tests under
+`go test -race`). (3) Product fix: poll refuses to run on a loop that
+never ran (l.running guard on poll, pollNowLocked, drawLocked) —
+ApplyKeys-driven state tests' submit paths used to leave zombie 2s poll
+chains that fetched, drew, and re-armed forever, racing later tests'
+palette-global writes (SetMono); that residual race survived (1)+(2) at
+`-race -count=30` under CPU saturation and is the same
+environment-dependent class #271 pins. Matches production semantics: no
+dashboard, no poll — RunOneShot renders its own frame.
+Load-hardening wave (#262 class): config.Load tests scrub the DEVAGENT_*
+resilience env overrides (Fixes #280 — worker sessions inherit them from
+the dispatch env); TestGuardExplicitZeroBackoffRetriesImmediately asserts
+the computed "in 0ms" retry line off stderr instead of a wall-clock bound;
+TestLoopPollCadence's deadline is 4× the 2s poll chain; tui runWaitFor's
+failure budget and the workers spawn cold-start budget run wide of their
+awaited intervals. `go test -race -count=30 -shuffle=on -v ./internal/tui`
+and `go test -count=1 ./...` exit 0, fresh and under CPU saturation.*
