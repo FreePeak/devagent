@@ -1314,6 +1314,32 @@ machine). FR-VIS-06..08 close them; FR-VIS-09 removes the double-driver failure 
 | FR-TUI-05 | Single-key ops: `u` upgrade/rollback hint (pilot's pattern), `k` kill run (goes through the same gate machinery as CLI — the TUI is a transport, not a bypass, per FR-CTRL-03), `?` help overlay | C |
 | FR-TUI-04 | Interactive v1 scope (Q47): approval hotkeys (approve/deny pending gates via `POST /approve`) + dispatch sheet mirroring FR-UI-02; ship read-only cards first if Q47 resolves conservative. Shipped via FR-HAND-02/07 (#145): `n` opens the one-line goal dispatch sheet, `g` answers a paused 'ask' task (`y`/`n`/free text → `POST /approve`); look/feel polish shipped 2026-09-09 (#146, PR #268 — FR-TUI-P-01..12) | S |
 
+**Conventions-research polish wave (2026-09-09)** — a benchmark pass over how the
+majority of professional terminal tools are built (k9s, lazygit, htop, gh-dash,
+opencode TUI, Charm/bubbletea+lipgloss canon, dry, cointop, superfile; full notes in
+`docs/research/tui-conventions.md`) surfaced eight dependency-free gaps, all shipped:
+
+1. **`NO_COLOR`/`TERM=dumb` degradation** — monochrome palette (structure kept, zero
+   color SGR); `NO_COLOR` outranks `COLORTERM=truecolor` (no-color.org + htop `-C`).
+2. **PAUSED aggregate + attention banner** — a paused 'ask' gate renders
+   `● PAUSED` (amber) and a hero banner `task X paused — [g] answer · [k] kill`;
+   approval-needed is never silent (opencode/crush permission attention).
+3. **`/` log search** — live prompt, case-insensitive filter over level/stage/
+   message/runId, `n`/`N` match walking in filtered-space scroll coordinates,
+   Esc clears (lazygit/gh-dash search canon).
+4. **Selection-following viewports** — sessions list and worker cards window around
+   the cursor with `↑N/↓N hidden` title indicators (lazygit/htop: the selection is
+   never allowed to slide off-screen).
+5. **OSC-2 window title** mirrors the header aggregate (`devagent — RUNNING`),
+   k9s-style glanceability without stealing a row.
+6. **Grouped help overlay** — views/act/move/live-log/general sections.
+7. **termios `IUTF8`** flag in raw mode; **upgrade overlay reads
+   `internal/version`** (release-stamped, no more hardcoded 0.1.0).
+8. Contract-pinned in `internal/tui/pro_polish_test.go`; verified end-to-end over a
+   PTY against the live daemon (help overlay, live search echo, filtered viewport,
+   clean quit) and across the palette ladder (truecolor 2072 B / 16-color 1423 B /
+   mono 1236 B frames).
+
 Boundary with §20.4: the Tauri desktop app and the TUI are two renderers over the same
 FR-CTRL API — the TUI is the SSH/headless-server surface, the app is the desktop surface;
 neither parses PTYs (anti-pattern in §20.3). The PTY lives in the herdr server (FR-VIS),
@@ -1443,4 +1469,11 @@ Master tracker with definition of done: [#207](https://github.com/FreePeak/devag
 
 ---
 
-*Last updated: 2026-09-09 (all four open issues implemented via 4-way fanout and merged: #248 worker observability — WatchdogSink default-wired on direct spawns, omp NDJSON events populated incl. timeout partials, stream metrics threaded into WorkerResult with productive-wall-kill classification (no longer misfiled infra-transient), post-kill drain bounded 3s + per-launch wall budget, PR #266; #146 TUI polish — FR-TUI-P-01..12: muted truecolor palette, hero card, dense metric strip, narrow stacking, SIGWINCH, panic-safe attach resume, width-tiered footer, poisoned-envelope tests, PR #268; #181 Tauri 2 control app v1 at app/ — thin FR-CTRL client, FR-UI-01..05/07/08 functional, signing/3-OS-CI scaffolded, PR #267; #206 parity tracker closed with docs/PARITY-Scoreboard.md, PR #265. Full go test ./... -p 2 green (29 pkgs) on merged main d81ea2a. Previous 2026-09-09 stamp: post-cutover debt burned — FR-GO cutover + Node retirement COMPLETE 2026-09-08 (soak 169+171, #238 PR #242, #230 PR #237, #232, #231, #240, #235, #236, #243; version stamping + gate widening PR #254; CLI wiring tui #258 / mcp #255 / guard #256 / prd-audit #253, notPortedIssue empty pinned #257); #245 dirty-tree reclassification PR #260; #234 gh-keyring fallback PR #259; fixture/flake fixes PR #261 + 6928332.)*
+*Last updated: 2026-09-09 (TUI conventions-research polish wave landed: NO_COLOR/TERM=dumb
+mono degradation, PAUSED aggregate + hero attention banner, `/` log search with n/N match
+walking, selection-following viewports with hidden-count indicators, OSC-2 title, grouped
+help, IUTF8, live version in the upgrade overlay — commit f3d21f9, research in
+docs/research/tui-conventions.md. Supersedes the 09-09 all-four-open-issues stamp: #248
+worker observability (WatchdogSink default-wired, omp NDJSON events, stream metrics,
+productive-wall-kill classification, PR #266); #206 scoreboard closed; #181 desktop app
+v1 (PR #267); #146 TUI polish FR-TUI-P-01..12 (PR #268).)*

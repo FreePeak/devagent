@@ -4132,6 +4132,42 @@ FR-TUI-P-01..12)</td>
 </tr>
 </tbody>
 </table>
+<p><strong>Conventions-research polish wave (2026-09-09)</strong> — a
+benchmark pass over how the majority of professional terminal tools are
+built (k9s, lazygit, htop, gh-dash, opencode TUI,
+Charm/bubbletea+lipgloss canon, dry, cointop, superfile; full notes in
+<code>docs/research/tui-conventions.md</code>) surfaced eight
+dependency-free gaps, all shipped:</p>
+<ol type="1">
+<li><strong><code>NO_COLOR</code>/<code>TERM=dumb</code>
+degradation</strong> — monochrome palette (structure kept, zero color
+SGR); <code>NO_COLOR</code> outranks <code>COLORTERM=truecolor</code>
+(no-color.org + htop <code>-C</code>).</li>
+<li><strong>PAUSED aggregate + attention banner</strong> — a paused
+'ask' gate renders <code>● PAUSED</code> (amber) and a hero banner
+<code>task X paused — [g] answer · [k] kill</code>; approval-needed is
+never silent (opencode/crush permission attention).</li>
+<li><strong><code>/</code> log search</strong> — live prompt,
+case-insensitive filter over level/stage/ message/runId,
+<code>n</code>/<code>N</code> match walking in filtered-space scroll
+coordinates, Esc clears (lazygit/gh-dash search canon).</li>
+<li><strong>Selection-following viewports</strong> — sessions list and
+worker cards window around the cursor with <code>↑N/↓N hidden</code>
+title indicators (lazygit/htop: the selection is never allowed to slide
+off-screen).</li>
+<li><strong>OSC-2 window title</strong> mirrors the header aggregate
+(<code>devagent — RUNNING</code>), k9s-style glanceability without
+stealing a row.</li>
+<li><strong>Grouped help overlay</strong> —
+views/act/move/live-log/general sections.</li>
+<li><strong>termios <code>IUTF8</code></strong> flag in raw mode;
+<strong>upgrade overlay reads <code>internal/version</code></strong>
+(release-stamped, no more hardcoded 0.1.0).</li>
+<li>Contract-pinned in <code>internal/tui/pro_polish_test.go</code>;
+verified end-to-end over a PTY against the live daemon (help overlay,
+live search echo, filtered viewport, clean quit) and across the palette
+ladder (truecolor 2072 B / 16-color 1423 B / mono 1236 B frames).</li>
+</ol>
 <p>Boundary with §20.4: the Tauri desktop app and the TUI are two
 renderers over the same FR-CTRL API — the TUI is the SSH/headless-server
 surface, the app is the desktop surface; neither parses PTYs
@@ -4495,25 +4531,16 @@ href="https://github.com/FreePeak/devagent/issues/206">#206</a>. Master
 tracker with definition of done: <a
 href="https://github.com/FreePeak/devagent/issues/207">#207</a>.</p>
 <hr />
-<p><em>Last updated: 2026-09-09 (all four open issues implemented via
-4-way fanout and merged: #248 worker observability — WatchdogSink
-default-wired on direct spawns, omp NDJSON events populated incl.
-timeout partials, stream metrics threaded into WorkerResult with
-productive-wall-kill classification (no longer misfiled
-infra-transient), post-kill drain bounded 3s + per-launch wall budget,
-PR #266; #146 TUI polish — FR-TUI-P-01..12: muted truecolor palette,
-hero card, dense metric strip, narrow stacking, SIGWINCH, panic-safe
-attach resume, width-tiered footer, poisoned-envelope tests, PR #268;
-#181 Tauri 2 control app v1 at app/ — thin FR-CTRL client,
-FR-UI-01..05/07/08 functional, signing/3-OS-CI scaffolded, PR #267; #206
-parity tracker closed with docs/PARITY-Scoreboard.md, PR #265. Full go
-test ./... -p 2 green (29 pkgs) on merged main d81ea2a. Previous
-2026-09-09 stamp: post-cutover debt burned — FR-GO cutover + Node
-retirement COMPLETE 2026-09-08 (soak 169+171, #238 PR #242, #230 PR
-#237, #232, #231, #240, #235, #236, #243; version stamping + gate
-widening PR #254; CLI wiring tui #258 / mcp #255 / guard #256 /
-prd-audit #253, notPortedIssue empty pinned #257); #245 dirty-tree
-reclassification PR #260; #234 gh-keyring fallback PR #259;
-fixture/flake fixes PR #261 + 6928332.)</em></p>
+<p><em>Last updated: 2026-09-09 (TUI conventions-research polish wave
+landed: NO_COLOR/TERM=dumb mono degradation, PAUSED aggregate + hero
+attention banner, <code>/</code> log search with n/N match walking,
+selection-following viewports with hidden-count indicators, OSC-2 title,
+grouped help, IUTF8, live version in the upgrade overlay — commit
+f3d21f9, research in docs/research/tui-conventions.md. Supersedes the
+09-09 all-four-open-issues stamp: #248 worker observability
+(WatchdogSink default-wired, omp NDJSON events, stream metrics,
+productive-wall-kill classification, PR #266); #206 scoreboard closed;
+#181 desktop app v1 (PR #267); #146 TUI polish FR-TUI-P-01..12 (PR
+#268).)</em></p>
 </body>
 </html>
