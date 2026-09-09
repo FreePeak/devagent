@@ -17,13 +17,20 @@ import (
 //	border  → slate  #3d4450      dim/accents → gray
 //
 // Truecolor when COLORTERM advertises it (truecolor / 24bit), a 16-color
-// fallback otherwise. The exported names keep their historical slots so
+// fallback otherwise, and a monochrome palette when the terminal says it
+// cannot or should not receive color: NO_COLOR set (the no-color.org
+// convention every researched TUI honors — k9s, htop -C, opencode "none")
+// or TERM=dumb. The exported names keep their historical slots so
 // every call site (and the §20.8 human cards that share this package) keeps
 // one visual language; only the resolved values differ per mode:
 //
 //	Green  → sage        Red    → rose       Yellow → amber
 //	Cyan   → accent (steel)         Steel → running       Border → slate
 //	Dim    → gray           Magenta is retired (rainbow color).
+//
+// Mono keeps the structural attributes (Bold / Dim-faint / Inverse) —
+// htop's -C does the same — and empties every color; state still reads
+// through the glyphs (● / ▸) and labels.
 var (
 	Reset   = "\x1b[0m"
 	Dim     = "\x1b[2m"
@@ -47,8 +54,12 @@ func TruecolorSGR(hex string) string {
 	return fmt.Sprintf("\x1b[38;2;%d;%d;%dm", r, g, b)
 }
 
-// applyPalette rebinds the SGR vars to the muted map for one color mode.
+// applyPalette rebinds the SGR vars for one palette mode.
 func applyPalette(truecolor bool) {
+	if monoMode {
+		applyMono()
+		return
+	}
 	if truecolor {
 		Steel = TruecolorSGR("#7eb8da")
 		Green = TruecolorSGR("#7ec699")
@@ -70,31 +81,53 @@ func applyPalette(truecolor bool) {
 	Border = "\x1b[2m"
 }
 
+// applyMono empties every color var, keeping Bold/Dim/Inverse structure.
+func applyMono() {
+	Steel, Green, Red, Yellow, Cyan, Border = "", "", "", "", "", ""
+	Dim = ""
+}
+
+// monoFor pins the mono decision for one env lookup (pure, testable):
+// NO_COLOR non-empty (the no-color.org convention every researched TUI
+// honors — k9s, htop -C, opencode "none") or TERM=dumb.
+func monoFor(getenv func(string) string) bool {
+	return getenv("NO_COLOR") != "" || getenv("TERM") == "dumb"
+}
+
+var monoMode = false
+
 // paletteFor pins the palette for one env lookup (pure, testable).
 func paletteFor(getenv func(string) string) bool {
 	return getenv("COLORTERM") == "truecolor" || getenv("COLORTERM") == "24bit"
 }
 
 func init() {
+	monoMode = monoFor(os.Getenv)
 	applyPalette(paletteFor(os.Getenv))
 }
 
-// SetTruecolor forces the palette mode (tests); the returned func restores
+// SetMono forces the monochrome palette (tests); the returned func restores
 // the process-detected mode.
-func SetTruecolor(on bool) (restore func()) {
-	prev := paletteFor(os.Getenv)
-	applyPalette(on)
-	return func() { applyPalette(prev) }
+func SetMono(on bool) (restore func()) {
+	prev := monoMode
+	monoMode = on
+	applyPalette(paletteFor(os.Getenv))
+	return func() {
+		monoMode = prev
+		applyPalette(paletteFor(os.Getenv))
+	}
 }
 
-// StatusColor maps a state onto the muted palette.
+// StatusColor maps a state onto the muted palette. "paused" is the
+// approval-needed aggregate (amber — the operator must act; the
+// opencode/crush convention: permission-needed is never silent).
 func StatusColor(status string) string {
 	switch strings.ToLower(status) {
 	case "running":
 		return Steel
 	case "ok", "pass", "done":
 		return Green
-	case "stale", "warn":
+	case "stale", "warn", "paused":
 		return Yellow
 	case "failed", "fail":
 		return Red

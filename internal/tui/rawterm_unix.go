@@ -45,6 +45,7 @@ func (r *rawTerm) enterRaw() error {
 		syscall.INLCR | syscall.IGNCR | syscall.ICRNL | syscall.IXON
 	raw.Oflag &^= syscall.OPOST
 	raw.Lflag &^= syscall.ECHO | syscall.ECHONL | syscall.ICANON | syscall.ISIG | syscall.IEXTEN
+	raw.Lflag |= syscall.IUTF8 // input is UTF-8 (backspace erases by rune)
 	raw.Cflag &^= syscall.CSIZE | syscall.PARENB
 	raw.Cflag |= syscall.CS8
 	raw.Cc[syscall.VMIN] = 1

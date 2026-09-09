@@ -81,6 +81,7 @@ type loop struct {
 	lastLogID      int
 	prevFrame      []string
 	prevWidth      int
+	prevTitle      string
 	suspended      bool
 	running        bool
 	polling        bool
@@ -416,6 +417,10 @@ func (l *loop) handleKeyLocked(key Key) {
 		l.safeDrawLocked()
 		return
 	}
+	if key.Kind == KeyCtrl && key.Ch == "\x03" {
+		l.quitLocked()
+		return
+	}
 	// Log search prompt (the lazygit/gh-dash convention): printable chars
 	// edit the draft live, Backspace trims, Enter applies and jumps to the
 	// newest match, Esc cancels. Everything else is swallowed so dashboard
@@ -553,14 +558,6 @@ func (l *loop) handleKeyLocked(key Key) {
 		return
 	case "k":
 		l.beginKillLocked()
-	case "g":
-		// Approve sheet (FR-HAND-07): answer the newest paused 'ask' task.
-		// Without a paused task, g stays the jump-to-first binding.
-		if paused := pickPausedTask(l.snap); paused != "" {
-			l.overlay = ApproveOverlay(paused)
-		} else {
-			l.selection = 0
-		}
 	case "a":
 		l.attachLocked()
 	case "u":
@@ -721,6 +718,7 @@ func (l *loop) jumpLogMatchLocked(dir int) {
 	// Scroll in filtered space so the match is the last visible row. With
 	// scroll 0 the window is the filtered tail — the newest match — so
 	// follow stays on exactly when the pinned match is that tail.
+	l.logScroll = maxInt(0, len(vis)-1-next)
 	l.logFollow = l.logScroll == 0
 }
 
@@ -1016,7 +1014,6 @@ func (l *loop) armEscFlushLocked() {
 		if l.suspended {
 			l.pendingInput = "" // attach child owns the terminal; drop the partial
 			l.mu.Unlock()
-			return
 		}
 		partial := l.pendingInput
 		l.pendingInput = ""
@@ -1068,21 +1065,39 @@ func (l *loop) drawLocked() {
 		scroll = 0
 	}
 	next := RenderLines(l.snap, RenderOptions{
-		View:         l.view,
-		ShowHelp:     l.showHelp,
-		DaemonMode:   l.daemonMode,
-		Selection:    l.selection,
-		Overlay:      l.overlay,
-		Note:         l.note,
-		PendingKill:  l.pendingKill,
-		Metrics:      &MetricsState{Samples: l.samples, SampleMs: PollMs},
-		Log:          &LogViewState{Lines: l.logLines, Scroll: scroll, Follow: l.logFollow, State: l.sseState, Source: l.logSource},
+		View:        l.view,
+		ShowHelp:    l.showHelp,
+		DaemonMode:  l.daemonMode,
+		Selection:   l.selection,
+		Overlay:     l.overlay,
+		Note:        l.note,
+		PendingKill: l.pendingKill,
+		Metrics:     &MetricsState{Samples: l.samples, SampleMs: PollMs},
+		Log: &LogViewState{Lines: l.logLines, Scroll: scroll, Follow: l.logFollow,
+			State: l.sseState, Source: l.logSource, Search: l.logSearch,
+			SearchDraft: l.logSearchDraft, SearchMode: l.logSearchMode},
 		Rows:         rows,
 		Width:        width,
 		SpinnerFrame: l.spinnerFrame,
 	})
+	title := "devagent — " + l.aggregateTitleLocked()
+	if title != l.prevTitle {
+		// OSC 2 window title (k9s convention): the dashboard state stays
+		// glanceable in the tab/window manager without stealing a row.
+		_, _ = io.WriteString(l.env.Out(), "\x1b]2;"+title+"\x07")
+		l.prevTitle = title
+	}
 	_, _ = io.WriteString(l.env.Out(), RenderFrame(l.prevFrame, next, width)+"\n")
 	l.prevFrame = next
+}
+
+// aggregateTitleLocked names the terminal-title aggregate: the status the
+// header chip shows, or a short "offline" cue when the daemon is down.
+func (l *loop) aggregateTitleLocked() string {
+	if l.snap == nil || !l.snap.Reachable || l.snap.Status == nil {
+		return "offline"
+	}
+	return AggregateStatus(l.snap.Status, rosterPanes(l.snap))
 }
 
 // safeDrawLocked keeps a render failure from taking the app down (a crash

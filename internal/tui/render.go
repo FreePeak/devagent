@@ -2,12 +2,14 @@ package tui
 
 import (
 	"strings"
+
+	versionpkg "github.com/FreePeak/devagent/internal/version"
 )
 
-// version matches DEVAGENT_VERSION (internal/version) for the upgrade
-// overlay; duplicated here to avoid importing a sibling package for one
-// string.
-const version = "0.1.0"
+// version matches internal/version.Version (release stamping binds it via
+// -ldflags; a hand-rolled const went stale the moment release binaries
+// reported a stamped tag in this overlay).
+var version = versionpkg.Version
 
 // Dashboard renderers: header strip, worker/session cards, history tail, log
 // view, overlays and the frame fitting. Port of src/tui/tui.ts render half —
@@ -443,8 +445,11 @@ func logViewLines(ropts RenderOptions, width, bodyBudget int) []string {
 		pos = DimText("  [" + itoa(log.Scroll) + " older ↑ · f to follow]")
 	}
 	query := ""
-	if log != nil && log.Search != "" {
-		query = DimText("  /" + Truncate(log.Search, 24) + " — n/N next/prev match")
+	if log != nil && log.SearchMode {
+		// The / prompt: live draft with an inverse-video cursor cell.
+		query = "  " + Cyan + "/" + Truncate(log.SearchDraft, 24) + Reset + Inverse + " " + Reset
+	} else if log != nil && log.Search != "" {
+		query = DimText("  /" + Truncate(log.Search, 24) + " · n/N matches · Esc clear")
 	}
 	count := 0
 	if log != nil {
@@ -743,17 +748,41 @@ func RenderLines(snap *Snapshot, ropts RenderOptions) []string {
 	}
 
 	if view == ViewSessions {
-		body := []string{Bold + "▌Sessions" + Reset + " " + Dim + "herdr panes" + Reset, ""}
-		if len(panes) == 0 {
+		// Viewport follows the selection (the lazygit/htop rule): with more
+		// panes than body rows the cursor must never slide off-screen, and
+		// the cut must say so on the title line.
+		capRows := rows - len(header) - len(footer) - 2 // title + blank
+		if capRows < 1 {
+			capRows = 1
+		}
+		title := Bold + "▌Sessions" + Reset + " " + Dim + "herdr panes" + Reset
+		start := 0
+		if len(panes) > capRows {
+			if ropts.Selection >= capRows {
+				start = minInt(ropts.Selection-capRows+1, len(panes)-capRows)
+			}
+			if start > 0 {
+				title += Dim + " · ↑" + itoa(start) + " hidden" + Reset
+			}
+			if below := len(panes) - start - capRows; below > 0 {
+				title += Dim + " · ↓" + itoa(below) + " hidden" + Reset
+			}
+		}
+		body := []string{title, ""}
+		window := panes
+		if len(panes) > capRows {
+			window = panes[start:minInt(start+capRows, len(panes))]
+		}
+		if len(window) == 0 {
 			body = append(body, DimText("  no live sessions"))
 		}
-		for i, p := range panes {
+		for i, p := range window {
 			el := ""
 			if p.StartedAt != "" {
 				el = fmtElapsed(p.StartedAt, nowClock())
 			}
 			mark := " "
-			if i == ropts.Selection {
+			if i+start == ropts.Selection {
 				mark = Cyan + "▸" + Reset
 			}
 			line := mark + " " + Cyan + Truncate(orDefault(p.PaneID, "-"), 18) + Reset + "  " +
@@ -787,14 +816,58 @@ func RenderLines(snap *Snapshot, ropts RenderOptions) []string {
 	if len(cards) == 0 {
 		body = append(body, DimText("  no workers, queue empty"))
 	}
+	// Viewport follows the selection: each card costs its own height (+1
+	// separator), so a roster taller than the body budget windows around
+	// the selected card instead of letting fitLines silently cut it.
+	cardCap := 4
+	if budget := rows - len(header) - len(footer) - 4; budget > cardCap {
+		cardCap = budget
+	}
+	cardStart, cardEnd := 0, len(cards)
+	if len(cards) > cardCap {
+		heights := make([]int, len(cards))
+		for i, c := range cards {
+			heights[i] = len(c) + 1
+		}
+		sel := ropts.Selection
+		if sel < 0 || sel >= len(cards) {
+			sel = 0
+		}
+		// Grow from the selected card until the budget is spent.
+		lo, hi := sel, sel
+		used := heights[sel]
+		for used < cardCap {
+			grew := false
+			if lo > 0 {
+				lo--
+				used += heights[lo]
+				grew = true
+				if used >= cardCap {
+					break
+				}
+			}
+			if hi < len(cards)-1 {
+				hi++
+				used += heights[hi]
+				grew = true
+				if used >= cardCap {
+					break
+				}
+			}
+			if !grew {
+				break
+			}
+		}
+		cardStart, cardEnd = lo, hi+1
+	}
 	step := 2
 	if stackFull {
 		step = 1 // full-width stacked cards: no side-by-side pairing
 	}
-	for i := 0; i < len(cards); i += step {
+	for i := cardStart; i < cardEnd; i += step {
 		a := cards[i]
 		var b []string
-		if step == 2 && i+1 < len(cards) {
+		if step == 2 && i+1 < cardEnd {
 			b = cards[i+1]
 		}
 		rws := maxInt(len(a), len(b))
@@ -811,8 +884,20 @@ func RenderLines(snap *Snapshot, ropts RenderOptions) []string {
 		}
 		body = append(body, "")
 	}
-	if len(cards) > 0 {
+	if cardEnd > cardStart {
 		body = body[:len(body)-1] // single blank between cards and history
+	}
+	// Hidden-card indicators on the Workers title (visible == count).
+	if cardStart > 0 || cardEnd < len(cards) {
+		hidden := ""
+		if cardStart > 0 {
+			hidden += " · ↑" + itoa(cardStart) + " hidden"
+		}
+		if below := len(cards) - cardEnd; below > 0 {
+			hidden += " · ↓" + itoa(below) + " hidden"
+		}
+		body[0] = Bold + "▌Workers" + Reset + " " + Dim + itoa(len(panes)) + " pane(s) · " +
+			itoa(len(queued)) + " queued" + hidden + Reset
 	}
 
 	body = append(body, Bold+"▌History"+Reset+" "+Dim+"ledger tail"+Reset, "")

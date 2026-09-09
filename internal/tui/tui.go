@@ -221,6 +221,10 @@ type LogViewState struct {
 	// Search is the active case-insensitive log filter; "" = unfiltered.
 	// Matching lines render dim-nonmatching (n/N jump between matches).
 	Search string
+	// SearchDraft is the in-progress query while SearchMode is true (the
+	// prompt renders it); SearchMode false ignores it.
+	SearchDraft string
+	SearchMode  bool
 }
 
 // RenderOptions tunes one frame render. Zero fields mean defaults
@@ -390,6 +394,10 @@ func queueRows(snap *Snapshot) []TuiQueuedTask {
 // (circuit open — the factory cannot dispatch), not "some task failed at
 // some point": runs.failed_recent is a lifetime queue-failed count that never
 // decays, so it pinned the header at FAILED permanently (2026-09-05 fix).
+// PAUSED means a task waits on the operator (a paused 'ask' gate): the
+// approval moment is the one state a dashboard must never render as idle
+// (the opencode/crush convention — permission-needed is unmissable), so it
+// outranks IDLE but not RUNNING.
 func AggregateStatus(status *StatusPayload, panes []TuiPane) string {
 	if status == nil {
 		return "IDLE"
@@ -412,6 +420,9 @@ func AggregateStatus(status *StatusPayload, panes []TuiPane) string {
 	}
 	if status.Circuit == "open" {
 		return "FAILED"
+	}
+	if status.Ask != nil && status.Ask.ID != "" {
+		return "PAUSED"
 	}
 	return "IDLE"
 }
