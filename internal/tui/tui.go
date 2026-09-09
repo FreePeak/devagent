@@ -218,6 +218,9 @@ type LogViewState struct {
 	State  string // EventsState: 'connecting' | 'live' | 'down' | 'off'
 	// Source is the runId of the newest structured line, when known.
 	Source string
+	// Search is the active case-insensitive log filter; "" = unfiltered.
+	// Matching lines render dim-nonmatching (n/N jump between matches).
+	Search string
 }
 
 // RenderOptions tunes one frame render. Zero fields mean defaults

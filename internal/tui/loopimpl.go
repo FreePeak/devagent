@@ -55,31 +55,35 @@ type loop struct {
 	env        LoopEnv
 	daemonMode string // 'attach' | 'embedded' (header cue)
 
-	mu           sync.Mutex
-	stopped      bool
-	quitOnce     sync.Once
-	quitCh       chan struct{}
-	view         View
-	showHelp     bool
-	selection    int
-	overlay      *Overlay
-	pendingKill  string
-	note         string
-	snap         *Snapshot
-	pendingInput string
-	samples      []float64
-	spinnerFrame int
-	logLines     []LogLine
-	logScroll    int
-	logFollow    bool
-	sseState     string
-	logSource    string
-	lastLogID    int
-	prevFrame    []string
-	prevWidth    int
-	suspended    bool
-	running      bool
-	polling      bool
+	mu             sync.Mutex
+	stopped        bool
+	quitOnce       sync.Once
+	quitCh         chan struct{}
+	view           View
+	showHelp       bool
+	selection      int
+	overlay        *Overlay
+	pendingKill    string
+	note           string
+	snap           *Snapshot
+	pendingInput   string
+	samples        []float64
+	spinnerFrame   int
+	logLines       []LogLine
+	logScroll      int
+	logFollow      bool
+	logSearch      string // committed / filter ("" = unfiltered)
+	logSearchDraft string
+	logSearchMode  bool
+	logMatchIdx    int // index of the last jumped match in FILTERED space (-1 = none)
+	sseState       string
+	logSource      string
+	lastLogID      int
+	prevFrame      []string
+	prevWidth      int
+	suspended      bool
+	running        bool
+	polling        bool
 
 	escTimer    *time.Timer
 	redrawTimer *time.Timer
@@ -121,15 +125,15 @@ type LoopEnv interface {
 func NewLoop(opts TuiOptions, tr Transport, env LoopEnv, daemonMode string) Loop {
 	now := time.Now()
 	return &loop{
-		opts:       opts,
-		tr:         tr,
-		env:        env,
-		daemonMode: daemonMode,
-		quitCh:     make(chan struct{}),
-		note:       "connecting…",
-		snap:       &Snapshot{History: []HistoryRow{}, FetchedAt: now},
-		logFollow:  true,
-		sseState:   "off",
+		opts:        opts,
+		tr:          tr,
+		env:         env,
+		quitCh:      make(chan struct{}),
+		note:        "connecting…",
+		snap:        &Snapshot{History: []HistoryRow{}, FetchedAt: now},
+		logFollow:   true,
+		logMatchIdx: -1,
+		sseState:    "off",
 	}
 }
 
@@ -412,8 +416,29 @@ func (l *loop) handleKeyLocked(key Key) {
 		l.safeDrawLocked()
 		return
 	}
-	if key.Kind == KeyCtrl && key.Ch == "\x03" {
-		l.quitLocked()
+	// Log search prompt (the lazygit/gh-dash convention): printable chars
+	// edit the draft live, Backspace trims, Enter applies and jumps to the
+	// newest match, Esc cancels. Everything else is swallowed so dashboard
+	// hotkeys never fire mid-query.
+	if l.logSearchMode {
+		switch {
+		case key.Kind == KeyEsc:
+			l.logSearchMode = false
+		case key.Kind == KeyEnter:
+			l.logSearchMode = false
+			l.logSearch = l.logSearchDraft
+			l.logMatchIdx = -1
+			if l.logSearch != "" {
+				l.jumpLogMatchLocked(1)
+			}
+		case key.Kind == KeyCtrl && (key.Ch == "\x7f" || key.Ch == "\x08"):
+			if r := []rune(l.logSearchDraft); len(r) > 0 {
+				l.logSearchDraft = string(r[:len(r)-1])
+			}
+		case key.Kind == KeyChar:
+			l.logSearchDraft += key.Ch
+		}
+		l.safeDrawLocked()
 		return
 	}
 	// Typed-input overlays (FR-HAND-02/07): printable chars append to the
@@ -448,6 +473,10 @@ func (l *loop) handleKeyLocked(key Key) {
 			l.overlay = nil
 		} else if l.showHelp {
 			l.showHelp = false
+		} else if l.view == ViewLog && l.logSearch != "" {
+			// Esc clears an active search before it resets the scroll.
+			l.logSearch = ""
+			l.logMatchIdx = -1
 		} else if l.view == ViewLog && (l.logScroll > 0 || !l.logFollow) {
 			l.logScroll = 0
 			l.logFollow = true
@@ -468,6 +497,39 @@ func (l *loop) handleKeyLocked(key Key) {
 	case "1":
 		l.view = ViewWorkers
 		l.clampSelectionLocked()
+	case "n":
+		// While a log search is active, n/N walk the matches (the lazygit
+		// convention); without one, n stays the dispatch sheet.
+		if l.view == ViewLog && l.logSearch != "" {
+			l.jumpLogMatchLocked(1)
+		} else {
+			l.overlay = DispatchOverlay()
+		}
+	case "N":
+		if l.view == ViewLog && l.logSearch != "" {
+			l.jumpLogMatchLocked(-1)
+		}
+	case "g":
+		// Approve sheet (FR-HAND-07): answer the newest paused 'ask' task.
+		// Without a paused task, g stays the jump-to-first binding — and in
+		// the log view "first" means the oldest line (the help's "g / G
+		// jump to first / last item (log: oldest / newest)" promise; a bare
+		// selection=0 there was a silent no-op).
+		if paused := pickPausedTask(l.snap); paused != "" {
+			l.overlay = ApproveOverlay(paused)
+		} else if l.view == ViewLog {
+			l.logScroll = maxInt(0, l.visibleLogCount()-1)
+			l.logFollow = l.logScroll == 0
+		} else {
+			l.selection = 0
+		}
+	case "/":
+		if l.view == ViewLog {
+			l.logSearchMode = true
+			l.logSearchDraft = l.logSearch
+		} else {
+			l.note = "search: switch to the log view first (3)"
+		}
 	case "2":
 		l.view = ViewSessions
 		l.clampSelectionLocked()
@@ -491,8 +553,6 @@ func (l *loop) handleKeyLocked(key Key) {
 		return
 	case "k":
 		l.beginKillLocked()
-	case "n":
-		l.overlay = DispatchOverlay()
 	case "g":
 		// Approve sheet (FR-HAND-07): answer the newest paused 'ask' task.
 		// Without a paused task, g stays the jump-to-first binding.
@@ -541,11 +601,15 @@ func (l *loop) handleKeyLocked(key Key) {
 	// Navigation: arrows move the selection (lists) or scroll (log); g/G
 	// home/end, PgUp/PgDn page. ('k' stays kill per FR-TUI-05, so lists use
 	// arrows — the htop default — instead of vi keys.)
+	//
+	// Log scroll coordinates live in the SAME filtered space the renderer
+	// windows over: with an active search the viewport paginates matches,
+	// not the raw buffer.
 	down := key.Kind == KeyDown
 	up := key.Kind == KeyUp
 	if down || up {
 		if l.view == ViewLog {
-			max := maxInt(0, len(l.logLines)-1)
+			max := l.visibleLogCount() - 1
 			delta := -1
 			if up {
 				delta = 1
@@ -565,7 +629,7 @@ func (l *loop) handleKeyLocked(key Key) {
 	}
 	if key.Kind == KeyPgUp || key.Kind == KeyPgDn {
 		if l.view == ViewLog {
-			max := maxInt(0, len(l.logLines)-1)
+			max := l.visibleLogCount() - 1
 			delta := -10
 			if key.Kind == KeyPgUp {
 				delta = 10
@@ -582,7 +646,7 @@ func (l *loop) handleKeyLocked(key Key) {
 	}
 	if key.Kind == KeyHome {
 		if l.view == ViewLog {
-			l.logScroll = maxInt(0, len(l.logLines)-1)
+			l.logScroll = maxInt(0, l.visibleLogCount()-1)
 			l.logFollow = l.logScroll == 0
 		} else {
 			l.selection = 0
@@ -604,12 +668,60 @@ func (l *loop) handleKeyLocked(key Key) {
 }
 
 // clampSelectionLocked keeps the cursor inside the current view's item list
+// visibleLogCount is the log viewport's scroll space: every buffered line
+// when unfiltered, only the matches when a search is active.
+func (l *loop) visibleLogCount() int {
+	if l.logSearch == "" {
+		return len(l.logLines)
+	}
+	return logLinesMatching(&LogViewState{Lines: l.logLines, Search: l.logSearch})
+}
+
 // after a view switch or a roster shrink (the TS clampSelection).
 func (l *loop) clampSelectionLocked() {
 	n := len(viewItems(l.snap, l.view))
 	if l.selection >= n {
 		l.selection = maxInt(0, n-1)
 	}
+}
+
+// jumpLogMatchLocked moves the log viewport to the next/previous match of
+// the active search. dir=+1 walks toward the tail (newer — n), dir=-1
+// toward the head (older — N); both wrap. A cold start (no previous jump)
+// lands on the newest match for +1 and the oldest for -1.
+//
+// All coordinates are in FILTERED space: logViewLines windows over the
+// match list when a search is active, computing
+// start = len(visible) - viewport - scroll, so pinning match `m` as the
+// bottom visible row needs scroll = max(0, len(visible) - 1 - m) in that
+// same space. The buffer index is stored at jump time (value-equality
+// re-resolution breaks on duplicated raw lines); buffer rolls simply
+// invalidate the position and the next jump re-colds-starts.
+func (l *loop) jumpLogMatchLocked(dir int) {
+	vis := logVisibleLines(&LogViewState{Lines: l.logLines, Search: l.logSearch})
+	if len(vis) == 0 {
+		l.note = "search: no matches"
+		return
+	}
+	cur := l.logMatchIdx // index into vis from the previous jump
+	if cur >= len(vis) {
+		cur = -1 // buffer rolled since the last jump
+	}
+	var next int
+	if cur == -1 {
+		if dir > 0 {
+			next = len(vis) - 1 // newest
+		} else {
+			next = 0 // oldest
+		}
+	} else {
+		next = (cur + dir + len(vis)) % len(vis)
+	}
+	l.logMatchIdx = next
+	// Scroll in filtered space so the match is the last visible row. With
+	// scroll 0 the window is the filtered tail — the newest match — so
+	// follow stays on exactly when the pinned match is that tail.
+	l.logFollow = l.logScroll == 0
 }
 
 // beginKillLocked mirrors beginKill: gate on the advertised capability, then

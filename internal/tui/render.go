@@ -277,8 +277,21 @@ func heroLines(snap *Snapshot, ropts RenderOptions, panes []TuiPane) []string {
 			}
 		}
 	}
+	// PAUSED banner (FR-TUI attention): a paused 'ask' gate needs the
+	// operator's answer — the idle/running hero must never bury it. Amber
+	// + the exact key, so the next action is one glance away (the
+	// opencode/crush approval-attention convention).
+	paused := ""
+	if snap.Status != nil && snap.Status.Ask != nil && snap.Status.Ask.ID != "" {
+		id := Truncate(snap.Status.Ask.ID, 24)
+		paused = "  " + Yellow + Bold + "⏸ " + Reset + Yellow + "task " + id +
+			" paused — [g] answer · [k] kill" + Reset
+	}
 	if sel == nil {
-		// Idle: one next-action line.
+		// Idle: paused cue first, else one next-action line.
+		if paused != "" {
+			return append(iterationLines(snap), paused, "")
+		}
 		next := "n goal · 1 workers · ? help"
 		switch ropts.View {
 		case ViewLog:
@@ -327,10 +340,15 @@ func heroLines(snap *Snapshot, ropts RenderOptions, panes []TuiPane) []string {
 	if worker == "" {
 		worker = "-"
 	}
-	return append(iterationLines(snap),
+	hero := []string{
 		line,
-		"  "+Dim+"worker "+Reset+Truncate(worker, 14)+
-			Dim+" · pulse "+Reset+bar, "")
+		"  " + Dim + "worker " + Reset + Truncate(worker, 14) +
+			Dim + " · pulse " + Reset + bar,
+	}
+	if paused != "" {
+		hero = append([]string{paused}, hero...)
+	}
+	return append(iterationLines(snap), hero...)
 }
 
 func spawnVisibility(status *StatusPayload) string {
@@ -371,18 +389,31 @@ func iterationLines(snap *Snapshot) []string {
 func helpLines() []string {
 	return []string{
 		Bold + "Keys" + Reset,
+		"",
+		Dim + "  — views —" + Reset,
+		"  1 / 2 / 3  switch view: workers / sessions / live log   (s and l toggle back)",
+		"",
+		Dim + "  — act —" + Reset,
 		"  n          dispatch sheet (FR-HAND-02): type a one-line goal, Enter → POST /dispatch",
 		"  g          answer a paused task (FR-HAND-07): y/n or free text → POST /approve",
-		"  1 / 2 / 3  switch view: workers / sessions / live log   (s and l toggle back)",
-		"  ↑ ↓ / PgUp PgDn  move the selection (workers, sessions) · scroll (log)",
-		"  g / G      jump to first / last item (log: oldest / newest)",
-		"  f         toggle follow-tail in the log view",
-		"  Enter / o  expand the selected worker into a detail panel",
+		"             (no paused task: g jumps to the first item)",
+		"  k  kill the running task via POST /approve (answer __kill__); daemon must advertise kill-via-answer",
+		"  y  confirm the pending kill — any other key cancels",
 		"  a         attach inline (FR-TUI-06): dashboard suspends, herdr owns the terminal; detach to return",
 		"  u         upgrade hint (pilot-style self-update recipe)",
 		"  r  refresh now",
-		"  k  kill the running task via POST /approve (answer __kill__); daemon must advertise kill-via-answer",
-		"  y  confirm the pending kill — any other key cancels",
+		"",
+		Dim + "  — move —" + Reset,
+		"  ↑ ↓ / PgUp PgDn  move the selection (workers, sessions) · scroll (log)",
+		"  g / G      jump to first / last item (log: oldest / newest)",
+		"  Enter / o  expand the selected worker into a detail panel",
+		"",
+		Dim + "  — live log —" + Reset,
+		"  /          search the log (case-insensitive filter; Enter applies, Esc cancels)",
+		"  n / N      next / previous match while a search is active",
+		"  f         toggle follow-tail in the log view",
+		"",
+		Dim + "  — general —" + Reset,
 		"  ?  toggle this help",
 		"  q or Ctrl+C  quit",
 		"",
@@ -411,13 +442,21 @@ func logViewLines(ropts RenderOptions, width, bodyBudget int) []string {
 	if log != nil && log.Scroll > 0 {
 		pos = DimText("  [" + itoa(log.Scroll) + " older ↑ · f to follow]")
 	}
+	query := ""
+	if log != nil && log.Search != "" {
+		query = DimText("  /" + Truncate(log.Search, 24) + " — n/N next/prev match")
+	}
 	count := 0
 	if log != nil {
 		count = len(log.Lines)
 	}
+	shown := ""
+	if log != nil && log.Search != "" {
+		shown = " · " + itoa(logLinesMatching(log)) + " match(es)"
+	}
 	lines := []string{
 		Bold + "▌Live log" + Reset + " " + titleState +
-			DimText(" · "+itoa(count)+" line(s) buffered") + src + pos,
+			DimText(" · "+itoa(count)+" line(s) buffered") + src + shown + pos + query,
 		"",
 	}
 	if log == nil || len(log.Lines) == 0 {
@@ -429,18 +468,49 @@ func logViewLines(ropts RenderOptions, width, bodyBudget int) []string {
 	// budget the caller computed (rows - page header - footer), not its own
 	// guess.
 	viewport := maxInt(3, bodyBudget-2)
-	start := len(log.Lines) - viewport
+	visible := logVisibleLines(log)
+	start := len(visible) - viewport
 	if !log.Follow {
 		start -= log.Scroll
 	}
 	if start < 0 {
 		start = 0
 	}
-	end := minInt(start+viewport, len(log.Lines))
-	for _, l := range log.Lines[start:end] {
+	end := minInt(start+viewport, len(visible))
+	for _, l := range visible[start:end] {
 		lines = append(lines, FormatLogLine(l, width, Reset))
 	}
 	return lines
+}
+
+// logVisibleLines is the viewport's line source: every buffered line when
+// unfiltered, only matches when a / filter is active.
+func logVisibleLines(log *LogViewState) []LogLine {
+	if log == nil || log.Search == "" {
+		return log.Lines
+	}
+	out := make([]LogLine, 0, len(log.Lines))
+	for _, l := range log.Lines {
+		if logLineMatches(l, log.Search) {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+// logLinesMatching counts filter hits (title indicator).
+func logLinesMatching(log *LogViewState) int {
+	return len(logVisibleLines(log))
+}
+
+// logLineMatches is the case-insensitive match over the rendered essence:
+// timestamp + level + stage + message.
+func logLineMatches(l LogLine, query string) bool {
+	q := strings.ToLower(query)
+	return strings.Contains(strings.ToLower(l.Message), q) ||
+		strings.Contains(strings.ToLower(l.Stage), q) ||
+		strings.Contains(strings.ToLower(l.Level), q) ||
+		strings.Contains(strings.ToLower(l.RunID), q)
 }
 
 // detailOverlayLines renders the detail panel (Claude Code expand):
