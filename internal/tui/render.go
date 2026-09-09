@@ -576,6 +576,26 @@ func concat(parts ...[]string) []string {
 	return out
 }
 
+// footerHint builds the htop function bar, width-tiered (FR-TUI-P-12): the
+// full hint + notes share one line, so the full hint only renders when it
+// cannot starve the notes; below 80 columns the hint folds to the
+// essentials (view switches + help + quit), below 46 to just help/quit.
+func footerHint(view View, width int) string {
+	if view == ViewLog {
+		full := Inverse + " [1] workers [2] sessions [3] log · ↑↓ scroll · f follow · r refresh [?] help [q] quit " + Reset
+		if width >= 80 {
+			return full
+		}
+	}
+	if width >= 80 {
+		return Inverse + " [n] goal [1] workers [2] sessions [3] log · ↑↓ select · ⏎ detail · a attach · k kill · r refresh [?] help [q] quit " + Reset
+	}
+	if width >= 46 {
+		return Inverse + " [1] workers [2] sessions [3] log · a attach · k kill [?] help [q] quit " + Reset
+	}
+	return Inverse + " [?] help [q] quit " + Reset
+}
+
 // RenderLines renders the full frame as lines (interactive diffs these;
 // one-shot joins them).
 func RenderLines(snap *Snapshot, ropts RenderOptions) []string {
@@ -595,8 +615,13 @@ func RenderLines(snap *Snapshot, ropts RenderOptions) []string {
 	queued := queueRows(snap)
 
 	header := headerLines(snap, ropts)
+	// FR-TUI-P-12: the help overlay is kept bottom-first so its last row
+	// ("q or Ctrl+C  quit") always survives a short terminal — cutting the
+	// header tail instead would drop exactly the quit row the operator
+	// needs.
+	help := []string{}
 	if ropts.ShowHelp {
-		header = append(header, helpLines()...)
+		help = helpLines()
 	}
 
 	// Footer (htop function-bar cue): contextual keys + transient notes.
@@ -607,15 +632,15 @@ func RenderLines(snap *Snapshot, ropts RenderOptions) []string {
 	if ropts.Note != "" {
 		notes = append(notes, ropts.Note)
 	}
-	keysHint := Inverse + " [n] goal [1] workers [2] sessions [3] log · ↑↓ select · ⏎ detail · a attach · k kill · r refresh [?] help [q] quit " + Reset
-	if view == ViewLog {
-		keysHint = Inverse + " [1] workers [2] sessions [3] log · ↑↓ scroll · f follow · r refresh [?] help [q] quit " + Reset
-	}
+	keysHint := footerHint(view, width)
 	noteSuffix := ""
 	if len(notes) > 0 {
-		noteSuffix = "  " + Yellow + Truncate(strings.Join(notes, " · "), maxInt(20, width-62)) + Reset
+		noteSuffix = "  " + Yellow + Truncate(strings.Join(notes, " · "), maxInt(16, width-VisibleLen(keysHint)-6)) + Reset
 	}
 	footer := []string{keysHint + noteSuffix}
+	if ropts.ShowHelp {
+		return fitLines(header, append(help, ""), footer, rows, "bottom")
+	}
 	if ropts.Overlay != nil && ropts.Overlay.Kind == "dispatch" {
 		return fitLines(header, append(dispatchOverlayLines(ropts.Overlay, width), ""), footer, rows, "top")
 	}
