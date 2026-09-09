@@ -320,7 +320,7 @@ func TestLoopRunSigwinchRepaintsPromptly(t *testing.T) {
 
 	// Resize: narrower geometry, then fire SIGWINCH. drawLocked re-probes
 	// Size and full-clears (the sanctioned reflow clear).
-	env.bufEnv.cols = 60
+	env.cols = 60
 	env.winch <- os.Interrupt // any signal value wakes the repaint
 	runWaitFor(t, func() bool {
 		return strings.Contains(env.buf.String(), "\x1b[2J")

@@ -84,7 +84,11 @@ jobs:
           done
 
           # Workflows must not invoke the Node toolchain (npm/npx/tsx/node).
-          if grep -rnE '(npm|npx|tsx|node) ' .github/workflows/*.yml; then
+          # Exception: app-build.yml drives the Tauri 2 webview UI (#181,
+          # FR-UI-01..09) — the Go single-implementation rule covers the
+          # DevAgent core; the app's UI stack is TS by the §20.4 decision.
+          if grep -rnE '(npm|npx|tsx|node) ' .github/workflows/*.yml \
+              | grep -v '^\.github/workflows/app-build\.yml:'; then
             fail "Node toolchain invocation found in .github/workflows — CI runs the Go suite only (issues #205, #250)"
           fi
 
