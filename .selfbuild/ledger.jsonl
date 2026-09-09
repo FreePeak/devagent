@@ -135,3 +135,4 @@
 {"loop":174,"ts":"2026-09-08T10:12:37Z","status":"provider-degraded","goal":"doc-sync failed: Aborting"}
 {"loop":175,"ts":"2026-09-08T10:17:12Z","status":"provider-degraded","goal":"doc-sync failed: Aborting"}
 {"loop":176,"ts":"2026-09-08T12:40:44Z","status":"ok","goal":"Goal: Implement GitHub issue #239 (doc-sync: retry transient git fetch failures (VN-ISP TLS flake eats loop iterations)) in full and verifiably. Read the issue "}
+{"loop":177,"ts":"2026-09-09T14:39:24Z","status":"failed","goal":"Goal: Implement GitHub issue #262 (test(config): fake-gh token tests hit the 5s exec timeout under load — harden or inject the resolver) in full and verifiably."}
