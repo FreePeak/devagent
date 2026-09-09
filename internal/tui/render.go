@@ -577,21 +577,27 @@ func concat(parts ...[]string) []string {
 }
 
 // footerHint builds the htop function bar, width-tiered (FR-TUI-P-12): the
-// full hint + notes share one line, so the full hint only renders when it
-// cannot starve the notes; below 80 columns the hint folds to the
-// essentials (view switches + help + quit), below 46 to just help/quit.
+// hint and any transient note share ONE footer line, so each tier only
+// renders when it fits its threshold — [q] quit is never clamped off (the
+// full 116-cell hint used to lose its tail at the default 100 columns).
 func footerHint(view View, width int) string {
-	if view == ViewLog {
-		full := Inverse + " [1] workers [2] sessions [3] log · ↑↓ scroll · f follow · r refresh [?] help [q] quit " + Reset
-		if width >= 80 {
-			return full
+	if width >= 116 {
+		if view == ViewLog {
+			return Inverse + " [1] workers [2] sessions [3] log · ↑↓ scroll · f follow · r refresh [?] help [q] quit " + Reset
 		}
-	}
-	if width >= 80 {
 		return Inverse + " [n] goal [1] workers [2] sessions [3] log · ↑↓ select · ⏎ detail · a attach · k kill · r refresh [?] help [q] quit " + Reset
 	}
-	if width >= 46 {
-		return Inverse + " [1] workers [2] sessions [3] log · a attach · k kill [?] help [q] quit " + Reset
+	if width >= 96 {
+		if view == ViewLog {
+			return Inverse + " [1/2/3] views · ↑↓ scroll · f follow [?] help [q] quit " + Reset
+		}
+		return Inverse + " [n] goal [1] workers [2] sessions [3] log · ↑↓ · ⏎ detail · a attach · k kill [?] help [q] quit " + Reset
+	}
+	if width >= 62 {
+		if view == ViewLog {
+			return Inverse + " [1/2/3] views · f follow [?] help [q] quit " + Reset
+		}
+		return Inverse + " [n] goal [1/2/3] views · a attach · k kill [?] help [q] quit " + Reset
 	}
 	return Inverse + " [?] help [q] quit " + Reset
 }
