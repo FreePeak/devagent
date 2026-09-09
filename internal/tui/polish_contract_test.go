@@ -270,7 +270,7 @@ func (e *winchEnv) SuspendAttach(paneID, taskID, repoPath string) int {
 func TestLoopRunAttachEnvPanicResumesDashboard(t *testing.T) {
 	env := newWinchEnv()
 	env.panicIt = true
-	env.cols = 140 // the note shares one footer line with the hint
+	env.setCols(140) // the note shares one footer line with the hint
 	tr := &countingTransport{killDone: make(chan struct{}, 4)}
 	tr.snap = &Snapshot{
 		Status:    &StatusPayload{},
@@ -286,7 +286,7 @@ func TestLoopRunAttachEnvPanicResumesDashboard(t *testing.T) {
 	// The dashboard must survive: still running, screen re-entered, crash
 	// surfaced in the note, and a fresh poll fired.
 	runWaitFor(t, func() bool {
-		return strings.Contains(env.buf.String(), "attach crashed")
+		return strings.Contains(env.outText(), "attach crashed")
 	}, "attach crash note never rendered")
 	runWaitFor(t, func() bool {
 		l.mu.Lock()
@@ -315,15 +315,15 @@ func TestLoopRunSigwinchRepaintsPromptly(t *testing.T) {
 	go func() { done <- l.Run() }()
 
 	runWaitFor(t, func() bool {
-		return strings.Contains(env.buf.String(), "[1] workers")
+		return strings.Contains(env.outText(), "[1] workers")
 	}, "first frame never rendered")
 
 	// Resize: narrower geometry, then fire SIGWINCH. drawLocked re-probes
 	// Size and full-clears (the sanctioned reflow clear).
-	env.cols = 60
+	env.setCols(60)
 	env.winch <- os.Interrupt // any signal value wakes the repaint
 	runWaitFor(t, func() bool {
-		return strings.Contains(env.buf.String(), "\x1b[2J")
+		return strings.Contains(env.outText(), "\x1b[2J")
 	}, "SIGWINCH never triggered the reflow repaint")
 
 	env.in.write("q")

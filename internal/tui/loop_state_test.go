@@ -3,10 +3,10 @@ package tui
 // Golden-style state-machine tests for the interactive loop (issue #252):
 // ApplyKeys transitions with no terminal involved — the Loop seam keeps the
 // loop testable without a PTY. Mirrors the TS handleKey transition table.
-
 import (
 	"io"
 	"os"
+	"sync"
 	"testing"
 	"time"
 )
@@ -288,7 +288,23 @@ func TestApplyKeysDispatchSheet(t *testing.T) {
 func TestApplyKeysApproveSheet(t *testing.T) {
 	tr := &countingTransport{killDone: make(chan struct{}, 4)}
 	l := NewLoop(TuiOptions{RepoPath: "/repo"}, tr, nullEnv{}, "attach").(*loop)
-	l.snap = &Snapshot{Status: &StatusPayload{Ask: &StatusAsk{ID: "TASK-ask"}}}
+	// Seeding the transport's snapshot too: every approve submit fires an
+	// async poll (pollNowLocked), and without a canned answer it replaces
+	// l.snap with a no-ask snapshot — on slow runners that lands before the
+	// next g, which then finds no paused task and the sheet never opens
+	// (issue #271). The canned /status keeps the ask visible, so later g
+	// presses open the sheet no matter when the poll goroutine lands. The
+	// empty-answer refusal runs FIRST — before any submit fires a poll —
+	// because every poll overwrites l.note, which would clobber that note
+	// assertion on a slow runner.
+	tr.snap = &Snapshot{Status: &StatusPayload{Ask: &StatusAsk{ID: "TASK-ask"}}, Reachable: true}
+	l.snap = &Snapshot{Status: &StatusPayload{Ask: &StatusAsk{ID: "TASK-ask"}}, Reachable: true}
+	// Empty answer refused.
+	l.ApplyKeys(DecodeKeys("g", false))
+	l.ApplyKeys(DecodeKeys("\r", false))
+	if l.note != "approve: empty answer" {
+		t.Fatalf("empty answer note = %q", l.note)
+	}
 	l.ApplyKeys(DecodeKeys("g", false))
 	if l.overlay == nil || l.overlay.Kind != "approve" || l.overlay.TaskID != "TASK-ask" {
 		t.Fatalf("g overlay = %+v, want approve of TASK-ask", l.overlay)
@@ -311,12 +327,6 @@ func TestApplyKeysApproveSheet(t *testing.T) {
 	l.ApplyKeys(DecodeKeys("\r", false))
 	if tr.lastApproveAnswer != "use the" {
 		t.Fatalf("free-text answer = %q", tr.lastApproveAnswer)
-	}
-	// Empty answer refused.
-	l.ApplyKeys(DecodeKeys("g", false))
-	l.ApplyKeys(DecodeKeys("\r", false))
-	if l.note != "approve: empty answer" {
-		t.Fatalf("empty answer note = %q", l.note)
 	}
 	// Ledger-tail fallback when /status carries no ask.
 	l2 := newTestLoop(t, TuiOptions{})
@@ -430,7 +440,9 @@ func TestDecodeKeysPendingRidesAcrossApplyKeys(t *testing.T) {
 }
 
 // countingTransport is a Transport test double recording the control-plane
-// POSTs the loop issues.
+// POSTs the loop issues. polls is bumped by the loop's poll goroutine and
+// read from test goroutines, so it rides behind a mutex; the POST counters
+// are only touched from the goroutine that drives ApplyKeys.
 type countingTransport struct {
 	kills              int
 	lastKillTask       string
@@ -440,10 +452,17 @@ type countingTransport struct {
 	approves           int
 	lastApproveTask    string
 	lastApproveAnswer  string
+	pollMu             sync.Mutex
 	polls              int
 	killDone           chan struct{}
 	// snap overrides the FetchSnapshot answer when set.
 	snap *Snapshot
+}
+
+func (c *countingTransport) pollCount() int {
+	c.pollMu.Lock()
+	defer c.pollMu.Unlock()
+	return c.polls
 }
 
 // escResult is the flushed lone-Esc press (what the loop's 90ms
@@ -453,7 +472,9 @@ func escResult() DecodeResult {
 }
 
 func (c *countingTransport) FetchSnapshot(opts TuiOptions) (*Snapshot, error) {
+	c.pollMu.Lock()
 	c.polls++
+	c.pollMu.Unlock()
 	if c.snap != nil {
 		return c.snap, nil
 	}
