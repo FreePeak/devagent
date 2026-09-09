@@ -346,7 +346,11 @@ func TestAgeHoursMatchesSweepImplementation(t *testing.T) {
 
 // --- autoReviewAndMergeOne (scripted gh seam) ---
 
-const basePrView = `{"number":9,"title":"T","headRefName":"devagent/x","baseRefName":"main","state":"OPEN","mergeable":"MERGEABLE","reviewDecision":"","author":{"login":"someone-else"},"statusCheckRollup":[{"name":"test","status":"COMPLETED","conclusion":"SUCCESS"}],"updatedAt":"2026-09-08T00:00:00.000Z"}`
+// Relative timestamp: the red-check grace gate (autopr.go graceHours=24)
+// measures wall-clock age, so a hardcoded date fails every test that runs
+// more than 24h after it was written. Keep the fixture one hour old.
+var basePrView = fmt.Sprintf(`{"number":9,"title":"T","headRefName":"devagent/x","baseRefName":"main","state":"OPEN","mergeable":"MERGEABLE","reviewDecision":"","author":{"login":"someone-else"},"statusCheckRollup":[{"name":"test","status":"COMPLETED","conclusion":"SUCCESS"}],"updatedAt":%q}`,
+	time.Now().UTC().Add(-time.Hour).Format("2006-01-02T15:04:05.000Z"))
 
 func redPrView() string {
 	v := map[string]any{}
