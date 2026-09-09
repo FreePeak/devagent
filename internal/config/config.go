@@ -662,20 +662,23 @@ func resolveGithubToken() string {
 		return tok
 	}
 	githubTokenOnce.Do(func() {
-		githubTokenOnce.value = ghAuthToken()
+		githubTokenOnce.value = strings.TrimSpace(ghAuthToken())
 	})
 	return githubTokenOnce.value
 }
 
-func ghAuthToken() string {
+// ghAuthToken is the seam tests substitute to avoid a real exec; it defaults
+// to the real `gh auth token` invocation (issue #262).
+var ghAuthToken = ghAuthTokenExec
+
+func ghAuthTokenExec() string {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, "gh", "auth", "token").Output()
 	if err != nil {
 		return ""
 	}
-	tok := strings.TrimSpace(string(out))
-	return tok
+	return string(out)
 }
 
 // CredentialStatus reports which credentials are present without ever
