@@ -1496,8 +1496,16 @@ Test-parity scoreboard across all of the above: [#206](https://github.com/FreePe
 Master tracker with definition of done: [#207](https://github.com/FreePeak/devagent/issues/207).
 
 ---
-*Last updated: 2026-09-09 (CloddsBot skin) — dashboard/CLI visual language
-re-skinned after CloddsBot's terminal toolkit (§20.8): cyan centered box
-titles, header tagline, init-wizard wordmark + step chips + ✓/✗ outcome
-glyphs; presentation only (no behavior/payload change), pinned by
-internal/tui/clodds_skin_test.go.*
+*Last updated: 2026-09-10 (issue #271) — TestApplyKeysApproveSheet CI flake
+fixed: the approve-sheet state test seeds countingTransport's canned
+/status snapshot (paused ask kept, Reachable) so the async post-submit poll
+can no longer race the next g press on slow runners, and moves the
+empty-answer refusal before the first submit so no in-flight poll can
+clobber its note assertion. Follow-up: tui test doubles made thread-safe —
+bufEnv (buffer, raw-mode counters, attach log, geometry) and
+countingTransport.polls are mutex-guarded behind accessor methods, so
+Run-driven tests no longer race the loop's poller/input goroutines (14 DATA
+RACE reports under `go test -race` across 9 tests; on loaded CI runners
+these torn reads surface as the same environment-dependent failure class
+#271 pins). `go test -race -count=5 -shuffle=on ./internal/tui` is now
+clean. Test-only change (no product behavior change).*

@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -47,8 +48,13 @@ func (p *pipeReader) Read(b []byte) (int, error) {
 func (p *pipeReader) close() { close(p.ch) }
 
 // bufEnv is the fake LoopEnv: buffer stdout, fixed 100x40 geometry, raw
-// mode bookkeeping, stubbed attach, no signals.
+// mode bookkeeping, stubbed attach, no signals. Everything the loop's
+// goroutines touch (draws, raw-mode counters, attach log) is guarded by mu:
+// Run-driven tests read it from the test goroutine while poller/input
+// goroutines are live — unsynchronized access is exactly the class of
+// environment-dependent CI failure issue #271 pins.
 type bufEnv struct {
+	mu         sync.Mutex
 	buf        strings.Builder
 	in         *pipeReader
 	rows, cols int
@@ -62,22 +68,62 @@ func newBufEnv() *bufEnv {
 	return &bufEnv{in: newPipeReader(), rows: DefaultRows, cols: DefaultColumns}
 }
 
-func (e *bufEnv) Out() io.Writer { return writerFunc(e.buf.Write) }
+func (e *bufEnv) Out() io.Writer {
+	return writerFunc(func(p []byte) (int, error) {
+		e.mu.Lock()
+		defer e.mu.Unlock()
+		return e.buf.Write(p)
+	})
+}
 
-func (e *bufEnv) In() io.Reader              { return e.in }
-func (e *bufEnv) Size() (int, int)           { return e.rows, e.cols }
-func (e *bufEnv) EnterRaw() error            { e.rawEnters++; return nil }
-func (e *bufEnv) RestoreTerm() error         { e.restores++; return nil }
+// outText snapshots the rendered output.
+func (e *bufEnv) outText() string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.buf.String()
+}
+
+func (e *bufEnv) In() io.Reader { return e.in }
+func (e *bufEnv) Size() (int, int) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.rows, e.cols
+}
+
+// setCols resizes the fake geometry (SIGWINCH tests flip it mid-run).
+func (e *bufEnv) setCols(n int) {
+	e.mu.Lock()
+	e.cols = n
+	e.mu.Unlock()
+}
+func (e *bufEnv) EnterRaw() error    { e.mu.Lock(); e.rawEnters++; e.mu.Unlock(); return nil }
+func (e *bufEnv) RestoreTerm() error { e.mu.Lock(); e.restores++; e.mu.Unlock(); return nil }
+
+// rawStats snapshots the raw-mode counters.
+func (e *bufEnv) rawStats() (enters, restores int) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.rawEnters, e.restores
+}
 func (e *bufEnv) Sigint() <-chan os.Signal   { return nil }
 func (e *bufEnv) Sigwinch() <-chan os.Signal { return nil }
-func (e *bufEnv) screenLeft() bool           { return strings.Contains(e.buf.String(), "\x1b[?1049l\x1b[?25h") }
+func (e *bufEnv) screenLeft() bool           { return strings.Contains(e.outText(), "\x1b[?1049l\x1b[?25h") }
 func (e *bufEnv) screenEntered() bool {
-	return strings.Contains(e.buf.String(), "\x1b[?1049h\x1b[?25l")
+	return strings.Contains(e.outText(), "\x1b[?1049h\x1b[?25l")
 }
 
 func (e *bufEnv) SuspendAttach(paneID, taskID, repoPath string) int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	e.attachLog = append(e.attachLog, paneID+"|"+taskID+"|"+repoPath)
 	return e.attachCode
+}
+
+// attaches copies the attach log (the input goroutine appends to it).
+func (e *bufEnv) attaches() []string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return append([]string(nil), e.attachLog...)
 }
 
 // runWaitFor adapts the shared waitFor(cond, ms) with a failure message.
@@ -100,7 +146,7 @@ func TestLoopRunQuitsAndRestores(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- l.Run() }()
 
-	runWaitFor(t, func() bool { return tr.polls >= 1 }, "initial poll never ran")
+	runWaitFor(t, func() bool { return tr.pollCount() >= 1 }, "initial poll never ran")
 	env.in.write("q")
 	select {
 	case err := <-done:
@@ -111,10 +157,11 @@ func TestLoopRunQuitsAndRestores(t *testing.T) {
 		t.Fatal("Run did not return after q")
 	}
 	if !env.screenEntered() || !env.screenLeft() {
-		t.Fatalf("screen enter/leave missing: %q", truncStr(env.buf.String(), 200))
+		t.Fatalf("screen enter/leave missing: %q", truncStr(env.outText(), 200))
 	}
-	if env.rawEnters != 1 || env.restores < 1 {
-		t.Fatalf("raw enters=%d restores=%d", env.rawEnters, env.restores)
+	enters, restores := env.rawStats()
+	if enters != 1 || restores < 1 {
+		t.Fatalf("raw enters=%d restores=%d", enters, restores)
 	}
 }
 
@@ -130,7 +177,7 @@ func TestLoopRunViewSwitchRendersFrames(t *testing.T) {
 
 	env.in.write("1")
 	runWaitFor(t, func() bool {
-		return strings.Contains(env.buf.String(), "[1] workers")
+		return strings.Contains(env.outText(), "[1] workers")
 	}, "frame with the workers footer never rendered")
 
 	env.in.write("q")
@@ -185,9 +232,9 @@ func TestLoopRunSuspendAttach(t *testing.T) {
 	// sets the nothing-selected note.
 	runWaitFor(t, func() bool { return l.Snapshot().Agents != nil }, "first poll never landed")
 	env.in.write("a")
-	runWaitFor(t, func() bool { return len(env.attachLog) == 1 }, "attach child never ran")
-	if env.attachLog[0] != "p1|T1|/repo" {
-		t.Fatalf("attach args = %q, want p1|T1|/repo", env.attachLog[0])
+	runWaitFor(t, func() bool { return len(env.attaches()) == 1 }, "attach child never ran")
+	if calls := env.attaches(); calls[0] != "p1|T1|/repo" {
+		t.Fatalf("attach args = %q, want p1|T1|/repo", calls[0])
 	}
 
 	env.in.write("q")
@@ -197,14 +244,15 @@ func TestLoopRunSuspendAttach(t *testing.T) {
 		t.Fatal("Run did not return after attach+q")
 	}
 	// Suspend must have left + re-entered the screen around the child.
-	s := env.buf.String()
+	s := env.outText()
 	first := strings.Index(s, "\x1b[?1049l\x1b[?25h")
 	second := strings.LastIndex(s, "\x1b[?1049h\x1b[?25l")
 	if first < 0 || second < 0 || second < first {
 		t.Fatalf("suspend/resume escapes out of order: enter@%d leave@%d", second, first)
 	}
-	if env.rawEnters != 2 {
-		t.Fatalf("raw enters = %d, want 2 (initial + attach resume)", env.rawEnters)
+	enters, _ := env.rawStats()
+	if enters != 2 {
+		t.Fatalf("raw enters = %d, want 2 (initial + attach resume)", enters)
 	}
 }
 
@@ -228,7 +276,7 @@ func TestLoopRunAttachFailure(t *testing.T) {
 	// sets the nothing-selected note.
 	runWaitFor(t, func() bool { return l.Snapshot().Agents != nil }, "first poll never landed")
 	env.in.write("a")
-	runWaitFor(t, func() bool { return len(env.attachLog) == 1 }, "attach child never ran")
+	runWaitFor(t, func() bool { return len(env.attaches()) == 1 }, "attach child never ran")
 
 	env.in.write("q")
 	select {
@@ -249,11 +297,11 @@ func TestLoopPollCadence(t *testing.T) {
 	go func() { done <- l.Run() }()
 
 	deadline := time.Now().Add(3 * time.Second)
-	for tr.polls < 2 && time.Now().Before(deadline) {
+	for tr.pollCount() < 2 && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
-	if tr.polls < 2 {
-		t.Fatalf("polls = %d, want ≥2 (initial + scheduled)", tr.polls)
+	if polls := tr.pollCount(); polls < 2 {
+		t.Fatalf("polls = %d, want ≥2 (initial + scheduled)", polls)
 	}
 	env.in.write("q")
 	<-done
@@ -265,7 +313,7 @@ func TestRunOneShotRendersDashboard(t *testing.T) {
 	tr := &countingTransport{killDone: make(chan struct{}, 4)}
 	RunOneShot(TuiOptions{}, "embedded")
 	// RunOneShot writes to real stdout; assert via the transport instead.
-	if tr.polls != 0 {
+	if tr.pollCount() != 0 {
 		t.Fatal("RunOneShot must use StdTransport, not the injected one")
 	}
 }
