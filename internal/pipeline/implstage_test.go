@@ -755,3 +755,79 @@ func TestImpDropOrcaWorkspaceIfRequestedNoop(t *testing.T) {
 		t.Fatalf("plain repo must not drop anything: %+v", log.Entries)
 	}
 }
+
+// Issue #248 required change 3: a wall kill on an attempt that streamed
+// real work must NOT be classified "Transient infra failure" — it gets
+// its own wall-timeout (productive) row, still retries with the same
+// backoff, and does not consume the logic-attempt budget.
+func TestImpRetryLoopProductiveWallKillIsNotInfraTransient(t *testing.T) {
+	repo := t.TempDir()
+	log := &impCaptureLog{}
+	spawns := 0
+	env := impBaseRetryEnv(repo)
+	env.spawn = func(workers.WorkerSpawnOptions) workers.WorkerResult {
+		spawns++
+		if spawns == 1 {
+			// The loop-176 attempt-1 signature: killed at the wall, but
+			// the stream classifier saw real work before the kill.
+			return workers.WorkerResult{
+				ExitCode:        124,
+				TimedOut:        true,
+				DurationMs:      4_316_000,
+				ClockResets:     112,
+				MeaningfulBytes: 631_882,
+			}
+		}
+		return workers.WorkerResult{ExitCode: 0, ResultText: "recovered"}
+	}
+	env.testGate = func(string, int) (gates.GateResult, error) {
+		return gates.GateResult{Passed: true}, nil
+	}
+	env.backoff = func(int) int { return 0 }
+	res, succeeded, err := impRunRetryLoop(env, impTestPlan(), StageConfig{TimeoutMs: 1000}, log)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !succeeded || !res.OK || res.Attempts != 1 {
+		t.Fatalf("productive wall-kill retries must not consume the logic budget: %+v", res)
+	}
+	if spawns != 2 {
+		t.Fatalf("expected 2 spawns, got %d", spawns)
+	}
+	if !log.has("warn", "wall-timeout (productive)") {
+		t.Fatalf("missing productive wall-kill row: %+v", log.Entries)
+	}
+	if log.has("warn", "Transient infra failure") {
+		t.Fatalf("productive wall-kill must not be classified infra-transient: %+v", log.Entries)
+	}
+	// The attempt-finished row must carry the kill evidence.
+	if v, ok := log.kvOf("info", "Attempt 1 finished", "clockResets"); !ok || v != 112 {
+		t.Fatalf("missing clockResets KV on attempt row: %v %v", v, ok)
+	}
+	// No transient class may be recorded for a productive wall-kill.
+	if _, err := os.Stat(impProxyStatePath(repo)); !os.IsNotExist(err) {
+		t.Fatalf("productive wall-kill must not write proxy-state.json: %v", err)
+	}
+}
+
+// A zero-progress wall kill (no meaningful bytes, no clock resets) stays
+// transient infra — the wedged-provider burn class must keep its
+// existing classification. Cold-start kills stay transient regardless of
+// stream bytes: nothing productive ever started.
+func TestImpIsInfraTransient_WallKillClasses(t *testing.T) {
+	productive := workers.WorkerResult{TimedOut: true, ClockResets: 3, MeaningfulBytes: 4096}
+	if impIsInfraTransient(productive) {
+		t.Fatalf("productive wall-kill must not be infra-transient")
+	}
+	burn := workers.WorkerResult{TimedOut: true}
+	if !impIsInfraTransient(burn) {
+		t.Fatalf("zero-progress wall-kill must stay infra-transient")
+	}
+	coldStart := workers.WorkerResult{TimedOut: true, ColdStart: true, ClockResets: 0, MeaningfulBytes: 99999}
+	if !impIsInfraTransient(coldStart) {
+		t.Fatalf("cold-start kill must stay infra-transient even with bytes")
+	}
+	if impIsProductiveWallKill(workers.WorkerResult{TimedOut: false, ClockResets: 9}) {
+		t.Fatalf("a non-timed-out result is never a wall kill")
+	}
+}

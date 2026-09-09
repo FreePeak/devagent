@@ -160,3 +160,95 @@ func assertArgv(t *testing.T, got, want []string) {
 		}
 	}
 }
+
+// Issue #248 required change 2: a successful NDJSON run without a result
+// envelope must not report events: 0 — the lifecycle records are the
+// evidence the session actually streamed.
+func TestOmpFinalize_NdjsonSuccessHasEvents(t *testing.T) {
+	stdout, err := os.ReadFile(filepath.Join("testdata", "omp-smoke-2026-08-30.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := ompFinalize(SpawnCliResult{ExitCode: 0, Stdout: string(stdout)}, "01a05127-5cc0-7680-9853-7dc3c80a1477", 1000)
+	if res.TimedOut || res.ExitCode != 0 {
+		t.Fatalf("result = %+v", res)
+	}
+	if len(res.Events) <= 0 {
+		t.Fatalf("success fixture must synthesize events > 0, got %d", len(res.Events))
+	}
+	if res.ResultText != "OK" {
+		t.Fatalf("resultText = %q, want OK", res.ResultText)
+	}
+}
+
+// TimedOut semantics (issue #248): the events count reports whatever the
+// partial stream delivered before the kill — 0 for a truly silent burn,
+// > 0 when the session had streamed. ResultText stays empty: the turn was
+// never confirmed complete.
+func TestOmpFinalize_TimeoutKeepsPartialStreamEvents(t *testing.T) {
+	stdout := "" +
+		`{"type":"session","id":"omp-timeout-1"}` + "\n" +
+		`{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"half done"}]}}` + "\n"
+	res := ompFinalize(SpawnCliResult{ExitCode: -1, Stdout: stdout, TimedOut: true}, "omp-timeout-1", 60_000)
+	if !res.TimedOut {
+		t.Fatalf("result = %+v", res)
+	}
+	if len(res.Events) != 2 {
+		t.Fatalf("partial stream events = %d, want 2", len(res.Events))
+	}
+	if res.ResultText != "" {
+		t.Fatalf("timed-out resultText must stay empty, got %q", res.ResultText)
+	}
+	// The zero-event burn class: nothing streamed, nothing counted.
+	burn := ompFinalize(SpawnCliResult{ExitCode: -1, Stdout: "", TimedOut: true}, "", 60_000)
+	if len(burn.Events) != 0 {
+		t.Fatalf("silent burn events = %d, want 0", len(burn.Events))
+	}
+}
+
+// Issue #248 required change 3: the stream evidence must reach
+// WorkerResult so the pipeline classifier can tell a productive wall-kill
+// from a watchdog/cold-start kill.
+func TestOmpFinalize_ThreadStreamMetrics(t *testing.T) {
+	run := SpawnCliResult{
+		ExitCode:        -1,
+		TimedOut:        true,
+		WatchdogFired:   true,
+		ClockResets:     7,
+		MeaningfulBytes: 1234,
+	}
+	res := ompFinalize(run, "", 1000)
+	if !res.WatchdogFired || res.ClockResets != 7 || res.MeaningfulBytes != 1234 {
+		t.Fatalf("metrics not threaded: %+v", res)
+	}
+	res = ompFinalize(SpawnCliResult{ExitCode: 0, Stdout: `{"type":"result","result":"ok"}`}, "", 1000)
+	if res.WatchdogFired || res.ClockResets != 0 || res.MeaningfulBytes != 0 {
+		t.Fatalf("clean run must carry zero metrics: %+v", res)
+	}
+}
+
+// Issue #248 finding 4: per-launch walls hold — a late retry inside the
+// adapter loop must not restart the full request budget.
+func TestLaunchBudgetMs(t *testing.T) {
+	const full int64 = 60_000
+	deadline := int64(100_000)
+	cases := []struct {
+		name string
+		now  int64
+		want int
+	}{
+		{"first launch keeps the full budget", 40_000, 60_000},
+		{"late retry gets the remaining budget", 70_000, 30_000},
+		{"at the deadline gets the floor", 100_000, 1000},
+		{"past the deadline gets the floor", 120_000, 1000},
+	}
+	for _, tc := range cases {
+		if got := launchBudgetMs(deadline, tc.now, full); got != tc.want {
+			t.Errorf("%s: launchBudgetMs = %d, want %d", tc.name, got, tc.want)
+		}
+	}
+	// Unbounded requests stay unbounded (0 arms no wall clock).
+	if got := launchBudgetMs(1<<62, 0, 0); got != 0 {
+		t.Errorf("unbounded budget = %d, want 0", got)
+	}
+}

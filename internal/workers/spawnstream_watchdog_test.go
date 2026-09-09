@@ -5,10 +5,15 @@
 package workers
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/FreePeak/devagent/internal/ledger"
 )
 
 // fakeBin writes an executable shell script onto a fresh PATH dir and
@@ -186,5 +191,136 @@ done`)
 	}
 	if time.Since(start) > 10*time.Second {
 		t.Fatalf("watchdog fired too late: %v", time.Since(start))
+	}
+}
+
+// Issue #248 required change 1 (FR-GO-05 #190 TODO closure): a production
+// spawn with an armed clock and NO explicit WatchdogSink still emits the
+// Q34 watchdog-health row — the default sink appends it to the ledger
+// events file of the WatchdogLedgerContext repo.
+func TestSpawnCliStreaming_DefaultSinkAppendsLedgerRow(t *testing.T) {
+	repo := t.TempDir()
+	bin := fakeBin(t, "fake-worker-ledger", silentBody)
+	res := spawnCliStreaming(bin, nil, SpawnCliOptions{
+		TimeoutMs:           30_000,
+		NoProgressTimeoutMs: intPtr(300),
+		WatchdogLedger:      &WatchdogLedgerContext{RepoPath: repo, TaskId: "T-obs", Attempt: 3, Worker: "omp"},
+	})
+	if !res.TimedOut || !res.WatchdogFired {
+		t.Fatalf("expected no-progress kill, got %+v", res)
+	}
+	raw, err := os.ReadFile(filepath.Join(repo, ledger.LedgerDir, "events.jsonl"))
+	if err != nil {
+		t.Fatalf("watchdog-health row must land in the ledger: %v", err)
+	}
+	var row map[string]any
+	if err := json.Unmarshal(raw, &row); err != nil {
+		t.Fatalf("row = %s: %v", raw, err)
+	}
+	if row["event"] != "watchdog-health" || row["taskId"] != "T-obs" {
+		t.Fatalf("row identity = %v", row)
+	}
+	if row["site"] != "spawn-cli" || row["runtime"] != "direct" {
+		t.Fatalf("direct-exec row = %v", row)
+	}
+	if row["watchdogFired"] != true {
+		t.Fatalf("row must record the firing: %v", row)
+	}
+	// herdr-pane parity: attempt and worker come from the ledger context.
+	if row["attempt"] != float64(3) || row["worker"] != "omp" {
+		t.Fatalf("row identity fields = %v", row)
+	}
+}
+
+// Issue #248 required change 1: no ledger context = no row (probe/one-off
+// spawns are not orchestrated runs), even with a clock armed.
+func TestSpawnCliStreaming_NoContextNoRow(t *testing.T) {
+	repo := t.TempDir()
+	bin := fakeBin(t, "fake-worker-noctx", silentBody)
+	spawnCliStreaming(bin, nil, SpawnCliOptions{
+		TimeoutMs:           30_000,
+		NoProgressTimeoutMs: intPtr(300),
+	})
+	if _, err := os.Stat(filepath.Join(repo, ledger.LedgerDir)); !os.IsNotExist(err) {
+		t.Fatalf("no-ledger-context spawn must not write any ledger: %v", err)
+	}
+}
+
+// The drain cap must be comfortably under the grandchild lifetime: the
+// legacy unbounded wait would block ~5s here (the grandchild holds the
+// pipe until sleep 5 exits), the cap returns at ~500ms with everything
+// the drain captured so far.
+func TestSpawnCliStreaming_PostKillDrainBound(t *testing.T) {
+	body := `echo '{"type":"tool_execution_start","toolName":"read"}'
+sleep 5 &
+echo parent-done
+exit 0`
+	bin := fakeBin(t, "fake-worker-drain", body)
+	start := time.Now()
+	res := spawnCliStreaming(bin, nil, SpawnCliOptions{
+		TimeoutMs:           30_000,
+		NoProgressTimeoutMs: intPtr(5000),
+		PostKillDrainWaitMs: 500,
+	})
+	elapsed := time.Since(start)
+	if res.TimedOut || res.ExitCode != 0 {
+		t.Fatalf("expected clean exit, got %+v", res)
+	}
+	if elapsed >= 3*time.Second {
+		t.Fatalf("drain wait must be bounded well under the grandchild lifetime, took %v", elapsed)
+	}
+	if !strings.Contains(res.Stdout, "parent-done") {
+		t.Fatalf("drained stdout must keep the captured prefix, got %q", res.Stdout)
+	}
+}
+
+// Issue #248 required change 4: the bounded wait must actually bound. A
+// WaitGroup whose drains never finish returns after ~waitMs with the cap.
+func TestWaitPipeDrain_Bounded(t *testing.T) {
+	var wg sync.WaitGroup
+	wg.Add(1) // never Done: models a pipe held open past the wall
+	start := time.Now()
+	waitPipeDrain(&wg, 100)
+	elapsed := time.Since(start)
+	if elapsed < 90*time.Millisecond || elapsed > 3*time.Second {
+		t.Fatalf("bounded wait = %v, want ~100ms", elapsed)
+	}
+	// A clean drain returns immediately even with a huge cap.
+	var done sync.WaitGroup
+	done.Add(1)
+	done.Done()
+	start = time.Now()
+	waitPipeDrain(&done, 60_000)
+	if time.Since(start) > time.Second {
+		t.Fatalf("clean drain must not wait the cap: %v", time.Since(start))
+	}
+}
+
+// Negative wait = legacy unbounded opt-in: blocks until every drain
+// finishes.
+func TestWaitPipeDrain_UnboundedOptIn(t *testing.T) {
+	var wg sync.WaitGroup
+	wg.Add(1)
+	released := make(chan struct{})
+	go func() {
+		time.Sleep(200 * time.Millisecond)
+		wg.Done()
+		close(released)
+	}()
+	waitPipeDrain(&wg, -1)
+	<-released
+}
+
+// 0 = the production default cap (named const, default 3s per the issue).
+func TestWaitPipeDrain_DefaultCapSentinel(t *testing.T) {
+	if DefaultPostKillDrainWaitMs != 3000 {
+		t.Fatalf("production cap = %d, want 3000", DefaultPostKillDrainWaitMs)
+	}
+	var wg sync.WaitGroup
+	wg.Add(1)
+	start := time.Now()
+	waitPipeDrain(&wg, 0)
+	if elapsed := time.Since(start); elapsed > time.Duration(DefaultPostKillDrainWaitMs)*time.Millisecond+3*time.Second {
+		t.Fatalf("default cap not applied: %v", elapsed)
 	}
 }

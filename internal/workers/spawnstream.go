@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/FreePeak/devagent/internal/config"
+	"github.com/FreePeak/devagent/internal/ledger"
 	"github.com/FreePeak/devagent/internal/spawn"
 )
 
@@ -41,13 +42,72 @@ type SpawnCliOptions struct {
 	// require an armed clock). Nil = no row.
 	WatchdogLedger *WatchdogLedgerContext
 	// WatchdogSink receives the watchdog-health row when a ledger context
-	// is present and a clock is armed.
-	// TODO(FR-GO-05 #190): replace with the orchestrator ledger port
-	// (appendWatchdogHealthRecord) once the ledger package lands.
+	// is present and a clock is armed. Nil = the default Q34 sink, which
+	// appends to the repo ledger at WatchdogLedger.RepoPath (the
+	// FR-GO-05 #190 wiring): every production spawn with an armed clock
+	// emits the watchdog-health row. Tests may inject a capture sink.
 	WatchdogSink func(WatchdogHealthRecord)
+	// PostKillDrainWaitMs bounds the post-kill pipe drain: after cmd.Wait
+	// the stdout/stderr pumpers must EOF, but a grandchild that inherited
+	// the pipes can hold them open indefinitely and push the attempt's
+	// finish far past its wall clock (issue #248, +716s overshoot). 0 =
+	// the default cap; negative = wait unbounded (legacy behavior).
+	PostKillDrainWaitMs int
 }
 
-// SpawnCliResult mirrors TS SpawnCliResult.
+// DefaultPostKillDrainWaitMs is the default bounded post-kill drain wait
+// (issue #248 required change 4): a few seconds — comfortably longer than
+// any legitimate flush, short enough that a pipe-holding grandchild
+// cannot push the finish past the attempt wall.
+const DefaultPostKillDrainWaitMs = 3000
+
+// watchdogLedgerSink is the production WatchdogSink (FR-GO-05 #190):
+// one best-effort watchdog-health append into the ledger events file of
+// repoPath. Mirrors the herdr-pane row writer (internal/herdr/herdr.go)
+// — never throws.
+func watchdogLedgerSink(repoPath string) func(WatchdogHealthRecord) {
+	return func(r WatchdogHealthRecord) {
+		runtime, visible, visibility := r.Runtime, r.Visible, r.Visibility
+		ledger.AppendWatchdogHealthRecord(repoPath, ledger.WatchdogHealthRecord{
+			TS:                  r.Ts,
+			Kind:                r.Kind,
+			TaskID:              r.TaskId,
+			Attempt:             r.Attempt,
+			Event:               r.Event,
+			Site:                r.Site,
+			Worker:              r.Worker,
+			NoProgressTimeoutMs: int64(r.NoProgressTimeoutMs),
+			WatchdogFired:       r.WatchdogFired,
+			ColdStartFired:      r.ColdStartFired,
+			WallClockMs:         r.WallClockMs,
+			ClockResets:         r.ClockResets,
+			MeaningfulBytes:     int64(r.MeaningfulBytes),
+			IdleMs:              r.IdleMs,
+			Runtime:             &runtime,
+			Visible:             &visible,
+			Visibility:          &visibility,
+		})
+	}
+}
+
+// watchdogSinkFor resolves the effective sink for one launch: the caller
+// sink wins; nil = the default ledger-append sink when a ledger context
+// is present. Returns nil when no context is set (rows are pointless
+// without identity).
+func watchdogSinkFor(opts SpawnCliOptions) func(WatchdogHealthRecord) {
+	if opts.WatchdogSink != nil {
+		return opts.WatchdogSink
+	}
+	if opts.WatchdogLedger == nil {
+		return nil
+	}
+	return watchdogLedgerSink(opts.WatchdogLedger.RepoPath)
+}
+
+// SpawnCliResult mirrors TS SpawnCliResult. The trailing fields are the
+// Q34/Q33 stream-progress evidence the streaming path observed (all zero
+// on the unarmed runcli path) so WorkerResult can carry them to the
+// pipeline classifier.
 type SpawnCliResult struct {
 	ExitCode int
 	Stdout   string
@@ -56,6 +116,13 @@ type SpawnCliResult struct {
 	// ColdStart: true only when the cold-start (first-progress) deadline
 	// killed the launch.
 	ColdStart bool
+	// WatchdogFired: true only when the no-progress clock killed the
+	// launch (the wall-clock expiry leaves it false — herdr parity).
+	WatchdogFired bool
+	// ClockResets/MeaningfulBytes: adapter-classified progress evidence
+	// (Q33): count of meaningful chunks and their byte total.
+	ClockResets     int
+	MeaningfulBytes int
 }
 
 // WatchdogHealthRecord mirrors the TS watchdog-health ledger row (Q34).
@@ -214,39 +281,46 @@ func spawnCliStreaming(name string, args []string, opts SpawnCliOptions) SpawnCl
 		mu.Unlock()
 		watchdogStopped.Do(func() { close(watchdogStop) })
 
-		// Q34: watchdog-health ledger row; requires an armed clock.
-		if opts.WatchdogLedger != nil && (noProgressMs > 0 || coldStartMs > 0) && opts.WatchdogSink != nil {
-			opts.WatchdogSink(WatchdogHealthRecord{
-				Ts:     time.Now().UTC().Format("2006-01-02T15:04:05.000Z07:00"),
-				Kind:   "event",
-				Event:  "watchdog-health",
-				TaskId: opts.WatchdogLedger.TaskId,
-				// FR-VIS: direct exec child — never operator-visible. When
-				// the operator asked for headless the row says so; otherwise
-				// this is a fallback from an attempted pane spawn
-				// (RunWorkerCli downgrades).
-				Runtime:             "direct",
-				Visible:             false,
-				Visibility:          visibilityLabel(),
-				NoProgressTimeoutMs: noProgressMs,
-				WatchdogFired:       wdFired,
-				ColdStartFired:      csFired,
-				WallClockMs:         wallClock.Milliseconds(),
-				ClockResets:         resets,
-				MeaningfulBytes:     mbytes,
-				IdleMs:              idle.Milliseconds(),
-				Site:                "spawn-cli",
-				Attempt:             opts.WatchdogLedger.Attempt,
-				Worker:              opts.WatchdogLedger.Worker,
-			})
+		// Q34: watchdog-health ledger row; requires an armed clock and a
+		// ledger context. The default sink (FR-GO-05 #190 wiring) appends
+		// to the ledger events file; tests may inject a capture sink.
+		if opts.WatchdogLedger != nil && (noProgressMs > 0 || coldStartMs > 0) {
+			if sink := watchdogSinkFor(opts); sink != nil {
+				sink(WatchdogHealthRecord{
+					Ts:     time.Now().UTC().Format("2006-01-02T15:04:05.000Z07:00"),
+					Kind:   "event",
+					Event:  "watchdog-health",
+					TaskId: opts.WatchdogLedger.TaskId,
+					// FR-VIS: direct exec child — never operator-visible.
+					// When the operator asked for headless the row says so;
+					// otherwise this is a fallback from an attempted pane
+					// spawn (RunWorkerCli downgrades).
+					Runtime:             "direct",
+					Visible:             false,
+					Visibility:          visibilityLabel(),
+					NoProgressTimeoutMs: noProgressMs,
+					WatchdogFired:       wdFired,
+					ColdStartFired:      csFired,
+					WallClockMs:         wallClock.Milliseconds(),
+					ClockResets:         resets,
+					MeaningfulBytes:     mbytes,
+					IdleMs:              idle.Milliseconds(),
+					Site:                "spawn-cli",
+					Attempt:             opts.WatchdogLedger.Attempt,
+					Worker:              opts.WatchdogLedger.Worker,
+				})
+			}
 		}
 
 		finishCh <- SpawnCliResult{
-			ExitCode:  exit,
-			Stdout:    stdoutOut,
-			Stderr:    stderrOut,
-			TimedOut:  timedOutSnapshot,
-			ColdStart: csFired,
+			ExitCode:        exit,
+			Stdout:          stdoutOut,
+			Stderr:          stderrOut,
+			TimedOut:        timedOutSnapshot,
+			ColdStart:       csFired,
+			WatchdogFired:   wdFired,
+			ClockResets:     resets,
+			MeaningfulBytes: mbytes,
 		}
 	}
 
@@ -304,7 +378,6 @@ func spawnCliStreaming(name string, args []string, opts SpawnCliOptions) SpawnCl
 		finish()
 		return <-finishCh
 	}
-
 	go func() {
 		err := cmd.Wait()
 		mu.Lock()
@@ -317,8 +390,11 @@ func spawnCliStreaming(name string, args []string, opts SpawnCliOptions) SpawnCl
 		mu.Unlock()
 		// Node's 'close' event fires only after all stdio streams flush;
 		// mirror that by waiting for the pipe drains so stdout/stderr are
-		// fully captured before the result snapshot.
-		drainWG.Wait()
+		// fully captured before the result snapshot — but bounded (issue
+		// #248): a pipe that never EOFs (grandchild inheriting the fds,
+		// a wedged flusher) must not push the attempt finish past its
+		// wall clock.
+		waitPipeDrain(&drainWG, opts.PostKillDrainWaitMs)
 		finish()
 	}()
 
@@ -414,6 +490,30 @@ func drainProgress(r io.Reader, onChunk func(s string, meaningful bool)) {
 // TODO(FR-GO-07 #188): the dispatcher/orchestrator port sets this from the
 // loaded config, mirroring TS spawnVisibility(loadConfig()).
 var SpawnVisibilityConfig *config.Config
+
+// waitPipeDrain blocks until all draining goroutines are done or the
+// bounded wait expires: a clean call returns quickly; a never-draining
+// pipe returns after waitMs (issue #248). The 0 sentinel uses the
+// production cap; negative disables the cap (legacy callers that
+// explicitly wait unbounded by contract).
+func waitPipeDrain(wg *sync.WaitGroup, waitMs int) {
+	if waitMs < 0 {
+		wg.Wait()
+		return
+	}
+	if waitMs == 0 {
+		waitMs = DefaultPostKillDrainWaitMs
+	}
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Duration(waitMs) * time.Millisecond):
+	}
+}
 
 func visibilityLabel() string {
 	var cfg config.Config
