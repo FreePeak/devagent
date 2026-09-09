@@ -497,6 +497,7 @@ func (nullEnv) EnterRaw() error                          { return nil }
 func (nullEnv) RestoreTerm() error                       { return nil }
 func (nullEnv) SuspendAttach(string, string, string) int { return 1 }
 func (nullEnv) Sigint() <-chan os.Signal                 { return nil }
+func (nullEnv) Sigwinch() <-chan os.Signal               { return nil }
 
 // Regression (issue #252 bring-up): the ticker calls AggregateStatus on
 // every tick with whatever the last poll produced — including a snapshot

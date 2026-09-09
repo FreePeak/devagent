@@ -246,7 +246,7 @@ func TestRenderDashboardLogScrolled(t *testing.T) {
 	out := RenderDashboard(snap, RenderOptions{
 		View: ViewLog,
 		Log:  &LogViewState{Lines: many, Scroll: 10, Follow: false, State: "live"},
-		Rows: 20,
+		Rows: 24,
 	})
 	plainOut := plain(out)
 	if !strings.Contains(plainOut, "10 older") {
@@ -261,7 +261,7 @@ func TestRenderDashboardLogScrolled(t *testing.T) {
 	if !strings.Contains(plainOut, "Live log") {
 		t.Fatal("title is never cut by fitting")
 	}
-	if got := len(strings.Split(out, "\n")); got > 20 {
+	if got := len(strings.Split(out, "\n")); got > 24 {
 		t.Fatalf("frame has %d lines, htop always fits", got)
 	}
 }
