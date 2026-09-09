@@ -108,6 +108,10 @@ type LoopEnv interface {
 	SuspendAttach(paneID, taskID, repoPath string) int
 	// Sigint delivers external SIGINT (kill -INT, PTY teardown); may be nil.
 	Sigint() <-chan os.Signal
+	// Sigwinch delivers terminal resizes (FR-TUI-P-04); may be nil. On
+	// delivery the loop re-probes Size and repaints (one sanctioned full
+	// clear on width change).
+	Sigwinch() <-chan os.Signal
 }
 
 // NewLoop builds the interactive dashboard loop on the Loop seam. daemonMode
@@ -172,6 +176,28 @@ func (l *loop) Run() error {
 	// Raw stdin → DecodeKeys → handleKey. EOF/terminal loss quits cleanly.
 	inputDone := make(chan struct{})
 	go l.inputLoop(inputDone)
+
+	// SIGWINCH (FR-TUI-P-04): re-probe the size and repaint promptly
+	// instead of waiting for the next poll. Repeated for every resize.
+	if winch := l.env.Sigwinch(); winch != nil {
+		go func() {
+			for {
+				select {
+				case <-l.quitCh:
+					return
+				case _, ok := <-winch:
+					if !ok {
+						return
+					}
+					l.mu.Lock()
+					if !l.suspended && !l.stopped {
+						l.safeDrawLocked()
+					}
+					l.mu.Unlock()
+				}
+			}
+		}()
+	}
 
 	// External SIGINT must quit cleanly even though raw mode turned ISIG
 	// off (kill -INT, PTY teardown).
@@ -746,16 +772,32 @@ func (l *loop) attachLocked() {
 	// so the child owns a clean interactive terminal.
 	_ = l.env.RestoreTerm()
 	_, _ = io.WriteString(l.env.Out(), "\x1b[?1049l\x1b[?25h")
-	code := l.env.SuspendAttach(pane.PaneID, pane.TaskID, l.repoPath())
-	// Resume: re-enter the alternate screen, redraw from scratch, re-arm
-	// raw input.
+	// FR-TUI-P-01: the child dying — nonzero exit, signal death, or a panic
+	// inside the env — must never process-exit the dashboard. Every path
+	// below runs the same resume: re-enter the alternate screen, redraw from
+	// scratch, re-arm raw input, refresh.
+	code := 1
+	attachNote := ""
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				attachNote = fmt.Sprintf("attach crashed: %v", r)
+			}
+		}()
+		code = l.env.SuspendAttach(pane.PaneID, pane.TaskID, l.repoPath())
+	}()
 	_, _ = io.WriteString(l.env.Out(), "\x1b[?1049h\x1b[?25l")
 	_ = l.env.EnterRaw()
 	l.suspended = false
 	l.prevFrame = nil
-	if code == 0 {
+	switch {
+	case code == 0:
 		l.note = "detached from " + pane.TaskID
-	} else {
+	case code < 0:
+		l.note = fmt.Sprintf("attach child died (signal %d)", -code)
+	case attachNote != "":
+		l.note = attachNote
+	default:
 		l.note = fmt.Sprintf("attach exited (%d)", code)
 	}
 	l.pollNowLocked()
@@ -1039,6 +1081,14 @@ func (e *TermEnv) RestoreTerm() error {
 func (e *TermEnv) Sigint() <-chan os.Signal {
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT)
+	return sig
+}
+
+// Sigwinch subscribes to terminal resizes (FR-TUI-P-04) so the loop can
+// re-probe the geometry and repaint promptly instead of at the next poll.
+func (e *TermEnv) Sigwinch() <-chan os.Signal {
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGWINCH)
 	return sig
 }
 
