@@ -156,3 +156,5 @@
 {"loop":195,"ts":"2026-09-09T15:52:14Z","status":"provider-degraded","goal":"preflight: provider probe failed"}
 {"loop":196,"ts":"2026-09-09T15:52:32Z","status":"provider-degraded","goal":"preflight: provider probe failed"}
 {"loop":197,"ts":"2026-09-09T15:52:55Z","status":"provider-degraded","goal":"preflight: provider probe failed"}
+{"loop":198,"ts":"2026-09-09T15:53:15Z","status":"provider-degraded","goal":"preflight: provider probe failed"}
+{"loop":199,"ts":"2026-09-09T16:07:58Z","status":"failed","goal":"Goal: Implement GitHub issue #262 (test(config): fake-gh token tests hit the 5s exec timeout under load — harden or inject the resolver) in full and verifiably."}
