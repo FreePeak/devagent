@@ -1085,14 +1085,6 @@ func (e *TermEnv) Sigint() <-chan os.Signal {
 	return sig
 }
 
-// Sigwinch subscribes to terminal resizes (FR-TUI-P-04) so the loop can
-// re-probe the geometry and repaint promptly instead of at the next poll.
-func (e *TermEnv) Sigwinch() <-chan os.Signal {
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, syscall.SIGWINCH)
-	return sig
-}
-
 // SuspendAttach runs `herdr --session <s> agent attach <paneId>` with
 // inherited stdio, exactly what `devagent attach <task> --exec` does
 // (FR-VIS-02). The resolved pane id is recorded in the orchestration ledger

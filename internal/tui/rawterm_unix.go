@@ -9,6 +9,8 @@ package tui
 // syscall — the same IFMIN..IFLAG word layout IoctlGetTermios manages.
 
 import (
+	"os"
+	"os/signal"
 	"syscall"
 	"unsafe"
 )
@@ -77,4 +79,14 @@ func termSize(fd int) (rows, cols int) {
 		return DefaultRows, DefaultColumns
 	}
 	return int(ws.Row), int(ws.Col)
+}
+
+// Sigwinch subscribes to terminal resizes (FR-TUI-P-04) so the loop can
+// re-probe the geometry and repaint promptly instead of at the next poll.
+// Unix-only: syscall.SIGWINCH does not exist on Windows — the TermEnv
+// contract (loop.go: may return nil) covers the stub there.
+func (e *TermEnv) Sigwinch() <-chan os.Signal {
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGWINCH)
+	return sig
 }
