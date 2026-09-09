@@ -12,7 +12,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/FreePeak/devagent/internal/sessionguard"
 )
@@ -234,20 +233,23 @@ func TestGuardGivesUpAfterAttempts(t *testing.T) {
 // TestGuardExplicitZeroBackoffRetriesImmediately: the TS spread
 // `{...DEFAULT_BACKOFF, ...options.backoff}` applies an explicit 0 verbatim,
 // so a zero base delay must not fall back to the 2s default (RunGuard merge
-// regression guard).
+// regression guard). RunGuard logs the computed delay ("resuming session …
+// in %dms"), so the contract is asserted on that literal — deterministic
+// under load, unlike the previous wall-clock bound that failed when the
+// suite starved the runner (the #262 CI-load-flake class; any bound high
+// enough to survive load can no longer catch the 2000ms default).
 func TestGuardExplicitZeroBackoffRetriesImmediately(t *testing.T) {
 	claude := guardWriteScript(t, `exit 1
 `)
 	commandExitCode = nil
-	start := time.Now()
 	_, errOut := runGuardCmdCapture(t, "guard",
 		"--max-attempts", "2", "--base-delay-ms", "0", "--max-delay-ms", "60000", claude)
 	assertExitCode(t, intPtr(1))
 	if !strings.Contains(errOut, "[cc-guard] gave up after 2 attempt(s): attempts_exhausted") {
 		t.Fatalf("stderr %q", errOut)
 	}
-	if elapsed := time.Since(start); elapsed > time.Second {
-		t.Fatalf("zero base delay took %v — fell back to the 2000ms default", elapsed)
+	if !strings.Contains(errOut, "resuming session ? in 0ms") {
+		t.Fatalf("zero base delay not applied verbatim: stderr %q", errOut)
 	}
 }
 

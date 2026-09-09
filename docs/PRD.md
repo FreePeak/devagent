@@ -1496,9 +1496,15 @@ Test-parity scoreboard across all of the above: [#206](https://github.com/FreePe
 Master tracker with definition of done: [#207](https://github.com/FreePeak/devagent/issues/207).
 
 ---
-*Last updated: 2026-09-10 (#271) — fixed the CI-only flake in
+*Last updated: 2026-09-10 (#271) — fixed the remaining environment-dependent
+test fallout of the #271 class: internal/config tests now scrub the six
+DEVAGENT_* resilience env overrides in TestMain (the loop daemon exports
+some, which leaked into the defaults/validation tests), and
+TestGuardExplicitZeroBackoffRetriesImmediately pins the computed backoff via
+RunGuard's logged delay instead of a wall-clock bound that failed under load.
+Previous: 2026-09-10 (#271 tui) — fixed the CI-only flake in
 TestApplyKeysApproveSheet (FR-TUI-04): the test transport's canned /status
 keeps the paused ask, so the async poll an approval triggers can no longer
 replace the loop snapshot ask-less between keystrokes on slow runners.
-Previous: 2026-09-09 CloddsBot skin (§20.8, pinned by
+Earlier: 2026-09-09 CloddsBot skin (§20.8, pinned by
 internal/tui/clodds_skin_test.go).*

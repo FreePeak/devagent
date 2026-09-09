@@ -8,6 +8,35 @@ import (
 	"testing"
 )
 
+// configEnvVars are the DEVAGENT_* overrides Load layers from the ambient
+// environment. The loop daemon exports some of them, which leaked into the
+// defaults/validation tests (issue #271 failure class: environment-dependent
+// tests). The test binary scrubs them up front; tests exercising the env
+// path set their own values via t.Setenv.
+var configEnvVars = []string{
+	"DEVAGENT_API_MAX_ATTEMPTS",
+	"DEVAGENT_NO_PROGRESS_TIMEOUT_MS",
+	"DEVAGENT_COLD_START_TIMEOUT_MS",
+	"DEVAGENT_DEGRADE_WEBHOOK_URL",
+	"DEVAGENT_ARCHIVE_KEEP",
+	"DEVAGENT_MAX_PROMPT_BYTES",
+}
+
+func TestMain(m *testing.M) {
+	saved := map[string]string{}
+	for _, k := range configEnvVars {
+		if v, ok := os.LookupEnv(k); ok {
+			saved[k] = v
+			_ = os.Unsetenv(k)
+		}
+	}
+	code := m.Run()
+	for k, v := range saved {
+		_ = os.Setenv(k, v)
+	}
+	os.Exit(code)
+}
+
 func writeRepo(t *testing.T, files map[string]string) string {
 	t.Helper()
 	dir := t.TempDir()
