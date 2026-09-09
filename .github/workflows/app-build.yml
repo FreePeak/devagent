@@ -1,0 +1,105 @@
+name: app-build
+
+# FR-UI-09 scaffold — cross-platform parity gate for the Tauri control app.
+#
+# Status: SCAFFOLD, by design (issue #181 scope note). The build matrix below
+# is real, but it is NOT wired as a release-blocking gate yet. Enabling rules:
+#   1. Uncomment `pull_request: branches: [main]` once app/ lands so the
+#      matrix runs on every app/ change.
+#   2. FR-UI-06 signing: each OS job needs its secrets before bundling:
+#        macOS:  APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD,
+#                APPLE_API_ISSUER, APPLE_API_KEY (notarization via tauri.conf
+#                bundle > macOS > signingIdentity + notarize)
+#        Windows: WINDOWS_CERTIFICATE (base64 PFX) + tauri.conf signing config
+#        Linux: no signing in v1 (AppImage/.deb unsigned)
+#      Do NOT fake signing: jobs stay `--no-bundle` until real identities
+#      exist (matches the FR-UI-06 scaffold-first decision).
+#   3. Release blocking: add this workflow to the required checks set only
+#      after step 2 — a red tray/notification regression must block release
+#      per FR-UI-09, not become a follow-up.
+
+on:
+  workflow_dispatch:
+  # pull_request:
+  #   branches: [main]
+  #   paths:
+  #     - "app/**"
+  push:
+    branches: [main]
+    paths:
+      - "app/**"
+
+concurrency:
+  group: app-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "app/src-tauri"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: app/pnpm-lock.yaml
+
+      # Linux webkit2gtk system deps for Tauri (Ubuntu runners lack them).
+      - name: Install Linux deps
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libgtk-3-dev
+
+      - name: Install UI deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck UI
+        run: pnpm exec tsc -p tsconfig.json
+
+      # FR-UI-09 smoke: compile + build without bundling. Signed bundles are
+      # deliberately out of this scaffold (see FR-UI-06 notes above).
+      - name: cargo check
+        working-directory: app/src-tauri
+        run: cargo check --locked
+        env:
+          CARGO_BUILD_JOBS: "2"
+
+      - name: Build debug binary (no bundle)
+        working-directory: app/src-tauri
+        run: cargo build --locked
+        env:
+          CARGO_BUILD_JOBS: "2"
+
+      # TODO(FR-UI-06): pnpm tauri build per-OS with signing secrets +
+      # notarization (macOS), Authenticode (Windows), plain AppImage (Linux).
+      # TODO(FR-UI-09): add smoke-launch step (headless xvfb run on Linux,
+      # plain launch + tray assertion on macOS/Windows) before gating.
