@@ -411,13 +411,40 @@ func impRunRetryLoop(env impRetryEnv, plan ImplementationPlan, cfg StageConfig, 
 				KillStaleProcessTree(s.Pid)
 			}
 		}()
-		log.Info("implement", fmt.Sprintf("Attempt %d finished", displayAttempt), []ledger.KV{
+		finished := []ledger.KV{
 			{Key: "exitCode", Value: result.ExitCode},
 			{Key: "timedOut", Value: result.TimedOut},
 			{Key: "durationMs", Value: result.DurationMs},
 			{Key: "events", Value: len(result.Events)},
-		})
+		}
+		if result.TimedOut {
+			// Issue #248: the kill cause belongs on the row — a
+			// productive wall-kill and a zero-event burn must not share
+			// an indistinguishable "timedOut true, events 0" line.
+			finished = append(finished,
+				ledger.KV{Key: "watchdogFired", Value: result.WatchdogFired},
+				ledger.KV{Key: "coldStart", Value: result.ColdStart},
+				ledger.KV{Key: "clockResets", Value: result.ClockResets},
+				ledger.KV{Key: "meaningfulBytes", Value: result.MeaningfulBytes},
+			)
+		}
+		log.Info("implement", fmt.Sprintf("Attempt %d finished", displayAttempt), finished)
 		if result.TimedOut || result.ExitCode != 0 {
+			if impIsProductiveWallKill(result) {
+				// Own classification (issue #248): the attempt streamed
+				// real work before the wall killed it. Retry semantics
+				// stay identical to the transient path — backoff, then
+				// the next dispatch continues the session via -c — but
+				// the row says what actually happened.
+				infraRetries++
+				data := []ledger.KV{
+					{Key: "clockResets", Value: result.ClockResets},
+					{Key: "meaningfulBytes", Value: result.MeaningfulBytes},
+				}
+				log.Warn("implement", fmt.Sprintf("wall-timeout (productive): attempt %d streamed %d clock resets / %d meaningful bytes before the kill; retrying with resume (infra retry %d)", displayAttempt, result.ClockResets, result.MeaningfulBytes, infraRetries), data)
+				time.Sleep(time.Duration(backoff(infraRetries)) * time.Millisecond)
+				continue
+			}
 			if impIsInfraTransient(result) {
 				infraRetries++
 				func() {
@@ -482,10 +509,44 @@ func impRunRetryLoop(env impRetryEnv, plan ImplementationPlan, cfg StageConfig, 
 	return ImplementResult{OK: false, Worker: env.workerName, Attempts: attempts, WorktreePath: env.worktreePath, FailureClass: lastFailureClass}, false, nil
 }
 
-// impIsInfraTransient mirrors the isInfraTransient closure (Q31): a cold-start
-// kill is transient infra alongside the watchdog timeout — a wedged CLI init
-// is not the worker's fault.
+// impMeaningfulBytesThreshold: a wall-killed attempt counts as
+// productive when the stream classifier saw meaningful output above this
+// byte floor (Q33), or at least one classified clock reset. The
+// "did the worker actually do anything" bar from the issue #248
+// evidence run (a 72-minute productive attempt carried tool activity
+// and hundreds of KB of meaningful bytes; a wedged provider burn
+// streams thinking-only or nothing at all).
+const impMeaningfulBytesThreshold = 1024
+
+// impIsProductiveWallKill reports whether a wall/watchdog kill landed on
+// an attempt that demonstrably made progress (issue #248 required
+// change 3): meaningful stream bytes above threshold, or at least one
+// adapter-classified clock reset. Such a kill is NOT "transient infra"
+// — it is its own outcome, retried via the -c resume path but classified
+// and logged as what happened.
+func impIsProductiveWallKill(r workers.WorkerResult) bool {
+	if !r.TimedOut {
+		return false
+	}
+	if r.ColdStart {
+		return false
+	}
+	if r.ClockResets > 0 || r.MeaningfulBytes >= impMeaningfulBytesThreshold {
+		return true
+	}
+	return false
+}
+
+// impIsInfraTransient mirrors the isInfraTransient closure (Q31): a
+// cold-start kill is transient infra alongside a zero-progress watchdog
+// timeout — a wedged CLI init is not the worker's fault. A productive
+// wall-kill (progress present before the kill) is deliberately NOT
+// transient: it surfaces as its own "wall-timeout (productive)" row and
+// still retries through the same resume loop.
 func impIsInfraTransient(r workers.WorkerResult) bool {
+	if r.TimedOut && impIsProductiveWallKill(r) {
+		return false
+	}
 	if r.TimedOut || r.ColdStart {
 		return true
 	}

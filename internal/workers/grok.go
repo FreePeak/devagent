@@ -528,7 +528,7 @@ func (a *GrokAdapter) Spawn(opts WorkerSpawnOptions) WorkerResult {
 		}
 		prepared, err := a.prepare("grok", args, SpawnCliOptions{
 			Dir:                 opts.Cwd,
-			TimeoutMs:           opts.TimeoutMs,
+			TimeoutMs:           launchBudgetMs(wallDeadline, a.nowMs(), int64(opts.TimeoutMs)),
 			Env:                 spawnEnv,
 			NoProgressTimeoutMs: &noProgressTimeoutMs,
 			WatchdogLedger:      opts.WatchdogLedger,
@@ -575,7 +575,7 @@ func (a *GrokAdapter) Spawn(opts WorkerSpawnOptions) WorkerResult {
 		fallback := grokFallbackEmpty()
 		last = &fallback
 	}
-	result := grokFinalize(*last, sessionId, a.nowMs()-start)
+	result := stampStreamMetrics(grokFinalize(*last, sessionId, a.nowMs()-start), *last)
 	// FR-GROK-03: persist the exact cost onto the run ledger for every grok
 	// worker run the provider priced. Best-effort — a ledger write must
 	// never fail the run. Identity comes from the dispatcher's watchdog

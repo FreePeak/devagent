@@ -339,7 +339,7 @@ func (a *PiAdapter) Spawn(opts WorkerSpawnOptions) WorkerResult {
 
 		prepared, err := a.prepare("pi", args, SpawnCliOptions{
 			Dir:                 opts.Cwd,
-			TimeoutMs:           opts.TimeoutMs,
+			TimeoutMs:           launchBudgetMs(wallDeadline, a.nowMs(), int64(opts.TimeoutMs)),
 			Env:                 opts.Env,
 			NoProgressTimeoutMs: intPtrIf(noProgressTimeoutMs != 0, noProgressTimeoutMs),
 			ColdStartTimeoutMs:  opts.ColdStartTimeoutMs,
@@ -400,7 +400,7 @@ func (a *PiAdapter) Spawn(opts WorkerSpawnOptions) WorkerResult {
 		args = BuildPiArgs(opts, true)
 	}
 
-	return piFinalize(derefSpawn(last), a.nowMs()-start)
+	return stampStreamMetrics(piFinalize(derefSpawn(last), a.nowMs()-start), derefSpawn(last))
 }
 
 // TS Infinity proxy.

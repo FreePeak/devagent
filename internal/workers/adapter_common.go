@@ -99,6 +99,19 @@ func derefSpawn(r *SpawnCliResult) SpawnCliResult {
 	return SpawnCliResult{}
 }
 
+// stampStreamMetrics copies the launch's Q34/Q33 stream evidence onto the
+// finalized WorkerResult (issue #248 required change 3). The metrics of
+// the FINAL attempt are the classification signal: a wall kill on an
+// attempt that streamed work is a productive wall-kill; a no-progress
+// watchdog firing on the last attempt is a burn regardless of earlier
+// attempts.
+func stampStreamMetrics(res WorkerResult, run SpawnCliResult) WorkerResult {
+	res.WatchdogFired = run.WatchdogFired
+	res.ClockResets = run.ClockResets
+	res.MeaningfulBytes = run.MeaningfulBytes
+	return res
+}
+
 // parseJSONAny parses s into any (TS JSON.parse); err swallowed by caller.
 func parseJSONAny(s string) (v any, ok bool) {
 	if err := json.Unmarshal([]byte(s), &v); err != nil {

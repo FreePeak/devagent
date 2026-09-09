@@ -68,6 +68,15 @@ type WorkerResult struct {
 	// ColdStart: true when the launch was killed by the cold-start
 	// (first-progress) deadline. Classified transient alongside NoProgress.
 	ColdStart bool
+	// WatchdogFired: Q34 — true when the no-progress clock killed the
+	// launch (direct path). A wall-clock kill never sets it.
+	WatchdogFired bool
+	// ClockResets/MeaningfulBytes: Q33/Q34 stream progress metrics the
+	// spawn path observed for this launch. 0 for spawns without an armed
+	// streaming clock. The classifier (impIsInfraTransient) uses them to
+	// tell a productive wall-kill from a zero-progress burn.
+	ClockResets     int
+	MeaningfulBytes int
 	// CostUsdTicks: FR-GROK-03 xAI cost recorded verbatim for this run.
 	// Nil = undefined (a missing cost is never coerced to 0).
 	CostUsdTicks *float64

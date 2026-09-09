@@ -89,7 +89,7 @@ func (a *OpenCodeAdapter) Spawn(opts WorkerSpawnOptions) WorkerResult {
 		}
 		prepared, err := a.prepare(binary, args, SpawnCliOptions{
 			Dir:                 opts.Cwd,
-			TimeoutMs:           opts.TimeoutMs,
+			TimeoutMs:           launchBudgetMs(wallDeadline, a.nowMs(), int64(opts.TimeoutMs)),
 			Env:                 opts.Env,
 			NoProgressTimeoutMs: intPtrIf(noProgressTimeoutMs != 0, noProgressTimeoutMs),
 			WatchdogLedger:      opts.WatchdogLedger,
@@ -111,7 +111,7 @@ func (a *OpenCodeAdapter) Spawn(opts WorkerSpawnOptions) WorkerResult {
 			args = opencodeBaseArgs(opts, binary)
 			fallbackPrepared, ferr := a.prepare(binary, args, SpawnCliOptions{
 				Dir:                 opts.Cwd,
-				TimeoutMs:           opts.TimeoutMs,
+				TimeoutMs:           launchBudgetMs(wallDeadline, a.nowMs(), int64(opts.TimeoutMs)),
 				Env:                 opts.Env,
 				NoProgressTimeoutMs: intPtrIf(noProgressTimeoutMs != 0, noProgressTimeoutMs),
 				WatchdogLedger:      opts.WatchdogLedger,
@@ -219,10 +219,10 @@ func (a *OpenCodeAdapter) Spawn(opts WorkerSpawnOptions) WorkerResult {
 		if final.ColdStart {
 			result.ColdStart = true
 		}
-		return result
+		return stampStreamMetrics(result, final)
 	}
 
-	return WorkerResult{
+	return stampStreamMetrics(WorkerResult{
 		ExitCode:   final.ExitCode,
 		Events:     lastEvents,
 		ResultText: lastResultText,
@@ -232,7 +232,7 @@ func (a *OpenCodeAdapter) Spawn(opts WorkerSpawnOptions) WorkerResult {
 		// Zero-event attempts (probe-dead bail or exhausted budget) surface
 		// as noProgress, never as a false success.
 		NoProgress: noProgress,
-	}
+	}, final)
 }
 
 // probeEndpointAlive: short-deadline trivial probe run before spending

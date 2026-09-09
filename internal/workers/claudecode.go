@@ -77,7 +77,7 @@ func (a *ClaudeCodeAdapter) Spawn(opts WorkerSpawnOptions) WorkerResult {
 		}
 		spawnOpts := SpawnCliOptions{
 			Dir:                 opts.Cwd,
-			TimeoutMs:           opts.TimeoutMs,
+			TimeoutMs:           launchBudgetMs(wallDeadline, a.nowMs(), int64(opts.TimeoutMs)),
 			Env:                 opts.Env,
 			NoProgressTimeoutMs: intPtrIf(noProgressTimeoutMs != 0, noProgressTimeoutMs),
 			ColdStartTimeoutMs:  opts.ColdStartTimeoutMs,
@@ -153,7 +153,7 @@ func (a *ClaudeCodeAdapter) Spawn(opts WorkerSpawnOptions) WorkerResult {
 		}
 	}
 
-	return claudeFinalize(derefSpawn(last), a.nowMs()-start)
+	return stampStreamMetrics(claudeFinalize(derefSpawn(last), a.nowMs()-start), derefSpawn(last))
 }
 
 // claudeBaseArgs mirrors the TS baseArgs. claude-code ignores variant;

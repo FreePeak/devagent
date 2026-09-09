@@ -86,7 +86,10 @@ func BuildOmpArgs(opts WorkerSpawnOptions, o OmpArgsOptions) []string {
 	return args
 }
 
-// OmpOutcome mirrors TS OmpOutcome.
+// OmpOutcome mirrors TS OmpOutcome. Events collects the NDJSON lifecycle
+// records (session/turn_end/message_end/result) parsed from the stream —
+// the evidence a success-without-result-envelope (or a wall-killed
+// partial stream) actually streamed work.
 type OmpOutcome struct {
 	IsError    bool
 	SessionId  string
@@ -94,6 +97,7 @@ type OmpOutcome struct {
 	ResultText string
 	Parsed     map[string]any
 	TimedOut   bool
+	Events     []WorkerEvent
 }
 
 // InterpretOmpForTest is the test seam re-export of the parser.
@@ -115,6 +119,7 @@ func interpretOmp(run SpawnCliResult) OmpOutcome {
 	sessionId := ""
 	var terminalMessage map[string]any
 	streamError := ""
+	var events []WorkerEvent
 
 	// Try single-JSON first (legacy callers). If it parses as object/array,
 	// skip the NDJSON walk.
@@ -172,6 +177,13 @@ func interpretOmp(run SpawnCliResult) OmpOutcome {
 			event, ok := v.(map[string]any)
 			if !ok {
 				continue
+			}
+			// The events metric counts the records that evidence the
+			// session actually streamed (issue #248): session headers,
+			// turn/message lifecycle and result envelopes.
+			switch event["type"] {
+			case "session", "turn_end", "message_end", "result":
+				events = append(events, event)
 			}
 			if event["type"] == "session" {
 				if id, ok := event["id"].(string); ok {
@@ -242,6 +254,7 @@ func interpretOmp(run SpawnCliResult) OmpOutcome {
 		ResultText: resultText,
 		Parsed:     parsed,
 		TimedOut:   run.TimedOut,
+		Events:     events,
 	}
 }
 
@@ -255,18 +268,28 @@ func ompFallbackEmpty() SpawnCliResult {
 	}
 }
 
-// ompFinalize mirrors TS finalize.
+// ompFinalize maps the last spawn result to WorkerResult (issue #248
+// required change 2): the events metric is populated for every outcome
+// class — a success without a result envelope synthesizes its events
+// from the NDJSON lifecycle records, and a wall/watchdog kill reports
+// whatever the partial stream delivered (0 for a truly silent kill,
+// > 0 when the session had streamed before the kill). TimedOut keeps
+// ResultText empty — the turn was never confirmed complete — but the
+// events count stays honest either way.
 func ompFinalize(run SpawnCliResult, sessionId string, durationMs int64) WorkerResult {
 	outcome := interpretOmp(run)
 	if run.TimedOut {
 		result := WorkerResult{
-			ExitCode:   run.ExitCode,
-			Events:     []WorkerEvent{},
-			ResultText: "",
-			SessionId:  sessionId,
-			DurationMs: durationMs,
-			TimedOut:   true,
-			ErrorText:  strings.TrimSpace(run.Stderr),
+			ExitCode:        run.ExitCode,
+			Events:          outcome.Events,
+			ResultText:      "",
+			SessionId:       sessionId,
+			DurationMs:      durationMs,
+			TimedOut:        true,
+			ErrorText:       strings.TrimSpace(run.Stderr),
+			WatchdogFired:   run.WatchdogFired,
+			ClockResets:     run.ClockResets,
+			MeaningfulBytes: run.MeaningfulBytes,
 		}
 		if run.ColdStart {
 			result.ColdStart = true
@@ -274,19 +297,27 @@ func ompFinalize(run SpawnCliResult, sessionId string, durationMs int64) WorkerR
 		return result
 	}
 	var events []WorkerEvent
-	if outcome.Parsed != nil {
+	switch {
+	case outcome.Parsed != nil:
 		events = []WorkerEvent{eventFromResult(outcome.Parsed)}
-	} else {
+	case len(outcome.Events) > 0:
+		// NDJSON success without a result envelope (the real omp shape):
+		// the lifecycle records ARE the events evidence.
+		events = outcome.Events
+	default:
 		events = []WorkerEvent{}
 	}
 	return WorkerResult{
-		ExitCode:   run.ExitCode,
-		Events:     events,
-		ResultText: outcome.ResultText,
-		SessionId:  sessionId,
-		DurationMs: durationMs,
-		TimedOut:   false,
-		ErrorText:  outcome.ErrorText,
+		ExitCode:        run.ExitCode,
+		Events:          events,
+		ResultText:      outcome.ResultText,
+		SessionId:       sessionId,
+		DurationMs:      durationMs,
+		TimedOut:        false,
+		ErrorText:       outcome.ErrorText,
+		WatchdogFired:   run.WatchdogFired,
+		ClockResets:     run.ClockResets,
+		MeaningfulBytes: run.MeaningfulBytes,
 	}
 }
 
@@ -321,6 +352,10 @@ func (a *OmpAdapter) Spawn(opts WorkerSpawnOptions) WorkerResult {
 	args := BuildOmpArgs(opts, OmpArgsOptions{})
 	sessionId := ""
 	var last *SpawnCliResult
+	// Issue #248: coalesce the per-launch stream evidence across retries
+	// so the final WorkerResult reports what the whole spawn produced.
+	var totalClockResets, totalMeaningfulBytes int
+	var sawWatchdogFired bool
 	// omp exposes -r/--resume <id>, but using it requires carrying the
 	// session_id between attempts. The adapter parses sessionId from the
 	// prior attempt's output but does not feed it to -r because that would
@@ -338,7 +373,7 @@ func (a *OmpAdapter) Spawn(opts WorkerSpawnOptions) WorkerResult {
 		}
 		prepared, err := a.prepare("omp", args, SpawnCliOptions{
 			Dir:                 opts.Cwd,
-			TimeoutMs:           opts.TimeoutMs,
+			TimeoutMs:           launchBudgetMs(wallDeadline, a.nowMs(), int64(opts.TimeoutMs)),
 			Env:                 opts.Env,
 			NoProgressTimeoutMs: &noProgressTimeoutMs,
 			ColdStartTimeoutMs:  opts.ColdStartTimeoutMs,
@@ -354,6 +389,11 @@ func (a *OmpAdapter) Spawn(opts WorkerSpawnOptions) WorkerResult {
 			Herdr:           opts.Herdr,
 		})
 		last = &raw
+		totalClockResets += raw.ClockResets
+		totalMeaningfulBytes += raw.MeaningfulBytes
+		if raw.WatchdogFired {
+			sawWatchdogFired = true
+		}
 
 		outcome := interpretOmp(raw)
 		if outcome.SessionId != "" {
@@ -380,5 +420,36 @@ func (a *OmpAdapter) Spawn(opts WorkerSpawnOptions) WorkerResult {
 		last = &SpawnCliResult{}
 		*last = ompFallbackEmpty()
 	}
+	// Issue #248: surface the coalesced stream evidence on the final
+	// result (the last attempt alone would under-report after retries).
+	last.ClockResets = totalClockResets
+	last.MeaningfulBytes = totalMeaningfulBytes
+	if sawWatchdogFired {
+		last.WatchdogFired = true
+	}
 	return ompFinalize(*last, sessionId, a.nowMs()-start)
+}
+
+// launchBudgetMs computes the per-launch wall budget for one adapter
+// attempt: the caller timeout capped by what remains of the run's
+// overall wall deadline (issue #248 finding 4 — the last attempt of a
+// retry loop must not restart with a fresh full wall). timeoutMs<=0 or
+// an already-spent deadline yields a small floor so the wall clock
+// still kills the child promptly instead of arming nothing.
+func launchBudgetMs(wallDeadline, now, timeoutMs int64) int {
+	const minLaunchBudgetMs = 1000
+	if timeoutMs <= 0 {
+		return 0
+	}
+	remaining := wallDeadline - now
+	if remaining <= 0 {
+		return minLaunchBudgetMs
+	}
+	if remaining > timeoutMs {
+		return int(timeoutMs)
+	}
+	if remaining < minLaunchBudgetMs {
+		return minLaunchBudgetMs
+	}
+	return int(remaining)
 }
