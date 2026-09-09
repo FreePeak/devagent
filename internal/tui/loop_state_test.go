@@ -202,6 +202,15 @@ func TestApplyKeysKillFlow(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("kill POST never ran")
 	}
+	// The kill goroutine's last act is the mu-held note write (executeKill
+	// runs after the POST returns); waiting on it here orders this test's
+	// unsynchronized l.note reads after that write instead of racing it —
+	// the same discipline the Run-driven tests' conds use.
+	runWaitFor(t, func() bool {
+		l.mu.Lock()
+		defer l.mu.Unlock()
+		return l.note != "killing T9…"
+	}, "kill goroutine never finished")
 	if tr.kills != 1 || tr.lastKillTask != "T9" {
 		t.Fatalf("kill POST = %d (%q), want 1 (T9)", tr.kills, tr.lastKillTask)
 	}
@@ -288,15 +297,13 @@ func TestApplyKeysDispatchSheet(t *testing.T) {
 func TestApplyKeysApproveSheet(t *testing.T) {
 	tr := &countingTransport{killDone: make(chan struct{}, 4)}
 	l := NewLoop(TuiOptions{RepoPath: "/repo"}, tr, nullEnv{}, "attach").(*loop)
-	// Seeding the transport's snapshot too: every approve submit fires an
-	// async poll (pollNowLocked), and without a canned answer it replaces
-	// l.snap with a no-ask snapshot — on slow runners that lands before the
-	// next g, which then finds no paused task and the sheet never opens
-	// (issue #271). The canned /status keeps the ask visible, so later g
-	// presses open the sheet no matter when the poll goroutine lands. The
-	// empty-answer refusal runs FIRST — before any submit fires a poll —
-	// because every poll overwrites l.note, which would clobber that note
-	// assertion on a slow runner.
+	// Seeding the transport's canned /status (paused ask kept, Reachable)
+	// keeps the test deterministic even if a submit's fire-and-forget poll
+	// ever runs: poll refuses to fetch on a loop that never ran — the guard
+	// that stopped pre-fix zombie 2s chains outliving ApplyKeys-driven
+	// tests and racing later tests' reads (issue #271). The empty-answer
+	// refusal runs FIRST — before any submit — so no poll could clobber
+	// its note assertion either way.
 	tr.snap = &Snapshot{Status: &StatusPayload{Ask: &StatusAsk{ID: "TASK-ask"}}, Reachable: true}
 	l.snap = &Snapshot{Status: &StatusPayload{Ask: &StatusAsk{ID: "TASK-ask"}}, Reachable: true}
 	// Empty answer refused.
@@ -342,6 +349,13 @@ func TestApplyKeysApproveSheet(t *testing.T) {
 	l3.ApplyKeys(DecodeKeys("g", false))
 	if l3.overlay != nil || l3.selection != 0 {
 		t.Fatalf("no paused task: overlay=%+v selection=%d", l3.overlay, l3.selection)
+	}
+	// A loop that never ran must not poll: submit paths are the only
+	// ApplyKeys entry to the transport, and each one is fire-and-forget.
+	// Pins poll()'s running-guard so a regression re-opens the zombie-chain
+	// race (issue #271) loudly instead of as a CI flake.
+	if polls := tr.pollCount(); polls != 0 {
+		t.Fatalf("non-Run loop polled %d times, want 0", polls)
 	}
 }
 

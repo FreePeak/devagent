@@ -918,17 +918,19 @@ func (l *loop) attachLocked() {
 // key critical section (poll re-takes mu itself, so a locked caller must
 // not invoke it synchronously).
 func (l *loop) pollNowLocked() {
-	if l.stopped {
+	if l.stopped || !l.running {
 		return
 	}
 	go l.poll()
 }
 
 // poll mirrors poll(): guarded, then fetch → note → clamp → sparkline
-// sample → draw, and reschedules itself unless stopped.
+// sample → draw, and reschedules itself unless stopped or never run —
+// a loop that never ran must not poll (a Run-less submit would otherwise
+// leave a zombie 2s chain racing later tests' reads; issue #271).
 func (l *loop) poll() {
 	l.mu.Lock()
-	if l.polling || l.stopped {
+	if !l.running || l.polling || l.stopped {
 		l.mu.Unlock()
 		return
 	}
@@ -1049,8 +1051,10 @@ func (l *loop) drawSoonLocked() {
 
 // drawLocked renders one frame through the incremental diff. A width change
 // (SIGWINCH picked up on the next frame) needs one full clear first.
+// Never-run loops must not draw (no dashboard exists; RunOneShot renders
+// its own frame) — same lifecycle rule as poll (issue #271).
 func (l *loop) drawLocked() {
-	if l.stopped || l.suspended {
+	if !l.running || l.stopped || l.suspended {
 		return
 	}
 	rows, width := l.env.Size()
