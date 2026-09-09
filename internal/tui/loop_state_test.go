@@ -286,13 +286,28 @@ func TestApplyKeysDispatchSheet(t *testing.T) {
 // TestApplyKeysApproveSheet pins the g sheet: /status.ask picked up,
 // y/n shorthand words, free text passthrough, ledger-tail fallback.
 func TestApplyKeysApproveSheet(t *testing.T) {
-	tr := &countingTransport{killDone: make(chan struct{}, 4)}
+	tr := &countingTransport{killDone: make(chan struct{}, 4),
+		// Each round models a fresh paused ask on the board: after a real
+		// /approve the answered task leaves 'ask' (ApplyHumanAnswer), so a
+		// new ask must arrive for the next `g` to open the sheet. The
+		// canned /status carries a standing ask so the async poll spawned
+		// by submitOverlayLocked cannot install an ask-less snapshot
+		// between keystrokes on a slow runner (#271).
+		snap: &Snapshot{Reachable: true, Status: &StatusPayload{Ask: &StatusAsk{ID: "TASK-ask"}}}}
 	l := NewLoop(TuiOptions{RepoPath: "/repo"}, tr, nullEnv{}, "attach").(*loop)
 	l.snap = &Snapshot{Status: &StatusPayload{Ask: &StatusAsk{ID: "TASK-ask"}}}
 	l.ApplyKeys(DecodeKeys("g", false))
 	if l.overlay == nil || l.overlay.Kind != "approve" || l.overlay.TaskID != "TASK-ask" {
 		t.Fatalf("g overlay = %+v, want approve of TASK-ask", l.overlay)
 	}
+	// Empty answer refused — pinned BEFORE any submit so no async poll
+	// exists yet to clobber the note between \r and the read (#271).
+	l.ApplyKeys(DecodeKeys("\r", false))
+	if l.note != "approve: empty answer" {
+		t.Fatalf("empty answer note = %q", l.note)
+	}
+	// y → yes.
+	l.ApplyKeys(DecodeKeys("g", false))
 	l.ApplyKeys(DecodeKeys("y", false))
 	l.ApplyKeys(DecodeKeys("\r", false))
 	if tr.approves != 1 || tr.lastApproveAnswer != "yes" {
@@ -311,12 +326,6 @@ func TestApplyKeysApproveSheet(t *testing.T) {
 	l.ApplyKeys(DecodeKeys("\r", false))
 	if tr.lastApproveAnswer != "use the" {
 		t.Fatalf("free-text answer = %q", tr.lastApproveAnswer)
-	}
-	// Empty answer refused.
-	l.ApplyKeys(DecodeKeys("g", false))
-	l.ApplyKeys(DecodeKeys("\r", false))
-	if l.note != "approve: empty answer" {
-		t.Fatalf("empty answer note = %q", l.note)
 	}
 	// Ledger-tail fallback when /status carries no ask.
 	l2 := newTestLoop(t, TuiOptions{})

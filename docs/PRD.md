@@ -1315,7 +1315,7 @@ machine). FR-VIS-06..08 close them; FR-VIS-09 removes the double-driver failure 
 | FR-TUI-02 | Pilot's card layout as v1: current task + phase + elapsed, queue depth, token/cost today/week vs budget, recent tasks with per-task duration + cost, aggregate run/idle/failed status — all fed by the same structured ledger/JSONL + SSE stream as the desktop app (FR-CTRL-04; no second event system, no PTY parsing) | M |
 | FR-TUI-03 | Live log tail view per agent (scrollable, follows the active pane's structured events) and jump hint showing the `devagent attach <task>` command for the selected run — the TUI is the discovery surface for FR-VIS-02 jump-in | M |
 | FR-TUI-05 | Single-key ops: `u` upgrade/rollback hint (pilot's pattern), `k` kill run (goes through the same gate machinery as CLI — the TUI is a transport, not a bypass, per FR-CTRL-03), `?` help overlay | C |
-| FR-TUI-04 | Interactive v1 scope (Q47): approval hotkeys (approve/deny pending gates via `POST /approve`) + dispatch sheet mirroring FR-UI-02; ship read-only cards first if Q47 resolves conservative. Shipped via FR-HAND-02/07 (#145): `n` opens the one-line goal dispatch sheet, `g` answers a paused 'ask' task (`y`/`n`/free text → `POST /approve`); look/feel polish shipped 2026-09-09 (#146, PR #268 — FR-TUI-P-01..12) | S |
+| FR-TUI-04 | Interactive v1 scope (Q47): approval hotkeys (approve/deny pending gates via `POST /approve`) + dispatch sheet mirroring FR-UI-02; ship read-only cards first if Q47 resolves conservative. Shipped via FR-HAND-02/07 (#145): `n` opens the one-line goal dispatch sheet, `g` answers a paused 'ask' task (`y`/`n`/free text → `POST /approve`); look/feel polish shipped 2026-09-09 (#146, PR #268 — FR-TUI-P-01..12). 2026-09-10: CI-only flake in `TestApplyKeysApproveSheet` fixed (#271) — the test's canned `/status` now keeps the ask set so the async poll fired by an approval cannot install an ask-less snapshot between keystrokes on a slow runner | S |
 
 **Conventions-research polish wave (2026-09-09)** — a benchmark pass over how the
 majority of professional terminal tools are built (k9s, lazygit, htop, gh-dash,
@@ -1496,8 +1496,9 @@ Test-parity scoreboard across all of the above: [#206](https://github.com/FreePe
 Master tracker with definition of done: [#207](https://github.com/FreePeak/devagent/issues/207).
 
 ---
-*Last updated: 2026-09-09 (CloddsBot skin) — dashboard/CLI visual language
-re-skinned after CloddsBot's terminal toolkit (§20.8): cyan centered box
-titles, header tagline, init-wizard wordmark + step chips + ✓/✗ outcome
-glyphs; presentation only (no behavior/payload change), pinned by
-internal/tui/clodds_skin_test.go.*
+*Last updated: 2026-09-10 (#271) — fixed the CI-only flake in
+TestApplyKeysApproveSheet (FR-TUI-04): the test transport's canned /status
+keeps the paused ask, so the async poll an approval triggers can no longer
+replace the loop snapshot ask-less between keystrokes on slow runners.
+Previous: 2026-09-09 CloddsBot skin (§20.8, pinned by
+internal/tui/clodds_skin_test.go).*
