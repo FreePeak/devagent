@@ -239,14 +239,15 @@ func TestAuditDefaultClock(t *testing.T) {
 	if err := os.WriteFile(p, []byte("# prd\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// Default clock = time.Now; a freshly written file reads as 0h, never
-	// negative.
+	// Default clock = time.Now; a freshly written file reads as ~0 age and
+	// never negative. (Exact 0 only holds when now lands in the file's
+	// write millisecond — assert the invariant, not the coincidence.)
 	r := AuditPrdCoverage(repo, AuditOptions{})
 	if len(r.Findings) != 1 || r.Findings[0].Kind != KindUnqueued {
 		t.Fatalf("findings = %+v", r.Findings)
 	}
-	if r.Findings[0].AgeMs != 0 {
-		t.Fatalf("ageMs = %d, want clamped 0", r.Findings[0].AgeMs)
+	if r.Findings[0].AgeMs < 0 || r.Findings[0].AgeMs >= 60_000 {
+		t.Fatalf("ageMs = %d, want a fresh file: 0 <= age < 1min", r.Findings[0].AgeMs)
 	}
 }
 
