@@ -952,17 +952,17 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 
 Direction addendum 2026-09-03 (section 20): DevAgent becomes the local-first, BYO-provider counterpart to xAI/Cursor's Grok Bot — named role agents with approval gates and durable memory, dispatched from a lightweight cross-platform desktop control app (Tauri 2: macOS menubar/tray, Windows + Linux tray), with first-class Grok/xAI worker support.
 
-> **Tracker status (2026-09-07):** open Phase 5 work is tracked as GitHub issues,
-> not here — #179 daemon control API (P1), #181 desktop control app (P2);
-> network sandbox allowlist (#180) is the remaining Phase 4 leftover (P2).
-> Shipped from this phase: Grok/xAI worker adapter (`src/workers/grok.ts`),
+> Tracker status (2026-09-09): open Phase 5 work is tracked as GitHub issues,
+> not here. Shipped 2026-09-09: #179 daemon control API (FR-CTRL-01..05, live
+> on :7788), #181 desktop control app v1 (Tauri 2 thin client, `app/`,
+> FR-UI-01..05/07/08 functional, FR-UI-06 signing + FR-UI-09 3-OS CI
+> scaffolded — PR #267), #146 TUI polish (FR-TUI-P-01..12, PR #268). The
+> network sandbox allowlist (#180, P2) is the remaining Phase 4 leftover.
+> Shipped from this phase: Grok/xAI worker adapter (`internal/workers/grok.go`),
 - **Easy handoff / control plane (FR-HAND, #145)** — Shipped 2026-09-08: cold path is exactly `devagent init` → `devagent tui` (optional `start` alias); TUI dispatch sheet (`n`, FR-HAND-02) + approve sheet (`g`, FR-HAND-07); `POST /dispatch` threads `autoPr` into the spawned `task --auto-pr` argv gated on `GITHUB_TOKEN` (FR-HAND-03); init adds worker-detect chips (FR-HAND-04), herdr default-on advisory (FR-HAND-05), Orca repo registration without worktree provisioning (FR-HAND-06). Look/feel bar: #146.
-> visible worker sessions (FR-VIS, herdr panes), terminal TUI dashboard
-> (`devagent tui`; polish tracked in #146). Bot-style UX scope stays open as Q45.
-
+- **Daemon control API** — ~~localhost REST + SSE control surface on the existing `serve` pattern with per-boot token auth and Origin/Host validation (FR-CTRL-01..05).~~ **Shipped 2026-09-08 (#179, PR #243):** internal/daemon serving `/status` `/agents` `/events` SSE `/history` + `POST /dispatch` `/approve`, per-boot token + loopback bind, wired as `devagent daemon` and live on :7788.
+- **Cross-platform desktop control app** — ~~Tauri 2 tray + dashboard on macOS, Linux, and Windows: dispatch agents/roles/tools, live agent log tails, approval inbox, notifications, pipeline visualization (FR-UI-01..09).~~ **Shipped 2026-09-09 (#181, PR #267):** Tauri 2 thin client at `app/` (Rust core + TS webview): FR-UI-01/02/03/04/07/08 functional (tray state, dispatch sheet, SSE dashboard, approval inbox + notifications, stage timeline), FR-UI-05 wired (autostart/single-instance), FR-UI-06 signing and FR-UI-09 3-OS CI scaffolded by design (no fake signing); see `app/README.md`.
 - **Grok/xAI worker support** — `grok` (Grok Build CLI) WorkerAdapter + native xAI API fallback, per-provider model-id predicate, exact per-run cost in the ledger, sticky prompt-cache keys, batch/off-peak routing (FR-GROK-01..06).
-- **Daemon control API** — localhost REST + SSE control surface on the existing `serve` pattern with per-boot token auth and Origin/Host validation (FR-CTRL-01..05).
-- **Cross-platform desktop control app** — Tauri 2 tray + dashboard on macOS, Linux, and Windows: dispatch agents/roles/tools, live agent log tails, approval inbox, notifications, pipeline visualization (FR-UI-01..09).
 - **Bot-style UX floor** — named persistent agent identities, teach-once routines, visible bot-to-bot handoff (§20.1 benchmark; scope = Q45).
 - **Visible worker sessions + jump-in** — worker runs surface in a persistent terminal workspace (herdr panes) the operator can attach to and steer at any time, like a human running the coding agent in an open terminal; headless becomes the explicit CI/server mode, not the only mode (§20.8 FR-VIS).
 - **Terminal TUI dashboard** — pilot-style full-screen TUI (`devagent tui`): current task + phase, queue depth, token/cost vs budget cards, approval hotkeys — over SSH, on macOS/Linux/Windows (§20.8 FR-TUI).
@@ -1006,7 +1006,7 @@ Direction addendum 2026-09-03 (section 20): DevAgent becomes the local-first, BY
 | Q44 | Control API transport: token-authed `127.0.0.1` HTTP (curl-testable, script-friendly) as primary with UDS as the app's secure path, or UDS-first with the Tauri Rust core as the sole client? | eng | Phase 5 |
 | Q45 | How far does the Grok Bot UX floor go in v1: named persistent identities + approval inbox only, or also teach-once routines and bot-to-bot handoff threads? | product | Phase 5 |
 | Q46 | Benchmark coverage: the operator named z.ai's coding-agent UI ("zcode") as a possible second benchmark for the control app's run view alongside Grok Bot (§20.1) — its capabilities are UNRESEARCHED as of 2026-09-04 (no primary sources fetched yet; offline session). Research it first (web fetch of z.ai docs + hands-on), then decide: add a §20.1-style benchmark matrix, or rely on Grok Bot + Orca + the §20.7 prior-art set as sufficient coverage. | product | Phase 5 |
-| Q47 | The operator wants a pilot-style TUI dashboard (§20.8 FR-TUI) — what is the right v1 fidelity: read-only status board (metrics + task cards, zero input risk), or interactive (approve/deny hotkeys, attach-to-session jump-in) from day one? Interactive inverts the §20.3 anti-pattern's blast radius: every hotkey is a mutation path into the gate machinery. | eng | Phase 5 |
+| Q47 | ~~The operator wants a pilot-style TUI dashboard (§20.8 FR-TUI) — what is the right v1 fidelity: read-only status board (metrics + task cards, zero input risk), or interactive (approve/deny hotkeys, attach-to-session jump-in) from day one?~~ Resolved 2026-09-08/09: interactive shipped — approval/dispatch hotkeys landed via FR-HAND-02/07 (#145) and the read surface was polished to the FR-TUI-P bar (PR #268, closes #146); every mutation still goes through the same gate machinery (FR-CTRL-03). | eng | Phase 5 |
 > Resolved 2026-08-24: Q1 (ecosystem conventions + `testCommand` override now
 > cover npm/Go/Python), Q2 (plain webhooks shipped in Phase 3), Q3 (policy is
 > one attempt, then fan-out on failure), Q6 (single-tenant CLI + webhook
@@ -1311,9 +1311,8 @@ machine). FR-VIS-06..08 close them; FR-VIS-09 removes the double-driver failure 
 | FR-TUI-01 | `devagent tui` full-screen terminal dashboard over the FR-CTRL API (HTTP+SSE on 127.0.0.1; works over SSH, on macOS/Linux/Windows terminals; zero browser, zero desktop app dependency) | M |
 | FR-TUI-02 | Pilot's card layout as v1: current task + phase + elapsed, queue depth, token/cost today/week vs budget, recent tasks with per-task duration + cost, aggregate run/idle/failed status — all fed by the same structured ledger/JSONL + SSE stream as the desktop app (FR-CTRL-04; no second event system, no PTY parsing) | M |
 | FR-TUI-03 | Live log tail view per agent (scrollable, follows the active pane's structured events) and jump hint showing the `devagent attach <task>` command for the selected run — the TUI is the discovery surface for FR-VIS-02 jump-in | M |
-| FR-TUI-04 | Interactive v1 scope (Q47): approval hotkeys (approve/deny pending gates via `POST /approve`) + dispatch sheet mirroring FR-UI-02; ship read-only cards first if Q47 resolves conservative. Shipped via FR-HAND-02/07 (#145): `n` opens the one-line goal dispatch sheet, `g` answers a paused 'ask' task (`y`/`n`/free text → `POST /approve`); look/feel polish tracked in #146 | S |
 | FR-TUI-05 | Single-key ops: `u` upgrade/rollback hint (pilot's pattern), `k` kill run (goes through the same gate machinery as CLI — the TUI is a transport, not a bypass, per FR-CTRL-03), `?` help overlay | C |
-| FR-TUI-06 | Single-key inline attach (validated 2026-09-05: `devagent attach --exec` already gives a full interactive PTY into any live worker pane via `herdr agent attach`, but only from a separate terminal — the TUI only *prints* the hint): pressing `a` on the selected worker/session card suspends the alternate screen, execs `herdr --session <session> agent attach <paneId>` with inherited stdio (keystrokes go to the worker, not the dashboard), and restores the TUI + refreshes on detach — upgrade FR-TUI-03's discovery hint into an in-TUI action; `a` is discovery→input with zero terminal juggling | M |
+| FR-TUI-04 | Interactive v1 scope (Q47): approval hotkeys (approve/deny pending gates via `POST /approve`) + dispatch sheet mirroring FR-UI-02; ship read-only cards first if Q47 resolves conservative. Shipped via FR-HAND-02/07 (#145): `n` opens the one-line goal dispatch sheet, `g` answers a paused 'ask' task (`y`/`n`/free text → `POST /approve`); look/feel polish shipped 2026-09-09 (#146, PR #268 — FR-TUI-P-01..12) | S |
 
 Boundary with §20.4: the Tauri desktop app and the TUI are two renderers over the same
 FR-CTRL API — the TUI is the SSH/headless-server surface, the app is the desktop surface;
@@ -1399,13 +1398,10 @@ core runtime:
   processes behind the WorkerAdapter contract, §9); herdr (already Go);
   Docker sandboxing; the ledger/run-log JSONL schemas (the migration
   contract — byte-compatible both directions).
-- **Tauri 2 control app (§20.4, #181):** out of scope — its core is already
-  Rust. Whether its webview UI moves from TS to a Go/Wails stack is a
-  deferred decision gate, recorded in #207; the app is a thin FR-CTRL client
-  and unaffected by the core migration.
-- **The selfbuild loop never stops:** Node remains the production entrypoint
-  until the cutover soak gate passes; Node source is deleted only in the
-  final step.
+- **Tauri 2 control app (§20.4, #181):** shipped 2026-09-09 (PR #267) as a
+  thin FR-CTRL client at `app/` — its core is Rust; the webview UI consumes
+  the daemon REST/SSE surface. Whether its UI stack ever moves to a
+  Go/Wails stack is a deferred decision gate, recorded in #207.
 
 ### 22.3 Strategy: strangler-fig, gated by parity
 
@@ -1447,4 +1443,4 @@ Master tracker with definition of done: [#207](https://github.com/FreePeak/devag
 
 ---
 
-*Last updated: 2026-09-09 (post-cutover debt burned — this stamp supersedes the 2026-09-08 cutover and follow-ups stamps: FR-GO cutover + Node retirement COMPLETE 2026-09-08 (§22 phases G2/G3: soak iterations 169+171 passed byte-parity and end-to-end on the live selfbuild loop; publish/close integrity #238 PR #242; SELFBUILD_TEST_CMD #230 PR #237; release pipeline #232 first all-Go release v1.0.0; install flow #231; Node tree deleted #240; single-language CI + grep gate #235; docs rewritten #236; daemon wired #243 serving HTTP 200 on 7788; release binaries version-stamped, `setup-node` dropped, single-impl gate widened PR #254; CLI surface fully wired — tui PR #258, mcp PR #255, guard/guard-status PR #256, prd-audit PR #253, `notPortedIssue` empty and pinned PR #257). 2026-09-09: doc-sync dirty-tree misclassification #245 fixed — whole-tree `status --porcelain` pre-check excludes `.devagent`/`.selfbuild`, behind+dirty refuses `Dirty:true`→exit 2 operator-degraded, diverged+dirty→exit 3, ff-abort stderr reclassified (PR #260); gh-keyring token fallback #234 shipped — `resolveGithubToken()` env-wins + cached `gh auth token` fallback (PR #259); autopr grace-window fixtures wall-clock-relative + curator same-millisecond flake fixed (PR #261, 6928332); operator install consolidated to `~/.local/bin/devagent` → repo `devagent-go`; flaky config-token tests follow-up filed #262. Genuinely open: #248 worker observability, #206 parity scoreboard, #146 TUI polish, #181 Tauri app.)*
+*Last updated: 2026-09-09 (all four open issues implemented via 4-way fanout and merged: #248 worker observability — WatchdogSink default-wired on direct spawns, omp NDJSON events populated incl. timeout partials, stream metrics threaded into WorkerResult with productive-wall-kill classification (no longer misfiled infra-transient), post-kill drain bounded 3s + per-launch wall budget, PR #266; #146 TUI polish — FR-TUI-P-01..12: muted truecolor palette, hero card, dense metric strip, narrow stacking, SIGWINCH, panic-safe attach resume, width-tiered footer, poisoned-envelope tests, PR #268; #181 Tauri 2 control app v1 at app/ — thin FR-CTRL client, FR-UI-01..05/07/08 functional, signing/3-OS-CI scaffolded, PR #267; #206 parity tracker closed with docs/PARITY-Scoreboard.md, PR #265. Full go test ./... -p 2 green (29 pkgs) on merged main d81ea2a. Previous 2026-09-09 stamp: post-cutover debt burned — FR-GO cutover + Node retirement COMPLETE 2026-09-08 (soak 169+171, #238 PR #242, #230 PR #237, #232, #231, #240, #235, #236, #243; version stamping + gate widening PR #254; CLI wiring tui #258 / mcp #255 / guard #256 / prd-audit #253, notPortedIssue empty pinned #257); #245 dirty-tree reclassification PR #260; #234 gh-keyring fallback PR #259; fixture/flake fixes PR #261 + 6928332.)*
