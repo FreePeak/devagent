@@ -182,6 +182,14 @@ func docFetchOrigin(branch string, repoPath string, timeoutMs int) (stderr strin
 // .selfbuild) do not block the sync. Network/merge failures are reported,
 // never thrown — callers decide whether a stale read is fatal (loop) or
 // best-effort (scout heartbeat).
+
+// Issue #245: dirt is gated over the WHOLE tracked tree, not just the
+// work-selection docs — a dirty non-doc file used to slip past the gate,
+// abort the ff merge ("local changes would be overwritten") and surface as
+// a plain OK:false that the loop driver misclassified as provider-degraded
+// (rc 1) instead of operator-degraded (rc 2). Refusals name the blocking
+// files; a merge that aborts on local changes despite the pre-check is
+// reclassified as dirty (defense in depth).
 //
 // Divergence (Q41 degradation surface): when histories diverge and the
 // tracked docs are clean, the local branch is rebased onto origin/<branch>
@@ -212,8 +220,9 @@ func SyncWorkSelectionDocs(repoPath string, opts *DocSyncOpts) RepoSyncResult {
 	localOut, _, localErr := docGit([]string{"rev-parse", "HEAD"}, repoPath, timeoutMs)
 	remoteOut, _, remoteErr := docGit([]string{"rev-parse", "origin/" + branch}, repoPath, timeoutMs)
 	dirtyOut, _, statusErr := docGit(append([]string{"status", "--porcelain", "--"}, WorkSelectionDocs...), repoPath, timeoutMs)
-	if localErr != nil || remoteErr != nil || statusErr != nil {
-		msg := docErrMessage("", firstNonNil(localErr, remoteErr, statusErr))
+	treeOut, treeErr := docTreeDirtyFiles(repoPath, timeoutMs)
+	if localErr != nil || remoteErr != nil || statusErr != nil || treeErr != nil {
+		msg := docErrMessage("", firstNonNil(localErr, remoteErr, statusErr, treeErr))
 		return RepoSyncResult{OK: false, Detail: "git rev-parse/status failed: " + truncate(msg, 300)}
 	}
 	local := strings.TrimSpace(localOut)
@@ -236,7 +245,27 @@ func SyncWorkSelectionDocs(repoPath string, opts *DocSyncOpts) RepoSyncResult {
 		base = strings.TrimSpace(baseOut)
 	}
 	diverged := base != local && base != remote
+	behind := base == local && local != remote
 
+	dirtyTreeFiles := nonEmptyLines(strings.TrimSpace(treeOut))
+	dirtyTree := len(dirtyTreeFiles) > 0
+	// Whole-tree dirty gate (issue #245): a locally modified tracked file
+	// outside the state dirs blocks a merge that would pull — git would
+	// abort with "would be overwritten", which used to surface as a plain
+	// OK:false and got misclassified as provider-degraded (rc 1) instead of
+	// operator-degraded (rc 2). The docs gate below remains for the
+	// strictly-ahead case, where the ff merge is a no-op and nothing can be
+	// clobbered.
+	if diverged && dirtyTree {
+		return RepoSyncResult{OK: false, Diverged: true, Dirty: true,
+			Detail: "refusing sync: histories diverged from origin/" + branch + " and tracked files locally modified — reconcile by hand (an autostash would lift the operator edit out of the tree): " +
+				truncate(strings.Join(dirtyTreeFiles, ", "), 200)}
+	}
+	if dirtyTree && behind {
+		return RepoSyncResult{OK: false, Dirty: true,
+			Detail: "refusing sync: tracked files locally modified — commit or stash first (" +
+				strconv.Itoa(len(dirtyTreeFiles)) + " file(s)): " + truncate(strings.Join(dirtyTreeFiles, ", "), 200)}
+	}
 	docsList := strings.Join(WorkSelectionDocs, ", ")
 	if dirtyDocs {
 		if diverged {
@@ -256,6 +285,10 @@ func SyncWorkSelectionDocs(repoPath string, opts *DocSyncOpts) RepoSyncResult {
 		stdout, stderr, err := docGit([]string{"merge", "--ff-only", "origin/" + branch}, repoPath, timeoutMs)
 		if err != nil {
 			msg := docErrMessage(stderr, err)
+			if mergeAbortedOnLocalChanges(msg) {
+				return RepoSyncResult{OK: false, Dirty: true,
+					Detail: "refusing sync: work tree locally modified — commit or stash first: " + truncate(msg, 300)}
+			}
 			return RepoSyncResult{OK: false,
 				Detail: "fast-forward to origin/" + branch + " failed: " + truncate(msg, 300)}
 		}
@@ -282,6 +315,30 @@ func SyncWorkSelectionDocs(repoPath string, opts *DocSyncOpts) RepoSyncResult {
 	}
 	return RepoSyncResult{OK: true, AlreadyUpToDate: false, Diverged: true, Dirty: false,
 		Detail: truncate(detail, 200) + " (diverged history reconciled)"}
+}
+
+// docTreeDirtyFiles runs `git status --porcelain -uno -- .` with the loop
+// state dirs excluded by pathspec (issue #245) and returns the raw porcelain
+// output: one "XY <path>" line per locally modified tracked file. Untracked
+// files never block the sync (--untracked-files=no); .devagent/ and
+// .selfbuild/ are excluded so the loop's own state churn cannot block or
+// misclassify a sync. The git-level pathspec filter (not post-hoc string
+// filtering) is pinned by TestDocTreeDirtyFilesPathspecFilter.
+func docTreeDirtyFiles(repoPath string, timeoutMs int) (string, error) {
+	stdout, _, err := docGit([]string{"status", "--porcelain", "--untracked-files=no",
+		"--", ".", ":(exclude).devagent", ":(exclude).selfbuild"}, repoPath, timeoutMs)
+	return stdout, err
+}
+
+// mergeAbortedOnLocalChanges matches the git merge abort a dirty tree
+// produces: "error: Your local changes to the following files would be
+// overwritten by merge". Checked case-insensitively against the whole
+// message (stderr plus any error text) so the wording cannot drift past
+// this classifier (issue #245, defense in depth).
+func mergeAbortedOnLocalChanges(msg string) bool {
+	m := strings.ToLower(msg)
+	return strings.Contains(m, "would be overwritten by merge") &&
+		strings.Contains(m, "local changes")
 }
 
 // PrdStatResult is PRD.md stat as the staleness join key (doc-level, not
