@@ -144,10 +144,11 @@ func headerLines(snap *Snapshot, ropts RenderOptions) []string {
 		claimed = orNum(status.Queue.Claimed)
 		done = orNum(status.Queue.Done)
 	}
-	// Spinner (Claude Code cue) animates only while work is live.
+	// Spinner (Claude Code cue) animates only while work is live. Steel =
+	// the muted running color (FR-TUI-P-09).
 	spin := ""
 	if agg == "RUNNING" {
-		spin = Green + spinnerAt(ropts.SpinnerFrame) + Reset + " "
+		spin = Steel + spinnerAt(ropts.SpinnerFrame) + Reset + " "
 	}
 	chip := StatusColor(agg) + "● " + agg + Reset
 	// Embedded-daemon cue in the title bar (cyan = "the TUI started this one
@@ -156,8 +157,10 @@ func headerLines(snap *Snapshot, ropts RenderOptions) []string {
 	if ropts.DaemonMode == "embedded" {
 		barBody += "  " + Cyan + "· daemon:embedded" + Reset
 	}
-	// Metrics line (htop meters + pilot sparkline): uptime, runs, queue meter,
-	// activity sparkline, environment. One dense dim line under the bar.
+	// Metric strip (FR-TUI-P-06): ONE dense row — queue meter p/c/d, live
+	// runs, activity sparkline. Uptime/herdr/vis demoted to the dim suffix;
+	// circuit is highlighted only when not closed. Header stays ≤2 lines
+	// before the hero card.
 	openTasks := pending + claimed
 	total := openTasks + done
 	meter := Dim + "[" + Reset + MeterBar(openTasks, total, 10, Yellow+"█"+Reset, Dim+"░"+Reset) + Dim + "]" + Reset
@@ -199,19 +202,19 @@ func headerLines(snap *Snapshot, ropts RenderOptions) []string {
 		}
 		circuit = " · " + color + "circuit:" + status.Circuit + Reset
 	}
-	meta := Dim + " up " + fmtUptime(status.UptimeS) + " · runs " +
-		runsField(status) + " · queue " + meter + " " + jsNum(pending) + "p/" +
-		jsNum(claimed) + "c/" + jsNum(done) + "d" + Reset + spark + circuit +
-		Dim + " · herdr:" + herdrSession(status)
+	strip := Dim + " queue " + meter + " " + jsNum(pending) + "p/" +
+		jsNum(claimed) + "c/" + jsNum(done) + "d" + Reset +
+		Dim + " · runs " + Reset + liveRunsField(status, panes) + spark + circuit +
+		Dim + " · up " + fmtUptime(status.UptimeS) +
+		" · herdr:" + herdrSession(status) + Reset
 	if width >= 118 {
-		meta += " · vis:" + spawnVisibility(status)
+		strip += Dim + " · vis:" + spawnVisibility(status) + Reset
 	}
-	meta += Reset
 	return append([]string{
 		Bold + Inverse + PadTo(barBody, maxInt(width, VisibleLen(barBody)+1)) + Reset,
-		meta,
+		strip,
 		"",
-	}, iterationLines(snap)...)
+	}, heroLines(snap, ropts, panes)...)
 }
 
 func orNum(v *float64) float64 {
@@ -226,20 +229,108 @@ func f64(n int) *float64 {
 	return &v
 }
 
-func runsField(status *StatusPayload) string {
-	var active, failed float64
-	if status.Runs != nil {
-		active = orNum(status.Runs.Active)
-		failed = orNum(status.Runs.FailedRecent)
-	}
-	return jsNum(active) + "a/" + jsNum(failed) + "f"
-}
-
 func herdrSession(status *StatusPayload) string {
 	if status.Herdr != nil && status.Herdr.Session != "" {
 		return status.Herdr.Session
 	}
 	return "-"
+}
+
+func liveRunsField(status *StatusPayload, panes []TuiPane) string {
+	active := 0
+	for _, p := range panes {
+		if p.State == "running" {
+			active++
+		}
+	}
+	var failed float64
+	if status.Runs != nil {
+		// FR-TUI-P-03: failed_recent is a historical count — it must never
+		// paint the aggregate FAILED (only circuit=="open" does). Render it
+		// as a dim amber "Nf recent" suffix beside the live active count.
+		failed = orNum(status.Runs.FailedRecent)
+	}
+	if failed > 0 {
+		return jsNum(float64(active)) + "a " + Dim + "/ " + Reset + Yellow +
+			jsNum(failed) + "f recent" + Reset
+	}
+	return jsNum(float64(active)) + "a"
+}
+
+// heroLines renders the FR-TUI-P-05 hero: one focused line for the running
+// work — the selected (or first) running pane with phase, elapsed, worker
+// and an indeterminate pulse bar (no fabricated percent: the snapshot
+// carries no fraction field) — or a next-action cue when idle. Folded with
+// iterationLines so the loop-phase row stays visible.
+func heroLines(snap *Snapshot, ropts RenderOptions, panes []TuiPane) []string {
+	var sel *TuiPane
+	// Prefer the operator's selection if it is running; else first running.
+	if ropts.Selection >= 0 && ropts.Selection < len(panes) &&
+		panes[ropts.Selection].State == "running" {
+		sel = &panes[ropts.Selection]
+	}
+	if sel == nil {
+		for i := range panes {
+			if panes[i].State == "running" {
+				sel = &panes[i]
+				break
+			}
+		}
+	}
+	if sel == nil {
+		// Idle: one next-action line.
+		next := "n goal · 1 workers · ? help"
+		switch ropts.View {
+		case ViewLog:
+			next = "f follow · ? help"
+		case ViewWorkers, ViewSessions:
+			if ropts.Selection >= 0 && ropts.Selection < len(panes) {
+				next = "⏎ detail · a attach · k kill · ? help"
+			}
+		}
+		return append(iterationLines(snap),
+			"  "+Dim+"▸ next: "+next+Reset, "")
+	}
+	// Running: id · phase · elapsed · worker + indeterminate pulse bar.
+	id := sel.TaskID
+	if id == "" {
+		id = sel.Label
+	}
+	el := ""
+	if sel.StartedAt != "" {
+		el = fmtElapsed(sel.StartedAt, nowClock())
+	}
+	phase := orDefault(sel.AgentStatus, sel.State)
+	line := "  " + Steel + "● " + Truncate(id, 28) + Reset + "  " +
+		ChipFor(sel.State, phase)
+	if el != "" {
+		line += Dim + " · " + el + Reset
+	}
+	// Indeterminate pulse: a short amber segment traveling a dim track,
+	// driven by the spinner frame — no fake percentage.
+	track := maxInt(12, minInt(24, ropts.Width/4))
+	seg := 3
+	pos := 0
+	if track > 0 {
+		pos = ropts.SpinnerFrame % track
+	}
+	bar := ""
+	for i := range track {
+		rel := (i - pos + track) % track
+		if rel < seg {
+			bar += Yellow + "█" + Reset
+		} else {
+			bar += Dim + "▒" + Reset
+		}
+	}
+	worker := sel.Worker
+	if worker == "" {
+		worker = "-"
+	}
+	return append(iterationLines(snap),
+		line,
+		"  "+Dim+"worker "+Reset+Truncate(worker, 14)+
+			Dim+" · pulse "+Reset+bar, "")
 }
 
 func spawnVisibility(status *StatusPayload) string {
@@ -485,6 +576,32 @@ func concat(parts ...[]string) []string {
 	return out
 }
 
+// footerHint builds the htop function bar, width-tiered (FR-TUI-P-12): the
+// hint and any transient note share ONE footer line, so each tier only
+// renders when it fits its threshold — [q] quit is never clamped off (the
+// full 116-cell hint used to lose its tail at the default 100 columns).
+func footerHint(view View, width int) string {
+	if width >= 116 {
+		if view == ViewLog {
+			return Inverse + " [1] workers [2] sessions [3] log · ↑↓ scroll · f follow · r refresh [?] help [q] quit " + Reset
+		}
+		return Inverse + " [n] goal [1] workers [2] sessions [3] log · ↑↓ select · ⏎ detail · a attach · k kill · r refresh [?] help [q] quit " + Reset
+	}
+	if width >= 96 {
+		if view == ViewLog {
+			return Inverse + " [1/2/3] views · ↑↓ scroll · f follow [?] help [q] quit " + Reset
+		}
+		return Inverse + " [n] goal [1] workers [2] sessions [3] log · ↑↓ · ⏎ detail · a attach · k kill [?] help [q] quit " + Reset
+	}
+	if width >= 62 {
+		if view == ViewLog {
+			return Inverse + " [1/2/3] views · f follow [?] help [q] quit " + Reset
+		}
+		return Inverse + " [n] goal [1/2/3] views · a attach · k kill [?] help [q] quit " + Reset
+	}
+	return Inverse + " [?] help [q] quit " + Reset
+}
+
 // RenderLines renders the full frame as lines (interactive diffs these;
 // one-shot joins them).
 func RenderLines(snap *Snapshot, ropts RenderOptions) []string {
@@ -504,8 +621,13 @@ func RenderLines(snap *Snapshot, ropts RenderOptions) []string {
 	queued := queueRows(snap)
 
 	header := headerLines(snap, ropts)
+	// FR-TUI-P-12: the help overlay is kept bottom-first so its last row
+	// ("q or Ctrl+C  quit") always survives a short terminal — cutting the
+	// header tail instead would drop exactly the quit row the operator
+	// needs.
+	help := []string{}
 	if ropts.ShowHelp {
-		header = append(header, helpLines()...)
+		help = helpLines()
 	}
 
 	// Footer (htop function-bar cue): contextual keys + transient notes.
@@ -516,15 +638,15 @@ func RenderLines(snap *Snapshot, ropts RenderOptions) []string {
 	if ropts.Note != "" {
 		notes = append(notes, ropts.Note)
 	}
-	keysHint := Inverse + " [n] goal [1] workers [2] sessions [3] log · ↑↓ select · ⏎ detail · a attach · k kill · r refresh [?] help [q] quit " + Reset
-	if view == ViewLog {
-		keysHint = Inverse + " [1] workers [2] sessions [3] log · ↑↓ scroll · f follow · r refresh [?] help [q] quit " + Reset
-	}
+	keysHint := footerHint(view, width)
 	noteSuffix := ""
 	if len(notes) > 0 {
-		noteSuffix = "  " + Yellow + Truncate(strings.Join(notes, " · "), maxInt(20, width-62)) + Reset
+		noteSuffix = "  " + Yellow + Truncate(strings.Join(notes, " · "), maxInt(16, width-VisibleLen(keysHint)-6)) + Reset
 	}
 	footer := []string{keysHint + noteSuffix}
+	if ropts.ShowHelp {
+		return fitLines(header, append(help, ""), footer, rows, "bottom")
+	}
 	if ropts.Overlay != nil && ropts.Overlay.Kind == "dispatch" {
 		return fitLines(header, append(dispatchOverlayLines(ropts.Overlay, width), ""), footer, rows, "top")
 	}
@@ -576,8 +698,13 @@ func RenderLines(snap *Snapshot, ropts RenderOptions) []string {
 		return fitLines(header, body, footer, rows, "top")
 	}
 
-	// Workers view: cards (2-up) + history tail.
+	// Workers view: cards + history tail. FR-TUI-P-08: below 80 columns the
+	// 2-up cards would crush cwd/attach lines — stack them full-width.
+	stackFull := width < 80
 	half := maxInt(34, width/2)
+	if stackFull {
+		half = width
+	}
 	body := []string{Bold + "▌Workers" + Reset + " " + Dim + itoa(len(panes)) + " pane(s) · " +
 		itoa(len(queued)) + " queued" + Reset, ""}
 	var cards [][]string
@@ -590,14 +717,18 @@ func RenderLines(snap *Snapshot, ropts RenderOptions) []string {
 	if len(cards) == 0 {
 		body = append(body, DimText("  no workers, queue empty"))
 	}
-	for i := 0; i < len(cards); i += 2 {
+	step := 2
+	if stackFull {
+		step = 1 // full-width stacked cards: no side-by-side pairing
+	}
+	for i := 0; i < len(cards); i += step {
 		a := cards[i]
 		var b []string
-		if i+1 < len(cards) {
+		if step == 2 && i+1 < len(cards) {
 			b = cards[i+1]
 		}
 		rws := maxInt(len(a), len(b))
-		for r := 0; r < rws; r++ {
+		for r := range rws {
 			left := ""
 			if r < len(a) {
 				left = a[r]

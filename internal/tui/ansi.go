@@ -4,11 +4,27 @@
 // this package.
 package tui
 
-import "strings"
+import (
+	"fmt"
+	"os"
+	"strings"
+)
 
-// ANSI colors: dim lines are the quiet majority (pilot-style dashboard).
-// Byte-identical to the C block in src/tui/tui.ts.
-const (
+// Muted dashboard palette (FR-TUI-P-09, pilot's chart colors):
+//
+//	running → steel  #7eb8da      ok → sage  #7ec699
+//	fail    → rose   #d48a8a      warn → amber #e0af68
+//	border  → slate  #3d4450      dim/accents → gray
+//
+// Truecolor when COLORTERM advertises it (truecolor / 24bit), a 16-color
+// fallback otherwise. The exported names keep their historical slots so
+// every call site (and the §20.8 human cards that share this package) keeps
+// one visual language; only the resolved values differ per mode:
+//
+//	Green  → sage        Red    → rose       Yellow → amber
+//	Cyan   → accent (steel)         Steel → running       Border → slate
+//	Dim    → gray           Magenta is retired (rainbow color).
+var (
 	Reset   = "\x1b[0m"
 	Dim     = "\x1b[2m"
 	Bold    = "\x1b[1m"
@@ -16,20 +32,71 @@ const (
 	Yellow  = "\x1b[33m"
 	Red     = "\x1b[31m"
 	Cyan    = "\x1b[36m"
-	Magenta = "\x1b[35m"
+	Steel   = "\x1b[36m"
+	Border  = "\x1b[2m"
 	Inverse = "\x1b[7m"
 )
 
-// StatusColor mirrors statusColor().
+// TruecolorSGR renders a hex color (#rrggbb) as an SGR truecolor prefix.
+func TruecolorSGR(hex string) string {
+	if len(hex) != 7 || hex[0] != '#' {
+		return ""
+	}
+	var r, g, b int
+	_, _ = fmt.Sscanf(hex, "#%02x%02x%02x", &r, &g, &b)
+	return fmt.Sprintf("\x1b[38;2;%d;%d;%dm", r, g, b)
+}
+
+// applyPalette rebinds the SGR vars to the muted map for one color mode.
+func applyPalette(truecolor bool) {
+	if truecolor {
+		Steel = TruecolorSGR("#7eb8da")
+		Green = TruecolorSGR("#7ec699")
+		Red = TruecolorSGR("#d48a8a")
+		Yellow = TruecolorSGR("#e0af68")
+		Cyan = TruecolorSGR("#7eb8da") // accent tracks the running steel
+		Dim = TruecolorSGR("#828a97")
+		Border = TruecolorSGR("#3d4450")
+		return
+	}
+	// 16-color fallback: nearest ANSI slots (steel ≈ cyan, amber ≈ yellow,
+	// slate ≈ bright black, gray ≈ faint).
+	Steel = "\x1b[36m"
+	Green = "\x1b[32m"
+	Red = "\x1b[31m"
+	Yellow = "\x1b[33m"
+	Cyan = "\x1b[36m"
+	Dim = "\x1b[2m"
+	Border = "\x1b[2m"
+}
+
+// paletteFor pins the palette for one env lookup (pure, testable).
+func paletteFor(getenv func(string) string) bool {
+	return getenv("COLORTERM") == "truecolor" || getenv("COLORTERM") == "24bit"
+}
+
+func init() {
+	applyPalette(paletteFor(os.Getenv))
+}
+
+// SetTruecolor forces the palette mode (tests); the returned func restores
+// the process-detected mode.
+func SetTruecolor(on bool) (restore func()) {
+	prev := paletteFor(os.Getenv)
+	applyPalette(on)
+	return func() { applyPalette(prev) }
+}
+
+// StatusColor maps a state onto the muted palette.
 func StatusColor(status string) string {
 	switch strings.ToLower(status) {
 	case "running":
+		return Steel
+	case "ok", "pass", "done":
 		return Green
-	case "idle":
+	case "stale", "warn":
 		return Yellow
-	case "stale":
-		return Magenta
-	case "failed":
+	case "failed", "fail":
 		return Red
 	default:
 		return Dim
@@ -48,24 +115,26 @@ func Truncate(s string, n int) string {
 	return string(r[:n-1]) + "…"
 }
 
-// DimText wraps s in the dim color.
+// DimText wraps s in the dim (gray) color.
 func DimText(s string) string { return Dim + s + Reset }
 
-// CyanText wraps s in the cyan accent (attach hints and other §20.8
+// CyanText wraps s in the muted accent (attach hints and other §20.8
 // emphasis).
 func CyanText(s string) string { return Cyan + s + Reset }
 
 // ChipFor renders the status chip: colored dot + label, e.g. "● running"
-// (Pilot-style).
+// (Pilot-style), colored from the muted map.
 func ChipFor(state string, label string) string {
 	var dot string
 	switch state {
-	case "running", "ok":
+	case "running":
+		dot = Steel
+	case "ok", "done":
 		dot = Green
 	case "failed":
 		dot = Red
-	case "stale":
-		dot = Magenta
+	case "stale", "warn":
+		dot = Yellow
 	default:
 		dot = Yellow
 	}

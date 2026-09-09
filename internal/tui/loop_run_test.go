@@ -64,12 +64,13 @@ func newBufEnv() *bufEnv {
 
 func (e *bufEnv) Out() io.Writer { return writerFunc(e.buf.Write) }
 
-func (e *bufEnv) In() io.Reader            { return e.in }
-func (e *bufEnv) Size() (int, int)         { return e.rows, e.cols }
-func (e *bufEnv) EnterRaw() error          { e.rawEnters++; return nil }
-func (e *bufEnv) RestoreTerm() error       { e.restores++; return nil }
-func (e *bufEnv) Sigint() <-chan os.Signal { return nil }
-func (e *bufEnv) screenLeft() bool         { return strings.Contains(e.buf.String(), "\x1b[?1049l\x1b[?25h") }
+func (e *bufEnv) In() io.Reader              { return e.in }
+func (e *bufEnv) Size() (int, int)           { return e.rows, e.cols }
+func (e *bufEnv) EnterRaw() error            { e.rawEnters++; return nil }
+func (e *bufEnv) RestoreTerm() error         { e.restores++; return nil }
+func (e *bufEnv) Sigint() <-chan os.Signal   { return nil }
+func (e *bufEnv) Sigwinch() <-chan os.Signal { return nil }
+func (e *bufEnv) screenLeft() bool           { return strings.Contains(e.buf.String(), "\x1b[?1049l\x1b[?25h") }
 func (e *bufEnv) screenEntered() bool {
 	return strings.Contains(e.buf.String(), "\x1b[?1049h\x1b[?25l")
 }
