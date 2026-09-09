@@ -53,6 +53,53 @@ Notes:
 `k` stays bound to kill per FR-TUI-05, so list navigation uses arrow keys (the
 htop default) rather than vi keys.
 
+## Layout & visual language (FR-TUI-P)
+
+```
++-----------------------------------------------------------------------------+
+| [DevAgent  * RUNNING · daemon:embedded]                   <- title bar      |
+| queue [##--------] 2p/1c/3d - runs 1a - activity(5s) ...  <- metric strip   |
+|   * TASK-abc  * working - 5m                                                |
+|   worker omp - pulse [###---]       <- hero (running work, or "next:" idle) |
+| iteration 176 - phase: task - ...                                           |
+| +-- TASK-abc ---+  +-- TASK-xyz +     <- cards 2-up at >=80 cols;           |
+| +---------------+  +-----------+        full-width stacked below 80 (P-08)  |
+| [n] goal [1] workers [2] sessions [3] log - ... [?] help [q] quit <- footer |
++-----------------------------------------------------------------------------+
+```
+
+- **Muted palette (FR-TUI-P-09)** - pilot's chart colors, no rainbow dumps:
+  running `#7eb8da` steel, ok/done `#7ec699` sage, failed `#d48a8a` rose,
+  stale/warn `#e0af68` amber, border `#3d4450` slate, accents gray. Applied
+  as truecolor when `COLORTERM` is `truecolor`/`24bit`; a 16-color fallback
+  (steel=cyan, sage=green, rose=red, amber=yellow, slate/gray=faint)
+  otherwise. Magenta is retired.
+- **Hero (FR-TUI-P-05)** - one focused line for the running work: id, phase,
+  elapsed, worker, and an indeterminate pulse bar animated from the spinner
+  frame (no fabricated percent - the snapshot carries no fraction). When
+  idle it shows the next action instead.
+- **Metric strip (FR-TUI-P-06)** - one dense row under the title bar: queue
+  meter + `Np/Nc/Nd`, live run counts, activity sparkline. `failed_recent`
+  is rendered as a historical `Nf recent` count (amber); it never paints the
+  aggregate state FAILED - only an open circuit breaker does (FR-TUI-P-03).
+  Uptime/herdr/visibility demote to the dim tail.
+- **Redraw guarantees (FR-TUI-P-10)** - between interactive frames the
+  renderer diffs rows and rewrites only changed lines (identical frames
+  produce zero row writes, never a `2J` full clear). A terminal resize
+  re-probes the size on SIGWINCH (FR-TUI-P-04) and performs exactly one
+  sanctioned full clear - the only clears are initial entry, post-attach,
+  and reflow.
+- **Attach-resume contract (FR-TUI-P-01)** - pressing `a` suspends the
+  dashboard (alternate screen left, raw mode drained) and hands the terminal
+  to the herdr attach child. Child exit - clean detach, nonzero exit, signal
+  death, or an environment crash - always resumes the dashboard: alternate
+  screen re-entered, full repaint, raw input re-armed, fresh poll. The child
+  dying never process-exits the TUI.
+- **Footer & help (FR-TUI-P-12)** - the footer is one line whose hint folds
+  by width (full at 116+ cols, mid at 96+, compact at 62+, else help/quit)
+  so `[q] quit` is never clamped off. The `?` overlay keeps its bottom rows,
+  so the quit row is visible even at 24x80.
+
 ## The three views
 
 - **Workers** — boxed worker cards (task id, status chip, elapsed, engine,
@@ -65,12 +112,12 @@ htop default) rather than vi keys.
   follow-tail by default, ~1k-line ring buffer, auto-reconnect with
   `Last-Event-ID` resume.
 
-The header is shared by all views: an inverse title strip with the aggregate
-`RUNNING/IDLE/FAILED` status and a braille spinner (animated only while work
-is live), the iteration card (`iteration 82 · phase: task — …` from the newest
-`loop-phase` ledger row), and a metrics line — uptime, active/failed runs, a
-queue-depth meter, an activity sparkline sampled once per poll (~2 min window),
-circuit state, herdr session, spawn visibility.
+The header is shared by all views (see *Layout & visual language* above): an
+inverse title strip with the aggregate `RUNNING/IDLE/FAILED` status and a
+braille spinner (animated only while work is live), the dense metric strip,
+the hero line (running work with an indeterminate pulse, or the next action
+when idle), and the loop-phase row (`iteration 82 · phase: task — …` from the
+newest `loop-phase` ledger row).
 
 ## Design notes — what was borrowed from the reference TUIs
 
@@ -95,7 +142,7 @@ daemon on port 0 and tears it down on every exit path).
 | `internal/tui/tui.go` | views, overlays, key handling, interactive loop, one-shot mode, daemon resolution (attach/embed) |
 | `internal/tui/transport.go` | bearer-token HTTP + SSE subscriber (reconnect, Last-Event-ID resume) |
 | `internal/tui/input.go` | raw-stdin key decoding (arrows/PgUp/Home as whole escape sequences) |
-| `internal/tui/frame.go` | incremental frame differ: rewrites only changed rows, never clears the screen |
+| `internal/tui/frame.go` | incremental frame differ: rewrites only changed rows, never clears the screen (resize reflow full-clear is the loop's one sanctioned clear) |
 | `internal/tui/viz.go` | sparkline, meter bar, log-line parse/format primitives |
 
 Rendering pipeline: `renderLines()` builds a plain line array → `renderFrame()`

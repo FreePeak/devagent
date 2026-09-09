@@ -724,7 +724,7 @@ func RenderLines(snap *Snapshot, ropts RenderOptions) []string {
 	for i := 0; i < len(cards); i += step {
 		a := cards[i]
 		var b []string
-		if i+1 < len(cards) {
+		if step == 2 && i+1 < len(cards) {
 			b = cards[i+1]
 		}
 		rws := maxInt(len(a), len(b))

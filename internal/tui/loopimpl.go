@@ -800,6 +800,7 @@ func (l *loop) attachLocked() {
 	default:
 		l.note = fmt.Sprintf("attach exited (%d)", code)
 	}
+	l.safeDrawLocked()
 	l.pollNowLocked()
 }
 
