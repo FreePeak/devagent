@@ -49,6 +49,27 @@ func TestRunPreflightProbeGrokMarkerShape(t *testing.T) {
 	}
 }
 
+// TestRunPreflightProbeMarkerSplitAcrossReads: omp's NDJSON can split the
+// answer marker across pipe reads — the matcher runs against the
+// ACCUMULATED stdout buffer, so `"text":` + `"OK"` arriving 0.2s apart
+// still completes the probe (the trailing hang proves the decision came
+// off the stream, not off process exit).
+func TestRunPreflightProbeMarkerSplitAcrossReads(t *testing.T) {
+	requireSh(t)
+	start := time.Now()
+	// cat forwards each partial write as its own pipe write; the sh
+	// builtin's pipe-buffered halves would otherwise coalesce or stall.
+	p := RunPreflightProbe("/bin/sh", []string{
+		"-c", `(printf '"text":'; sleep 0.2; printf '"OK"\n') | cat; sleep 60`,
+	}, t.TempDir(), 15_000)
+	if !p.OK {
+		t.Fatalf("probe = %+v, want ok on the marker split across reads", p)
+	}
+	if d := time.Since(start); d > 5*time.Second {
+		t.Fatalf("probe took %s, want the early streamed decision, not the 15s cap", d)
+	}
+}
+
 // TestRunPreflightProbeDegradesAtCapWhenNeverAnswered: the wall cap stays
 // the backstop — a worker that never prints the marker degrades in bounded
 // time, with the group kill returning promptly (the sleep would run 60s
@@ -99,6 +120,10 @@ func TestRunPreflightProbeSpawnFailureShape(t *testing.T) {
 // CLI's own retry budget (default 2; DEVAGENT_PROBE_API_MAX_RETRIES
 // overrides; the user's config file is never touched).
 func TestProbeRetryCapOverlayBoundsInProcessRetries(t *testing.T) {
+	// Isolate the default-cap assertion from a stray
+	// DEVAGENT_PROBE_API_MAX_RETRIES in the machine/loop env (Atoi("")
+	// fails -> the default path is the one under test).
+	t.Setenv(ProbeAPIRetryCapEnv, "")
 	path, err := writeProbeRetryCapOverlay()
 	if err != nil {
 		t.Fatalf("writeProbeRetryCapOverlay: %v", err)
