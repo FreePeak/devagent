@@ -192,3 +192,4 @@
 {"loop":231,"ts":"2026-09-10T21:30:02Z","status":"ok","goal":"Goal: Implement GitHub issue #293 (FR-VAL-05: quality-drift ratchet — LLM-judge rubric scoring on shipped artifacts with regression gating) in full and verifiab"}
 {"loop":232,"ts":"2026-09-10T21:58:19Z","status":"ok","goal":"Goal: Implement GitHub issue #306 (resilience: preflight probe waits for CLI process exit instead of completing on the streamed OK marker) in full and verifiabl"}
 {"loop":233,"ts":"2026-09-10T23:20:05Z","status":"failed","goal":"Goal: Implement GitHub issue #301 (loopdriver: research pick rationale dropped in goal construction — merge-existing-PR picks re-implement from scratch) in full"}
+{"loop":234,"ts":"2026-09-10T23:23:23Z","status":"provider-degraded","goal":"preflight: provider probe failed"}
