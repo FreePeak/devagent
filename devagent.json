@@ -1,6 +1,6 @@
 {
   "worker": "omp",
-  "model": "b-ai/glm-5.3-flash",
+  "model": "onegw/free",
   "herdr": {
     "enabled": true,
     "session": "devagent"
@@ -10,7 +10,7 @@
     "worker": "omp",
     "intervalMinutes": 30,
     "maxQueued": 3,
-    "model": "b-ai/glm-5.3-flash"
+    "model": "onegw/free"
   },
   "autoMerge": true,
   "selfUpdate": true,

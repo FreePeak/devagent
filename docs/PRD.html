@@ -4664,7 +4664,7 @@ the TUI/Tauri app</td>
 href="https://github.com/FreePeak/devagent/issues/290">#290</a></td>
 </tr>
 <tr>
-<td>FR-VAL-03</td>
+<td>FR-VAL-03 ✅</td>
 <td>Driver observability parity: truthful <code>runs.active</code>
 (closes #287), visible worker panes via wired
 <code>HerdrPaneRunner</code> (closes #288), periodic watchdog-health
@@ -4672,8 +4672,22 @@ rows + enforced no-progress kill on ALL spawn paths, and a loopdriver
 heartbeat (<code>{iteration, phase, pid}</code>) surfaced on
 <code>GET /status</code></td>
 <td>M</td>
-<td><a
-href="https://github.com/FreePeak/devagent/issues/291">#291</a></td>
+<td>✅ <a
+href="https://github.com/FreePeak/devagent/issues/291">#291</a> —
+shipped 2026-09-11: run lock acquired in <code>taskCommand</code> before
+<code>RunTask</code> (live-smoked: second concurrent
+<code>task --id</code> exits 1 "already active" and the lock is visible
+under <code>DEVAGENT_HOME/locks</code> while the first runs);
+<code>workers.WireHerdrPaneRunner</code> installed from
+<code>cli.Execute</code> (nil seam kept for tests); 30s periodic
+<code>watchdog-health</code> rows on the direct path
+(<code>emitWatchdogRow</code> in <code>spawnCliStreaming</code>'s poll
+loop) and the pane path (<code>emitPaneWatchdogRow</code> in
+<code>RunCommandInHerdrPane</code>'s poll loop) with the no-progress
+kill enforced on both; driver <code>writeHeartbeat</code> at every
+<code>phase()</code> boundary → <code>.selfbuild/heartbeat.json</code> →
+<code>GET /status</code>
+<code>loop:{iteration,phase,pid,updatedAt}</code></td>
 </tr>
 <tr>
 <td>FR-VAL-04</td>
@@ -4703,23 +4717,53 @@ existing driver with validation surfaces (test, command, telemetry,
 chaos schedule) so "the driver works perfectly" is a checkable claim,
 not a hope.</p>
 <hr />
-<p>*Last updated: 2026-09-10 (issue #300) — post-merge-back repo-level
-test gate default flipped from <code>npm test</code> (stale after the
-Node-tree retirement, PR #240) to <code>go test ./...</code>; the npm
-default ENOENTed in 0.18s and stamped every green iteration
-<code>failed-tests</code> (last ledger <code>ok</code> row: loop 176,
-2026-09-08), feeding the 2026-09-10 starvation halt and breaker trip.
-Pinned by TestRunRepoTestsDefaultIsGoTest and the updated
-TestConfigFromEnvTestCmd defaults. Details §22.2. Prior: 2026-09-10 (TUI
-view-switch fix) — pressing 1/2/3 could leave with OPOST off,
-drawLocked's unconditional trailing <code>\n</code> after an all-skip
-frame (the norm after a view switch) scrolled the alternate screen and
-desynced every later diff. RenderFrame now erases leftovers via absolute
-CUP+ED (never cursor-relative), drawLocked drops the trailing LF, clamps
-rows to the real geometry and hard-caps degenerate short terminals;
-three regression tests pin it (each fails pre-fix). Details §20.8.
-Prior: 2026-09-10 (issue #289) — FR-VAL-01 golden soak self-test landed
-as <code>TestGoldenSoak</code> in
+<p>*Last updated: 2026-09-11 (config decision, reverted) — tried pinning
+<code>devagent.json</code> worker+scout <code>model</code> off the
+saturating <code>onegw/free</code> combo to the single
+<code>b-ai/glm-5.3-flash</code> leg (7fdef93) to stop repeated
+<code>provider-degraded</code> iterations; <strong>reverted</strong> —
+it bought nothing and cost resilience. Measured: preflight still
+degraded on the pinned leg (iteration 229 row carries
+<code>model":"b-ai/glm-5.3-flash"</code>, <code>attempts:3</code>),
+while iteration 227 (pre-pin, on the combo) had already shipped #291
+end-to-end, and the combo streamed 729KB/885KB for workers that wedged
+at first token. The pin also removed 5-target combo fall-through to
+<code>b-ai</code>'s own <code>429001</code> concurrency caps under ~50
+co-resident omp agents. The degraded rows' real cause is probe
+first-token latency, not model choice, and the breaker counting them is
+intended bash parity (<code>selfbuild-loop.sh:277</code>,
+<code>TestRunLoopPreflightBreaker</code>): a dead window must stop the
+loop and let the supervisor retry, not spin. Prior: 2026-09-11 (issue
+#291, FR-VAL-03) — driver observability parity: <code>taskCommand</code>
+acquires the run lock before <code>RunTask</code> so
+<code>runs.active</code> on /status is truthful (closes #287;
+live-smoked with a rejected concurrent task); <code>cli.Execute</code>
+wires <code>HerdrPaneRunner</code> to the herdr pane runtime so
+<code>spawn.visibility: visible</code> really gets panes (closes #288);
+watchdog-health rows now emit every 30s on both the direct and
+herdr-pane spawn paths while the no-progress kill stays enforced; the
+loop driver writes <code>.selfbuild/heartbeat.json</code> at every phase
+boundary and <code>GET /status</code> exposes it as <code>loop</code>,
+and the TUI iteration card now sources
+<code>iteration N · phase X</code> from that heartbeat (ledger tail
+demoted to fallback for old daemons). Prior: 2026-09-10 (issue #300) —
+post-merge-back repo-level test gate default flipped from
+<code>npm test</code> (stale after the Node-tree retirement, PR #240) to
+<code>go test ./...</code>; the npm default ENOENTed in 0.18s and
+stamped every green iteration <code>failed-tests</code> (last ledger
+<code>ok</code> row: loop 176, 2026-09-08), feeding the 2026-09-10
+starvation halt and breaker trip. Pinned by
+TestRunRepoTestsDefaultIsGoTest and the updated TestConfigFromEnvTestCmd
+defaults. Details §22.2. Prior: 2026-09-10 (TUI view-switch fix) —
+pressing 1/2/3 could leave with OPOST off, drawLocked's unconditional
+trailing <code>\n</code> after an all-skip frame (the norm after a view
+switch) scrolled the alternate screen and desynced every later diff.
+RenderFrame now erases leftovers via absolute CUP+ED (never
+cursor-relative), drawLocked drops the trailing LF, clamps rows to the
+real geometry and hard-caps degenerate short terminals; three regression
+tests pin it (each fails pre-fix). Details §20.8. Prior: 2026-09-10
+(issue #289) — FR-VAL-01 golden soak self-test landed as
+<code>TestGoldenSoak</code> in
 <code>internal/loopdriver/run_test.go</code>: 3 consecutive green
 iterations end-to-end, already-shipped guard rejecting the 4th re-pick,
 and the failed-tests classification pin, all hermetic over the existing

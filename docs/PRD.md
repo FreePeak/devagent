@@ -1551,7 +1551,20 @@ existing driver with validation surfaces (test, command, telemetry, chaos
 schedule) so "the driver works perfectly" is a checkable claim, not a hope.
 
 ---
-*Last updated: 2026-09-11 (issue #291, FR-VAL-03) — driver observability
+*Last updated: 2026-09-11 (config decision, reverted) — tried pinning
+`devagent.json` worker+scout `model` off the saturating `onegw/free` combo to
+the single `b-ai/glm-5.3-flash` leg (7fdef93) to stop repeated
+`provider-degraded` iterations; **reverted** — it bought nothing and cost
+resilience. Measured: preflight still degraded on the pinned leg (iteration 229
+row carries `model":"b-ai/glm-5.3-flash"`, `attempts:3`), while iteration 227
+(pre-pin, on the combo) had already shipped #291 end-to-end, and the combo
+streamed 729KB/885KB for workers that wedged at first token. The pin also
+removed 5-target combo fall-through to `b-ai`'s own `429001` concurrency caps
+under ~50 co-resident omp agents. The degraded rows' real cause is probe
+first-token latency, not model choice, and the breaker counting them is
+intended bash parity (`selfbuild-loop.sh:277`, `TestRunLoopPreflightBreaker`):
+a dead window must stop the loop and let the supervisor retry, not spin.
+Prior: 2026-09-11 (issue #291, FR-VAL-03) — driver observability
 parity: `taskCommand` acquires the run lock before `RunTask` so `runs.active`
 on /status is truthful (closes #287; live-smoked with a rejected concurrent
 task); `cli.Execute` wires `HerdrPaneRunner` to the herdr pane runtime so
