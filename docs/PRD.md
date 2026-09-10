@@ -1518,13 +1518,16 @@ Master tracker with definition of done: [#207](https://github.com/FreePeak/devag
 | FR-VAL-03 | Driver observability parity: truthful `runs.active` (closes #287), visible worker panes via wired `HerdrPaneRunner` (closes #288), periodic watchdog-health rows + enforced no-progress kill on ALL spawn paths, and a loopdriver heartbeat (`{iteration, phase, pid}`) surfaced on `GET /status` | M | [#291](https://github.com/FreePeak/devagent/issues/291) |
 | FR-VAL-04 | Chaos soak: nightly fault-injection scenarios — SIGKILL driver mid-iteration (stale-lock break), SIGKILL worker mid-run (attempt 2/3 retry), fake provider hang (watchdog kill), network blackhole during state push (deferred push), repeated failure (circuit breaker) — each asserting recovery + correct ledger classification | S | [#292](https://github.com/FreePeak/devagent/issues/292) |
 
+| FR-VAL-05 | Quality-drift ratchet: LLM-judge rubric scoring of shipped PRs recorded as `eval-score` ledger rows, trailing-window regression warning in `ledger --clusters` + research prompts, nightly CI drift job; rubric version recorded per score | S | [#293](https://github.com/FreePeak/devagent/issues/293) |
+
 Non-goal: FR-VAL does not add a new runtime subsystem; it hardens the
 existing driver with validation surfaces (test, command, telemetry, chaos
 schedule) so "the driver works perfectly" is a checkable claim, not a hope.
 
 ---
 *Last updated: 2026-09-10 (goal session) — added §23 Driver Validation
-addendum (FR-VAL-01..04, issues #289–#292) scoped from internet prior art
-(SWE-bench, AWS/Azure chaos engineering, OpenTelemetry GenAI semconv);
-filed the four FR-VAL issues for the loop queue.*
+addendum (FR-VAL-01..05, issues #289–#293) scoped from internet prior art
+(SWE-bench, AWS/Azure chaos engineering, OpenTelemetry GenAI semconv,
+LLM-as-judge drift practice); filed the five FR-VAL issues for the loop
+queue.*
 
