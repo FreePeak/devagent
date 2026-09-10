@@ -4644,14 +4644,18 @@ asserting recovery + correct ledger classification</td>
 <td><a
 href="https://github.com/FreePeak/devagent/issues/292">#292</a></td>
 </tr>
+<tr>
+<td>FR-VAL-05</td>
+<td>Quality-drift ratchet: LLM-judge rubric scoring of shipped PRs
+recorded as <code>eval-score</code> ledger rows, trailing-window
+regression warning in <code>ledger --clusters</code> + research prompts,
+nightly CI drift job; rubric version recorded per score</td>
+<td>S</td>
+<td><a
+href="https://github.com/FreePeak/devagent/issues/293">#293</a></td>
+</tr>
 </tbody>
 </table>
-<p>| FR-VAL-05 | Quality-drift ratchet: LLM-judge rubric scoring of
-shipped PRs recorded as <code>eval-score</code> ledger rows,
-trailing-window regression warning in <code>ledger --clusters</code> +
-research prompts, nightly CI drift job; rubric version recorded per
-score | S | <a
-href="https://github.com/FreePeak/devagent/issues/293">#293</a> |</p>
 <p>Non-goal: FR-VAL does not add a new runtime subsystem; it hardens the
 existing driver with validation surfaces (test, command, telemetry,
 chaos schedule) so "the driver works perfectly" is a checkable claim,
