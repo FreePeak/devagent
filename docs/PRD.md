@@ -1507,7 +1507,8 @@ Master tracker with definition of done: [#207](https://github.com/FreePeak/devag
 > headless spawn path. Requirements were scoped against external prior art
 > scouted from the internet (SWE-bench end-to-end evaluation; AWS
 > Well-Architected REL12-BP04 + Azure fault-injection chaos practice;
-> OpenTelemetry GenAI semantic conventions for uniform agent telemetry).
+> OpenTelemetry GenAI semantic conventions for uniform agent telemetry;
+> LLM-as-a-judge rubric + drift-regression eval practice for FR-VAL-05).
 
 ### 23.1 Requirements
 
