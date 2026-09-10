@@ -190,3 +190,4 @@
 {"loop":229,"ts":"2026-09-10T19:17:35Z","status":"provider-degraded","goal":"preflight: provider probe failed"}
 {"loop":230,"ts":"2026-09-10T20:14:30Z","status":"ok","goal":"Goal: Implement GitHub issue #292 (FR-VAL-04: chaos soak — scripted fault-injection scenarios proving the driver recovers from every failure class) in full and "}
 {"loop":231,"ts":"2026-09-10T21:30:02Z","status":"ok","goal":"Goal: Implement GitHub issue #293 (FR-VAL-05: quality-drift ratchet — LLM-judge rubric scoring on shipped artifacts with regression gating) in full and verifiab"}
+{"loop":232,"ts":"2026-09-10T21:58:19Z","status":"ok","goal":"Goal: Implement GitHub issue #306 (resilience: preflight probe waits for CLI process exit instead of completing on the streamed OK marker) in full and verifiabl"}
