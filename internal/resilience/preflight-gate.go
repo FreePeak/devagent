@@ -36,21 +36,21 @@ func IsPreflightRole(value string) bool {
 // PreflightProbeAttempts is the probe invocations per gate run.
 const PreflightProbeAttempts = 3
 
-// PreflightProbeTimeoutMs is the hard wall-clock cap per probe. It must
-// clear the worker CLI's own session round-trip, not just the model reply.
-// Measured 2026-09-11 on the live route: the `omp -p OK --mode json
-// --no-prewalk --no-lsp --no-extensions` probe completes in 15-75s (42s and a
-// 75s timeout on the default profile; 15s/29s with the advisor disabled),
-// while a raw gateway completion for the same model answers in 1.0-2.1s. So
-// the budget is spent inside the CLI (session start, memory, advisor
-// round-trip), not on model choice — pinning the combo to one leg changed
-// nothing, and a 60s cap kept flipping a healthy provider into a
-// provider-degraded iteration. 120s keeps a genuinely dead route bounded
-// (3 attempts → ~6.3 min worst case) while clearing the measured tail: the
-// gate must still stop the cycle and let the supervisor retry rather than
-// burn a dispatch, and degraded rows stay starvation-exempt, so raising it
-// cannot feed the starvation gate.
-const PreflightProbeTimeoutMs = 120_000
+// PreflightProbeTimeoutMs is the hard wall-clock cap per probe. Must stay
+// cheap but clear the slowest observed gateway round-trip: omniroute/dev
+// replies land at 25-38s (2026-09-03 live: shell probe 26s, execFile 25s,
+// several >30s), so a 30s cap turned the gate into a coin-flip that tripped
+// the selfbuild circuit breaker. 60s keeps the probe bounded while clearing
+// the tail.
+//
+// 2026-09-10: the onegw free combo's upstream legs saturate independently
+// (b-ai 429001 concurrency errors, tokenharbor free_tier_limit_reached,
+// tokenrouter 45-70s hangs) — the 60s cap is the binding budget for those
+// stalls and failures are honest (the gate must skip the cycle rather than
+// burn a dispatch on a wedged upstream). Keep the cap; the retries below
+// absorb the transient tail, and a genuinely dead route still degrades in
+// bounded time instead of wedging the driver.
+const PreflightProbeTimeoutMs = 60_000
 
 // PreflightRetryDelayMs is the sleep between failed probes (mirrors
 // orchestrate-loop's 5s).

@@ -1551,21 +1551,7 @@ existing driver with validation surfaces (test, command, telemetry, chaos
 schedule) so "the driver works perfectly" is a checkable claim, not a hope.
 
 ---
-*Last updated: 2026-09-11 (preflight probe cap) — `PreflightProbeTimeoutMs`
-raised 60s → 120s after measuring the probe's true cost:
-`omp -p OK --mode json --no-prewalk --no-lsp --no-extensions` completes in
-15-75s (default profile: 42s and one 75s timeout; advisor-off profile:
-15s/29s) while a raw gateway completion for the same model answers in
-1.0-2.1s — the budget goes to the worker CLI's session machinery (startup,
-memory, advisor round-trip), not to model choice. The 60s cap kept flipping a
-healthy provider into `provider-degraded` iterations (recurring across loops
-213-229). Worst case stays bounded (3 × 120s) and degraded rows remain
-starvation-exempt, so the raise cannot feed the starvation gate; the breaker
-still stops a truly dead window for the supervisor to retry (bash parity:
-`selfbuild-loop.sh:277`, `TestRunLoopPreflightBreaker`). Rationale lives on
-the constant; prior art: offline eval pipelines treat probe latency as the
-thing to measure, not to guess.
-Prior: 2026-09-11 (config decision, reverted) — tried pinning
+*Last updated: 2026-09-11 (config decision, reverted) — tried pinning
 `devagent.json` worker+scout `model` off the saturating `onegw/free` combo to
 the single `b-ai/glm-5.3-flash` leg (7fdef93) to stop repeated
 `provider-degraded` iterations; **reverted** — it bought nothing and cost
