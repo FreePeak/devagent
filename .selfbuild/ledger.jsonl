@@ -185,3 +185,4 @@
 {"loop":224,"ts":"2026-09-10T15:29:23Z","status":"provider-degraded","goal":"preflight: provider probe failed"}
 {"loop":225,"ts":"2026-09-10T16:19:17Z","status":"no-pr","goal":"Goal: Implement GitHub issue #290 (FR-VAL-02: devagent doctor — one-command machine validation with human + --json output) in full and verifiably. Read the issu"}
 {"loop":226,"ts":"2026-09-10T17:00:54Z","status":"provider-degraded","goal":"preflight: provider probe failed"}
+{"loop":227,"ts":"2026-09-10T18:50:57Z","status":"ok","goal":"Goal: Implement GitHub issue #291 (FR-VAL-03: driver observability parity — truthful /status, visible worker panes, periodic watchdog rows, driver heartbeat) in"}
