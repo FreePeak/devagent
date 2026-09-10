@@ -22,10 +22,14 @@ const (
 	StateBranch = "selfbuild/state"
 	// RemoteStateRef is the local remote-tracking ref StateBranch fetches into.
 	RemoteStateRef = "refs/remotes/origin/selfbuild-state"
-	// networkTimeout bounds each git network op in the state sync (the bash
-	// driver wrapped each selfbuild-state.sh call in `timeout 60`).
-	networkTimeout = 60 * time.Second
 )
+
+// networkTimeout bounds each git network op in the state sync (the bash
+// driver wrapped each selfbuild-state.sh call in `timeout 60`). Var, not
+// const, so the FR-VAL-04 chaos test (chaos_test.go) can shorten it and
+// prove a black-holed transport gets cut at the bound — same test-seam
+// convention as workers.watchdogHealthRowInterval.
+var networkTimeout = 60 * time.Second
 
 // stateSync ports scripts/selfbuild-state.sh: pull merges
 // origin/selfbuild/state into local .selfbuild/, push publishes the merged
