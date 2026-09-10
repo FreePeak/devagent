@@ -89,8 +89,20 @@ func TestClassifyGoalAndTaskIdentity(t *testing.T) {
 	if got := ClassifyGoal("fix(loopdriver): stop the starvation spin"); got != "fix" {
 		t.Fatalf("goal class = %q", got)
 	}
-	if got := ClassifyGoal("Goal: implement issue #293"); got != "other" {
-		t.Fatalf("non-conventional subject should classify as other, got %q", got)
+	// The loop's own squash titles ("Goal: Implement GitHub issue #NNN (…)")
+	// are the loop's feature artifacts: capitalized match, aliased to feat —
+	// never the catch-all bucket, where they would share a baseline with
+	// unrelated unclassified PRs.
+	if got := ClassifyGoal("Goal: Implement GitHub issue #293 (FR-VAL-05: quality-drift ratchet)"); got != "feat" {
+		t.Fatalf("loop squash subject = %q, want feat", got)
+	}
+	if got := ClassifyGoal("Docs(prd): repair the table break"); got != "docs" {
+		t.Fatalf("capitalized conventional subject = %q, want docs", got)
+	}
+	// The documented ceiling: a subject with no conventional prefix at all
+	// is unclassifiable and shares the catch-all baseline.
+	if got := ClassifyGoal("repair the ratchet"); got != "other" {
+		t.Fatalf("unclassifiable subject = %q, want other", got)
 	}
 	shipped := Evidence{PR: 42, Head: "devagent/TASK-mtvz0se9-281k", Title: "feat(x): y"}
 	if got := DeriveTaskID(shipped); got != "TASK-mtvz0se9-281k" {

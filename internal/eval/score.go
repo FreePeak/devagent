@@ -73,16 +73,35 @@ func (e Evidence) TouchesPrd() bool {
 var taskIDRe = regexp.MustCompile(`TASK-[a-z0-9]+-[a-z0-9]+`)
 
 // conventionalTypeRe captures the type of a conventional-commit subject
-// ("fix(loopdriver): …" → "fix"); that is the loop's goal class, so a docs PR
-// never ratchets against a feature PR.
+// ("fix(loopdriver): …" → "fix"); that is the loop's goal class, so a docs
+// PR never ratchets against a feature PR. Matching runs on the lowercased
+// subject: the loop's own squash titles start capitalized ("Goal: Implement
+// GitHub issue #NNN (…)") and must not fall into the catch-all bucket.
 var conventionalTypeRe = regexp.MustCompile(`^([a-z]+)(\([^)]*\))?!?:`)
 
+// goalClassAliases folds the loop's native subject form into the conventional
+// taxonomy: a self-build deliverable ships titled "Goal: Implement GitHub
+// issue #NNN (…)" — that is the loop's feature artifact, not a sixth class.
+var goalClassAliases = map[string]string{"goal": "feat"}
+
 // ClassifyGoal derives the ratchet bucket from the PR subject.
+//
+// Known ceiling: a subject with no conventional prefix at all ("repair the
+// ratchet") is unclassifiable and shares one catch-all "other" baseline with
+// every other such artifact — so an unconventionally-titled docs PR can raise
+// the best-so-far a later one competes against. Accepted for the alert-only
+// first release (issue #293): the loop writes its own titles in fixed shapes
+// that all classify. Upgrade path if third-party PRs ever score: derive the
+// class from Evidence.Files (docs-only vs code) when the subject misses.
 func ClassifyGoal(title string) string {
-	if m := conventionalTypeRe.FindStringSubmatch(strings.TrimSpace(title)); m != nil {
-		return m[1]
+	m := conventionalTypeRe.FindStringSubmatch(strings.ToLower(strings.TrimSpace(title)))
+	if m == nil {
+		return "other"
 	}
-	return "other"
+	if alias, ok := goalClassAliases[m[1]]; ok {
+		return alias
+	}
+	return m[1]
 }
 
 // DeriveTaskID finds the owning devagent task id in the branch name, title or
