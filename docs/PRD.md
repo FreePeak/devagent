@@ -30,6 +30,7 @@
 20. [Product Direction Addendum: Grok Bot, xAI Integration, Cross-Platform Control App](#20-product-direction-addendum-grok-bot-xai-integration-cross-platform-control-app)
 21. [Product Direction Addendum: Simplicity First (FR-SIMPLE)](#21-product-direction-addendum-simplicity-first-fr-simple)
 22. [Addendum: Full Go Migration (FR-GO)](#22-addendum-full-go-migration-fr-go)
+23. [Addendum: Driver Validation (FR-VAL)](#23-addendum-driver-validation-fr-val)
 
 ---
 
@@ -1495,37 +1496,35 @@ the existing CLI surface. Parity is defined by three gates:
 Test-parity scoreboard across all of the above: [#206](https://github.com/FreePeak/devagent/issues/206).
 Master tracker with definition of done: [#207](https://github.com/FreePeak/devagent/issues/207).
 
+## 23. Addendum: Driver Validation (FR-VAL)
+
+> Added 2026-09-10 (operator goal): continuous, evidence-backed proof that the
+> selfbuild loop driver **works perfectly** — not only that its unit tests
+> pass. Motivated by live findings from the 2026-09-10 operation session:
+> a starvation-halted loop with 133 hollow restarts, a wedged post-halt
+> driver, an idle-showing TUI during real work (#287), invisible worker
+> spawns (#288), and a no-progress watchdog that never fired on the
+> headless spawn path. Requirements were scoped against external prior art
+> scouted from the internet (SWE-bench end-to-end evaluation; AWS
+> Well-Architected REL12-BP04 + Azure fault-injection chaos practice;
+> OpenTelemetry GenAI semantic conventions for uniform agent telemetry).
+
+### 23.1 Requirements
+
+| ID | Requirement | Pri | Issue |
+|---|---|---|---|
+| FR-VAL-01 | Golden soak self-test: a hermetic CI test runs the full loop driver end-to-end (pick → research → PO → task → gate → ledger) over a fixture repo with fake worker CLIs, asserting N consecutive `ok` ledger rows, correct artifact creation, already-shipped guard behavior, and failure-path classification | M | [#289](https://github.com/FreePeak/devagent/issues/289) |
+| FR-VAL-02 | `devagent doctor`: one-command machine validation (version stamp, config, DEVAGENT_HOME, git remote, gh auth incl. invalid-env-token detection, herdr session, daemon /status, provider preflight, stale artifacts) with human + `--json` output for the TUI/Tauri app | M | [#290](https://github.com/FreePeak/devagent/issues/290) |
+| FR-VAL-03 | Driver observability parity: truthful `runs.active` (closes #287), visible worker panes via wired `HerdrPaneRunner` (closes #288), periodic watchdog-health rows + enforced no-progress kill on ALL spawn paths, and a loopdriver heartbeat (`{iteration, phase, pid}`) surfaced on `GET /status` | M | [#291](https://github.com/FreePeak/devagent/issues/291) |
+| FR-VAL-04 | Chaos soak: nightly fault-injection scenarios — SIGKILL driver mid-iteration (stale-lock break), SIGKILL worker mid-run (attempt 2/3 retry), fake provider hang (watchdog kill), network blackhole during state push (deferred push), repeated failure (circuit breaker) — each asserting recovery + correct ledger classification | S | [#292](https://github.com/FreePeak/devagent/issues/292) |
+
+Non-goal: FR-VAL does not add a new runtime subsystem; it hardens the
+existing driver with validation surfaces (test, command, telemetry, chaos
+schedule) so "the driver works perfectly" is a checkable claim, not a hope.
+
 ---
-*Last updated: 2026-09-10 (issue #271) — TestApplyKeysApproveSheet CI flake
-fixed in three layers. (1) State-test determinism: the approve-sheet test
-seeds countingTransport's canned /status snapshot and moves the
-empty-answer refusal before the first submit. (2) Tui test doubles made
-thread-safe — bufEnv (buffer, raw-mode counters, attach log, geometry) and
-countingTransport.polls mutex-guarded behind accessor methods, and
-TestApplyKeysKillFlow waits on the kill goroutine's mu-held note write
-before its l.note assertions (DATA RACE reports across 10 tests under
-`go test -race`). (3) Product fix: poll refuses to run on a loop that
-never ran (l.running guard on poll, pollNowLocked, drawLocked) —
-ApplyKeys-driven state tests' submit paths used to leave zombie 2s poll
-chains that fetched, drew, and re-armed forever, racing later tests'
-palette-global writes (SetMono); that residual race survived (1)+(2) at
-`-race -count=30` under CPU saturation and is the same
-environment-dependent class #271 pins. Matches production semantics: no
-dashboard, no poll — RunOneShot renders its own frame.
-Load-hardening wave (#262 class): config.Load tests scrub the DEVAGENT_*
-resilience env overrides (Fixes #280 — worker sessions inherit them from
-the dispatch env); TestGuardExplicitZeroBackoffRetriesImmediately asserts
-the computed "in 0ms" retry line off stderr instead of a wall-clock bound;
-TestLoopPollCadence's deadline is 4× the 2s poll chain; tui runWaitFor's
-failure budget and the workers spawn cold-start budget run wide of their
-awaited intervals. Residual loaded-box kill (loop-208 gate evidence,
-reproduced under concurrent `go test` gates): the no-progress branch fired
-inside the cold-start window whenever `noProgressMs < coldStartMs` —
-a slow fork+exec breached the 1.5s silence budget before any output
-(`WatchdogFired=true ClockResets=0 MeaningfulBytes=0`) despite the 5s
-cold-start budget. The silence clock now defers until the first
-meaningful line (or an absent cold-start budget), matching Q31's
-"coldStartMs is the binding budget" contract; pinned deterministically by
-TestSpawnCliStreaming_NoProgressClockDefersToColdStart. `go test -race
--count=30 -shuffle=on -v ./internal/tui` and `go test -count=1 ./...`
-exit 0, fresh and under CPU saturation.*
+*Last updated: 2026-09-10 (goal session) — added §23 Driver Validation
+addendum (FR-VAL-01..04, issues #289–#292) scoped from internet prior art
+(SWE-bench, AWS/Azure chaos engineering, OpenTelemetry GenAI semconv);
+filed the four FR-VAL issues for the loop queue.*
+

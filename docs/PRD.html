@@ -421,6 +421,9 @@ Product Direction Addendum: Simplicity First (FR-SIMPLE)</a></li>
 <li><a href="#22-addendum-full-go-migration-fr-go"
 id="toc-22-addendum-full-go-migration-fr-go">22. Addendum: Full Go
 Migration (FR-GO)</a></li>
+<li><a href="#23-addendum-driver-validation-fr-val"
+id="toc-23-addendum-driver-validation-fr-val">23. Addendum: Driver
+Validation (FR-VAL)</a></li>
 </ul></li>
 </ul>
 </nav>
@@ -468,6 +471,8 @@ href="#21-product-direction-addendum-simplicity-first-fr-simple">Product
 Direction Addendum: Simplicity First (FR-SIMPLE)</a></li>
 <li><a href="#22-addendum-full-go-migration-fr-go">Addendum: Full Go
 Migration (FR-GO)</a></li>
+<li><a href="#23-addendum-driver-validation-fr-val">Addendum: Driver
+Validation (FR-VAL)</a></li>
 </ol>
 <hr />
 <h2 id="1-executive-summary">1. Executive Summary</h2>
@@ -4568,11 +4573,88 @@ reality (PR #236); #206 tracks the vitest-coverage port to Go</td>
 href="https://github.com/FreePeak/devagent/issues/206">#206</a>. Master
 tracker with definition of done: <a
 href="https://github.com/FreePeak/devagent/issues/207">#207</a>.</p>
+<h2 id="23-addendum-driver-validation-fr-val">23. Addendum: Driver
+Validation (FR-VAL)</h2>
+<blockquote>
+<p>Added 2026-09-10 (operator goal): continuous, evidence-backed proof
+that the selfbuild loop driver <strong>works perfectly</strong> — not
+only that its unit tests pass. Motivated by live findings from the
+2026-09-10 operation session: a starvation-halted loop with 133 hollow
+restarts, a wedged post-halt driver, an idle-showing TUI during real
+work (#287), invisible worker spawns (#288), and a no-progress watchdog
+that never fired on the headless spawn path. Requirements were scoped
+against external prior art scouted from the internet (SWE-bench
+end-to-end evaluation; AWS Well-Architected REL12-BP04 + Azure
+fault-injection chaos practice; OpenTelemetry GenAI semantic conventions
+for uniform agent telemetry).</p>
+</blockquote>
+<h3 id="231-requirements">23.1 Requirements</h3>
+<table>
+<thead>
+<tr>
+<th>ID</th>
+<th>Requirement</th>
+<th>Pri</th>
+<th>Issue</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>FR-VAL-01</td>
+<td>Golden soak self-test: a hermetic CI test runs the full loop driver
+end-to-end (pick → research → PO → task → gate → ledger) over a fixture
+repo with fake worker CLIs, asserting N consecutive <code>ok</code>
+ledger rows, correct artifact creation, already-shipped guard behavior,
+and failure-path classification</td>
+<td>M</td>
+<td><a
+href="https://github.com/FreePeak/devagent/issues/289">#289</a></td>
+</tr>
+<tr>
+<td>FR-VAL-02</td>
+<td><code>devagent doctor</code>: one-command machine validation
+(version stamp, config, DEVAGENT_HOME, git remote, gh auth incl.
+invalid-env-token detection, herdr session, daemon /status, provider
+preflight, stale artifacts) with human + <code>--json</code> output for
+the TUI/Tauri app</td>
+<td>M</td>
+<td><a
+href="https://github.com/FreePeak/devagent/issues/290">#290</a></td>
+</tr>
+<tr>
+<td>FR-VAL-03</td>
+<td>Driver observability parity: truthful <code>runs.active</code>
+(closes #287), visible worker panes via wired
+<code>HerdrPaneRunner</code> (closes #288), periodic watchdog-health
+rows + enforced no-progress kill on ALL spawn paths, and a loopdriver
+heartbeat (<code>{iteration, phase, pid}</code>) surfaced on
+<code>GET /status</code></td>
+<td>M</td>
+<td><a
+href="https://github.com/FreePeak/devagent/issues/291">#291</a></td>
+</tr>
+<tr>
+<td>FR-VAL-04</td>
+<td>Chaos soak: nightly fault-injection scenarios — SIGKILL driver
+mid-iteration (stale-lock break), SIGKILL worker mid-run (attempt 2/3
+retry), fake provider hang (watchdog kill), network blackhole during
+state push (deferred push), repeated failure (circuit breaker) — each
+asserting recovery + correct ledger classification</td>
+<td>S</td>
+<td><a
+href="https://github.com/FreePeak/devagent/issues/292">#292</a></td>
+</tr>
+</tbody>
+</table>
+<p>Non-goal: FR-VAL does not add a new runtime subsystem; it hardens the
+existing driver with validation surfaces (test, command, telemetry,
+chaos schedule) so "the driver works perfectly" is a checkable claim,
+not a hope.</p>
 <hr />
-<p><em>Last updated: 2026-09-09 (CloddsBot skin) — dashboard/CLI visual
-language re-skinned after CloddsBot's terminal toolkit (§20.8): cyan
-centered box titles, header tagline, init-wizard wordmark + step chips +
-✓/✗ outcome glyphs; presentation only (no behavior/payload change),
-pinned by internal/tui/clodds_skin_test.go.</em></p>
+<p><em>Last updated: 2026-09-10 (goal session) — added §23 Driver
+Validation addendum (FR-VAL-01..04, issues #289–#292) scoped from
+internet prior art (SWE-bench, AWS/Azure chaos engineering,
+OpenTelemetry GenAI semconv); filed the four FR-VAL issues for the loop
+queue.</em></p>
 </body>
 </html>
