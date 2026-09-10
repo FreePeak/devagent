@@ -3,6 +3,7 @@ package loopdriver
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -46,7 +47,16 @@ exit 0
 		"gh-fake": `#!/bin/sh
 echo "gh $*" >> "${DEVAGENT_LOG:?}"
 case "$1 $2" in
-  "issue list") printf '%s' "$GH_ISSUES_JSON" ;;
+  "issue list")
+    if [ -n "${GH_ROTATE_STATE:-}" ]; then
+      c=$(cat "$GH_ROTATE_STATE" 2>/dev/null || echo 0)
+      c=$((c + 1))
+      echo "$c" > "$GH_ROTATE_STATE"
+      n=$(( (c - 1) % 3 + 1 ))
+      printf '[{"number":%d,"title":"Soak goal %d","labels":[{"name":"priority:P0"}]}]' "$((200 + n))" "$n"
+    else
+      printf '%s' "$GH_ISSUES_JSON"
+    fi ;;
   "issue close") exit 0 ;;
 esac
 exit 0
@@ -484,4 +494,111 @@ func TestRunLoopRepoTestGateFailure(t *testing.T) {
 	// queue task claimed (queue-done is only written on the task-failure
 	// path); loop 2 halts at the cap.
 	assertFileContains(t, filepath.Join(repo, ".devagent", "queue", "TASK-1.json"), `"status": "claimed"`)
+}
+
+// TestGoldenSoak is the FR-VAL-01 golden soak (issue #289): the full happy
+// path the fragment tests cover only in pieces — pick → research → task
+// dispatch → repo test gate → ledger ok row — across three consecutive
+// green iterations, the already-shipped guard rejecting a 4th re-pick, and
+// the failed-tests classification pin. Hermetic (fixture repo + fake
+// worker CLIs + fake gh), so `go test ./...` runs it in CI unchanged.
+func TestGoldenSoak(t *testing.T) {
+	// The rotating fake serves pick N as issue #(200+N), so the pick order
+	// is observable in the ledger goal texts. record() caps ledger goal
+	// text at 160 chars via rowText.
+	goalFor := func(n int) string {
+		return rowText(issueGoalTemplate(200+n, fmt.Sprintf("Soak goal %d", n)), 160)
+	}
+
+	t.Run("three green iterations then the re-pick guard", func(t *testing.T) {
+		repo := initFixtureRepo(t)
+		installFakes(t, repo)
+		t.Setenv("GH_ROTATE_STATE", filepath.Join(t.TempDir(), "pick-count"))
+		now, _ := frozenClock()
+		cfg := loopConfigFor(t, repo, func(c *LoopConfig) {
+			c.Now = now
+			c.MaxIterations = 4 // three green iterations fit before the head cap
+			c.NoSyncDocs = false
+		})
+		cfg.DryRun = false
+		if rc := RunLoop(cfg); rc != 0 {
+			logData, _ := os.ReadFile(filepath.Join(repo, ".selfbuild", "logs", "loop-1.log"))
+			t.Fatalf("rc = %d, want 0\nlog:\n%s", rc, logData)
+		}
+		rows := readLedger(t, repo)
+		if len(rows) != 3 {
+			t.Fatalf("rows = %d, want 3 consecutive ok", len(rows))
+		}
+		for i, row := range rows {
+			if row["status"] != "ok" || row["loop"] != float64(i+1) || row["goal"] != goalFor(i+1) {
+				t.Fatalf("row %d = %v, want ok / loop %d / %q", i, row, i+1, goalFor(i+1))
+			}
+			// Research + goal artifacts created under .selfbuild/.
+			assertFileContains(t, filepath.Join(repo, ".selfbuild", "goals", fmt.Sprintf("loop-%d.md", i+1)), "Goal: Implement GitHub issue #")
+			if _, err := os.Stat(filepath.Join(repo, ".selfbuild", "research", fmt.Sprintf("loop-%d.md", i+1))); err != nil {
+				t.Fatalf("research artifact missing: %v", err)
+			}
+		}
+
+		// 4th pick: the rotating tracker re-serves issue #201 — the
+		// already-shipped guard must reject the re-pick without another
+		// task dispatch.
+		cfg2 := loopConfigFor(t, repo, func(c *LoopConfig) {
+			c.Now = now
+			c.MaxIterations = 5
+			c.NoSyncDocs = false
+		})
+		cfg2.DryRun = false
+		if rc := RunLoop(cfg2); rc != 0 {
+			t.Fatalf("re-pick rc = %d, want 0", rc)
+		}
+		rows = readLedger(t, repo)
+		if len(rows) != 4 {
+			t.Fatalf("rows = %d, want 3 ok + 1 skipped", len(rows))
+		}
+		last := rows[3]
+		if last["status"] != "skipped" || last["loop"] != float64(4) || last["goal"] != goalFor(1) {
+			t.Fatalf("4th row = %v, want skipped / loop 4 / %q", last, goalFor(1))
+		}
+		calls, err := os.ReadFile(filepath.Join(repo, "devagent-calls.log"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := strings.Count(string(calls), "devagent task"); got != 3 {
+			t.Fatalf("task dispatches = %d, want 3 (guard must reject the 4th pick)\n%s", got, calls)
+		}
+		if got := strings.Count(string(calls), "gh issue close"); got != 4 {
+			t.Fatalf("issue closes = %d, want 4 (3 ships + 1 guard close)\n%s", got, calls)
+		}
+	})
+
+	// Failure-path pin: flip one fake to fail tests — the post-merge-back
+	// repo gate goes red after a successful dispatch — and the ledger row
+	// must classify failed-tests, leaving the tracker issue open.
+	t.Run("failed-tests classification pin", func(t *testing.T) {
+		repo := initFixtureRepo(t)
+		installFakes(t, repo)
+		t.Setenv("GH_ISSUES_JSON", `[{"number":201,"title":"Soak goal 1","labels":[{"name":"priority:P0"}]}]`)
+		now, _ := frozenClock()
+		cfg := loopConfigFor(t, repo, func(c *LoopConfig) {
+			c.Now = now
+			c.TestCmd = "false"
+		})
+		cfg.DryRun = false
+		if rc := RunLoop(cfg); rc != 0 {
+			logData, _ := os.ReadFile(filepath.Join(repo, ".selfbuild", "logs", "loop-1.log"))
+			t.Fatalf("rc = %d, want 0 (skip, not breaker at fails=1)\nlog:\n%s", rc, logData)
+		}
+		rows := readLedger(t, repo)
+		if len(rows) != 1 || rows[0]["status"] != "failed-tests" || rows[0]["goal"] != goalFor(1) {
+			t.Fatalf("rows: %v", rows)
+		}
+		calls, err := os.ReadFile(filepath.Join(repo, "devagent-calls.log"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(calls), "gh issue close") {
+			t.Fatalf("gate failure must leave the issue open, calls:\n%s", calls)
+		}
+	})
 }
