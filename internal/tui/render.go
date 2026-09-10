@@ -162,7 +162,10 @@ func headerLines(snap *Snapshot, ropts RenderOptions) []string {
 	if agg == "RUNNING" {
 		spin = Steel + spinnerAt(ropts.SpinnerFrame) + Reset + " "
 	}
-	chip := StatusColor(agg) + "● " + agg + Reset
+	// Inside the bold+inverse title strip the bar carries its own emphasis:
+	// the chip glyph takes the strip's inverse foreground, never a state
+	// color of its own — a color SGR here would end the strip mid-bar.
+	chip := "● " + agg + Reset
 	// CloddsBot title composition: bold name + dim tagline, then the state
 	// chip. Narrow terminals drop the tagline (the bar must never clamp).
 	barBody := " DevAgent " + Dim + "· autonomous backend delivery agent" + Reset + "  " + spin + chip
@@ -177,7 +180,9 @@ func headerLines(snap *Snapshot, ropts RenderOptions) []string {
 	// SGR is not a stack: every Reset inside the body (tagline, spinner,
 	// chip, embedded marker) would end the Bold+Inverse highlight early and
 	// leave the bar plain from there on. Re-assert the bar attributes after
-	// each internal Reset so the inverse strip runs edge to edge.
+	// each internal Reset so the inverse strip runs edge to edge. The chip's
+	// glyph deliberately carries no color of its own: inside the inverse
+	// strip the bar's own emphasis is the emphasis.
 	barBody = strings.ReplaceAll(barBody, Reset, Reset+Bold+Inverse)
 	// Metric strip (FR-TUI-P-06): ONE dense row — queue meter p/c/d, live
 	// runs, activity sparkline. Uptime/herdr/vis demoted to the dim suffix;
