@@ -172,3 +172,4 @@
 {"loop":211,"ts":"2026-09-10T05:39:45Z","status":"no-pr","goal":"Goal: Implement GitHub issue #273 (loopdriver: taskDispatch outer wall not enforced — task outlives every 60-min anchor) in full and verifiably. Read the issue "}
 {"loop":212,"ts":"2026-09-10T06:33:15Z","status":"failed-tests","goal":"Goal: Implement GitHub issue #289 (FR-VAL-01: golden soak self-test — run the loop driver end-to-end for N consecutive green iterations in CI) in full and verif"}
 {"loop":213,"ts":"2026-09-10T06:36:38Z","status":"provider-degraded","goal":"preflight: provider probe failed"}
+{"loop":214,"ts":"2026-09-10T06:39:58Z","status":"provider-degraded","goal":"preflight: provider probe failed"}
