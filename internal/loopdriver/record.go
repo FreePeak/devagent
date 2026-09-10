@@ -160,6 +160,9 @@ func (d *driver) writeHeartbeat(loopNum int, phase string) {
 	if err != nil {
 		return
 	}
+	// RunLoop mkdirs .selfbuild up front; keep writeHeartbeat self-sufficient
+	// anyway — phase() is callable on a bare driver (tests, future callers).
+	_ = os.MkdirAll(filepath.Join(d.cfg.Repo, ".selfbuild"), 0o755)
 	_ = os.WriteFile(filepath.Join(d.cfg.Repo, ".selfbuild", "heartbeat.json"), data, 0o644)
 }
 

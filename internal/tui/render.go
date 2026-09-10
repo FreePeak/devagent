@@ -224,11 +224,18 @@ func headerLines(snap *Snapshot, ropts RenderOptions) []string {
 		}
 		circuit = " · " + color + "circuit:" + status.Circuit + Reset
 	}
+	// FR-VAL-03 (#291d): the driver heartbeat — iteration N · phase X —
+	// comes from /status, not the ledger tail. Stale heartbeats are fine
+	// to show as-is: UpdatedAt is on the payload for anything that needs it.
+	loopSeg := ""
+	if status.Loop != nil && status.Loop.Phase != "" {
+		loopSeg = " · loop " + jsNum(orNum(status.Loop.Iteration)) + " · " + status.Loop.Phase
+	}
 	strip := Dim + " queue " + meter + " " + jsNum(pending) + "p/" +
 		jsNum(claimed) + "c/" + jsNum(done) + "d" + Reset +
 		Dim + " · runs " + Reset + liveRunsField(status, panes) + spark + circuit +
 		Dim + " · up " + fmtUptime(status.UptimeS) +
-		" · herdr:" + herdrSession(status) + Reset
+		" · herdr:" + herdrSession(status) + Reset + Dim + loopSeg + Reset
 	if width >= 118 {
 		strip += Dim + " · vis:" + spawnVisibility(status) + Reset
 	}

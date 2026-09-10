@@ -494,7 +494,8 @@ func RunCommandInHerdrPane(cli CliRunner, cmd string, args []string, opts PaneRu
 		}
 		time.Sleep(pollInterval)
 	}
-	// Q34: exactly one watchdog-health row per pane launch with a clock armed.
+	// Q34: the firing teardown row for a pane launch with a clock armed
+	// (periodic rows were already emitted by the poll loop above).
 	emitPaneWatchdogRow(opts.Watchdog, noProgressMs, coldStartMs, start, lastProgressAt, watchdogFired, coldStartFired, clockResets, lastBytes)
 	if timedOut {
 		// Match spawnCli's SIGKILL semantics: interrupt the foreground process

@@ -377,3 +377,21 @@ func TestNormalizeAgentsEnvelope(t *testing.T) {
 		t.Fatalf("non-object pane rows must degrade to empty: %+v", ag)
 	}
 }
+
+func TestRenderDashboardHeaderLoopHeartbeat(t *testing.T) {
+	// FR-VAL-03 #291d: the header strip shows iteration · phase from the
+	// daemon heartbeat — never fabricated when the driver hasn't written one.
+	snap := testSnapshot()
+	snap.Status.Loop = &LoopStatus{
+		Iteration: fptr(82), Phase: "task",
+		Pid: fptr(4242), UpdatedAt: "2026-09-11T00:00:00Z",
+	}
+	out := plain(RenderDashboard(snap, RenderOptions{}))
+	if !strings.Contains(out, "loop 82 · task") {
+		t.Fatalf("header missing heartbeat segment: %s", out)
+	}
+	bare := plain(RenderDashboard(testSnapshot(), RenderOptions{}))
+	if strings.Contains(bare, "loop 82") || strings.Contains(bare, " · loop ") {
+		t.Fatalf("no heartbeat must yield no loop segment: %s", bare)
+	}
+}
