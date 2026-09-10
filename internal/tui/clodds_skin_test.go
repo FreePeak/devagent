@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -101,42 +102,66 @@ func TestHeaderBarReassertsInverse(t *testing.T) {
 	// chip, embedded marker). Each one must be followed by a Bold+Inverse
 	// re-assert, or the inverse strip dies mid-bar and the rest renders
 	// plain on the default background.
-	snap := testSnapshot()
-	// Every composition path (tagline, narrow fallback, embedded marker)
-	// must be re-asserted back into the inverse strip after its Reset.
-	for _, tc := range []struct {
-		name     string
-		embedded bool
+	//
+	// The contract is pinned in BOTH palettes (issue #273-era gate failure):
+	// the CloddsBot skin colors the state chip (StatusColor → Steel), so in
+	// color mode the glyph carries its own SGR between the re-assert space
+	// and the dot. What must hold is that the dot sits INSIDE the
+	// re-asserted strip — not that the strip is unbroken-colored. The
+	// literal `Reset+Bold+Inverse+" ●"` assertion here only held in mono
+	// mode, so every color-mode full-suite run (loop gates, CI) failed on a
+	// bar that was visually correct.
+	for _, mode := range []struct {
+		name    string
+		setMono func(bool) func()
 	}{
-		{"wide", false},
-		{"narrow", false},
-		{"embedded", true},
+		{"color", func(bool) func() { return func() {} }},
+		{"mono", SetMono},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			width := 120
-			if tc.name == "narrow" {
-				width = 40
+		t.Run(mode.name, func(t *testing.T) {
+			if mode.name == "mono" {
+				restore := mode.setMono(true)
+				defer restore()
 			}
-			out := RenderLines(snap, RenderOptions{
-				Width: width, Rows: 24,
-				DaemonMode: map[bool]string{true: "embedded", false: ""}[tc.embedded],
-			})
-			bar := out[0]
-			// The header must be the bar: a healthy snapshot's first frame
-			// line always carries the inverse wrap.
-			if !strings.HasPrefix(bar, Bold+Inverse) {
-				t.Fatalf("out[0] is not the title bar: %q", bar)
-			}
-			reasserts := strings.Count(bar, Reset+Bold+Inverse)
-			internalResets := strings.Count(bar, Reset) - 1 // final wrap Reset
-			if reasserts < internalResets {
-				t.Fatalf("bar re-asserts Bold+Inverse %d times but carries %d internal Resets:\n%q", reasserts, internalResets, bar)
-			}
-			if !strings.Contains(bar, Reset+Bold+Inverse+" ●") {
-				t.Fatalf("state chip must sit back inside the inverse strip:\n%q", bar)
-			}
-			if !strings.HasSuffix(bar, Reset) {
-				t.Fatalf("bar must end on the wrap Reset:\n%q", bar)
+			snap := testSnapshot()
+			for _, tc := range []struct {
+				name     string
+				embedded bool
+			}{
+				{"wide", false},
+				{"narrow", false},
+				{"embedded", true},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					width := 120
+					if tc.name == "narrow" {
+						width = 40
+					}
+					out := RenderLines(snap, RenderOptions{
+						Width: width, Rows: 24,
+						DaemonMode: map[bool]string{true: "embedded", false: ""}[tc.embedded],
+					})
+					bar := out[0]
+					// The header must be the bar: a healthy snapshot's first frame
+					// line always carries the inverse wrap.
+					if !strings.HasPrefix(bar, Bold+Inverse) {
+						t.Fatalf("out[0] is not the title bar: %q", bar)
+					}
+					reasserts := strings.Count(bar, Reset+Bold+Inverse)
+					internalResets := strings.Count(bar, Reset) - 1 // final wrap Reset
+					if reasserts < internalResets {
+						t.Fatalf("bar re-asserts Bold+Inverse %d times but carries %d internal Resets:\n%q", reasserts, internalResets, bar)
+					}
+					// State chip inside the strip: re-assert, space, then the
+					// glyph — the skin's own chip color may sit between.
+					chipRe := regexp.MustCompile(regexp.QuoteMeta(Reset+Bold+Inverse) + ` (?:\x1b\[[0-9;]*m)*●`)
+					if !chipRe.MatchString(bar) {
+						t.Fatalf("state chip must sit back inside the inverse strip:\n%q", bar)
+					}
+					if !strings.HasSuffix(bar, Reset) {
+						t.Fatalf("bar must end on the wrap Reset:\n%q", bar)
+					}
+				})
 			}
 		})
 	}
