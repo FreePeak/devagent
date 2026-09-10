@@ -39,9 +39,9 @@ type LoopConfig struct {
 	ResearchBin string
 	POBin       string
 	// TestCmd is the post-merge-back repo-level test gate command
-	// (word-split like the unquoted bash expansion; default `npm test`).
-	// SELFBUILD_TEST_CMD overrides it — at FR-GO-16 the Node suite is
-	// deleted, so the loop launches with `go test ./...`.
+	// (word-split like the unquoted bash expansion). SELFBUILD_TEST_CMD
+	// overrides it. Default is `go test ./...`: the Node tree was retired
+	// in PR #240, so an `npm test` default can only fail (issue #300).
 	TestCmd string
 	// ClaudeTimeout bounds the PO dispatch (default 600s).
 	ClaudeTimeout int
@@ -103,7 +103,7 @@ const (
 
 	defaultDispatchBin = "omp -p --mode json --no-prewalk --no-lsp --no-extensions --model onegw/free"
 
-	defaultTestCmd = "npm test"
+	defaultTestCmd = "go test ./..."
 )
 
 func getenvOr(getenv func(string) string, key, def string) string {

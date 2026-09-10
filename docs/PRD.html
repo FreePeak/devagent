@@ -2210,7 +2210,10 @@ the G1 wave, FR-GO-15 cutover + FR-GO-16 retirement the following day);
 the selfbuild loop self-hosts on the Go binary
 (<code>SELFBUILD_DEVAGENT_BIN</code> + <code>SELFBUILD_TEST_CMD</code>),
 Node is deleted from main, and CI/release are single-language Go (issue
-#204/#205 closed).</p>
+#204/#205 closed). 2026-09-10 (issue #300): the repo-level gate default
+flipped from <code>npm test</code> to <code>go test ./...</code> — after
+the Node retirement an npm default could only ENOENT, stamping green
+iterations <code>failed-tests</code> (loop 216 evidence).</p>
 </blockquote>
 <p><del>- <strong>Cross-board retry memory beyond the SHA guard</strong>
 — commit 60638d3 stops re-issuing shipped goals, but re-queued failures
@@ -4700,32 +4703,23 @@ existing driver with validation surfaces (test, command, telemetry,
 chaos schedule) so "the driver works perfectly" is a checkable claim,
 not a hope.</p>
 <hr />
-<p><em>Last updated: 2026-09-10 (issue #290) — FR-VAL-02
-<code>devagent doctor</code> landed as
-<code>internal/commands/doctor.go</code> +
-<code>internal/cli/actions_doctor.go</code>: nine checks (version stamp,
-config, DEVAGENT_HOME, git remote, gh auth, herdr session, daemon
-/status, provider preflight, stale artifacts) with human +
-<code>--json</code> output. Read-only by construction — check 8 uses the
-bare RunPreflightProbe, not the gate (no circuits/ledger rows/pages);
-the version stamp is warn-only so unstamped local builds never fail a
-healthy box; the daemon probe authenticates with the persisted
-daemon-token and classifies 401 as its own verdict; gh-auth reports the
-token source and flags an invalid env token with the keyring-shadowing
-hint; TTL-expired locks warn, dead-pid locks and wedged loop.lock.d fail
-with rm hints. Pinned by TestDoctor</em> fault-fixture tests (every
-external touchpoint behind a seam). Prior: 2026-09-10 (TUI view-switch
-fix) — pressing 1/2/3 could leave the dashboard permanently one-row-off
-(stale rows from the previous view, mixed footers). Root cause in the
-incremental differ, not the key table: with OPOST off, drawLocked's
-unconditional trailing <code>\n</code> after an all-skip frame (the norm
-after a view switch) scrolled the alternate screen and desynced every
-later diff. RenderFrame now erases leftovers via absolute CUP+ED (never
-cursor-relative), drawLocked drops the trailing LF, clamps rows to the
-real geometry and hard-caps degenerate short terminals; three regression
-tests pin it (each fails pre-fix). Details §20.8. Prior: 2026-09-10
-(issue #289) — FR-VAL-01 golden soak self-test landed as
-<code>TestGoldenSoak</code> in
+<p>*Last updated: 2026-09-10 (issue #300) — post-merge-back repo-level
+test gate default flipped from <code>npm test</code> (stale after the
+Node-tree retirement, PR #240) to <code>go test ./...</code>; the npm
+default ENOENTed in 0.18s and stamped every green iteration
+<code>failed-tests</code> (last ledger <code>ok</code> row: loop 176,
+2026-09-08), feeding the 2026-09-10 starvation halt and breaker trip.
+Pinned by TestRunRepoTestsDefaultIsGoTest and the updated
+TestConfigFromEnvTestCmd defaults. Details §22.2. Prior: 2026-09-10 (TUI
+view-switch fix) — pressing 1/2/3 could leave with OPOST off,
+drawLocked's unconditional trailing <code>\n</code> after an all-skip
+frame (the norm after a view switch) scrolled the alternate screen and
+desynced every later diff. RenderFrame now erases leftovers via absolute
+CUP+ED (never cursor-relative), drawLocked drops the trailing LF, clamps
+rows to the real geometry and hard-caps degenerate short terminals;
+three regression tests pin it (each fails pre-fix). Details §20.8.
+Prior: 2026-09-10 (issue #289) — FR-VAL-01 golden soak self-test landed
+as <code>TestGoldenSoak</code> in
 <code>internal/loopdriver/run_test.go</code>: 3 consecutive green
 iterations end-to-end, already-shipped guard rejecting the 4th re-pick,
 and the failed-tests classification pin, all hermetic over the existing
