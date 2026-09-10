@@ -1559,9 +1559,11 @@ task); `cli.Execute` wires `HerdrPaneRunner` to the herdr pane runtime so
 rows now emit every 30s on both the direct and herdr-pane spawn paths while
 the no-progress kill stays enforced; the loop driver writes
 `.selfbuild/heartbeat.json` at every phase boundary and `GET /status` exposes
-it as `loop`. Prior: 2026-09-10 (issue #300) — post-merge-back repo-level
-test gate default flipped from `npm test` (stale after the Node-tree
-retirement, PR #240) to `go test ./...`; the npm default ENOENTed in 0.18s
+it as `loop`, and the TUI iteration card now sources `iteration N · phase X`
+from that heartbeat (ledger tail demoted to fallback for old daemons).
+Prior: 2026-09-10 (issue #300) — post-merge-back repo-level test gate
+default flipped from `npm test` (stale after the Node-tree retirement, PR
+#240) to `go test ./...`; the npm default ENOENTed in 0.18s
 and stamped every green iteration `failed-tests` (last ledger `ok` row: loop
 176, 2026-09-08), feeding the 2026-09-10 starvation halt and breaker trip.
 Pinned by TestRunRepoTestsDefaultIsGoTest and the updated

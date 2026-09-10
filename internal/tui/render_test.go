@@ -379,19 +379,40 @@ func TestNormalizeAgentsEnvelope(t *testing.T) {
 }
 
 func TestRenderDashboardHeaderLoopHeartbeat(t *testing.T) {
-	// FR-VAL-03 #291d: the header strip shows iteration · phase from the
-	// daemon heartbeat — never fabricated when the driver hasn't written one.
+	// FR-VAL-03 #291d: the iteration card sources iteration · phase from
+	// the daemon heartbeat, which wins over a stale ledger tail — a
+	// heartbeat present while history lags is exactly the defect it closes.
+	// Without a heartbeat the card degrades to the history fallback, and a
+	// dashboard with neither shows no phase line at all.
 	snap := testSnapshot()
 	snap.Status.Loop = &LoopStatus{
 		Iteration: fptr(82), Phase: "task",
 		Pid: fptr(4242), UpdatedAt: "2026-09-11T00:00:00Z",
 	}
+	snap.History = append(snap.History, HistoryRow{
+		"ts": time.Now().UTC().Format(time.RFC3339Nano), "kind": "event",
+		"event": "loop-phase", "loop": float64(80), "phase": "po",
+		"detail": "stale ledger tail",
+	})
 	out := plain(RenderDashboard(snap, RenderOptions{}))
-	if !strings.Contains(out, "loop 82 · task") {
-		t.Fatalf("header missing heartbeat segment: %s", out)
+	if !strings.Contains(out, "iteration 82 · phase: task") {
+		t.Fatalf("header must prefer the heartbeat: %s", out)
 	}
+	if strings.Contains(out, "phase: po") || strings.Contains(out, "stale ledger tail") {
+		t.Fatalf("stale history row must not override the heartbeat: %s", out)
+	}
+
+	// Fallback: no heartbeat → the newest history loop-phase row drives it.
+	fallback := testSnapshot()
+	fallback.History = snap.History
+	fallbackOut := plain(RenderDashboard(fallback, RenderOptions{}))
+	if !strings.Contains(fallbackOut, "iteration 80 · phase: po") {
+		t.Fatalf("history fallback missing: %s", fallbackOut)
+	}
+
+	// Neither source → no fabricated phase line.
 	bare := plain(RenderDashboard(testSnapshot(), RenderOptions{}))
-	if strings.Contains(bare, "loop 82") || strings.Contains(bare, " · loop ") {
-		t.Fatalf("no heartbeat must yield no loop segment: %s", bare)
+	if strings.Contains(bare, "phase:") {
+		t.Fatalf("no heartbeat and no history must yield no phase line: %s", bare)
 	}
 }
