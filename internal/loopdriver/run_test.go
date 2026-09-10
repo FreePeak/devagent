@@ -24,7 +24,7 @@ func frozenClock() (func() time.Time, *int) {
 	}, &ticks
 }
 
-// installFakes puts a fake devagent/gh/npm on PATH via t.Setenv. The
+// installFakes puts a fake devagent/gh/go/npm on PATH via t.Setenv. The
 // devagent fake logs every invocation to $DEVAGENT_LOG.
 func installFakes(t *testing.T, repo string) {
 	t.Helper()
@@ -62,6 +62,7 @@ esac
 exit 0
 `,
 		"npm":      "#!/bin/sh\nexit 0\n",
+		"go":       "#!/bin/sh\nexit 0\n",
 		"omp-fake": "#!/bin/sh\nexit 0\n",
 	})
 	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))

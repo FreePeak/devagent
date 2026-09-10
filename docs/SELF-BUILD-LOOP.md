@@ -51,8 +51,8 @@ the Node tree (FR-GO-16, #205).
    through its internal plan-implement-test loops.
 6. **Testing** — `devagent task` gates internally (test-gate, migration rules,
    async-review); after merge-back the driver additionally runs the repo-level test
-   gate (`SELFBUILD_TEST_CMD`; default `npm test` until FR-GO-16 lands, then
-   `go test ./...`). Failure marks the iteration failed and feeds diagnostics into
+   gate (`SELFBUILD_TEST_CMD`; default `go test ./...` since the Node-tree
+   retirement, issue #300). Failure marks the iteration failed and feeds diagnostics into
    the next Research phase.
 7. **Push** — `--auto-pr` pushes the branch and opens a PR. **Policy (locked 2026-08-24):
    product code always ships as a PR, never direct to origin/main**; direct main is
@@ -86,7 +86,7 @@ Environment knobs (all optional):
 | `SELFBUILD_WORKER` | `omp` | Worker CLI passed to `devagent task` |
 | `SELFBUILD_MODEL` | *(unset)* | Model pin forwarded to `devagent task` |
 | `SELFBUILD_PUSH_MODE` | `pr` | `pr` (branch + PR via auto-pr) or `main` (direct commit) |
-| `SELFBUILD_TEST_CMD` | `npm test` until FR-GO-16 lands, then `go test ./...` | Post-merge-back repo-level test gate (seam #230) |
+| `SELFBUILD_TEST_CMD` | `go test ./...` (default since the Node-tree retirement, #300) | Post-merge-back repo-level test gate (seam #230) |
 | `SELFBUILD_ISSUE_LABEL` | `selfbuild` | Issue label defining the loop's tracker queue |
 | `SELFBUILD_ISSUE_MAX` | `50` | Max issues fetched per pick (deterministic sort: priority rank, then issue number) |
 | `SELFBUILD_GH_REPO` | derived from `git remote get-url origin` | Target repo for the tracker pick (`gh issue`) |
@@ -129,10 +129,10 @@ SELFBUILD_MAX_ITERATIONS=<next> \
   tokens), so `<next>` is the first loop number the soak must NOT run: a
   one-iteration soak at loop N sets `SELFBUILD_MAX_ITERATIONS=N+1`.
 - `SELFBUILD_TEST_CMD` is the post-merge-back repo-level test gate the driver
-  runs inside the repo (word-split; default `npm test` — byte-identical to the
-  bash driver). When FR-GO-16 deletes the Node suite, the loop is launched with
-  `SELFBUILD_TEST_CMD="go test ./..."` so the gate keeps gating on the Go suite
-  instead of crashing on the missing `npm test` (issue #230).
+  runs inside the repo (word-split; default `go test ./...` since PR #240
+  deleted the Node tree — an `npm test` default can only fail with ENOENT,
+  which stamped every green iteration `failed-tests`, issue #300). Override it
+  only for non-standard gates.
 
 **Byte-parity gate.** The Go driver's `.selfbuild/ledger.jsonl` rows must be
 byte-identical to the bash driver's on the same inputs:

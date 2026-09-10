@@ -179,7 +179,7 @@ func TestTaskDispatchWallKillsWedgedWorkerTree(t *testing.T) {
 }
 
 // gateDriver builds a driver over the fixture repo with TestCmd overridden;
-// an empty testCmd keeps the WithDefaults `npm test` fallback.
+// an empty testCmd keeps the WithDefaults `go test ./...` fallback.
 func gateDriver(t *testing.T, repo, testCmd string) *driver {
 	t.Helper()
 	cfg := LoopConfig{Repo: repo, TestCmd: testCmd}.WithDefaults()
@@ -202,16 +202,16 @@ exit 0
 	t.Setenv("GATE_LOG", logPath)
 }
 
-func TestRunRepoTestsDefaultIsNpmTest(t *testing.T) {
+func TestRunRepoTestsDefaultIsGoTest(t *testing.T) {
 	repo := initFixtureRepo(t)
 	logPath := filepath.Join(repo, "gate-calls.log")
-	gateFake(t, "npm", logPath)
+	gateFake(t, "go", logPath)
 	d := gateDriver(t, repo, "")
 	if rc := d.runRepoTests(); rc != 0 {
 		t.Fatalf("rc = %d, want 0", rc)
 	}
-	// Default gate is exactly `npm test` (no argv), run inside cfg.Repo.
-	assertFileContains(t, logPath, "npm test\n")
+	// Default gate is exactly `go test ./...`, run inside cfg.Repo.
+	assertFileContains(t, logPath, "go test ./...\n")
 	if _, err := os.Stat(filepath.Join(repo, "gate-ran-here")); err != nil {
 		t.Fatalf("gate did not run in cfg.Repo: %v", err)
 	}

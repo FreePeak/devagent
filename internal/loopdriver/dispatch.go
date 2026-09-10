@@ -262,7 +262,7 @@ func (d *driver) extractText(rawPath, outPath, abortPath, failDiag string) {
 }
 
 // runRepoTests runs the post-merge-back repo-level test gate: the word-split
-// cfg.TestCmd (SELFBUILD_TEST_CMD, default `npm test`) inside cfg.Repo.
+// cfg.TestCmd (SELFBUILD_TEST_CMD, default `go test ./...`) inside cfg.Repo.
 func (d *driver) runRepoTests() int {
 	words := splitWords(d.cfg.TestCmd)
 	ctx, cancel := context.WithCancel(context.Background())
