@@ -1368,6 +1368,10 @@ keybinding, payload and the mono/truecolor degradation contract are unchanged:
 5. Contract-pinned in `internal/tui/clodds_skin_test.go` (banner shape, centered
    title, glyph map, step chip, tagline width-gating); verified live over a PTY
    (dashboard frame, `init`, `status`) across the palette ladder.
+   2026-09-10 correction: the title-bar chip renders `● label` with the dot in
+   the inverse strip's foreground and only the label state-colored — SGR is not
+   a stack, so any color between the re-assert and the dot ended the strip
+   mid-bar; pinned by `TestHeaderBarReassertsInverse`.
 
 Boundary with §20.4: the Tauri desktop app and the TUI are two renderers over the same
 FR-CTRL API — the TUI is the SSH/headless-server surface, the app is the desktop surface;
@@ -1525,9 +1529,12 @@ existing driver with validation surfaces (test, command, telemetry, chaos
 schedule) so "the driver works perfectly" is a checkable claim, not a hope.
 
 ---
-*Last updated: 2026-09-10 (goal session) — added §23 Driver Validation
-addendum (FR-VAL-01..05, issues #289–#293) scoped from internet prior art
-(SWE-bench, AWS/Azure chaos engineering, OpenTelemetry GenAI semconv,
-LLM-as-judge drift practice); filed the five FR-VAL issues for the loop
-queue.*
+*Last updated: 2026-09-10 (TASK-mtv19t4y-19zm) — §20.8 CloddsBot skin wave
+corrected: the title-bar state chip keeps only its label state-colored (the
+dot renders in the inverse strip's foreground, since a color SGR between the
+re-assert and the glyph ended the strip mid-bar). Earlier today: §23 Driver
+Validation addendum (FR-VAL-01..05, issues #289–#293) scoped from internet
+prior art (SWE-bench, AWS/Azure chaos engineering, OpenTelemetry GenAI
+semconv, LLM-as-judge drift practice); filed the five FR-VAL issues for the
+loop queue.*
 
