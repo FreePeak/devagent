@@ -1515,7 +1515,7 @@ Master tracker with definition of done: [#207](https://github.com/FreePeak/devag
 | ID | Requirement | Pri | Issue |
 |---|---|---|---|
 | FR-VAL-01 ✅ | Golden soak self-test: a hermetic CI test runs the full loop driver end-to-end (pick → research → PO → task → gate → ledger) over a fixture repo with fake worker CLIs, asserting N consecutive `ok` ledger rows, correct artifact creation, already-shipped guard behavior, and failure-path classification — shipped as `TestGoldenSoak` in `internal/loopdriver/run_test.go` (issue-first path over the existing `installFakes` fixture; the deterministic `GH_ROTATE_STATE` fake gh serves pick N as issue #200+N): 3 consecutive `ok` rows with goal artifacts under `.selfbuild/`, the 4th re-pick rejected as `skipped` by the already-shipped guard (no 4th task dispatch, guard-side issue close), and the repo-gate failure pin (`TestCmd=false` → `failed-tests` row, tracker issue left open). Runs in CI via the existing `go test ./...` job — mutation-checked: breaking the ledger row writer or the issue pick order turns it red | M | [#289](https://github.com/FreePeak/devagent/issues/289) |
-| FR-VAL-02 | `devagent doctor`: one-command machine validation (version stamp, config, DEVAGENT_HOME, git remote, gh auth incl. invalid-env-token detection, herdr session, daemon /status, provider preflight, stale artifacts) with human + `--json` output for the TUI/Tauri app | M | [#290](https://github.com/FreePeak/devagent/issues/290) |
+| FR-VAL-02 ✅ | `devagent doctor`: one-command machine validation (version stamp, config, DEVAGENT_HOME, git remote, gh auth incl. invalid-env-token detection, herdr session, daemon /status, provider preflight, stale artifacts) with human + `--json` output for the TUI/Tauri app — shipped as `internal/commands/doctor.go` + `internal/cli/actions_doctor.go` (2026-09-10): strictly read-only (bare RunPreflightProbe for check 8 — no gate side effects: no circuit transitions, ledger rows, or pages), version stamp warn-only so unstamped local builds never fail a healthy box, gh-auth source-aware (env wins over keyring, so an invalid env token is named with the shadowing hint, not masked), daemon /status probed with the persisted bearer token (401 = distinct unauthorized verdict, not generic unhealthy; connection refused = informational pass since daemons start on demand), TTL-expired run locks warn (TryAcquireRun self-heals) while dead-pid locks and wedged `loop.lock.d` holders fail with `rm` hints; exit 0 only when nothing failed, `--json` envelope `{ok, repoPath, checks[{name,ok,warn,detail,hint}]}`; all external touchpoints behind injection seams for hermetic fault-fixture tests (TestDoctor* in `internal/commands/doctor_test.go`) | M | [#290](https://github.com/FreePeak/devagent/issues/290) |
 | FR-VAL-03 | Driver observability parity: truthful `runs.active` (closes #287), visible worker panes via wired `HerdrPaneRunner` (closes #288), periodic watchdog-health rows + enforced no-progress kill on ALL spawn paths, and a loopdriver heartbeat (`{iteration, phase, pid}`) surfaced on `GET /status` | M | [#291](https://github.com/FreePeak/devagent/issues/291) |
 | FR-VAL-04 | Chaos soak: nightly fault-injection scenarios — SIGKILL driver mid-iteration (stale-lock break), SIGKILL worker mid-run (attempt 2/3 retry), fake provider hang (watchdog kill), network blackhole during state push (deferred push), repeated failure (circuit breaker) — each asserting recovery + correct ledger classification | S | [#292](https://github.com/FreePeak/devagent/issues/292) |
 | FR-VAL-05 | Quality-drift ratchet: LLM-judge rubric scoring of shipped PRs recorded as `eval-score` ledger rows, trailing-window regression warning in `ledger --clusters` + research prompts, nightly CI drift job; rubric version recorded per score | S | [#293](https://github.com/FreePeak/devagent/issues/293) |
@@ -1525,7 +1525,19 @@ existing driver with validation surfaces (test, command, telemetry, chaos
 schedule) so "the driver works perfectly" is a checkable claim, not a hope.
 
 ---
-*Last updated: 2026-09-10 (issue #289) — FR-VAL-01 golden soak self-test landed
+*Last updated: 2026-09-10 (issue #290) — FR-VAL-02 `devagent doctor` landed
+as `internal/commands/doctor.go` + `internal/cli/actions_doctor.go`: nine
+checks (version stamp, config, DEVAGENT_HOME, git remote, gh auth,
+herdr session, daemon /status, provider preflight, stale artifacts) with
+human + `--json` output. Read-only by construction — check 8 uses the bare
+RunPreflightProbe, not the gate (no circuits/ledger rows/pages); the version
+stamp is warn-only so unstamped local builds never fail a healthy box; the
+daemon probe authenticates with the persisted daemon-token and classifies
+401 as its own verdict; gh-auth reports the token source and flags an
+invalid env token with the keyring-shadowing hint; TTL-expired locks warn,
+dead-pid locks and wedged loop.lock.d fail with rm hints. Pinned by
+TestDoctor* fault-fixture tests (every external touchpoint behind a seam).
+Prior: 2026-09-10 (issue #289) — FR-VAL-01 golden soak self-test landed
 as `TestGoldenSoak` in `internal/loopdriver/run_test.go`: 3 consecutive
 green iterations end-to-end, already-shipped guard rejecting the 4th re-pick,
 and the failed-tests classification pin, all hermetic over the existing
