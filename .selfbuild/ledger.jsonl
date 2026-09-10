@@ -188,3 +188,4 @@
 {"loop":227,"ts":"2026-09-10T18:50:57Z","status":"ok","goal":"Goal: Implement GitHub issue #291 (FR-VAL-03: driver observability parity — truthful /status, visible worker panes, periodic watchdog rows, driver heartbeat) in"}
 {"loop":228,"ts":"2026-09-10T18:54:19Z","status":"provider-degraded","goal":"preflight: provider probe failed"}
 {"loop":229,"ts":"2026-09-10T19:17:35Z","status":"provider-degraded","goal":"preflight: provider probe failed"}
+{"loop":230,"ts":"2026-09-10T20:14:30Z","status":"ok","goal":"Goal: Implement GitHub issue #292 (FR-VAL-04: chaos soak — scripted fault-injection scenarios proving the driver recovers from every failure class) in full and "}
