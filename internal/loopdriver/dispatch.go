@@ -9,13 +9,20 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/FreePeak/devagent/internal/scout"
 )
 
 // agentCommand builds the devagent CLI invocation (DevagentArgs prepended).
 func (d *driver) agentCommand(args ...string) *exec.Cmd {
-	cmd := exec.Command(d.cfg.DevagentBin, append(append([]string{}, d.cfg.DevagentArgs...), args...)...)
+	return d.agentCommandCtx(context.Background(), args...)
+}
+
+// agentCommandCtx is agentCommand built over ctx: the ctx wires
+// CommandContext's Cancel, which the outer dispatch walls arm.
+func (d *driver) agentCommandCtx(ctx context.Context, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, d.cfg.DevagentBin, append(append([]string{}, d.cfg.DevagentArgs...), args...)...)
 	cmd.Dir = d.cfg.Repo
 	return cmd
 }
@@ -44,12 +51,26 @@ func (d *driver) runDevagent(args ...string) (string, int) {
 	return string(out), rc
 }
 
+// wallWaitDelay bounds Wait after a wall kill or a child exit whose output
+// pipes are held by a grandchild (the #248 bounded-drain semantics,
+// generalized to the outer dispatch): an orphaned worker session holding
+// the pipes must not push the dispatch return past the wall.
+const wallWaitDelay = 3 * time.Second
+
 // runDevagentWithTimeout wraps runDevagent in the outer `timeout N` wall the
-// bash driver applied to the task dispatch.
+// bash driver applied to the task dispatch. The wall is a process-group
+// kill: the dispatch child runs in its own group (setOwnProcessGroup) and,
+// once the deadline passes, surviving group members are SIGKILLed
+// (killDispatchTree). CommandContext kills only the direct child, and the
+// child's descendants hold the output pipes — without the group sweep a
+// wedged worker session outlives every anchor and pins the iteration
+// (issue #273). WaitDelay keeps the Wait itself bounded in the same case.
 func (d *driver) runDevagentWithTimeout(timeoutSecs int, args ...string) (string, int) {
 	ctx, cancel := context.WithTimeout(context.Background(), secsToDuration(timeoutSecs))
 	defer cancel()
-	cmd := d.agentCommand(args...)
+	cmd := d.agentCommandCtx(ctx, args...)
+	setOwnProcessGroup(cmd)
+	cmd.WaitDelay = wallWaitDelay
 	cmd.Env = d.devagentEnv(
 		"DEVAGENT_API_MAX_ATTEMPTS="+itoa(d.cfg.APIMaxAttempts),
 		"DEVAGENT_NO_PROGRESS_TIMEOUT_MS="+itoa(d.cfg.NoProgressTimeoutMS),
@@ -57,20 +78,39 @@ func (d *driver) runDevagentWithTimeout(timeoutSecs int, args ...string) (string
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	err := runCmd(ctx, cmd)
+	// The rc resolves from ProcessState, not from Wait's error: Wait's
+	// error conflates the wall (context deadline), the bounded-drain cutoff
+	// (ErrWaitDelay) and the child's own exit — a child that finished 0
+	// before the deadline must not be relabeled 124 by a drain that crossed
+	// it (runTaskPhase maps a nonzero rc to a failed row + breaker bump).
+	_ = runCmd(ctx, cmd)
 	out := stdout.String() + stderr.String()
-	rc := 0
-	if err != nil {
-		var ee *exec.ExitError
-		if errors.As(err, &ee) {
-			rc = ee.ExitCode()
-		} else if errors.Is(err, context.DeadlineExceeded) || ctx.Err() == context.DeadlineExceeded {
-			rc = 124 // GNU timeout convention
-		} else {
-			rc = 1
-		}
+	// wallFired: the deadline passed. Sweep the group regardless of how the
+	// child itself ended — nothing dispatched may outlive the anchor.
+	wallFired := ctx.Err() == context.DeadlineExceeded
+	if wallFired && cmd.Process != nil {
+		killDispatchTree(cmd.Process.Pid)
 	}
-	return out, rc
+	return out, dispatchRc(cmd.ProcessState, wallFired)
+}
+
+// dispatchRc maps a finished dispatch to its exit code. It reads
+// ProcessState, not Wait's error: that error conflates the wall (context
+// deadline), the bounded-drain cutoff (ErrWaitDelay) and the child's own
+// exit, and a child that finished 0 before the wall must not be relabeled
+// 124 by a drain that crossed it — runTaskPhase turns a nonzero rc into a
+// failed row + breaker bump. nil state = never started.
+func dispatchRc(st *os.ProcessState, wallFired bool) int {
+	if st == nil {
+		return 1
+	}
+	if st.Success() {
+		return 0
+	}
+	if wallFired {
+		return 124 // GNU timeout convention
+	}
+	return st.ExitCode()
 }
 
 // paneRunDispatch performs the primary pane-run dispatch: `devagent
