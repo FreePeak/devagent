@@ -174,3 +174,4 @@
 {"loop":213,"ts":"2026-09-10T06:36:38Z","status":"provider-degraded","goal":"preflight: provider probe failed"}
 {"loop":214,"ts":"2026-09-10T06:39:58Z","status":"provider-degraded","goal":"preflight: provider probe failed"}
 {"loop":215,"ts":"2026-09-10T07:17:21Z","status":"failed-tests","goal":"Goal: Implement GitHub issue #289 (FR-VAL-01: golden soak self-test — run the loop driver end-to-end for N consecutive green iterations in CI) in full and verif"}
+{"loop":216,"ts":"2026-09-10T13:16:15Z","status":"failed-tests","goal":"Goal: Implement GitHub issue #290 (FR-VAL-02: devagent doctor — one-command machine validation with human + --json output) in full and verifiably. Read the issu"}
