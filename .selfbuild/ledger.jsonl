@@ -180,3 +180,4 @@
 {"loop":219,"ts":"2026-09-10T14:58:38Z","status":"failed-tests","goal":"Goal: Implement GitHub issue #290 (FR-VAL-02: devagent doctor — one-command machine validation with human + --json output) in full and verifiably. Read the issu"}
 {"loop":220,"ts":"2026-09-10T15:16:03Z","status":"no-pr","goal":"Goal: Implement GitHub issue #290 (FR-VAL-02: devagent doctor — one-command machine validation with human + --json output) in full and verifiably. Read the issu"}
 {"loop":221,"ts":"2026-09-10T15:19:22Z","status":"provider-degraded","goal":"preflight: provider probe failed"}
+{"loop":222,"ts":"2026-09-10T15:22:40Z","status":"provider-degraded","goal":"preflight: provider probe failed"}
