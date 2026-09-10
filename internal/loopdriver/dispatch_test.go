@@ -2,9 +2,181 @@ package loopdriver
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
+	"time"
 )
+
+// taskWallShim installs a devagent-fake whose body runs verbatim; the shim
+// receives $PIDFILE to record backgrounded-children pids for tree-liveness
+// assertions and cleanup.
+func taskWallShim(t *testing.T, body string) {
+	t.Helper()
+	dir := fakeBinDir(t, map[string]string{"devagent-fake": body})
+	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
+	t.Setenv("PIDFILE", filepath.Join(t.TempDir(), "grandchild.pid"))
+}
+
+// killPidfileAtCleanup kills the pid recorded in $PIDFILE when the test
+// ends, so a grandchild that outlived the shim cannot linger on the box.
+func killPidfileAtCleanup(t *testing.T) {
+	t.Helper()
+	pidPath := os.Getenv("PIDFILE")
+	t.Cleanup(func() {
+		b, err := os.ReadFile(pidPath)
+		if err != nil {
+			return
+		}
+		pid, err := strconv.Atoi(strings.TrimSpace(string(b)))
+		if err != nil {
+			return
+		}
+		if p, err := os.FindProcess(pid); err == nil {
+			_ = p.Kill()
+		}
+	})
+}
+
+// taskWallDriver builds a driver with a 20s task wall over the fixture
+// repo. The wall is generous: under a saturated `go test ./...` (the #271
+// class) a short wall fires before the shim even spawns its children — it
+// must cut a live dispatch, not race fork latency. The wall-vs-drain rc
+// contract is pinned deterministically by TestDispatchRcMapping.
+func taskWallDriver(t *testing.T, repo string) *driver {
+	t.Helper()
+	d := gateDriver(t, repo, "")
+	d.cfg.DevagentBin = "devagent-fake" // gateDriver leaves the real `devagent` default
+	d.cfg.TaskTimeout = 20
+	return d
+}
+
+// TestDispatchRcMapping pins the ProcessState-driven rc contract with real
+// child states — no wall-clock timing: a child that finished 0 keeps 0 even
+// when the wall fired around its drain (the shipped-task-never-relabeled
+// invariant runTaskPhase consumes); only a child the wall actually killed
+// reports 124.
+func TestDispatchRcMapping(t *testing.T) {
+	state := func(exit int) *os.ProcessState {
+		t.Helper()
+		cmd := exec.Command("sh", "-c", "exit "+itoa(exit))
+		if err := cmd.Run(); err != nil {
+			if _, ok := err.(*exec.ExitError); !ok {
+				t.Fatalf("sh -c exit %d: %v", exit, err)
+			}
+		}
+		return cmd.ProcessState
+	}
+	if rc := dispatchRc(nil, false); rc != 1 {
+		t.Fatalf("nil state rc = %d, want 1 (Start failed)", rc)
+	}
+	if rc := dispatchRc(state(0), false); rc != 0 {
+		t.Fatalf("clean exit rc = %d, want 0", rc)
+	}
+	if rc := dispatchRc(state(0), true); rc != 0 {
+		t.Fatalf("clean exit with wall fired rc = %d, want 0 — a finished "+
+			"dispatch must not be relabeled failed by a drain crossing the wall", rc)
+	}
+	if rc := dispatchRc(state(137), true); rc != 124 {
+		t.Fatalf("wall-killed child rc = %d, want 124", rc)
+	}
+	if rc := dispatchRc(state(7), false); rc != 7 {
+		t.Fatalf("own exit code rc = %d, want 7", rc)
+	}
+}
+
+// readPidfile polls for the shim's recorded pid.
+func readPidfile(t *testing.T, timeout time.Duration) int {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		b, err := os.ReadFile(os.Getenv("PIDFILE"))
+		if err == nil {
+			pid, perr := strconv.Atoi(strings.TrimSpace(string(b)))
+			if perr == nil {
+				return pid
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("pidfile %s never appeared", os.Getenv("PIDFILE"))
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func TestTaskDispatchFastPathReturnsChildRc(t *testing.T) {
+	repo := initFixtureRepo(t)
+	taskWallShim(t, "exit 0\n")
+	d := taskWallDriver(t, repo)
+	start := time.Now()
+	out, rc := d.taskDispatch("goal")
+	if rc != 0 {
+		t.Fatalf("rc = %d (out %q), want 0", rc, out)
+	}
+	if elapsed := time.Since(start); elapsed > 30*time.Second {
+		t.Fatalf("fast-path dispatch took %s, want immediate return", elapsed)
+	}
+}
+
+func TestTaskDispatchBoundedDrainKeepsChildRc(t *testing.T) {
+	// A 10s wall with a 3s drain: a child that exits 0 well before the
+	// deadline keeps rc 0 — the ProcessState-driven mapping (dispatchRc)
+	// never lets the drain relabel it; the wall never fires here.
+	// Pinned deterministically by TestDispatchRcMapping below.
+	repo := initFixtureRepo(t)
+	taskWallShim(t, "sleep 30 &\necho $! > \"$PIDFILE\"\necho done\nexit 0\n")
+	killPidfileAtCleanup(t)
+	d := taskWallDriver(t, repo)
+	start := time.Now()
+	out, rc := d.taskDispatch("goal")
+	if rc != 0 {
+		t.Fatalf("rc = %d (out %q), want the child's own 0", rc, out)
+	}
+	if elapsed := time.Since(start); elapsed > 30*time.Second {
+		t.Fatalf("pipe-drain unbounded: %s", elapsed)
+	}
+}
+
+// TestTaskDispatchWallKillsWedgedWorkerTree is the issue #273 regression:
+// a devagent task that wedges past the outer wall must return (rc 124) and
+// its whole process tree — including the worker session standing in as the
+// grandchild — must be dead. Pre-fix, Wait blocked forever on the
+// grandchild-held pipes and the grandchild outlived every anchor.
+func TestTaskDispatchWallKillsWedgedWorkerTree(t *testing.T) {
+	repo := initFixtureRepo(t)
+	taskWallShim(t, "trap '' TERM\nsleep 600 &\necho $! > \"$PIDFILE\"\nwait\n")
+	killPidfileAtCleanup(t)
+	d := taskWallDriver(t, repo)
+
+	resultCh := make(chan int, 1)
+	go func() {
+		_, rc := d.taskDispatch("goal")
+		resultCh <- rc
+	}()
+
+	grand := readPidfile(t, 5*time.Second)
+	// The dispatch returns at wall + wallWaitDelay at the latest (the
+	// deadline kill plus the bounded pipe drain): the select must budget
+	// both, plus slack, while still catching the pre-fix infinite block.
+	select {
+	case rc := <-resultCh:
+		if rc != 124 {
+			t.Fatalf("rc = %d, want 124 (GNU timeout convention)", rc)
+		}
+	case <-time.After(time.Duration(d.cfg.TaskTimeout)*time.Second + wallWaitDelay + 10*time.Second):
+		t.Fatal("dispatch never returned after the wall — the loop pin of issue #273")
+	}
+	// The tree must be gone: the group sweep reaped the orphaned session.
+	deadline := time.Now().Add(3 * time.Second)
+	for processAlive(grand) {
+		if time.Now().After(deadline) {
+			t.Fatalf("grandchild %d still alive after the wall — orphaned worker session (issue #273)", grand)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
 
 // gateDriver builds a driver over the fixture repo with TestCmd overridden;
 // an empty testCmd keeps the WithDefaults `npm test` fallback.

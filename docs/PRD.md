@@ -1525,9 +1525,20 @@ existing driver with validation surfaces (test, command, telemetry, chaos
 schedule) so "the driver works perfectly" is a checkable claim, not a hope.
 
 ---
-*Last updated: 2026-09-10 (goal session) — added §23 Driver Validation
-addendum (FR-VAL-01..05, issues #289–#293) scoped from internet prior art
-(SWE-bench, AWS/Azure chaos engineering, OpenTelemetry GenAI semconv,
-LLM-as-judge drift practice); filed the five FR-VAL issues for the loop
-queue.*
+*Last updated: 2026-09-10 (PR #294, issue #273) — outer taskDispatch wall
+enforced: the dispatch child runs in its own process group
+(`setOwnProcessGroup`, unix; documented no-op degradation off unix) with
+the #248 bounded-drain `WaitDelay` (3s) generalized to the outer wall;
+`killDispatchTree` SIGKILLs the surviving group at the deadline so nothing
+dispatched outlives the anchor. The rc resolves from ProcessState, not
+Wait's error: a dispatch that finished 0 before the wall keeps 0, only a
+wall-killed child reports 124 (GNU timeout convention) — a shipped task is
+never relabeled failed by a drain that crossed the anchor. Pinned by
+TestTaskDispatchWallKillsWedgedWorkerTree and TestDispatchRcMapping.
+Prior: §23 Driver Validation addendum (FR-VAL-01..05, issues #289–#293)
+scoped from internet prior art (SWE-bench, AWS/Azure chaos engineering,
+OpenTelemetry GenAI semconv, LLM-as-judge drift practice); the
+TestHeaderBarReassertsInverse palette-agnostic contract fix (dd46154) —
+the red-in-color-mode test behind loop 209's failed-tests row and main's
+red CI since f101909; the #271 flake fixes (98a30bd, 40a1bac, f30c170).
 
