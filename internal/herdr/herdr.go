@@ -41,6 +41,43 @@ import (
 // pollInterval mirrors POLL_MS: the captured-file poll cadence of a pane run.
 const pollInterval = 250 * time.Millisecond
 
+// paneWatchdogRowInterval is the FR-VAL-03 (#291c) periodic watchdog-health
+// row cadence while a pane launch runs: a wedged worker must show up in the
+// ledger during its budget burn, not only at teardown.
+var paneWatchdogRowInterval = 30 * time.Second
+
+// emitPaneWatchdogRow writes one watchdog-health row for a pane launch with
+// a ledger context and an armed clock (Q34 teardown row + FR-VAL-03 #291c
+// periodic rows). Best-effort; never throws.
+func emitPaneWatchdogRow(ctx *WatchdogContext, noProgressMs, coldStartMs int, start, lastProgressAt time.Time, watchdogFired, coldStartFired bool, clockResets, lastBytes int) {
+	if ctx == nil || (noProgressMs <= 0 && coldStartMs <= 0) {
+		return
+	}
+	runtime := "herdr-pane"
+	visible := true
+	visibility := "herdr-pane"
+	ledger.AppendWatchdogHealthRecord(ctx.RepoPath, ledger.WatchdogHealthRecord{
+		TS:                  ledger.NowISO(),
+		Kind:                "event",
+		TaskID:              ctx.TaskID,
+		Attempt:             ctx.Attempt,
+		Event:               "watchdog-health",
+		Site:                "herdr-pane",
+		Worker:              ctx.Worker,
+		NoProgressTimeoutMs: int64(noProgressMs),
+		WatchdogFired:       watchdogFired,
+		ColdStartFired:      coldStartFired,
+		WallClockMs:         time.Since(start).Milliseconds(),
+		ClockResets:         clockResets,
+		MeaningfulBytes:     int64(lastBytes),
+		IdleMs:              time.Since(lastProgressAt).Milliseconds(),
+		// FR-VIS: pane launches are operator-visible by definition.
+		Runtime:    &runtime,
+		Visible:    &visible,
+		Visibility: &visibility,
+	})
+}
+
 // nestedPaneUnsets mirrors NESTED_PANE_UNSETS: vars unset in every pane
 // before env.sh is sourced (mirrors spawn.NESTED_ENV_BLOCKLIST).
 var nestedPaneUnsets = []string{
@@ -407,6 +444,8 @@ func RunCommandInHerdrPane(cli CliRunner, cmd string, args []string, opts PaneRu
 		graceMs = 60_000
 	}
 
+	// FR-VAL-03 (#291c): periodic watchdog-health rows while the pane runs.
+	lastRow := start
 	for {
 		// Sample output BEFORE the done-check: a fast pane (echo → exit) can
 		// finish between polls, and checking the marker first would skip the
@@ -449,36 +488,15 @@ func RunCommandInHerdrPane(cli CliRunner, cmd string, args []string, opts PaneRu
 			timedOut = true
 			break
 		}
+		if now.Sub(lastRow) >= paneWatchdogRowInterval {
+			lastRow = now
+			emitPaneWatchdogRow(opts.Watchdog, noProgressMs, coldStartMs, start, lastProgressAt, watchdogFired, coldStartFired, clockResets, lastBytes)
+		}
 		time.Sleep(pollInterval)
 	}
-
-	// Q34: exactly one watchdog-health row per pane launch with a clock armed.
-	if opts.Watchdog != nil && (noProgressMs > 0 || coldStartMs > 0) {
-		ctx := opts.Watchdog
-		runtime := "herdr-pane"
-		visible := true
-		visibility := "herdr-pane"
-		ledger.AppendWatchdogHealthRecord(ctx.RepoPath, ledger.WatchdogHealthRecord{
-			TS:                  ledger.NowISO(),
-			Kind:                "event",
-			TaskID:              ctx.TaskID,
-			Attempt:             ctx.Attempt,
-			Event:               "watchdog-health",
-			Site:                "herdr-pane",
-			Worker:              ctx.Worker,
-			NoProgressTimeoutMs: int64(noProgressMs),
-			WatchdogFired:       watchdogFired,
-			ColdStartFired:      coldStartFired,
-			WallClockMs:         time.Since(start).Milliseconds(),
-			ClockResets:         clockResets,
-			MeaningfulBytes:     int64(lastBytes),
-			IdleMs:              time.Since(lastProgressAt).Milliseconds(),
-			// FR-VIS: pane launches are operator-visible by definition.
-			Runtime:    &runtime,
-			Visible:    &visible,
-			Visibility: &visibility,
-		})
-	}
+	// Q34: the firing teardown row for a pane launch with a clock armed
+	// (periodic rows were already emitted by the poll loop above).
+	emitPaneWatchdogRow(opts.Watchdog, noProgressMs, coldStartMs, start, lastProgressAt, watchdogFired, coldStartFired, clockResets, lastBytes)
 	if timedOut {
 		// Match spawnCli's SIGKILL semantics: interrupt the foreground process
 		// hard, then tear the workspace down.

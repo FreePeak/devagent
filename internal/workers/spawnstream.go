@@ -61,10 +61,50 @@ type SpawnCliOptions struct {
 // cannot push the finish past the attempt wall.
 const DefaultPostKillDrainWaitMs = 3000
 
-// watchdogLedgerSink is the production WatchdogSink (FR-GO-05 #190):
-// one best-effort watchdog-health append into the ledger events file of
-// repoPath. Mirrors the herdr-pane row writer (internal/herdr/herdr.go)
-// — never throws.
+// watchdogHealthRowInterval is the FR-VAL-03 (#291c) periodic watchdog-health
+// row cadence on every spawn path: a wedged worker must show up in the
+// ledger while it burns its budget, not only at teardown.
+var watchdogHealthRowInterval = 30 * time.Second
+
+// emitWatchdogRow writes one watchdog-health row when a ledger context and
+// an armed clock are present. Shared by the teardown row (finish) and the
+// FR-VAL-03 (#291c) periodic rows. Never throws.
+func emitWatchdogRow(opts SpawnCliOptions, noProgressMs, coldStartMs int, start time.Time, wdFired, csFired bool, resets, mbytes int, idle, wall time.Duration) {
+	if opts.WatchdogLedger == nil || (noProgressMs <= 0 && coldStartMs <= 0) {
+		return
+	}
+	sink := watchdogSinkFor(opts)
+	if sink == nil {
+		return
+	}
+	sink(WatchdogHealthRecord{
+		Ts:     time.Now().UTC().Format("2006-01-02T15:04:05.000Z07:00"),
+		Kind:   "event",
+		Event:  "watchdog-health",
+		TaskId: opts.WatchdogLedger.TaskId,
+		// FR-VIS: direct exec child — never operator-visible. When the
+		// operator asked for headless the row says so; otherwise this is a
+		// fallback from an attempted pane spawn (RunWorkerCli downgrades).
+		Runtime:             "direct",
+		Visible:             false,
+		Visibility:          visibilityLabel(),
+		NoProgressTimeoutMs: noProgressMs,
+		WatchdogFired:       wdFired,
+		ColdStartFired:      csFired,
+		WallClockMs:         wall.Milliseconds(),
+		ClockResets:         resets,
+		MeaningfulBytes:     mbytes,
+		IdleMs:              idle.Milliseconds(),
+		Site:                "spawn-cli",
+		Attempt:             opts.WatchdogLedger.Attempt,
+		Worker:              opts.WatchdogLedger.Worker,
+	})
+}
+
+// watchdogLedgerSink is the production WatchdogSink (FR-GO-05 #190): one
+// best-effort watchdog-health append into the ledger events file of
+// repoPath. Mirrors the herdr-pane row writer (internal/herdr/herdr.go) —
+// never throws.
 func watchdogLedgerSink(repoPath string) func(WatchdogHealthRecord) {
 	return func(r WatchdogHealthRecord) {
 		runtime, visible, visibility := r.Runtime, r.Visible, r.Visibility
@@ -281,36 +321,8 @@ func spawnCliStreaming(name string, args []string, opts SpawnCliOptions) SpawnCl
 		mu.Unlock()
 		watchdogStopped.Do(func() { close(watchdogStop) })
 
-		// Q34: watchdog-health ledger row; requires an armed clock and a
-		// ledger context. The default sink (FR-GO-05 #190 wiring) appends
-		// to the ledger events file; tests may inject a capture sink.
-		if opts.WatchdogLedger != nil && (noProgressMs > 0 || coldStartMs > 0) {
-			if sink := watchdogSinkFor(opts); sink != nil {
-				sink(WatchdogHealthRecord{
-					Ts:     time.Now().UTC().Format("2006-01-02T15:04:05.000Z07:00"),
-					Kind:   "event",
-					Event:  "watchdog-health",
-					TaskId: opts.WatchdogLedger.TaskId,
-					// FR-VIS: direct exec child — never operator-visible.
-					// When the operator asked for headless the row says so;
-					// otherwise this is a fallback from an attempted pane
-					// spawn (RunWorkerCli downgrades).
-					Runtime:             "direct",
-					Visible:             false,
-					Visibility:          visibilityLabel(),
-					NoProgressTimeoutMs: noProgressMs,
-					WatchdogFired:       wdFired,
-					ColdStartFired:      csFired,
-					WallClockMs:         wallClock.Milliseconds(),
-					ClockResets:         resets,
-					MeaningfulBytes:     mbytes,
-					IdleMs:              idle.Milliseconds(),
-					Site:                "spawn-cli",
-					Attempt:             opts.WatchdogLedger.Attempt,
-					Worker:              opts.WatchdogLedger.Worker,
-				})
-			}
-		}
+		// Q34 teardown row + shared helper; tests may inject a capture sink.
+		emitWatchdogRow(opts, noProgressMs, coldStartMs, start, wdFired, csFired, resets, mbytes, idle, wallClock)
 
 		finishCh <- SpawnCliResult{
 			ExitCode:        exit,
@@ -421,6 +433,7 @@ func spawnCliStreaming(name string, args []string, opts SpawnCliOptions) SpawnCl
 	} else {
 		armedClockMs = maxInt(noProgressMs, coldStartMs)
 	}
+	lastRow := time.Now()
 	if armedClockMs > 0 {
 		interval := time.Duration(minInt(1000, maxInt(200, armedClockMs/4))) * time.Millisecond
 		watchdog := time.NewTicker(interval)
@@ -463,6 +476,18 @@ func spawnCliStreaming(name string, args []string, opts SpawnCliOptions) SpawnCl
 						_ = cmd.Process.Kill()
 						// Give the close path a chance; the watchdog keeps
 						// polling until the wall clock caps it.
+						continue
+					}
+					// FR-VAL-03 (#291c): periodic watchdog-health row while
+					// the child runs — a wedged worker must show up in the
+					// ledger during its budget burn, not only at teardown.
+					if now.Sub(lastRow) >= watchdogHealthRowInterval {
+						lastRow = now
+						resets, mbytes := clockResets, meaningfulBytes
+						idle := time.Since(lastProgressAt)
+						wdFired, csFired := watchdogFired, coldStartFired
+						mu.Unlock()
+						emitWatchdogRow(opts, noProgressMs, coldStartMs, start, wdFired, csFired, resets, mbytes, idle, now.Sub(start))
 						continue
 					}
 					mu.Unlock()

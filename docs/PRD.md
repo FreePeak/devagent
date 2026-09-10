@@ -1542,7 +1542,7 @@ Master tracker with definition of done: [#207](https://github.com/FreePeak/devag
 |---|---|---|---|
 | FR-VAL-01 ✅ | Golden soak self-test: a hermetic CI test runs the full loop driver end-to-end (pick → research → PO → task → gate → ledger) over a fixture repo with fake worker CLIs, asserting N consecutive `ok` ledger rows, correct artifact creation, already-shipped guard behavior, and failure-path classification — shipped as `TestGoldenSoak` in `internal/loopdriver/run_test.go` (issue-first path over the existing `installFakes` fixture; the deterministic `GH_ROTATE_STATE` fake gh serves pick N as issue #200+N): 3 consecutive `ok` rows with goal artifacts under `.selfbuild/`, the 4th re-pick rejected as `skipped` by the already-shipped guard (no 4th task dispatch, guard-side issue close), and the repo-gate failure pin (`TestCmd=false` → `failed-tests` row, tracker issue left open). Runs in CI via the existing `go test ./...` job — mutation-checked: breaking the ledger row writer or the issue pick order turns it red | M | [#289](https://github.com/FreePeak/devagent/issues/289) |
 | FR-VAL-02 | `devagent doctor`: one-command machine validation (version stamp, config, DEVAGENT_HOME, git remote, gh auth incl. invalid-env-token detection, herdr session, daemon /status, provider preflight, stale artifacts) with human + `--json` output for the TUI/Tauri app | M | [#290](https://github.com/FreePeak/devagent/issues/290) |
-| FR-VAL-03 | Driver observability parity: truthful `runs.active` (closes #287), visible worker panes via wired `HerdrPaneRunner` (closes #288), periodic watchdog-health rows + enforced no-progress kill on ALL spawn paths, and a loopdriver heartbeat (`{iteration, phase, pid}`) surfaced on `GET /status` | M | [#291](https://github.com/FreePeak/devagent/issues/291) |
+| FR-VAL-03 ✅ | Driver observability parity: truthful `runs.active` (closes #287), visible worker panes via wired `HerdrPaneRunner` (closes #288), periodic watchdog-health rows + enforced no-progress kill on ALL spawn paths, and a loopdriver heartbeat (`{iteration, phase, pid}`) surfaced on `GET /status` | M | ✅ [#291](https://github.com/FreePeak/devagent/issues/291) — shipped 2026-09-11: run lock acquired in `taskCommand` before `RunTask` (live-smoked: second concurrent `task --id` exits 1 "already active" and the lock is visible under `DEVAGENT_HOME/locks` while the first runs); `workers.WireHerdrPaneRunner` installed from `cli.Execute` (nil seam kept for tests); 30s periodic `watchdog-health` rows on the direct path (`emitWatchdogRow` in `spawnCliStreaming`'s poll loop) and the pane path (`emitPaneWatchdogRow` in `RunCommandInHerdrPane`'s poll loop) with the no-progress kill enforced on both; driver `writeHeartbeat` at every `phase()` boundary → `.selfbuild/heartbeat.json` → `GET /status` `loop:{iteration,phase,pid,updatedAt}` |
 | FR-VAL-04 | Chaos soak: nightly fault-injection scenarios — SIGKILL driver mid-iteration (stale-lock break), SIGKILL worker mid-run (attempt 2/3 retry), fake provider hang (watchdog kill), network blackhole during state push (deferred push), repeated failure (circuit breaker) — each asserting recovery + correct ledger classification | S | [#292](https://github.com/FreePeak/devagent/issues/292) |
 | FR-VAL-05 | Quality-drift ratchet: LLM-judge rubric scoring of shipped PRs recorded as `eval-score` ledger rows, trailing-window regression warning in `ledger --clusters` + research prompts, nightly CI drift job; rubric version recorded per score | S | [#293](https://github.com/FreePeak/devagent/issues/293) |
 
@@ -1551,13 +1551,23 @@ existing driver with validation surfaces (test, command, telemetry, chaos
 schedule) so "the driver works perfectly" is a checkable claim, not a hope.
 
 ---
-*Last updated: 2026-09-10 (issue #300) — post-merge-back repo-level test gate
+*Last updated: 2026-09-11 (issue #291, FR-VAL-03) — driver observability
+parity: `taskCommand` acquires the run lock before `RunTask` so `runs.active`
+on /status is truthful (closes #287; live-smoked with a rejected concurrent
+task); `cli.Execute` wires `HerdrPaneRunner` to the herdr pane runtime so
+`spawn.visibility: visible` really gets panes (closes #288); watchdog-health
+rows now emit every 30s on both the direct and herdr-pane spawn paths while
+the no-progress kill stays enforced; the loop driver writes
+`.selfbuild/heartbeat.json` at every phase boundary and `GET /status` exposes
+it as `loop`, and the TUI iteration card now sources `iteration N · phase X`
+from that heartbeat (ledger tail demoted to fallback for old daemons).
+Prior: 2026-09-10 (issue #300) — post-merge-back repo-level test gate
 default flipped from `npm test` (stale after the Node-tree retirement, PR
-#240) to `go test ./...`; the npm default ENOENTed in 0.18s and stamped every
-green iteration `failed-tests` (last ledger `ok` row: loop 176, 2026-09-08),
-feeding the 2026-09-10 starvation halt and breaker trip. Pinned by
-TestRunRepoTestsDefaultIsGoTest and the updated TestConfigFromEnvTestCmd
-defaults. Details §22.2.
+#240) to `go test ./...`; the npm default ENOENTed in 0.18s
+and stamped every green iteration `failed-tests` (last ledger `ok` row: loop
+176, 2026-09-08), feeding the 2026-09-10 starvation halt and breaker trip.
+Pinned by TestRunRepoTestsDefaultIsGoTest and the updated
+TestConfigFromEnvTestCmd defaults. Details §22.2.
 Prior: 2026-09-10 (TUI view-switch fix) — pressing 1/2/3 could leave
 with OPOST off, drawLocked's unconditional trailing `\n` after an
 all-skip frame (the norm after a view switch) scrolled the alternate

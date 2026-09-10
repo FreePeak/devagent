@@ -282,6 +282,48 @@ func TestStatusShape(t *testing.T) {
 	}
 }
 
+func TestStatusIncludesLoopHeartbeat(t *testing.T) {
+	// FR-VAL-03 #291d: the TUI header reads iteration · phase from /status,
+	// sourced from the loopdriver's .selfbuild/heartbeat.json — never by
+	// scraping the ledger. No heartbeat file → the loop field is absent.
+	repo := t.TempDir()
+	sb := filepath.Join(repo, ".selfbuild")
+	if err := os.MkdirAll(sb, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	hb := `{"iteration":7,"phase":"task","pid":4242,"updatedAt":"2026-09-11T00:00:00Z"}`
+	if err := os.WriteFile(filepath.Join(sb, "heartbeat.json"), []byte(hb), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := testDaemon(t, func(o *Options) { o.RepoPath = repo })
+	code, body := authedGet(t, daemonBase(h)+"/status")
+	if code != http.StatusOK {
+		t.Fatalf("status = %d (%v)", code, body)
+	}
+	loop, ok := body["loop"].(map[string]any)
+	if !ok {
+		t.Fatalf("loop = %v, want object", body["loop"])
+	}
+	if loop["iteration"] != float64(7) || loop["phase"] != "task" || loop["pid"] != float64(4242) {
+		t.Fatalf("loop = %v", loop)
+	}
+	if _, ok := loop["updatedAt"].(string); !ok {
+		t.Fatalf("loop.updatedAt = %v, want string", loop["updatedAt"])
+	}
+}
+
+func TestStatusOmitsLoopWhenNoHeartbeat(t *testing.T) {
+	repo := t.TempDir()
+	h := testDaemon(t, func(o *Options) { o.RepoPath = repo })
+	code, body := authedGet(t, daemonBase(h)+"/status")
+	if code != http.StatusOK {
+		t.Fatalf("status = %d (%v)", code, body)
+	}
+	if _, present := body["loop"]; present {
+		t.Fatalf("loop = %v, want absent without heartbeat file", body["loop"])
+	}
+}
+
 func TestStatusConfigErrorIs500(t *testing.T) {
 	repo := t.TempDir()
 	if err := os.WriteFile(filepath.Join(repo, "devagent.json"), []byte("{broken"), 0o644); err != nil {

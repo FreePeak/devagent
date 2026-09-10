@@ -381,9 +381,18 @@ func spawnVisibility(status *StatusPayload) string {
 }
 
 // iterationLines renders the current loop progress (human jump-in cue,
-// PR #140): iteration + phase from the newest loop-phase row in the ledger
-// tail; nothing when none yet.
+// PR #140): iteration + phase. The driver heartbeat on /status is the
+// source of truth (FR-VAL-03 #291d — a heartbeat present while the ledger
+// tail lags is exactly the staleness defect it closes); the newest
+// loop-phase history row is the fallback for daemons that predate it.
 func iterationLines(snap *Snapshot) []string {
+	if snap.Status != nil && snap.Status.Loop != nil && snap.Status.Loop.Phase != "" {
+		return []string{
+			Dim + "iteration " + jsNum(orNum(snap.Status.Loop.Iteration)) + " · phase: " +
+				Reset + Cyan + snap.Status.Loop.Phase + Reset,
+			"",
+		}
+	}
 	var latest HistoryRow
 	for _, r := range snap.History {
 		if ev, ok := r["event"].(string); ok && ev == "loop-phase" {

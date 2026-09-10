@@ -350,3 +350,45 @@ func TestWaitPipeDrain_DefaultCapSentinel(t *testing.T) {
 		t.Fatalf("default cap not applied: %v", elapsed)
 	}
 }
+
+func TestSpawnCliStreaming_PeriodicWatchdogHealthRows(t *testing.T) {
+	// FR-VAL-03 #291c: a wedged worker emits watchdog-health rows while it
+	// burns its budget — periodic rows with watchdogFired=false during the
+	// run, then the firing teardown row. A hang must be visible in the
+	// ledger before the manual kill that used to be the only evidence.
+	old := watchdogHealthRowInterval
+	watchdogHealthRowInterval = 200 * time.Millisecond
+	t.Cleanup(func() { watchdogHealthRowInterval = old })
+
+	bin := fakeBin(t, "fake-worker", silentBody)
+	var mu sync.Mutex
+	var rows []WatchdogHealthRecord
+	res := spawnCliStreaming(bin, nil, SpawnCliOptions{
+		TimeoutMs:           30_000,
+		NoProgressTimeoutMs: intPtr(1200),
+		WatchdogLedger:      &WatchdogLedgerContext{RepoPath: t.TempDir(), TaskId: "T291", Attempt: 1, Worker: "omp"},
+		WatchdogSink: func(r WatchdogHealthRecord) {
+			mu.Lock()
+			defer mu.Unlock()
+			rows = append(rows, r)
+		},
+	})
+	if !res.TimedOut || res.ColdStart {
+		t.Fatalf("expected no-progress kill, got %+v", res)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(rows) < 2 {
+		t.Fatalf("expected >= 2 rows (periodic + teardown), got %d", len(rows))
+	}
+	if rows[0].WatchdogFired {
+		t.Fatalf("first row must be periodic (watchdogFired=false): %+v", rows[0])
+	}
+	if rows[0].WallClockMs >= 1200 {
+		t.Fatalf("first periodic row wall = %d, want inside the budget", rows[0].WallClockMs)
+	}
+	last := rows[len(rows)-1]
+	if !last.WatchdogFired {
+		t.Fatalf("teardown row must record the fire: %+v", last)
+	}
+}

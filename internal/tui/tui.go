@@ -89,11 +89,22 @@ type StatusPayload struct {
 	Circuit      string             `json:"circuit,omitempty"`
 	Herdr        *HerdrStatus       `json:"herdr,omitempty"`
 	Spawn        *SpawnStatus       `json:"spawn,omitempty"`
+	Loop         *LoopStatus        `json:"loop,omitempty"`
 	Capabilities []string           `json:"capabilities,omitempty"`
 	// Ask is the newest paused 'ask' task (FR-HAND-07) the approve sheet
 	// can answer. The daemon's /status answers it directly; the loop's
 	// pickPausedTask also falls back to the ledger tail 'ask' verdict.
 	Ask *StatusAsk `json:"ask,omitempty"`
+}
+
+// LoopStatus is the loopdriver heartbeat block of /status (FR-VAL-03
+// #291d): the header shows iteration · phase straight from the daemon
+// instead of scraping the ledger tail.
+type LoopStatus struct {
+	Iteration *float64 `json:"iteration,omitempty"`
+	Phase     string   `json:"phase,omitempty"`
+	Pid       *float64 `json:"pid,omitempty"`
+	UpdatedAt string   `json:"updatedAt,omitempty"`
 }
 
 // StatusAsk is the paused 'ask' task block of /status.
