@@ -121,7 +121,6 @@ exit 0`)
 	}
 }
 
-
 func TestSpawnCliStreaming_WatchdogHealthRow(t *testing.T) {
 	// Q34: an armed clock + ledger context emits a watchdog-health row with
 	// the TS field names and the firing evidence.
