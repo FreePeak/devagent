@@ -42,6 +42,14 @@ const PreflightProbeAttempts = 3
 // several >30s), so a 30s cap turned the gate into a coin-flip that tripped
 // the selfbuild circuit breaker. 60s keeps the probe bounded while clearing
 // the tail.
+//
+// 2026-09-10: the onegw free combo's upstream legs saturate independently
+// (b-ai 429001 concurrency errors, tokenharbor free_tier_limit_reached,
+// tokenrouter 45-70s hangs) — the 60s cap is the binding budget for those
+// stalls and failures are honest (the gate must skip the cycle rather than
+// burn a dispatch on a wedged upstream). Keep the cap; the retries below
+// absorb the transient tail, and a genuinely dead route still degrades in
+// bounded time instead of wedging the driver.
 const PreflightProbeTimeoutMs = 60_000
 
 // PreflightRetryDelayMs is the sleep between failed probes (mirrors
