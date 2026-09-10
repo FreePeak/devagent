@@ -313,6 +313,157 @@ func ClusterFailureClasses(repoPath string) []FailureClassCluster {
 	return out
 }
 
+// EvalScoreEvent is the `event` discriminator of an FR-VAL-05 judge row.
+const EvalScoreEvent = "eval-score"
+
+// ReadEvalScores reads the FR-VAL-05 judge rows (`kind: "event"`,
+// `event: "eval-score"`) oldest first — the same events.jsonl stream every
+// other record family appends to. Rows that fail to decode (schema drift, a
+// hand-edited ledger) are skipped rather than guessed at: a missing score must
+// never masquerade as a zero.
+func ReadEvalScores(repoPath string) []EvalScoreRecord {
+	var out []EvalScoreRecord
+	for _, line := range readLines(repoPath) {
+		row, ok := parseLine(line)
+		if !ok {
+			continue
+		}
+		kind, _ := rowString(row, "kind")
+		event, _ := rowString(row, "event")
+		if kind != "event" || event != EvalScoreEvent {
+			continue
+		}
+		var rec EvalScoreRecord
+		blob, _ := json.Marshal(row)
+		if json.Unmarshal(blob, &rec) != nil {
+			continue
+		}
+		out = append(out, rec)
+	}
+	return out
+}
+
+// DriftWindow is the default trailing window the quality ratchet measures
+// against: ten scores is enough history to hold a best-so-far without letting
+// a month-old PR keep gating the loop forever.
+const DriftWindow = 10
+
+// QualityDrift is one ratchet violation: a shipped PR scored below the best
+// score its own goal class achieved inside the trailing window (FR-VAL-05 #293).
+// Criterion carries the largest per-criterion shortfall against that best, so
+// the warning names what regressed instead of only "quality dropped". The
+// criterion numbers are never omitempty: a 0/25 test-evidence score is exactly
+// the finding a reviewer needs, and dropping it would hide the worst case.
+type QualityDrift struct {
+	GoalClass      string `json:"goalClass"`
+	RubricVersion  string `json:"rubricVersion"`
+	RubricDigest   string `json:"rubricDigest,omitempty"`
+	TaskID         string `json:"taskId"`
+	PR             int    `json:"pr"`
+	Total          int    `json:"total"`
+	Max            int    `json:"max"`
+	Best           int    `json:"best"`
+	BestPR         int    `json:"bestPr"`
+	Drop           int    `json:"drop"`
+	Criterion      string `json:"criterion,omitempty"`
+	CriterionScore int    `json:"criterionScore"`
+	CriterionMax   int    `json:"criterionMax"`
+}
+
+// QualityDriftFromScores is the pure ratchet: walk the scores in ledger order
+// and report every score that fell below the best of the `window` scores that
+// preceded it in its own bucket. The bucket is (goalClass, rubricVersion,
+// rubricDigest): a class never competes against another class, and a rubric
+// that measures something different — edited weights, edited ids, a typo that
+// dropped a criterion — never shares a baseline with the scores it made before
+// the edit. A row with no measurement scale (max 0) is malformed and excluded.
+// No other-PR row in the window means no baseline, so the first artifact of a
+// bucket is never drift, and a re-scored PR is never compared with its own
+// earlier judge noise. Ranked by drop, largest first (ties keep ledger order).
+func QualityDriftFromScores(records []EvalScoreRecord, window int) []QualityDrift {
+	if window <= 0 {
+		window = DriftWindow
+	}
+	var keys []string
+	groups := map[string][]EvalScoreRecord{}
+	for _, r := range records {
+		if r.Max <= 0 {
+			continue
+		}
+		key := r.GoalClass + "\x00" + r.RubricVersion + "\x00" + r.RubricDigest
+		if _, seen := groups[key]; !seen {
+			keys = append(keys, key)
+		}
+		groups[key] = append(groups[key], r)
+	}
+	var out []QualityDrift
+	for _, key := range keys {
+		rows := groups[key]
+		// Only the trailing `window` scores can still be reported as drift;
+		// older violations are history, not a warning for the next iteration.
+		for i := max(1, len(rows)-window); i < len(rows); i++ {
+			cand := rows[i]
+			bestIdx := -1
+			for j := max(0, i-window); j < i; j++ {
+				if rows[j].PR == cand.PR {
+					continue
+				}
+				if bestIdx < 0 || rows[j].Total > rows[bestIdx].Total {
+					bestIdx = j
+				}
+			}
+			if bestIdx < 0 || cand.Total >= rows[bestIdx].Total {
+				continue
+			}
+			best := rows[bestIdx]
+			drift := QualityDrift{
+				GoalClass:     cand.GoalClass,
+				RubricVersion: cand.RubricVersion,
+				RubricDigest:  cand.RubricDigest,
+				TaskID:        cand.TaskID,
+				PR:            cand.PR,
+				Total:         cand.Total,
+				Max:           cand.Max,
+				Best:          best.Total,
+				BestPR:        best.PR,
+				Drop:          best.Total - cand.Total,
+			}
+			drift.Criterion, drift.CriterionScore, drift.CriterionMax = weakestCriterion(cand, best)
+			out = append(out, drift)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Drop > out[j].Drop })
+	return out
+}
+
+// ClusterQualityDrift reads the ledger and reports the ratchet violations.
+func ClusterQualityDrift(repoPath string, window int) []QualityDrift {
+	return QualityDriftFromScores(ReadEvalScores(repoPath), window)
+}
+
+// weakestCriterion names where the candidate lost the most ground against the
+// best score: the criterion with the largest absolute point shortfall, i.e. the
+// one that explains the biggest share of the reported drop. Points (not rates)
+// because the warning, the drop and the gate budget are all in points. Criteria
+// the best row does not carry cannot be compared and are skipped.
+func weakestCriterion(cand, best EvalScoreRecord) (string, int, int) {
+	var worstName string
+	var worstScore, worstMax, worstGap int
+	bests := map[string]EvalCriterionScore{}
+	for _, c := range best.Criteria {
+		bests[c.Criterion] = c
+	}
+	for _, c := range cand.Criteria {
+		b, ok := bests[c.Criterion]
+		if !ok || b.Score-c.Score <= worstGap {
+			continue
+		}
+		worstGap = b.Score - c.Score
+		worstName, worstScore, worstMax = c.Criterion, c.Score, c.Max
+	}
+	return worstName, worstScore, worstMax
+}
+
 func containsStr(list []string, s string) bool {
 	for _, v := range list {
 		if v == s {

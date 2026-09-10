@@ -251,6 +251,97 @@ type WorkerCostRecord struct {
 	CostUsdTicks int64  `json:"costUsdTicks"`
 }
 
+// EvalCriterionScore is one rubric criterion's verdict on an `eval-score` row.
+// Max carries the rubric weight the score was measured against, so the drift
+// ratchet can rank criteria and name the offending one without re-opening the
+// rubric file (which may since have been edited).
+type EvalCriterionScore struct {
+	Criterion string `json:"criterion"`
+	Score     int    `json:"score"`
+	Max       int    `json:"max"`
+}
+
+// EvalScoreRecord is the Go EvalScoreLedgerRecord (FR-VAL-05, issue #293): the
+// quality of one shipped PR as scored by the LLM judge against the checked-in
+// rubric. GoalClass buckets the ratchet (scores only compete inside their own
+// class); RubricVersion is the declared label and RubricDigest the hash of the
+// criteria+weights that produced the measurement, so an edit that changes what
+// is being measured can never silently redefine the baseline — even one where
+// the editor forgot to bump the version. Judge records worker@model, so a judge
+// swap is attributable rather than mysterious.
+type EvalScoreRecord struct {
+	TS            string               `json:"ts"`
+	Kind          string               `json:"kind"`
+	TaskID        string               `json:"taskId"`
+	Attempt       int                  `json:"attempt"`
+	Event         string               `json:"event"` // eval-score
+	PR            int                  `json:"pr"`
+	GoalClass     string               `json:"goalClass"`
+	RubricVersion string               `json:"rubricVersion"`
+	RubricDigest  string               `json:"rubricDigest"`
+	Judge         string               `json:"judge"`
+	Criteria      []EvalCriterionScore `json:"criteria"`
+	Total         int                  `json:"total"`
+	Max           int                  `json:"max"`
+	Notes         string               `json:"notes"`
+}
+
+// EvalScoreArgs is the judge-result input for MakeEvalScoreRecord.
+type EvalScoreArgs struct {
+	TaskID        string
+	Attempt       int
+	PR            int
+	GoalClass     string
+	RubricVersion string
+	RubricDigest  string
+	Judge         string
+	Criteria      []EvalCriterionScore
+	Notes         string
+	// TS == "" means now.
+	TS string
+}
+
+// MakeEvalScoreRecord fills the derived fields of a judge result: TS == ""
+// means now, Total/Max sum the per-criterion rows (so a caller cannot publish a
+// total the criteria do not support), a nil criteria list serializes as [] like
+// every other collection here, and Kind/Event pin the row onto the existing
+// events.jsonl stream — no new event system.
+func MakeEvalScoreRecord(args EvalScoreArgs) EvalScoreRecord {
+	if args.TS == "" {
+		args.TS = NowISO()
+	}
+	criteria := args.Criteria
+	if criteria == nil {
+		criteria = []EvalCriterionScore{}
+	}
+	var total, max int
+	for _, c := range criteria {
+		total += c.Score
+		max += c.Max
+	}
+	return EvalScoreRecord{
+		TS:            args.TS,
+		Kind:          "event",
+		TaskID:        args.TaskID,
+		Attempt:       args.Attempt,
+		Event:         "eval-score",
+		PR:            args.PR,
+		GoalClass:     args.GoalClass,
+		RubricVersion: args.RubricVersion,
+		RubricDigest:  args.RubricDigest,
+		Judge:         args.Judge,
+		Criteria:      criteria,
+		Total:         total,
+		Max:           max,
+		Notes:         truncateUTF16(args.Notes, 500),
+	}
+}
+
+// AppendEvalScoreRecord appends one judge score of a shipped PR (best-effort).
+func AppendEvalScoreRecord(repoPath string, record EvalScoreRecord) {
+	appendRecord(repoPath, record)
+}
+
 // AppendAuditRecord appends one audit record (best-effort, never throws).
 func AppendAuditRecord(repoPath string, record AuditRecord) {
 	appendRecord(repoPath, record)

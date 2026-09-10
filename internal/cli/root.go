@@ -465,8 +465,10 @@ func wiredCommands() map[string]*cobra.Command {
 		// Curator follow-through (issue #202 / PRD Q15 wiring).
 		"prd-audit": prdAuditCommand(),
 
-		// Driver-validation family (§23): doctor (FR-VAL-02, issue #290).
+		// Driver-validation family (§23): doctor (FR-VAL-02, issue #290),
+		// eval (FR-VAL-05 quality-drift ratchet, issue #293).
 		"doctor": newDoctorCmd(),
+		"eval":   newEvalCmd(),
 	}
 	for _, sub := range wired["record"].Commands() {
 		if sub.Name() == "release" {

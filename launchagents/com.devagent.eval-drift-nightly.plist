@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- FR-VAL-05 nightly quality-drift ratchet (issue #293): score the last
+     EVAL_LAST merged PRs of the main checkout against docs/eval/rubric.md, then
+     read the ratchet back. Alert-only while EVAL_MAX_DROP is 0 — set a point
+     budget in scripts/eval-drift-nightly.sh (or the EnvironmentVariables block
+     below) to turn a real regression into a failed run.
+
+     Loaded by `make agents-install`, which renders ${HOME} into
+     ~/Library/LaunchAgents and bootstraps every plist in this directory — so
+     this job starts spending judge credits the next time that target runs.
+     Stop it with `make agents-uninstall` (bootout + disable + delete installed
+     copies; this repo copy stays), or per job:
+       launchctl bootout gui/$(id -u)/com.devagent.eval-drift-nightly
+
+     PATH matters: launchd hands jobs a minimal one, and the judge is a worker
+     CLI (~/.opencode/bin) reading gh from homebrew. Without this block
+     `eval score` writes nothing and `eval drift` then green-lights an empty
+     ratchet — the one outcome this job exists to prevent. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.devagent.eval-drift-nightly</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>${HOME}/.cargo/bin:${HOME}/.opencode/bin:${HOME}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>HOME</key><string>${HOME}</string>
+  </dict>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>${HOME}/work/harvey/freepeak/devagent/scripts/eval-drift-nightly.sh</string>
+  </array>
+  <key>WorkingDirectory</key><string>${HOME}/work/harvey/freepeak/devagent</string>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key><integer>3</integer>
+    <key>Minute</key><integer>37</integer>
+  </dict>
+  <key>RunAtLoad</key><false/>
+  <key>StandardOutPath</key><string>${HOME}/Library/Logs/devagent-eval-drift.log</string>
+  <key>StandardErrorPath</key><string>${HOME}/Library/Logs/devagent-eval-drift.log</string>
+</dict>
+</plist>

@@ -70,6 +70,7 @@ func ledgerCommand() *cobra.Command {
 				}
 				clusters := ledger.ClusterFailures(repo)
 				classes := ledger.ClusterFailureClasses(repo)
+				drift := ledger.ClusterQualityDrift(repo, ledger.DriftWindow)
 				if jsonOut {
 					// The JSON branch uses limit 5 whenever the raw value is
 					// not a finite positive number (TS: Number.isFinite && > 0).
@@ -77,7 +78,7 @@ func ledgerCommand() *cobra.Command {
 					if !math.IsNaN(top) && top > 0 {
 						limit = int(top)
 					}
-					blob, err := ledger.ClustersJSON(clusters, classes, limit)
+					blob, err := ledger.ClustersJSON(clusters, classes, drift, limit)
 					if err != nil {
 						return err
 					}
@@ -90,7 +91,7 @@ func ledgerCommand() *cobra.Command {
 					fmt.Printf("Nothing to show for --clusters %s.\n", clustersRaw)
 					return nil
 				}
-				for _, line := range ledger.RenderClustersText(clusters, classes, int(top), clustersRaw) {
+				for _, line := range ledger.RenderClustersText(clusters, classes, drift, int(top), clustersRaw) {
 					fmt.Println(line)
 				}
 				return nil
