@@ -459,6 +459,7 @@ func wiredCommands() map[string]*cobra.Command {
 
 		// Curator follow-through (issue #202 / PRD Q15 wiring).
 		"prd-audit": prdAuditCommand(),
+		"doctor":    newDoctorCmd(),
 	}
 	for _, sub := range wired["record"].Commands() {
 		if sub.Name() == "release" {
@@ -551,7 +552,7 @@ func handled(dotted string) bool {
 		"queue", "queue list", "queue show", "queue bridge",
 		"lessons", "lessons scores", "pr-hygiene", "automerge", "autosweep",
 		"run", "fleet", "task", "orchestrate", "project", "create",
-		"consume", "backlog-check", "reap-stale", "prd-audit", "guard", "guard-status":
+		"consume", "backlog-check", "reap-stale", "prd-audit", "guard", "guard-status", "doctor":
 		return true
 	}
 	return false

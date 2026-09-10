@@ -23,6 +23,7 @@ var frozenSurface = map[string]frozenCmd{
 	"daemon":              {Flags: []string{"--port", "--repo", "--token", "--uds-path"}, Subcommands: []string{}},
 	"dashboard":           {Flags: []string{}, Subcommands: []string{}},
 	"fleet":               {Flags: []string{"--auto-pr", "--cleanup", "--concurrency", "--drop-orca-workspace", "--max-loops", "--repo", "--ticket", "--worker"}, Subcommands: []string{}},
+	"doctor":              {Flags: []string{"--json", "--repo"}, Subcommands: []string{}},
 	"guard":               {Flags: []string{"--base-delay-ms", "--max-attempts", "--max-delay-ms", "--no-progress-timeout-ms", "--resume-prompt"}, Subcommands: []string{}},
 	"guard-status":        {Flags: []string{"--project-dir", "--resume", "--resume-prompt"}, Subcommands: []string{}},
 	"herdr-sweep":         {Flags: []string{"--dry-run", "--orphans", "--session"}, Subcommands: []string{}},
