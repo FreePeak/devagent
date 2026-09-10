@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strconv"
 	"strings"
 	"unicode/utf8"
 )
@@ -90,7 +91,14 @@ func RenderFrame(prev, next []string, width int) string {
 		}
 	}
 	if prev == nil || len(prev) > len(lines) {
-		out.WriteString("\x1b[J") // erase leftover rows
+		// Erase leftover rows with ABSOLUTE positioning: the row loop's exit
+		// cursor depends on whether the last row was skipped (\x1b[1B leaves
+		// it one row below the frame) or rewritten (it ends on the frame's
+		// last row at the content column) — an ED from wherever the loop left
+		// the cursor either chops a preserved row's tail or leaves stale
+		// cells on the first leftover row. CUP never scrolls, so this stays
+		// safe even when the frame fills the terminal.
+		out.WriteString("\x1b[" + strconv.Itoa(len(lines)+1) + ";1H\x1b[J")
 	}
 	return out.String()
 }

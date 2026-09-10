@@ -96,6 +96,14 @@ func (e *bufEnv) setCols(n int) {
 	e.cols = n
 	e.mu.Unlock()
 }
+
+// setRows resizes the fake geometry vertically (short-terminal tests).
+func (e *bufEnv) setRows(n int) {
+	e.mu.Lock()
+	e.rows = n
+	e.mu.Unlock()
+}
+
 func (e *bufEnv) EnterRaw() error    { e.mu.Lock(); e.rawEnters++; e.mu.Unlock(); return nil }
 func (e *bufEnv) RestoreTerm() error { e.mu.Lock(); e.restores++; e.mu.Unlock(); return nil }
 
@@ -190,6 +198,33 @@ func TestLoopRunViewSwitchRendersFrames(t *testing.T) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("Run did not return after q")
+	}
+}
+
+// TestLoopFullHeightIdenticalFrameEmitsNoLF pins the view-switch desync root
+// cause: when the frame's last row is skipped (identical rows are the norm
+// after a 1/2/3 switch — only the body changes, blank tail rows don't),
+// RenderFrame exits with the cursor one row BELOW the frame, so a trailing
+// LF emitted after it lands on the terminal's bottom row and scrolls the
+// alternate screen — after which the incremental diff draws every later
+// frame one row off (stale rows from the previous view persisting under the
+// new view's content). drawLocked must not append any LF.
+func TestLoopFullHeightIdenticalFrameEmitsNoLF(t *testing.T) {
+	env := newBufEnv()
+	tr := &countingTransport{killDone: make(chan struct{}, 4)}
+	l := NewLoop(TuiOptions{}, tr, env, "attach").(*loop)
+	l.view = ViewLog
+	for range 45 {
+		l.logLines = append(l.logLines, LogLine{Message: "buffered log row"})
+	}
+	l.running = true
+
+	l.drawLocked() // first draw paints the full frame
+	firstLen := len(env.outText())
+	l.drawLocked() // second draw diffs an identical state
+	seg := env.outText()[firstLen:]
+	if strings.Contains(seg, "\n") {
+		t.Fatalf("identical full-height frame must emit zero LFs, got %q", truncStr(seg, 200))
 	}
 }
 
@@ -369,3 +404,29 @@ func truncStr(s string, n int) string {
 type writerFunc func([]byte) (int, error)
 
 func (f writerFunc) Write(p []byte) (int, error) { return f(p) }
+
+// TestLoopDrawNeverExceedsTerminalRows pins the short-terminal guard: on a
+// degenerate 3-row terminal fitLines' head/body/footer minimums can produce
+// more lines than the screen, and the differ's row walk (skip \x1b[1B /
+// rewrite \n) past the bottom row would scroll the alternate screen and
+// desync the incremental diff forever. drawLocked must cap the frame at the
+// row budget in every view — a frame of at most rows-1 lines cannot move
+// the cursor past the screen's bottom row (the walk starts at \x1b[H and
+// advances at most one row per line, incl. the absolute CUP+ED erase).
+func TestLoopDrawNeverExceedsTerminalRows(t *testing.T) {
+	env := newBufEnv()
+	env.setRows(3)
+	tr := &countingTransport{killDone: make(chan struct{}, 4)}
+	l := NewLoop(TuiOptions{}, tr, env, "attach").(*loop)
+	l.running = true
+	for range 30 {
+		l.logLines = append(l.logLines, LogLine{Message: "row"})
+	}
+	for _, keys := range []string{"1", "2", "3", "1"} {
+		l.ApplyKeys(DecodeKeys(keys, false)) // the key's own safeDraw paints the frame
+		if len(l.prevFrame) > env.rows-1 {
+			t.Fatalf("view %q painted %d rows on a %d-row terminal (scroll → permanent diff desync)",
+				keys, len(l.prevFrame), env.rows)
+		}
+	}
+}

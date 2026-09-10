@@ -1369,6 +1369,29 @@ keybinding, payload and the mono/truecolor degradation contract are unchanged:
    title, glyph map, step chip, tagline width-gating); verified live over a PTY
    (dashboard frame, `init`, `status`) across the palette ladder.
 
+**View-switch render desync fix (2026-09-10)** — pressing `1`/`2`/`3` could
+leave the dashboard permanently one-row-off (stale rows from the previous
+view persisting under the new one, mixed footer). Root cause was in the
+incremental differ, not the key table: with OPOST off a bare `\n` is
+LF-only, and drawLocked unconditionally appended `\n` after RenderFrame —
+on an all-skip frame (the norm after a view switch, where only the body
+changes) the differ's exit cursor already sits one row below the frame, so
+that LF landed on the terminal's bottom row and scrolled the alternate
+screen, desyncing the diff forever after. Two fixes in
+`internal/tui/{frame.go,loopimpl.go}`: (1) RenderFrame erases leftover rows
+with absolute positioning (`ESC[<n>;1H` then `ESC[J`) instead of ED from
+wherever the row loop left the cursor (a skipped-vs-rewritten last row left
+it at different depths — ED-from-cursor could chop a preserved row or leave
+stale cells); (2) drawLocked no longer emits the trailing LF, clamps the
+frame to `rows-1` clamped DOWN to the real geometry (the old 12-row floor
+forced frames taller than short terminals), and hard-caps `len(next)` for
+degenerate 2–3-row terminals. Pinned by TestLoopFullHeightIdenticalFrameEmitsNoLF,
+TestRenderFrameShrinkErasesFromFirstLeftoverRow and
+TestLoopDrawNeverExceedsTerminalRows (cursor-row tracker asserting no move
+past the bottom row); all three fail on the pre-fix code. Verified
+end-to-end over a PTY against the live daemon: the pre-fix 2→3→1 switch
+overflowed the bottom row 3 times in a 10-second session; post-fix, zero.
+
 Boundary with §20.4: the Tauri desktop app and the TUI are two renderers over the same
 FR-CTRL API — the TUI is the SSH/headless-server surface, the app is the desktop surface;
 neither parses PTYs (anti-pattern in §20.3). The PTY lives in the herdr server (FR-VIS),
@@ -1515,7 +1538,7 @@ Master tracker with definition of done: [#207](https://github.com/FreePeak/devag
 | ID | Requirement | Pri | Issue |
 |---|---|---|---|
 | FR-VAL-01 ✅ | Golden soak self-test: a hermetic CI test runs the full loop driver end-to-end (pick → research → PO → task → gate → ledger) over a fixture repo with fake worker CLIs, asserting N consecutive `ok` ledger rows, correct artifact creation, already-shipped guard behavior, and failure-path classification — shipped as `TestGoldenSoak` in `internal/loopdriver/run_test.go` (issue-first path over the existing `installFakes` fixture; the deterministic `GH_ROTATE_STATE` fake gh serves pick N as issue #200+N): 3 consecutive `ok` rows with goal artifacts under `.selfbuild/`, the 4th re-pick rejected as `skipped` by the already-shipped guard (no 4th task dispatch, guard-side issue close), and the repo-gate failure pin (`TestCmd=false` → `failed-tests` row, tracker issue left open). Runs in CI via the existing `go test ./...` job — mutation-checked: breaking the ledger row writer or the issue pick order turns it red | M | [#289](https://github.com/FreePeak/devagent/issues/289) |
-| FR-VAL-02 ✅ | `devagent doctor`: one-command machine validation (version stamp, config, DEVAGENT_HOME, git remote, gh auth incl. invalid-env-token detection, herdr session, daemon /status, provider preflight, stale artifacts) with human + `--json` output for the TUI/Tauri app — shipped as `internal/commands/doctor.go` + `internal/cli/actions_doctor.go` (2026-09-10): strictly read-only (bare RunPreflightProbe for check 8 — no gate side effects: no circuit transitions, ledger rows, or pages), version stamp warn-only so unstamped local builds never fail a healthy box, gh-auth source-aware (env wins over keyring, so an invalid env token is named with the shadowing hint, not masked), daemon /status probed with the persisted bearer token (401 = distinct unauthorized verdict, not generic unhealthy; connection refused = informational pass since daemons start on demand), TTL-expired run locks warn (TryAcquireRun self-heals) while dead-pid locks and wedged `loop.lock.d` holders fail with `rm` hints; exit 0 only when nothing failed, `--json` envelope `{ok, repoPath, checks[{name,ok,warn,detail,hint}]}`; all external touchpoints behind injection seams for hermetic fault-fixture tests (TestDoctor* in `internal/commands/doctor_test.go`) | M | [#290](https://github.com/FreePeak/devagent/issues/290) |
+| FR-VAL-02 | `devagent doctor`: one-command machine validation (version stamp, config, DEVAGENT_HOME, git remote, gh auth incl. invalid-env-token detection, herdr session, daemon /status, provider preflight, stale artifacts) with human + `--json` output for the TUI/Tauri app | M | [#290](https://github.com/FreePeak/devagent/issues/290) |
 | FR-VAL-03 | Driver observability parity: truthful `runs.active` (closes #287), visible worker panes via wired `HerdrPaneRunner` (closes #288), periodic watchdog-health rows + enforced no-progress kill on ALL spawn paths, and a loopdriver heartbeat (`{iteration, phase, pid}`) surfaced on `GET /status` | M | [#291](https://github.com/FreePeak/devagent/issues/291) |
 | FR-VAL-04 | Chaos soak: nightly fault-injection scenarios — SIGKILL driver mid-iteration (stale-lock break), SIGKILL worker mid-run (attempt 2/3 retry), fake provider hang (watchdog kill), network blackhole during state push (deferred push), repeated failure (circuit breaker) — each asserting recovery + correct ledger classification | S | [#292](https://github.com/FreePeak/devagent/issues/292) |
 | FR-VAL-05 | Quality-drift ratchet: LLM-judge rubric scoring of shipped PRs recorded as `eval-score` ledger rows, trailing-window regression warning in `ledger --clusters` + research prompts, nightly CI drift job; rubric version recorded per score | S | [#293](https://github.com/FreePeak/devagent/issues/293) |
@@ -1537,6 +1560,15 @@ daemon probe authenticates with the persisted daemon-token and classifies
 invalid env token with the keyring-shadowing hint; TTL-expired locks warn,
 dead-pid locks and wedged loop.lock.d fail with rm hints. Pinned by
 TestDoctor* fault-fixture tests (every external touchpoint behind a seam).
+Prior: 2026-09-10 (TUI view-switch fix) — pressing 1/2/3 could leave
+the dashboard permanently one-row-off (stale rows from the previous view,
+mixed footers). Root cause in the incremental differ, not the key table:
+with OPOST off, drawLocked's unconditional trailing `\n` after an
+all-skip frame (the norm after a view switch) scrolled the alternate
+screen and desynced every later diff. RenderFrame now erases leftovers
+via absolute CUP+ED (never cursor-relative), drawLocked drops the trailing
+LF, clamps rows to the real geometry and hard-caps degenerate short
+terminals; three regression tests pin it (each fails pre-fix). Details §20.8.
 Prior: 2026-09-10 (issue #289) — FR-VAL-01 golden soak self-test landed
 as `TestGoldenSoak` in `internal/loopdriver/run_test.go`: 3 consecutive
 green iterations end-to-end, already-shipped guard rejecting the 4th re-pick,
