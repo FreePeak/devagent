@@ -36,20 +36,44 @@ func IsPreflightRole(value string) bool {
 // PreflightProbeAttempts is the probe invocations per gate run.
 const PreflightProbeAttempts = 3
 
-// PreflightProbeTimeoutMs is the hard wall-clock cap per probe. Must stay
-// cheap but clear the slowest observed gateway round-trip: omniroute/dev
-// replies land at 25-38s (2026-09-03 live: shell probe 26s, execFile 25s,
-// several >30s), so a 30s cap turned the gate into a coin-flip that tripped
-// the selfbuild circuit breaker. 60s keeps the probe bounded while clearing
-// the tail.
+// PreflightProbeTimeoutMs is the hard wall-clock cap per probe attempt
+// (PreflightProbeAttempts attempts, PreflightRetryDelayMs apart).
 //
-// 2026-09-10: the onegw free combo's upstream legs saturate independently
-// (b-ai 429001 concurrency errors, tokenharbor free_tier_limit_reached,
-// tokenrouter 45-70s hangs) — the 60s cap is the binding budget for those
-// stalls and failures are honest (the gate must skip the cycle rather than
-// burn a dispatch on a wedged upstream). Keep the cap; the retries below
-// absorb the transient tail, and a genuinely dead route still degrades in
-// bounded time instead of wedging the driver.
+// Measured 2026-09-11 on the live route: `omp -p OK --mode json --no-prewalk
+// --no-lsp --no-extensions` completes in 15-75s (one gate cleared at 56s on
+// attempt 1), while a raw gateway completion for the SAME model answers in
+// 1.0-2.1s (5/5). So the cost is the worker CLI's per-invocation machinery —
+// session start, memory and advisor are not separated by these measurements —
+// not the model route: pinning the combo to a single leg changed nothing and
+// was reverted (08dc339).
+//
+// 60s is deliberately NOT raised. Two distinct failure modes exist and the cap
+// only addresses the first: (a) the 15-75s tail; (b) a hard-stall mode that
+// never answered within 170s (5/5 in one sample window). 120s cannot fix (b) —
+// it only doubles the burn per degraded iteration, and preflight runs twice per
+// iteration (selfbuild + po), so it would mean up to ~12 min of probing before
+// the breaker stops the cycle. The 2026-09-10 60s→120s raise was reverted for
+// exactly that reason; don't re-raise it to chase (b).
+//
+// The real lever for (a) is that RunPreflightProbe waits for process EXIT, so
+// it pays the CLI's full teardown even after the answer has streamed — at least
+// one sample shows "text":"OK" present in the captured output while the cap
+// still fired (answered, process lingering). Fixed by completing on the
+// streamed marker instead of the exit code; tracked as a separate issue.
+//
+// Unconfirmed confounds, present in BOTH arms of every measurement, so nothing
+// here attributes causality to either: the user's `advisor: enabled: true`
+// (second route `onegw/dev:auto`; every degraded detail ends
+// `advisor_cost_changed`, but the event also fired under a profile with
+// `advisor.enabled: false`, so that profile did not actually suppress it) and
+// `retry.maxRetries: 999999` with `maxDelayMs: 0`, which can retry one stalled
+// request indefinitely inside a single probe.
+//
+// Correction to earlier text on this constant: it blamed upstream combo
+// saturation (b-ai 429001 concurrency caps, tokenharbor free-tier quota,
+// tokenrouter hangs) as the binding cause. Those symptoms are real but the
+// raw-HTTP-vs-probe split above refutes them as the cause of the degraded
+// iterations — the same route answers in ~1s while the CLI stalls.
 const PreflightProbeTimeoutMs = 60_000
 
 // PreflightRetryDelayMs is the sleep between failed probes (mirrors

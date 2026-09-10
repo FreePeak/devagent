@@ -1551,19 +1551,32 @@ existing driver with validation surfaces (test, command, telemetry, chaos
 schedule) so "the driver works perfectly" is a checkable claim, not a hope.
 
 ---
-*Last updated: 2026-09-11 (config decision, reverted) — tried pinning
-`devagent.json` worker+scout `model` off the saturating `onegw/free` combo to
-the single `b-ai/glm-5.3-flash` leg (7fdef93) to stop repeated
-`provider-degraded` iterations; **reverted** — it bought nothing and cost
-resilience. Measured: preflight still degraded on the pinned leg (iteration 229
-row carries `model":"b-ai/glm-5.3-flash"`, `attempts:3`), while iteration 227
-(pre-pin, on the combo) had already shipped #291 end-to-end, and the combo
-streamed 729KB/885KB for workers that wedged at first token. The pin also
-removed 5-target combo fall-through to `b-ai`'s own `429001` concurrency caps
-under ~50 co-resident omp agents. The degraded rows' real cause is probe
-first-token latency, not model choice, and the breaker counting them is
-intended bash parity (`selfbuild-loop.sh:277`, `TestRunLoopPreflightBreaker`):
-a dead window must stop the loop and let the supervisor retry, not spin.
+*Last updated: 2026-09-11 (preflight probe: cap reverted, attribution
+corrected) — the 60s→120s raise (b5059c9) is **reverted**: measuring the probe
+gave two distinct modes — a 15-75s tail (one gate cleared at 56s) and a
+hard-stall mode that never answered within 170s (5/5) — and 120s cannot fix the
+second; it only doubles the burn, since preflight runs twice per iteration
+(selfbuild + po). 60s stands. Also corrected: the degraded iterations are **not**
+upstream saturation (a raw gateway completion on the same route answers in
+1.0-2.1s, 5/5, while the CLI stalls) — the cost is the worker CLI's
+per-invocation machinery, and at least one sample shows `"text":"OK"` already in
+the output when the cap fired, i.e. `RunPreflightProbe` waits for process
+**exit**, paying full CLI teardown after the answer arrived. That
+complete-on-streamed-marker change is the durable fix, filed separately.
+`advisor: enabled` and `retry.maxRetries: 999999` remain unconfirmed confounds
+present in both arms — not attributed. The breaker counting degraded rows stays
+(bash parity: `selfbuild-loop.sh:277`, `TestRunLoopPreflightBreaker`). Full
+measurements live on `PreflightProbeTimeoutMs`.
+Prior: 2026-09-11 (config decision, reverted) — tried pinning
+`devagent.json` worker+scout `model` off the `onegw/free` combo to the single
+`b-ai/glm-5.3-flash` leg (7fdef93) to stop repeated `provider-degraded`
+iterations; **reverted** — it bought nothing and cost resilience. Measured:
+preflight still degraded on the pinned leg (iteration 229's row carries
+`model":"b-ai/glm-5.3-flash"`, `attempts:3`), while iteration 227 (pre-pin, on
+the combo) had already shipped #291 end-to-end, and the combo kept streaming
+729KB/885KB with 165 clock resets for the workers that later stalled. The pin
+also removed 5-target combo fall-through against `b-ai`'s own `429001`
+concurrency caps under ~50 co-resident omp agents.
 Prior: 2026-09-11 (issue #291, FR-VAL-03) — driver observability
 parity: `taskCommand` acquires the run lock before `RunTask` so `runs.active`
 on /status is truthful (closes #287; live-smoked with a rejected concurrent
