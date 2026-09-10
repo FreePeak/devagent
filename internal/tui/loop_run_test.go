@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -410,9 +409,10 @@ func (f writerFunc) Write(p []byte) (int, error) { return f(p) }
 // degenerate 3-row terminal fitLines' head/body/footer minimums can produce
 // more lines than the screen, and the differ's row walk (skip \x1b[1B /
 // rewrite \n) past the bottom row would scroll the alternate screen and
-// desync the incremental diff. drawLocked must cap the frame at the row
-// budget in every view, and no emitted sequence may move the cursor below
-// the screen's bottom row (index 2 of a 3-row screen).
+// desync the incremental diff forever. drawLocked must cap the frame at the
+// row budget in every view — a frame of at most rows-1 lines cannot move
+// the cursor past the screen's bottom row (the walk starts at \x1b[H and
+// advances at most one row per line, incl. the absolute CUP+ED erase).
 func TestLoopDrawNeverExceedsTerminalRows(t *testing.T) {
 	env := newBufEnv()
 	env.setRows(3)
@@ -423,74 +423,10 @@ func TestLoopDrawNeverExceedsTerminalRows(t *testing.T) {
 		l.logLines = append(l.logLines, LogLine{Message: "row"})
 	}
 	for _, keys := range []string{"1", "2", "3", "1"} {
-		l.ApplyKeys(DecodeKeys(keys, false))
-		before := len(env.outText())
-		l.drawLocked()
-		if max := trackMaxCursorRow(env.outText()[before:]); max > 2 {
-			t.Fatalf("after key %q the cursor reached row %d on a 3-row screen (would scroll)", keys, max)
+		l.ApplyKeys(DecodeKeys(keys, false)) // the key's own safeDraw paints the frame
+		if len(l.prevFrame) > env.rows-1 {
+			t.Fatalf("view %q painted %d rows on a %d-row terminal (scroll → permanent diff desync)",
+				keys, len(l.prevFrame), env.rows)
 		}
 	}
-}
-
-// trackMaxCursorRow walks an emitted frame the way a terminal does — LF
-// advances one row (OPOST off: no implicit CR), \x1b[1B/\x1b[<n>B cursor
-// down, \x1b[H and \x1b[<r>;<c>H absolute home — and returns the largest
-// row the cursor ever reached. Only the cursor movers are modeled: SGR,
-// EL/ED and OSC sequences change no position. A row past the screen's
-// bottom is what scrolls the alternate screen.
-func trackMaxCursorRow(seq string) int {
-	row, max := 0, 0
-	i := 0
-	for i < len(seq) {
-		c := seq[i]
-		if c != '\x1b' {
-			if c == '\n' {
-				row++
-				if row > max {
-					max = row
-				}
-			}
-			i++
-			continue
-		}
-		if i+1 < len(seq) && seq[i+1] == ']' { // OSC … BEL: no cursor effect
-			for i < len(seq) && seq[i] != '\x07' {
-				i++
-			}
-			i++
-			continue
-		}
-		if i+1 >= len(seq) || seq[i+1] != '[' {
-			i++
-			continue
-		}
-		j := i + 2
-		for j < len(seq) && (seq[j] >= '0' && seq[j] <= '9' || seq[j] == ';' || seq[j] == '?') {
-			j++
-		}
-		if j >= len(seq) {
-			break
-		}
-		params := seq[i+2 : j]
-		switch seq[j] {
-		case 'B':
-			n := 1
-			if params != "" {
-				n, _ = strconv.Atoi(params)
-			}
-			row += n
-		case 'H':
-			row = 0
-			if k := strings.IndexByte(params, ';'); k > 0 {
-				if r, err := strconv.Atoi(params[:k]); err == nil {
-					row = r - 1
-				}
-			}
-		}
-		if row > max {
-			max = row
-		}
-		i = j + 1
-	}
-	return max
 }

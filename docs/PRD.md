@@ -1547,6 +1547,7 @@ Non-goal: FR-VAL does not add a new runtime subsystem; it hardens the
 existing driver with validation surfaces (test, command, telemetry, chaos
 schedule) so "the driver works perfectly" is a checkable claim, not a hope.
 
+---
 *Last updated: 2026-09-10 (TUI view-switch fix) — pressing 1/2/3 could leave
 the dashboard permanently one-row-off (stale rows from the previous view,
 mixed footers). Root cause in the incremental differ, not the key table:
