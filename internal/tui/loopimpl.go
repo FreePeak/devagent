@@ -1058,7 +1058,12 @@ func (l *loop) drawLocked() {
 		return
 	}
 	rows, width := l.env.Size()
-	rows = maxInt(12, rows-1) // headroom: never scroll
+	// One spare row: every in-frame cursor move (skip \x1b[1B, erase) must
+	// stay on-screen — a move past the bottom row scrolls the alternate
+	// screen and desyncs the incremental diff forever. Clamp DOWN to the
+	// real geometry (a 12-row floor here once forced frames taller than the
+	// terminal on short screens).
+	rows = maxInt(1, rows-1)
 	if width != l.prevWidth {
 		l.prevWidth = width
 		l.prevFrame = nil
@@ -1091,7 +1096,15 @@ func (l *loop) drawLocked() {
 		_, _ = io.WriteString(l.env.Out(), "\x1b]2;"+title+"\x07")
 		l.prevTitle = title
 	}
-	_, _ = io.WriteString(l.env.Out(), RenderFrame(l.prevFrame, next, width)+"\n")
+	// Hard cap: the differ's row walk (skip \x1b[1B / rewrite \n) must stay
+	// strictly above the terminal's bottom row — a move past it scrolls the
+	// alternate screen and desyncs the diff forever. fitLines targets `rows`
+	// but its head/body/footer minimums can exceed it on a degenerate 2-3
+	// row terminal, so cap here rather than trust every render path.
+	if len(next) > rows {
+		next = next[:rows]
+	}
+	_, _ = io.WriteString(l.env.Out(), RenderFrame(l.prevFrame, next, width))
 	l.prevFrame = next
 }
 

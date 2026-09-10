@@ -1369,6 +1369,29 @@ keybinding, payload and the mono/truecolor degradation contract are unchanged:
    title, glyph map, step chip, tagline width-gating); verified live over a PTY
    (dashboard frame, `init`, `status`) across the palette ladder.
 
+**View-switch render desync fix (2026-09-10)** — pressing `1`/`2`/`3` could
+leave the dashboard permanently one-row-off (stale rows from the previous
+view persisting under the new one, mixed footer). Root cause was in the
+incremental differ, not the key table: with OPOST off a bare `\n` is
+LF-only, and drawLocked unconditionally appended `\n` after RenderFrame —
+on an all-skip frame (the norm after a view switch, where only the body
+changes) the differ's exit cursor already sits one row below the frame, so
+that LF landed on the terminal's bottom row and scrolled the alternate
+screen, desyncing the diff forever after. Two fixes in
+`internal/tui/{frame.go,loopimpl.go}`: (1) RenderFrame erases leftover rows
+with absolute positioning (`ESC[<n>;1H` then `ESC[J`) instead of ED from
+wherever the row loop left the cursor (a skipped-vs-rewritten last row left
+it at different depths — ED-from-cursor could chop a preserved row or leave
+stale cells); (2) drawLocked no longer emits the trailing LF, clamps the
+frame to `rows-1` clamped DOWN to the real geometry (the old 12-row floor
+forced frames taller than short terminals), and hard-caps `len(next)` for
+degenerate 2–3-row terminals. Pinned by TestLoopFullHeightIdenticalFrameEmitsNoLF,
+TestRenderFrameShrinkErasesFromFirstLeftoverRow and
+TestLoopDrawNeverExceedsTerminalRows (cursor-row tracker asserting no move
+past the bottom row); all three fail on the pre-fix code. Verified
+end-to-end over a PTY against the live daemon: the pre-fix 2→3→1 switch
+overflowed the bottom row 3 times in a 10-second session; post-fix, zero.
+
 Boundary with §20.4: the Tauri desktop app and the TUI are two renderers over the same
 FR-CTRL API — the TUI is the SSH/headless-server surface, the app is the desktop surface;
 neither parses PTYs (anti-pattern in §20.3). The PTY lives in the herdr server (FR-VIS),
@@ -1524,8 +1547,16 @@ Non-goal: FR-VAL does not add a new runtime subsystem; it hardens the
 existing driver with validation surfaces (test, command, telemetry, chaos
 schedule) so "the driver works perfectly" is a checkable claim, not a hope.
 
----
-*Last updated: 2026-09-10 (issue #289) — FR-VAL-01 golden soak self-test landed
+*Last updated: 2026-09-10 (TUI view-switch fix) — pressing 1/2/3 could leave
+the dashboard permanently one-row-off (stale rows from the previous view,
+mixed footers). Root cause in the incremental differ, not the key table:
+with OPOST off, drawLocked's unconditional trailing `\n` after an
+all-skip frame (the norm after a view switch) scrolled the alternate
+screen and desynced every later diff. RenderFrame now erases leftovers
+via absolute CUP+ED (never cursor-relative), drawLocked drops the trailing
+LF, clamps rows to the real geometry and hard-caps degenerate short
+terminals; three regression tests pin it (each fails pre-fix). Details §20.8.
+Prior: 2026-09-10 (issue #289) — FR-VAL-01 golden soak self-test landed
 as `TestGoldenSoak` in `internal/loopdriver/run_test.go`: 3 consecutive
 green iterations end-to-end, already-shipped guard rejecting the 4th re-pick,
 and the failed-tests classification pin, all hermetic over the existing

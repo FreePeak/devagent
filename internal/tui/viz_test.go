@@ -143,6 +143,27 @@ func TestRenderFrameShrink(t *testing.T) {
 	}
 }
 
+// TestRenderFrameShrinkErasesFromFirstLeftoverRow pins the erase-targeting
+// fix: when the frame shrinks, leftover rows must be erased from the FIRST
+// leftover row at column 1 via absolute positioning — never from wherever
+// the row loop happened to leave the cursor (a skipped last row leaves it
+// one row below the frame; a rewritten one, mid-row at the content column;
+// an ED from either spot chops preserved rows or leaves stale cells).
+func TestRenderFrameShrinkErasesFromFirstLeftoverRow(t *testing.T) {
+	// Shrink with a SKIPPED last row (next[1] identical to prev[1]): the
+	// cursor exits one row below the frame, so ED-from-cursor would target
+	// the wrong row/column.
+	seq := RenderFrame([]string{"a", "b", "c", "d"}, []string{"a", "b"}, 80)
+	if !strings.Contains(seq, "\x1b[3;1H\x1b[J") {
+		t.Fatalf("shrink must erase from row len(next)+1 col 1, got %q", seq)
+	}
+	// Full repaint (prev == nil) positions the erase the same way.
+	full := RenderFrame(nil, []string{"one"}, 80)
+	if !strings.Contains(full, "\x1b[2;1H\x1b[J") {
+		t.Fatalf("full repaint must erase below the last row, got %q", full)
+	}
+}
+
 func TestRenderFrameChangedMiddleRow(t *testing.T) {
 	seq := RenderFrame([]string{"a", "b", "c"}, []string{"a", "X", "c"}, 80)
 	if !strings.Contains(seq, "\x1b[1B") {

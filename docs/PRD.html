@@ -4211,6 +4211,33 @@ convention.</li>
 width-gating); verified live over a PTY (dashboard frame,
 <code>init</code>, <code>status</code>) across the palette ladder.</li>
 </ol>
+<p><strong>View-switch render desync fix (2026-09-10)</strong> —
+pressing <code>1</code>/<code>2</code>/<code>3</code> could leave the
+dashboard permanently one-row-off (stale rows from the previous view
+persisting under the new one, mixed footer). Root cause was in the
+incremental differ, not the key table: with OPOST off a bare
+<code>\n</code> is LF-only, and drawLocked unconditionally appended
+<code>\n</code> after RenderFrame — on an all-skip frame (the norm after
+a view switch, where only the body changes) the differ's exit cursor
+already sits one row below the frame, so that LF landed on the
+terminal's bottom row and scrolled the alternate screen, desyncing the
+diff forever after. Two fixes in
+<code>internal/tui/{frame.go,loopimpl.go}</code>: (1) RenderFrame erases
+leftover rows with absolute positioning (<code>ESC[&lt;n&gt;;1H</code>
+then <code>ESC[J</code>) instead of ED from wherever the row loop left
+the cursor (a skipped-vs-rewritten last row left it at different depths
+— ED-from-cursor could chop a preserved row or leave stale cells); (2)
+drawLocked no longer emits the trailing LF, clamps the frame to
+<code>rows-1</code> clamped DOWN to the real geometry (the old 12-row
+floor forced frames taller than short terminals), and hard-caps
+<code>len(next)</code> for degenerate 2–3-row terminals. Pinned by
+TestLoopFullHeightIdenticalFrameEmitsNoLF,
+TestRenderFrameShrinkErasesFromFirstLeftoverRow and
+TestLoopDrawNeverExceedsTerminalRows (cursor-row tracker asserting no
+move past the bottom row); all three fail on the pre-fix code. Verified
+end-to-end over a PTY against the live daemon: the pre-fix 2→3→1 switch
+overflowed the bottom row 3 times in a 10-second session; post-fix,
+zero.</p>
 <p>Boundary with §20.4: the Tauri desktop app and the TUI are two
 renderers over the same FR-CTRL API — the TUI is the SSH/headless-server
 surface, the app is the desktop surface; neither parses PTYs
@@ -4601,12 +4628,23 @@ eval practice for FR-VAL-05).</p>
 </thead>
 <tbody>
 <tr>
-<td>FR-VAL-01</td>
+<td>FR-VAL-01 ✅</td>
 <td>Golden soak self-test: a hermetic CI test runs the full loop driver
 end-to-end (pick → research → PO → task → gate → ledger) over a fixture
 repo with fake worker CLIs, asserting N consecutive <code>ok</code>
 ledger rows, correct artifact creation, already-shipped guard behavior,
-and failure-path classification</td>
+and failure-path classification — shipped as <code>TestGoldenSoak</code>
+in <code>internal/loopdriver/run_test.go</code> (issue-first path over
+the existing <code>installFakes</code> fixture; the deterministic
+<code>GH_ROTATE_STATE</code> fake gh serves pick N as issue #200+N): 3
+consecutive <code>ok</code> rows with goal artifacts under
+<code>.selfbuild/</code>, the 4th re-pick rejected as
+<code>skipped</code> by the already-shipped guard (no 4th task dispatch,
+guard-side issue close), and the repo-gate failure pin
+(<code>TestCmd=false</code> → <code>failed-tests</code> row, tracker
+issue left open). Runs in CI via the existing <code>go test ./...</code>
+job — mutation-checked: breaking the ledger row writer or the issue pick
+order turns it red</td>
 <td>M</td>
 <td><a
 href="https://github.com/FreePeak/devagent/issues/289">#289</a></td>
@@ -4661,8 +4699,23 @@ href="https://github.com/FreePeak/devagent/issues/293">#293</a></td>
 existing driver with validation surfaces (test, command, telemetry,
 chaos schedule) so "the driver works perfectly" is a checkable claim,
 not a hope.</p>
-<hr />
-<p>*Last updated: 2026-09-10 (PR #294, issue #273) — outer taskDispatch
+<p>*Last updated: 2026-09-10 (TUI view-switch fix) — pressing 1/2/3
+could leave the dashboard permanently one-row-off (stale rows from the
+previous view, mixed footers). Root cause in the incremental differ, not
+the key table: with OPOST off, drawLocked's unconditional trailing
+<code>\n</code> after an all-skip frame (the norm after a view switch)
+scrolled the alternate screen and desynced every later diff. RenderFrame
+now erases leftovers via absolute CUP+ED (never cursor-relative),
+drawLocked drops the trailing LF, clamps rows to the real geometry and
+hard-caps degenerate short terminals; three regression tests pin it
+(each fails pre-fix). Details §20.8. Prior: 2026-09-10 (issue #289) —
+FR-VAL-01 golden soak self-test landed as <code>TestGoldenSoak</code> in
+<code>internal/loopdriver/run_test.go</code>: 3 consecutive green
+iterations end-to-end, already-shipped guard rejecting the 4th re-pick,
+and the failed-tests classification pin, all hermetic over the existing
+installFakes fixture (rotating fake gh); runs in CI via the existing
+<code>go test ./...</code> job, mutation-checked (ledger writer + pick
+order). Prior: 2026-09-10 (PR #294, issue #273) — outer taskDispatch
 wall enforced: the dispatch child runs in its own process group
 (<code>setOwnProcessGroup</code>, unix; documented no-op degradation off
 unix) with the #248 bounded-drain <code>WaitDelay</code> (3s)
