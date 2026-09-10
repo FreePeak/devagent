@@ -4717,24 +4717,41 @@ existing driver with validation surfaces (test, command, telemetry,
 chaos schedule) so "the driver works perfectly" is a checkable claim,
 not a hope.</p>
 <hr />
-<p>*Last updated: 2026-09-11 (preflight probe: cap reverted, attribution
-corrected) — the 60s→120s raise (b5059c9) is <strong>reverted</strong>:
-measuring the probe gave two distinct modes — a 15-75s tail (one gate
-cleared at 56s) and a hard-stall mode that never answered within 170s
-(5/5) — and 120s cannot fix the second; it only doubles the burn, since
-preflight runs twice per iteration (selfbuild + po). 60s stands. Also
-corrected: the degraded iterations are <strong>not</strong> upstream
-saturation (a raw gateway completion on the same route answers in
-1.0-2.1s, 5/5, while the CLI stalls) — the cost is the worker CLI's
-per-invocation machinery, and at least one sample shows
-<code>"text":"OK"</code> already in the output when the cap fired, i.e.
-<code>RunPreflightProbe</code> waits for process <strong>exit</strong>,
-paying full CLI teardown after the answer arrived. That
-complete-on-streamed-marker change is the durable fix, filed separately.
-<code>advisor: enabled</code> and <code>retry.maxRetries: 999999</code>
-remain unconfirmed confounds present in both arms — not attributed. The
-breaker counting degraded rows stays (bash parity:
-<code>selfbuild-loop.sh:277</code>,
+<p>*Last updated: 2026-09-11 (<a
+href="https://github.com/FreePeak/devagent/issues/306">#306</a>) — the
+preflight probe no longer waits for CLI process exit:
+<code>RunPreflightProbe</code> streams stdout and completes the moment a
+success marker (<code>"text":"OK"</code> /
+<code>"type":"text","data":"OK"</code>) appears, then kills the child's
+process group (the #273 pattern) — the measured teardown tail (marker
+already in the output while the cap fired) is gone. The 60s cap stands
+unchanged as a pure backstop. Each probe launch also carries a
+run-scoped worker config overlay (<code>PI_CONFIG_FILES</code> pointing
+at a temp <code>retry.maxRetries</code> cap — default 2,
+<code>DEVAGENT_PROBE_API_MAX_RETRIES</code> overrides) so the user's
+<code>retry.maxRetries: 999999</code> cannot turn one probe into an
+unbounded retry loop; the user's <code>~/.omp/agent/config.yml</code> is
+never edited. Pinned by
+<code>internal/resilience/preflight_test.go</code> (a marker-then-hang
+fake worker is classified ok well inside the cap; a never-answerer still
+degrades at it). Prior: 2026-09-11 (preflight probe: cap reverted,
+attribution corrected) — the 60s→120s raise (b5059c9) is
+<strong>reverted</strong>: measuring the probe gave two distinct modes —
+a 15-75s tail (one gate cleared at 56s) and a hard-stall mode that never
+answered within 170s (5/5) — and 120s cannot fix the second; it only
+doubles the burn, since preflight runs twice per iteration (selfbuild +
+po). 60s stands. Also corrected: the degraded iterations are
+<strong>not</strong> upstream saturation (a raw gateway completion on
+the same route answers in 1.0-2.1s, 5/5, while the CLI stalls) — the
+cost is the worker CLI's per-invocation machinery, and at least one
+sample shows <code>"text":"OK"</code> already in the output when the cap
+fired, i.e. <code>RunPreflightProbe</code> waits for process
+<strong>exit</strong>, paying full CLI teardown after the answer
+arrived. That complete-on-streamed-marker change is the durable fix,
+filed separately. <code>advisor: enabled</code> and
+<code>retry.maxRetries: 999999</code> remain unconfirmed confounds
+present in both arms — not attributed. The breaker counting degraded
+rows stays (bash parity: <code>selfbuild-loop.sh:277</code>,
 <code>TestRunLoopPreflightBreaker</code>). Full measurements live on
 <code>PreflightProbeTimeoutMs</code>. Prior: 2026-09-11 (config
 decision, reverted) — tried pinning <code>devagent.json</code>

@@ -116,7 +116,7 @@ func RunCli(name string, args []string, opts Options) Result {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = opts.Dir
-	cmd.Env = envSlice(BuildEnv(opts))
+	cmd.Env = EnvSlice(BuildEnv(opts))
 	// Stdin stays an open pipe that we close immediately (not /dev/null):
 	// stdio 'ignore' makes `claude -p` emit empty stdout (live-smoke lesson).
 	stdin, err := cmd.StdinPipe()
@@ -142,7 +142,8 @@ func RunCli(name string, args []string, opts Options) Result {
 	return Result{ExitCode: exitCode, Stdout: stdout.String(), Stderr: stderr.String()}
 }
 
-func envSlice(env map[string]string) []string {
+// EnvSlice renders a BuildEnv map into exec.Cmd Env form.
+func EnvSlice(env map[string]string) []string {
 	out := make([]string, 0, len(env))
 	for k, v := range env {
 		out = append(out, k+"="+v)

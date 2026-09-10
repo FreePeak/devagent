@@ -55,19 +55,21 @@ const PreflightProbeAttempts = 3
 // the breaker stops the cycle. The 2026-09-10 60s→120s raise was reverted for
 // exactly that reason; don't re-raise it to chase (b).
 //
-// The real lever for (a) is that RunPreflightProbe waits for process EXIT, so
-// it pays the CLI's full teardown even after the answer has streamed — at least
+// The real lever for (a) was that RunPreflightProbe waited for process EXIT,
+// so it paid the CLI's full teardown even after the answer had streamed — at least
 // one sample shows "text":"OK" present in the captured output while the cap
-// still fired (answered, process lingering). Fixed by completing on the
-// streamed marker instead of the exit code; tracked as a separate issue.
+// still fired (answered, process lingering). Fixed in #306: the probe now
+// completes on the streamed marker and kills the lingering child's process
+// group, so this cap is the backstop for the never-answers mode (b) only.
 //
 // Unconfirmed confounds, present in BOTH arms of every measurement, so nothing
 // here attributes causality to either: the user's `advisor: enabled: true`
 // (second route `onegw/dev:auto`; every degraded detail ends
 // `advisor_cost_changed`, but the event also fired under a profile with
 // `advisor.enabled: false`, so that profile did not actually suppress it) and
-// `retry.maxRetries: 999999` with `maxDelayMs: 0`, which can retry one stalled
-// request indefinitely inside a single probe.
+// `retry.maxRetries: 999999` with `maxDelayMs: 0`, which could retry one stalled
+// request indefinitely inside a single probe — bounded per probe launch by the
+// #306 retry-cap overlay; the user's config itself is never edited.
 //
 // Correction to earlier text on this constant: it blamed upstream combo
 // saturation (b-ai 429001 concurrency caps, tokenharbor free-tier quota,

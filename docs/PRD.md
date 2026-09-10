@@ -1551,7 +1551,20 @@ existing driver with validation surfaces (test, command, telemetry, chaos
 schedule) so "the driver works perfectly" is a checkable claim, not a hope.
 
 ---
-*Last updated: 2026-09-11 (preflight probe: cap reverted, attribution
+*Last updated: 2026-09-11 ([#306](https://github.com/FreePeak/devagent/issues/306))
+— the preflight probe no longer waits for CLI process exit: `RunPreflightProbe`
+streams stdout and completes the moment a success marker (`"text":"OK"` /
+`"type":"text","data":"OK"`) appears, then kills the child's process group (the
+#273 pattern) — the measured teardown tail (marker already in the output while
+the cap fired) is gone. The 60s cap stands unchanged as a pure backstop. Each
+probe launch also carries a run-scoped worker config overlay
+(`PI_CONFIG_FILES` pointing at a temp `retry.maxRetries` cap — default 2,
+`DEVAGENT_PROBE_API_MAX_RETRIES` overrides) so the user's
+`retry.maxRetries: 999999` cannot turn one probe into an unbounded retry loop;
+the user's `~/.omp/agent/config.yml` is never edited. Pinned by
+`internal/resilience/preflight_test.go` (a marker-then-hang fake worker is
+classified ok well inside the cap; a never-answerer still degrades at it).
+Prior: 2026-09-11 (preflight probe: cap reverted, attribution
 corrected) — the 60s→120s raise (b5059c9) is **reverted**: measuring the probe
 gave two distinct modes — a 15-75s tail (one gate cleared at 56s) and a
 hard-stall mode that never answered within 170s (5/5) — and 120s cannot fix the
