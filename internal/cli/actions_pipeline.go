@@ -547,6 +547,17 @@ func taskCommand() *cobra.Command {
 			if synthID == "" {
 				synthID = "TASK"
 			}
+
+			// FR-VAL-03 (#291a): the task path must acquire the run lock so
+			// countActiveRuns (locks/*.lock) reports truthful runs.active on
+			// /status — and one active run per ticket holds across processes.
+			lock := pipeline.TryAcquireRun(devagentHome(), synthID)
+			if lock == nil {
+				fmt.Fprintf(os.Stderr, "Run for %s already active\n", synthID)
+				setExitCode(1)
+				return nil
+			}
+			defer lock.Release()
 			// PR base for the publish stage (task.ts default 'main').
 			base := cfg.GithubBaseBranch
 			if base == "" {

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/FreePeak/devagent/internal/ledger"
 )
@@ -558,5 +559,42 @@ func TestFixtureFilesExist(t *testing.T) {
 		if _, err := os.Stat(f); err != nil {
 			t.Errorf("missing fixture %s", f)
 		}
+	}
+}
+
+func TestRunCommandInHerdrPanePeriodicWatchdogHealthRows(t *testing.T) {
+	// FR-VAL-03 #291c: periodic watchdog-health rows while the pane runs —
+	// a wedged worker shows up in the ledger during its budget burn, not
+	// only at teardown.
+	if testing.Short() {
+		t.Skip("timing test")
+	}
+	old := paneWatchdogRowInterval
+	paneWatchdogRowInterval = 300 * time.Millisecond
+	t.Cleanup(func() { paneWatchdogRowInterval = old })
+
+	repo := t.TempDir()
+	dir := t.TempDir()
+	cli := &scriptRunnerCli{t: t}
+	res, err := RunCommandInHerdrPane(cli, "sh", []string{"-c", `for i in 1 2 3; do echo '{"type":"tool_execution_start"}'; sleep 0.25; done`}, PaneRunOptions{
+		Dir:                 dir,
+		TimeoutMs:           10_000,
+		NoProgressTimeoutMs: 5_000,
+		Watchdog:            &WatchdogContext{RepoPath: repo, TaskID: "P291", Attempt: 1, Worker: "omp"},
+	})
+	if err != nil || res == nil || res.TimedOut {
+		t.Fatalf("res = %v, err = %v", res, err)
+	}
+	rows := readLedgerRows(t, repo)
+	if len(rows) < 2 {
+		t.Fatalf("rows = %d, want >= 2 (periodic + teardown)", len(rows))
+	}
+	for _, row := range rows {
+		if row["taskId"] != "P291" || row["site"] != "herdr-pane" {
+			t.Fatalf("row identity mismatch: %v", row)
+		}
+	}
+	if rows[0]["watchdogFired"] != false {
+		t.Fatalf("first row must be periodic (watchdogFired=false): %v", rows[0])
 	}
 }

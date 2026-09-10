@@ -138,9 +138,35 @@ func (d *driver) record(w io.Writer, loopNum int, status, goal string) {
 	})
 }
 
+// writeHeartbeat mirrors the phase boundary into .selfbuild/heartbeat.json
+// (FR-VAL-03 #291d): the daemon never scrapes loop-N.log, so GET /status
+// reads this file instead and the TUI header can show iteration · phase.
+// Best-effort: a failed write must never kill the loop.
+type driverHeartbeat struct {
+	Iteration int    `json:"iteration"`
+	Phase     string `json:"phase"`
+	Pid       int    `json:"pid"`
+	UpdatedAt string `json:"updatedAt"`
+}
+
+func (d *driver) writeHeartbeat(loopNum int, phase string) {
+	hb := driverHeartbeat{
+		Iteration: loopNum,
+		Phase:     phase,
+		Pid:       os.Getpid(),
+		UpdatedAt: rowTimestamp(d.cfg.Now),
+	}
+	data, err := json.Marshal(hb)
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(filepath.Join(d.cfg.Repo, ".selfbuild", "heartbeat.json"), data, 0o644)
+}
+
 // phase ports the bash phase(): one loop-phase breadcrumb row per phase
-// boundary.
+// boundary, mirrored into the heartbeat file.
 func (d *driver) phase(loopNum int, name, detail string) {
+	d.writeHeartbeat(loopNum, name)
 	_ = appendJSONL(eventsPath(d.cfg.Repo), loopPhaseEvent{
 		TS:     rowTimestamp(d.cfg.Now),
 		Kind:   "event",

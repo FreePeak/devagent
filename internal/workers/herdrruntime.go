@@ -1,17 +1,18 @@
 // Go port of src/workers/herdr-runtime.ts (FR-VIS-01 routing decision +
-// loud fallback). The herdr pane runtime itself is FR-GO-10; until that
-// lands, HerdrPaneRunner stays nil and every launch takes the direct
-// child-process path — loudly, once per spawn site, exactly like the TS
-// fallback when herdr is unreachable.
+// loud fallback). HerdrPaneRunner is the pane-vs-direct seam: nil until
+// WireHerdrPaneRunner installs the herdr runtime (FR-GO-10 / issue #291b),
+// and every uninstalled launch takes the direct child-process path —
+// loudly, once per spawn site, exactly like the TS fallback when herdr is
+// unreachable.
 
 package workers
 
 import (
+	"github.com/FreePeak/devagent/internal/config"
+	"github.com/FreePeak/devagent/internal/herdr"
 	"os"
 	"regexp"
 	"sync"
-
-	"github.com/FreePeak/devagent/internal/config"
 )
 
 // RunWorkerCliOptions extends SpawnCliOptions with the herdr routing flag.
@@ -22,8 +23,51 @@ type RunWorkerCliOptions struct {
 	Herdr *bool
 }
 
-// TODO(FR-GO-10 #193): replace with the integrations/herdr port.
+// HerdrPaneRunner routes a launch through the herdr pane runtime. Nil = the
+// direct-spawn fallback; WireHerdrPaneRunner installs the production
+// implementation and tests may inject their own.
 var HerdrPaneRunner func(cmd string, args []string, opts SpawnCliOptions) (res SpawnCliResult, ok bool, err error)
+
+// WireHerdrPaneRunner connects the seam to the production herdr pane
+// runtime (FR-GO-10 / FR-VAL-03 issue #291b): before this runs,
+// HerdrPaneRunner is nil and every launch takes the direct-spawn fallback
+// regardless of visibility. Called from cli.Execute; tests keep the nil
+// seam and inject their own runner.
+func WireHerdrPaneRunner() {
+	HerdrPaneRunner = func(cmd string, args []string, opts SpawnCliOptions) (SpawnCliResult, bool, error) {
+		var wd *herdr.WatchdogContext
+		if opts.WatchdogLedger != nil {
+			wd = &herdr.WatchdogContext{
+				RepoPath: opts.WatchdogLedger.RepoPath,
+				TaskID:   opts.WatchdogLedger.TaskId,
+				Attempt:  opts.WatchdogLedger.Attempt,
+				Worker:   opts.WatchdogLedger.Worker,
+			}
+		}
+		res, err := herdr.RunCommandInHerdrPane(herdr.ExecRunner{}, cmd, args, herdr.PaneRunOptions{
+			Dir:                 opts.Dir,
+			TimeoutMs:           opts.TimeoutMs,
+			Env:                 opts.Env,
+			ReplaceEnv:          opts.ReplaceEnv,
+			NoProgressTimeoutMs: derefInt(opts.NoProgressTimeoutMs),
+			ColdStartTimeoutMs:  opts.ColdStartTimeoutMs,
+			Watchdog:            wd,
+		})
+		if err != nil {
+			return SpawnCliResult{}, false, err
+		}
+		if res == nil {
+			return SpawnCliResult{}, false, nil
+		}
+		return SpawnCliResult{
+			ExitCode:  res.ExitCode,
+			Stdout:    res.Stdout,
+			Stderr:    res.Stderr,
+			TimedOut:  res.TimedOut,
+			ColdStart: res.ColdStart,
+		}, true, nil
+	}
+}
 
 // fallbackWarnedSites dedupes the fallback warning PER SPAWN SITE (the
 // worker CLI name) so an operator sees one loud line per CLI per process —

@@ -603,3 +603,42 @@ func TestGoldenSoak(t *testing.T) {
 		}
 	})
 }
+
+func TestPhaseWritesHeartbeatFile(t *testing.T) {
+	// FR-VAL-03 #291d: every phase boundary mirrors iteration · phase into
+	// .selfbuild/heartbeat.json so GET /status (not the ledger) carries the
+	// loop liveness surface.
+	repo := initFixtureRepo(t)
+	now, _ := frozenClock()
+	// RunLoop mkdirs .selfbuild before the first phase; mirror it here.
+	if err := os.MkdirAll(filepath.Join(repo, ".selfbuild"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	d := &driver{cfg: LoopConfig{Repo: repo}.WithDefaults(), stateDir: filepath.Join(repo, ".selfbuild")}
+	d.cfg.Now = now
+
+	d.phase(7, "task", "goal text")
+
+	data, err := os.ReadFile(filepath.Join(d.stateDir, "heartbeat.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var hb struct {
+		Iteration int    `json:"iteration"`
+		Phase     string `json:"phase"`
+		Pid       int    `json:"pid"`
+		UpdatedAt string `json:"updatedAt"`
+	}
+	if err := json.Unmarshal(data, &hb); err != nil {
+		t.Fatalf("bad heartbeat %q: %v", data, err)
+	}
+	if hb.Iteration != 7 || hb.Phase != "task" {
+		t.Fatalf("heartbeat = %+v", hb)
+	}
+	if hb.Pid != os.Getpid() {
+		t.Fatalf("pid = %d, want %d", hb.Pid, os.Getpid())
+	}
+	if hb.UpdatedAt == "" {
+		t.Fatalf("updatedAt empty: %+v", hb)
+	}
+}

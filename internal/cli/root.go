@@ -21,6 +21,7 @@ import (
 	"github.com/FreePeak/devagent/internal/research/scantext"
 	"github.com/FreePeak/devagent/internal/trust"
 	"github.com/FreePeak/devagent/internal/version"
+	"github.com/FreePeak/devagent/internal/workers"
 	"github.com/spf13/cobra"
 )
 
@@ -254,6 +255,10 @@ func NewRoot() *cobra.Command {
 // (usage/parse errors: 1; stubbed commands: 3; process.exitCode assignments
 // from wired action bodies: applied after a successful dispatch).
 func Execute() {
+	// FR-VAL-03 (#291b): route worker launches through the herdr pane
+	// runtime so operator-visible spawns actually get panes. The nil seam
+	// stays as the test hook; this is the only production assignment.
+	workers.WireHerdrPaneRunner()
 	if err := NewRoot().Execute(); err != nil {
 		if st, ok := err.(*notPortedError); ok {
 			fmt.Fprintln(os.Stderr, st.msg)

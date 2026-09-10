@@ -31,7 +31,31 @@ type statusBody struct {
 	Circuit      string      `json:"circuit"`
 	Herdr        statusHerdr `json:"herdr"`
 	Spawn        statusSpawn `json:"spawn"`
+	Loop         *statusLoop `json:"loop,omitempty"`
 	Capabilities []string    `json:"capabilities"`
+}
+
+// statusLoop is the loopdriver heartbeat (FR-VAL-03 #291d) read from
+// .selfbuild/heartbeat.json: iteration N · phase X for the TUI header.
+type statusLoop struct {
+	Iteration int    `json:"iteration"`
+	Phase     string `json:"phase"`
+	Pid       int    `json:"pid"`
+	UpdatedAt string `json:"updatedAt"`
+}
+
+// readLoopHeartbeat returns the loopdriver heartbeat, or nil when the
+// driver has not written one (missing/unparseable file = no loop running).
+func readLoopHeartbeat(repoPath string) *statusLoop {
+	data, err := os.ReadFile(filepath.Join(repoPath, ".selfbuild", "heartbeat.json"))
+	if err != nil {
+		return nil
+	}
+	var hb statusLoop
+	if err := json.Unmarshal(data, &hb); err != nil {
+		return nil
+	}
+	return &hb
 }
 
 type statusRuns struct {
@@ -82,6 +106,7 @@ func (d *daemon) statusEndpoint(res *response) error {
 			Session: config.HerdrSessionName(cfg),
 		},
 		Spawn:        statusSpawn{Visibility: config.SpawnVisibility(cfg)},
+		Loop:         readLoopHeartbeat(d.ctx.repoPath),
 		Capabilities: devagentCapabilities,
 	})
 	return nil
