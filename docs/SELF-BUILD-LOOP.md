@@ -44,7 +44,13 @@ the Node tree (FR-GO-16, #205).
    issue (or, empty-tracker fallback, a research-derived goal that nothing in
    the ledger says shipped); scoped to a single iteration (implementable +
    testable in one pass); no open dependency on an earlier failed loop. Written
-   to `.selfbuild/goals/loop-N.md`.
+   to `.selfbuild/goals/loop-N.md`. The issue-first pick now reads its own
+   phase-1 research rationale from `.selfbuild/research/loop-N.md` and carries
+   it into the goal (issue #301); a "merge PR #N, not a rewrite" research pick
+   is a distinct action that dispatches a verify-and-merge goal — check CI,
+   merge the open PR, close the issue, sync the PRD — and ships only once
+   `gh pr view <pr> --json state == MERGED`, so a green mergeable PR is landed
+   rather than re-implemented from scratch.
 4. **Plan** — `devagent task --prompt "<goal>"` plans via the built-in planner.
 5. **Implement** — same `devagent task` invocation drives worker CLIs (omp by
    default; claude-code / opencode / pi / grok selectable) in isolated worktrees

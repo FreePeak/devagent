@@ -58,12 +58,18 @@ case "$1 $2" in
       printf '%s' "$GH_ISSUES_JSON"
     fi ;;
   "issue close") exit 0 ;;
+  "pr view") printf '{"state":"%s"}' "${GH_PR_STATE:-OPEN}" ;;
 esac
 exit 0
 `,
-		"npm":      "#!/bin/sh\nexit 0\n",
-		"go":       "#!/bin/sh\nexit 0\n",
-		"omp-fake": "#!/bin/sh\nexit 0\n",
+		"npm": "#!/bin/sh\nexit 0\n",
+		"go":  "#!/bin/sh\nexit 0\n",
+		"omp-fake": `#!/bin/sh
+if [ -n "${RESEARCH_PICK_TEXT:-}" ]; then
+  printf '{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"%s"}]}}\n' "$RESEARCH_PICK_TEXT"
+fi
+exit 0
+`,
 	})
 	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
 	t.Setenv("DEVAGENT_LOG", filepath.Join(repo, "devagent-calls.log"))
@@ -245,6 +251,102 @@ func TestRunLoopNoPRLeavesIssueOpen(t *testing.T) {
 	}
 	if strings.Contains(string(calls), "gh issue close") {
 		t.Fatalf("issue must stay open, calls:\n%s", calls)
+	}
+}
+
+// Issue #301 AC3 regression: a research pick that says "merge PR #N, not a
+// rewrite" must NOT emit the prompts.go implement template. The worker lands
+// the already-open PR (which already carries its PRD update), so it opens no
+// new PR of its own — the driver proves shipment via `gh pr view ... state ==
+// MERGED`, not the #238 "PR opened" line.
+func TestRunLoopMergePickVerifyAndMergeShips(t *testing.T) {
+	repo := initFixtureRepo(t)
+	installFakes(t, repo)
+	t.Setenv("GH_ISSUES_JSON", `[{"number":290,"title":"Cleanup orphan worktrees","labels":[{"name":"priority:P0"}]}]`)
+	t.Setenv("RESEARCH_PICK_TEXT", `THE single pick: #290 — merge PR #298, not a rewrite`)
+	// Production reality: the merge dispatch opens no new PR.
+	t.Setenv("DEVAGENT_FAKE_TASK_NO_PR", "1")
+	// The tracker reports the PR merged.
+	t.Setenv("GH_PR_STATE", "MERGED")
+	now, _ := frozenClock()
+	cfg := loopConfigFor(t, repo, func(c *LoopConfig) { c.Now = now })
+	cfg.DryRun = false
+	if rc := RunLoop(cfg); rc != 0 {
+		logData, _ := os.ReadFile(filepath.Join(repo, ".selfbuild", "logs", "loop-1.log"))
+		t.Fatalf("rc = %d, want 0\nlog:\n%s", rc, logData)
+	}
+	goalData, err := os.ReadFile(filepath.Join(repo, ".selfbuild", "goals", "loop-1.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	goal := string(goalData)
+	if strings.Contains(goal, "in full and verifiably") {
+		t.Fatalf("merge pick emitted the implement template:\n%s", goal)
+	}
+	if !strings.Contains(goal, "merge PR #298") || !strings.Contains(goal, "Pick rationale:") {
+		t.Fatalf("merge goal lost the verify-and-merge directive or rationale:\n%s", goal)
+	}
+	// AC1: rationale survives; AC2: verify-and-merge dispatch, not a rewrite.
+	assertFileContains(t, filepath.Join(repo, "devagent-calls.log"), "devagent task --prompt Goal: Close GitHub issue #290 by verifying and merging")
+	// Productive "merged" row and the issue closes WITHOUT any new-PR line.
+	rows := readLedger(t, repo)
+	if len(rows) != 1 || rows[0]["status"] != "merged" {
+		t.Fatalf("rows: %v", rows)
+	}
+	assertFileContains(t, filepath.Join(repo, "devagent-calls.log"), "gh pr view 298")
+	assertFileContains(t, filepath.Join(repo, "devagent-calls.log"), "gh issue close")
+}
+
+// The mirror failure: the task finished but the open PR is NOT merged yet.
+// The iteration must stay non-productive (no-pr) and leave the issue open —
+// never re-implement from scratch and never falsely ship.
+func TestRunLoopMergePickUnmergedStaysOpen(t *testing.T) {
+	repo := initFixtureRepo(t)
+	installFakes(t, repo)
+	t.Setenv("GH_ISSUES_JSON", `[{"number":290,"title":"Cleanup orphan worktrees","labels":[{"name":"priority:P0"}]}]`)
+	t.Setenv("RESEARCH_PICK_TEXT", `THE single pick: #290 — merge PR #298, not a rewrite`)
+	t.Setenv("DEVAGENT_FAKE_TASK_NO_PR", "1")
+	t.Setenv("GH_PR_STATE", "OPEN")
+	now, _ := frozenClock()
+	cfg := loopConfigFor(t, repo, func(c *LoopConfig) { c.Now = now })
+	cfg.DryRun = false
+	if rc := RunLoop(cfg); rc != 0 {
+		t.Fatalf("rc = %d, want 0 (skip, not breaker)", rc)
+	}
+	rows := readLedger(t, repo)
+	if len(rows) != 1 || rows[0]["status"] != "no-pr" {
+		t.Fatalf("rows: %v, want one no-pr", rows)
+	}
+	calls, err := os.ReadFile(filepath.Join(repo, "devagent-calls.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(calls), "gh issue close") {
+		t.Fatalf("unmerged PR must leave the issue open, calls:\n%s", calls)
+	}
+}
+
+// AC1 for the ordinary path: an implement pick still carries the research
+// rationale into the goal text (selection reasoning is never dropped again).
+func TestRunLoopIssuePickCarriesRationale(t *testing.T) {
+	repo := initFixtureRepo(t)
+	installFakes(t, repo)
+	t.Setenv("GH_ISSUES_JSON", `[{"number":290,"title":"Cleanup orphan worktrees","labels":[{"name":"priority:P0"}]}]`)
+	t.Setenv("RESEARCH_PICK_TEXT", `THE single pick: #290 — smallest change, one file, unblocks the queue`)
+	now, _ := frozenClock()
+	cfg := loopConfigFor(t, repo, func(c *LoopConfig) { c.Now = now })
+	cfg.DryRun = false
+	if rc := RunLoop(cfg); rc != 0 {
+		logData, _ := os.ReadFile(filepath.Join(repo, ".selfbuild", "logs", "loop-1.log"))
+		t.Fatalf("rc = %d, want 0\nlog:\n%s", rc, logData)
+	}
+	goalData, err := os.ReadFile(filepath.Join(repo, ".selfbuild", "goals", "loop-1.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	goal := string(goalData)
+	if !strings.Contains(goal, "in full and verifiably") || !strings.Contains(goal, "Pick rationale: #290 — smallest change") {
+		t.Fatalf("implement goal missing template or carried rationale:\n%s", goal)
 	}
 }
 

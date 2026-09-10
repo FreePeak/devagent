@@ -2,6 +2,7 @@ package loopdriver
 
 import (
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -80,4 +81,113 @@ Output ONLY the goal statement (max 120 words), starting with 'Goal:' — this t
 // issueGoalTemplate is the issue-first goal text (verbatim).
 func issueGoalTemplate(num int, title string) string {
 	return fmt.Sprintf("Goal: Implement GitHub issue #%d (%s) in full and verifiably. Read the issue body for scope, acceptance criteria, and source links before planning. The PR must close the issue on merge.", num, title)
+}
+
+// pickAction is how the driver dispatches a research pick: implement the issue
+// from scratch, or land it by verifying and merging an already-open PR.
+type pickAction int
+
+const (
+	actionImplement pickAction = iota
+	actionMergePR
+)
+
+// pick is the phase-1 "THE single pick" selection carried into goal
+// construction (issue #301): the research rationale survived only in
+// .selfbuild/research/loop-N.md and was dropped when the driver rendered the
+// goal, so a pick that said "merge PR #N, not a rewrite" still dispatched a
+// from-scratch re-implementation of work that had already landed.
+type pick struct {
+	PR        int
+	Rationale string
+	Action    pickAction
+}
+
+var (
+	// singlePickRe marks the "then THE single pick" statement the research
+	// prompt asks for; the pick is the final block, so its last occurrence wins.
+	singlePickRe = regexp.MustCompile(`(?i)\b(?:the\s+)?single\s+pick\b`)
+	// pickMergeRe is the "already landed — just merge it" directive.
+	pickMergeRe = regexp.MustCompile(`(?i)\b(?:merge|merges|merged|merging|land|lands|landing|ship|ships|shipping)\b`)
+	// prRefRe grabs the PR number the merge directive points at ("PR #298").
+	prRefRe = regexp.MustCompile(`(?i)\bpr\b\D{0,4}?#?(\d{1,7})`)
+)
+
+// parseResearchPick reads the phase-1 research markdown and returns the single
+// pick for the *tracker-picked* issue (issueNum): its rationale and — when the
+// pick says to merge/land an open PR for that same issue — the action and PR
+// number. The pick region MUST reference `#issueNum`; a pick about some other
+// issue (even one naming a "PR #N") yields a zero pick, so goal construction
+// falls back to the plain implement template — the coupling prevents an
+// unrelated research PR mention from hijacking this goal and closing the wrong
+// issue. An unparsable artifact (extract-aborted diagnostic, stub) likewise
+// yields a zero pick, byte-identical to the pre-#301 driver.
+func parseResearchPick(md string, issueNum int) pick {
+	if issueNum <= 0 {
+		return pick{Action: actionImplement}
+	}
+	region := singlePickRegion(md)
+	if region == "" {
+		return pick{Action: actionImplement}
+	}
+	// Anchor: only the pick that names the dispatched issue is its rationale.
+	issueRefRe := regexp.MustCompile("#" + strconv.Itoa(issueNum) + `\b`)
+	if !issueRefRe.MatchString(region) {
+		return pick{Action: actionImplement}
+	}
+	p := pick{Action: actionImplement, Rationale: strings.Join(strings.Fields(region), " ")}
+	if pickMergeRe.MatchString(region) {
+		if m := prRefRe.FindStringSubmatch(region); m != nil {
+			if pr, err := strconv.Atoi(m[1]); err == nil && pr > 0 && pr != issueNum {
+				p.PR = pr
+				p.Action = actionMergePR
+			}
+		}
+	}
+	return p
+}
+
+// singlePickRegion returns the pick statement: the text after the last "single
+// pick" marker, up to the end of its block (a blank line or the document end).
+func singlePickRegion(md string) string {
+	all := singlePickRe.FindAllStringIndex(md, -1)
+	if all == nil {
+		return ""
+	}
+	rest := strings.TrimLeft(md[all[len(all)-1][1]:], " \t:—-\u2013")
+	var out []string
+	for _, ln := range strings.Split(rest, "\n") {
+		if strings.TrimSpace(ln) == "" && len(out) > 0 {
+			break
+		}
+		out = append(out, ln)
+	}
+	return strings.TrimSpace(strings.Join(out, " "))
+}
+
+// buildIssueGoal renders the dispatched goal for the tracker pick of issue num
+// (issue #301): a "merge existing PR" research pick routes to a verify-and-
+// merge dispatch; every pick carries the research rationale into the goal text
+// so the selection reasoning is no longer dropped.
+func buildIssueGoal(num int, title string, p pick) string {
+	if p.Action == actionMergePR {
+		return mergePRGoalTemplate(num, p.PR, p.Rationale)
+	}
+	goal := issueGoalTemplate(num, title)
+	if r := strings.TrimSpace(p.Rationale); r != "" {
+		goal += " Pick rationale: " + r
+	}
+	return goal
+}
+
+// mergePRGoalTemplate is the verify-and-merge dispatch for a pick that lands
+// issue num through the already-open PR prNum: check the PR is green, merge it,
+// close the issue, sync the PRD — the code exists, so the loop's job is to
+// land it, not rewrite it.
+func mergePRGoalTemplate(issueNum, prNum int, rationale string) string {
+	goal := fmt.Sprintf("Goal: Close GitHub issue #%d by verifying and merging the existing open PR #%d — do NOT re-implement it. Run `gh pr checks %d`; if every check is green, `gh pr merge %d --squash --delete-branch`; if a check is red, fix it on the PR branch and re-check. After the merge lands, close issue #%d and update docs/PRD.md to reflect the shipped change.", issueNum, prNum, prNum, prNum, issueNum)
+	if r := strings.TrimSpace(rationale); r != "" {
+		goal += " Pick rationale: " + r
+	}
+	return goal
 }

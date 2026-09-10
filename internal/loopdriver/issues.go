@@ -97,3 +97,25 @@ func (d *driver) closeIssue(num int, comment string) {
 	cmd.Dir = d.cfg.Repo
 	_ = cmd.Run()
 }
+
+// prMerged ports the merge-pick verification (issue #301): `gh pr view <pr>
+// --json state` == MERGED. Best-effort — any gh failure (offline, unknown PR)
+// reads as false, leaving the iteration non-productive so the issue is
+// re-picked rather than falsely shipped.
+func (d *driver) prMerged(prNum int) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, d.cfg.GhBin, "pr", "view", strconv.Itoa(prNum), "--repo", d.cfg.GHRepo, "--json", "state")
+	cmd.Dir = d.cfg.Repo
+	out, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+	var v struct {
+		State string `json:"state"`
+	}
+	if err := json.Unmarshal(out, &v); err != nil {
+		return false
+	}
+	return v.State == "MERGED"
+}

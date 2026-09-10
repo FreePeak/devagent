@@ -218,12 +218,23 @@ func (d *driver) runIteration(n int, logF io.Writer, gradient, clusters string) 
 		_ = os.WriteFile(filepath.Join(d.stateDir, "goals", fmt.Sprintf("loop-%d.md", n)), []byte(queued.Goal+"\n"), 0o644)
 	}
 
-	// Phase 2a-issue: the tracker outranks LLM selection.
-	issueNum, issueTitle := 0, ""
+	// Phase 2a-issue: the tracker outranks LLM selection. The phase-1 research
+	// pick (its rationale + any "merge PR #N" directive) is read from
+	// .selfbuild/research/loop-N.md and carried into the goal (issue #301);
+	// without it the driver rendered every pick as a from-scratch implement
+	// task and re-implemented work a green PR had already landed. mergePR is
+	// hoisted so the post-dispatch section can verify the merge landed.
+	issueNum, issueTitle, mergePR := 0, "", 0
 	if queued == nil && issuePick != "" {
 		issueNum, issueTitle = parseIssuePick(issuePick)
-		goal := issueGoalTemplate(issueNum, issueTitle)
-		_, _ = fmt.Fprintf(logF, "[issue] claimed #%d from tracker (issue-first outranks LLM selection): %s\n", issueNum, issueTitle)
+		p := d.researchPick(n, issueNum)
+		goal := buildIssueGoal(issueNum, issueTitle, p)
+		if p.Action == actionMergePR {
+			mergePR = p.PR
+			_, _ = fmt.Fprintf(logF, "[issue] research pick lands #%d via open PR #%d — verify-and-merge, not a rewrite: %s\n", issueNum, mergePR, issueTitle)
+		} else {
+			_, _ = fmt.Fprintf(logF, "[issue] claimed #%d from tracker (issue-first outranks LLM selection): %s\n", issueNum, issueTitle)
+		}
 		_ = os.WriteFile(filepath.Join(d.stateDir, "goals", fmt.Sprintf("loop-%d.md", n)), []byte(goal+"\n"), 0o644)
 		d.phase(n, "issue", fmt.Sprintf("#%d %s", issueNum, issueTitle))
 	} else if queued == nil {
@@ -276,6 +287,32 @@ func (d *driver) runIteration(n int, logF io.Writer, gradient, clusters string) 
 	if out != outcomeNext {
 		return out
 	}
+
+	// Issue #301: a merge-existing-PR pick ships only when the open PR has
+	// actually merged. The worker lands the already-open PR (it already
+	// carries its own PRD update per repo policy), so it opens no new PR of
+	// its own and the #238 publish gate below can never be its evidence. Ask
+	// the tracker instead: `gh pr view <pr> --json state` == MERGED closes the
+	// issue with a productive row; a not-yet-merged PR leaves the iteration on
+	// the existing non-productive path so the issue stays re-pickable — never
+	// silently re-implemented.
+	if mergePR != 0 {
+		if d.prMerged(mergePR) {
+			d.record(logF, n, "merged", goal)
+			if issueNum != 0 {
+				d.closeIssue(issueNum, fmt.Sprintf("self-build loop %d landed via merge of open PR #%d", n, mergePR))
+			}
+			if cfg.PushMode == "pr" {
+				d.scheduleCleanup(n)
+			}
+			_, _ = fmt.Fprintf(logF, "[ok] loop %d complete (open PR #%d merged)\n", n, mergePR)
+			return outcomeFallThrough
+		}
+		_, _ = fmt.Fprintln(logF, "[merge] task finished but the open PR is not merged — leaving the issue open for re-pick")
+		d.record(logF, n, "no-pr", goal)
+		return outcomeSkip
+	}
+
 	// Issue #238: in pr push mode a task rc 0 is NOT shipped until a PR
 	// exists. Without one, record a non-productive row and leave the issue
 	// open for re-pick (soak-169 closed #230 on rc 0 with zero publish
@@ -502,6 +539,18 @@ func parseIssuePick(pick string) (int, string) {
 	n := 0
 	_, _ = fmt.Sscanf(pick[:i], "%d", &n)
 	return n, pick[i+1:]
+}
+
+// researchPick reads this iteration's phase-1 research artifact and returns
+// the parsed single pick for issueNum; a missing or unparsable artifact — or a
+// pick about some other issue — yields a zero pick (the plain implement goal),
+// matching the pre-#301 behavior.
+func (d *driver) researchPick(n, issueNum int) pick {
+	data, err := os.ReadFile(d.researchPaths(n).out)
+	if err != nil {
+		return pick{Action: actionImplement}
+	}
+	return parseResearchPick(string(data), issueNum)
 }
 
 // tailFile prints the last n lines of path to w (bash `tail -5 "$LOG"`).

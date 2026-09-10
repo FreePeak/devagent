@@ -945,6 +945,18 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 > 2026-09-10 (issue #300): the repo-level gate default flipped from `npm
 > test` to `go test ./...` — after the Node retirement an npm default could
 > only ENOENT, stamping green iterations `failed-tests` (loop 216 evidence).
+> 2026-09-11 (issue #301): the issue-first pick now **carries the phase-1
+> research rationale into the goal** and recognises a "merge PR #N, not a
+> rewrite" pick as a distinct action. Previously `runIteration` rendered every
+> tracker claim through the raw implement template, dropping the research
+> pick's reasoning (`.selfbuild/research/loop-N.md`), so the loop re-implemented
+> a green, mergeable PR from scratch and churned the same issue across
+> iterations. A merge pick now dispatches a verify-and-merge goal and ships on
+> `gh pr view <pr> --json state == MERGED` (productive `merged` row + issue
+> close) — never on the #238 "PR opened" line, which a merge correctly never
+> emits — so an unmerged PR keeps the issue re-pickable instead of duplicating
+> work. Pinned by `TestRunLoopMergePickVerifyAndMergeShips` /
+> `...UnmergedStaysOpen` + `TestParseResearchPick`.
 
 ~~- **Cross-board retry memory beyond the SHA guard** — commit 60638d3 stops re-issuing shipped goals, but re-queued failures still get a fresh attempt budget; carry the prior board's failure class onto the re-bridged goal so the scout deprioritizes until the root-cause fix lands (Q27).~~
 ~~- **Regression oracle before board merge** — gates judge single PRs and PR #108's committed STRIDE allowlist widens suppression paths; add a board-level "is the system at least as good?" check (full suite on the merged result) ahead of `autoMerge`, per the Kitchen Loop zero-regression rule.~~
@@ -1551,7 +1563,15 @@ existing driver with validation surfaces (test, command, telemetry, chaos
 schedule) so "the driver works perfectly" is a checkable claim, not a hope.
 
 ---
-*Last updated: 2026-09-11 (preflight probe: cap reverted, attribution
+*Last updated: 2026-09-11 (issue #301, loopdriver) — the issue-first pick now
+reads its own phase-1 research rationale from `.selfbuild/research/loop-N.md`
+and carries it into the dispatched goal; a "merge PR #N, not a rewrite" pick
+routes to a verify-and-merge dispatch that ships on
+`gh pr view <pr> --json state == MERGED` (productive `merged` row + issue close),
+never on the #238 "PR opened" line a merge correctly never emits — an unmerged
+PR keeps the issue re-pickable instead of re-implementing a green PR from
+scratch. Fixes the #290/PR #298 churn (loops 216→219).
+Prior: 2026-09-11 (preflight probe: cap reverted, attribution
 corrected) — the 60s→120s raise (b5059c9) is **reverted**: measuring the probe
 gave two distinct modes — a 15-75s tail (one gate cleared at 56s) and a
 hard-stall mode that never answered within 170s (5/5) — and 120s cannot fix the
