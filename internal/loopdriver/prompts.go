@@ -107,10 +107,20 @@ var (
 	// singlePickRe marks the "then THE single pick" statement the research
 	// prompt asks for; the pick is the final block, so its last occurrence wins.
 	singlePickRe = regexp.MustCompile(`(?i)\b(?:the\s+)?single\s+pick\b`)
-	// pickMergeRe is the "already landed — just merge it" directive.
-	pickMergeRe = regexp.MustCompile(`(?i)\b(?:merge|merges|merged|merging|land|lands|landing|ship|ships|shipping)\b`)
-	// prRefRe grabs the PR number the merge directive points at ("PR #298").
-	prRefRe = regexp.MustCompile(`(?i)\bpr\b\D{0,4}?#?(\d{1,7})`)
+	// pickMergeRe is the "already landed — just merge it" directive. The verb
+	// and the PR reference must sit in ONE clause (gap <= 24 chars, no
+	// sentence/clause punctuation), unlike the first-draft pairing of a
+	// verb-anywhere test with a first-PR-anywhere test: "#290 — implement;
+	// don't ship until review on PR #295" would have matched both halves
+	// separately and merged the wrong PR, closing the wrong issue.
+	pickMergeRe = regexp.MustCompile(`(?i)(\b[a-z'’]{1,12}\s+)?\b(?:merge|merges|merged|merging|land|lands|landing|ship|ships|shipping)\b([^,.;:\n]{0,24}?)\bpr\b[\s#]{0,3}(\d{1,7})`)
+	// pickNegateRe vetoes a directive whose lead-in word or verb-to-PR gap
+	// carries a negation/deferral ("do not merge PR #295", "ship until
+	// review on PR #295"). The asymmetry is deliberate: a false merge routes
+	// a verify-and-merge goal at the WRONG PR and closes the issue on it; a
+	// false miss merely falls back to the implement goal with the rationale
+	// still carried — the pre-#301 shape, minus the dropped reasoning.
+	pickNegateRe = regexp.MustCompile(`(?i)\b(?:not|no|never|cannot|can['’]?t|won['’]?t|don['’]?t|avoid|without|until|before|hold|holds|holding|reject|rejected|blocked|blocking|postpone|defer|deferred)\b`)
 )
 
 // parseResearchPick reads the phase-1 research markdown and returns the single
@@ -136,12 +146,15 @@ func parseResearchPick(md string, issueNum int) pick {
 		return pick{Action: actionImplement}
 	}
 	p := pick{Action: actionImplement, Rationale: strings.Join(strings.Fields(region), " ")}
-	if pickMergeRe.MatchString(region) {
-		if m := prRefRe.FindStringSubmatch(region); m != nil {
-			if pr, err := strconv.Atoi(m[1]); err == nil && pr > 0 && pr != issueNum {
-				p.PR = pr
-				p.Action = actionMergePR
-			}
+	// First directive whose verb+PR clause is not negated wins.
+	for _, m := range pickMergeRe.FindAllStringSubmatch(region, -1) {
+		if pickNegateRe.MatchString(m[1]) || pickNegateRe.MatchString(m[2]) {
+			continue
+		}
+		if pr, err := strconv.Atoi(m[3]); err == nil && pr > 0 && pr != issueNum {
+			p.PR = pr
+			p.Action = actionMergePR
+			break
 		}
 	}
 	return p

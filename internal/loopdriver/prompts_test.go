@@ -55,6 +55,26 @@ func TestParseResearchPick(t *testing.T) {
 			md:   "# dry-run stub",
 			want: pick{Action: actionImplement},
 		},
+		{
+			// Review #301: verb-anywhere + first-PR-anywhere misroutes these.
+			// A negated directive must never merge the PR it names.
+			name: "negated ship-directive stays implement", issueNum: 290,
+			md:   "THE single pick: #290 — implement; don't ship until review on PR #295",
+			want: pick{Action: actionImplement, Rationale: "#290 — implement; don't ship until review on PR #295"},
+		},
+		{
+			// The first directive that is NOT negated wins.
+			name: "first non-negated directive wins", issueNum: 290,
+			md:   "THE single pick: #290 — do not merge PR #295, it is stale; merge PR #298 instead",
+			want: pick{PR: 298, Action: actionMergePR, Rationale: "#290 — do not merge PR #295, it is stale; merge PR #298 instead"},
+		},
+		{
+			// Clause boundary: a PR ref in another sentence is not the
+			// directive's target ("close on merge" + a stale-PR aside).
+			name: "PR ref in another sentence is not the directive", issueNum: 290,
+			md:   "THE single pick: #290 — close on merge. The abandoned attempt sat on PR #295.",
+			want: pick{Action: actionImplement, Rationale: "#290 — close on merge. The abandoned attempt sat on PR #295."},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
