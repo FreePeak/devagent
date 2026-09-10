@@ -942,6 +942,9 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 > following day); the selfbuild loop self-hosts on the Go binary
 > (`SELFBUILD_DEVAGENT_BIN` + `SELFBUILD_TEST_CMD`), Node is deleted from
 > main, and CI/release are single-language Go (issue #204/#205 closed).
+> 2026-09-10 (issue #300): the repo-level gate default flipped from `npm
+> test` to `go test ./...` — after the Node retirement an npm default could
+> only ENOENT, stamping green iterations `failed-tests` (loop 216 evidence).
 
 ~~- **Cross-board retry memory beyond the SHA guard** — commit 60638d3 stops re-issuing shipped goals, but re-queued failures still get a fresh attempt budget; carry the prior board's failure class onto the re-bridged goal so the scout deprioritizes until the root-cause fix lands (Q27).~~
 ~~- **Regression oracle before board merge** — gates judge single PRs and PR #108's committed STRIDE allowlist widens suppression paths; add a board-level "is the system at least as good?" check (full suite on the merged result) ahead of `autoMerge`, per the Kitchen Loop zero-regression rule.~~
@@ -1548,9 +1551,14 @@ existing driver with validation surfaces (test, command, telemetry, chaos
 schedule) so "the driver works perfectly" is a checkable claim, not a hope.
 
 ---
-*Last updated: 2026-09-10 (TUI view-switch fix) — pressing 1/2/3 could leave
-the dashboard permanently one-row-off (stale rows from the previous view,
-mixed footers). Root cause in the incremental differ, not the key table:
+*Last updated: 2026-09-10 (issue #300) — post-merge-back repo-level test gate
+default flipped from `npm test` (stale after the Node-tree retirement, PR
+#240) to `go test ./...`; the npm default ENOENTed in 0.18s and stamped every
+green iteration `failed-tests` (last ledger `ok` row: loop 176, 2026-09-08),
+feeding the 2026-09-10 starvation halt and breaker trip. Pinned by
+TestRunRepoTestsDefaultIsGoTest and the updated TestConfigFromEnvTestCmd
+defaults. Details §22.2.
+Prior: 2026-09-10 (TUI view-switch fix) — pressing 1/2/3 could leave
 with OPOST off, drawLocked's unconditional trailing `\n` after an
 all-skip frame (the norm after a view switch) scrolled the alternate
 screen and desynced every later diff. RenderFrame now erases leftovers

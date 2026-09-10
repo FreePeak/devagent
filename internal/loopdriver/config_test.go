@@ -30,8 +30,8 @@ func TestConfigFromEnvDevagentBin(t *testing.T) {
 func TestConfigFromEnvTestCmd(t *testing.T) {
 	repo := "/tmp/any"
 	cfg := ConfigFromGetenv(repo, func(string) string { return "" })
-	if cfg.TestCmd != "npm test" {
-		t.Fatalf("default env should apply the npm-test gate: %q", cfg.TestCmd)
+	if cfg.TestCmd != "go test ./..." {
+		t.Fatalf("default env should apply the go-test gate: %q", cfg.TestCmd)
 	}
 	cfg = ConfigFromGetenv(repo, func(key string) string {
 		if key == "SELFBUILD_TEST_CMD" {
@@ -47,7 +47,7 @@ func TestConfigFromEnvTestCmd(t *testing.T) {
 		t.Fatalf("WithDefaults clobbered the override: %q", d.TestCmd)
 	}
 	empty := LoopConfig{}.WithDefaults()
-	if empty.TestCmd != "npm test" {
-		t.Fatalf("WithDefaults must apply the npm-test fallback: %q", empty.TestCmd)
+	if empty.TestCmd != "go test ./..." {
+		t.Fatalf("WithDefaults must apply the go-test fallback: %q", empty.TestCmd)
 	}
 }
