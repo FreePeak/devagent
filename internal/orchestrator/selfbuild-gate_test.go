@@ -167,6 +167,24 @@ func TestSelfbuildGateShipped(t *testing.T) {
 		}
 	})
 
+	t.Run("merged = shipped: a pr-open row is productive but NOT already-shipped", func(t *testing.T) {
+		row := sgRow(300, "pr-open", q41Candidate)
+		// The open PR is productive: it breaks the starvation streak…
+		if EvaluateStarvation([]string{sgRow(299, "failed", "x"), row}, 5).Starved {
+			t.Error("pr-open row must break the starvation streak")
+		}
+		// …but the issue stays re-pickable: the next pick must be able to
+		// drive the merge instead of being skipped as already shipped
+		// (#323 Case B: close-at-PR-open stranded six shipped branches).
+		if v := AlreadyShipped(q41Candidate, []string{row}); v.Shipped {
+			t.Errorf("verdict = %+v, want not-shipped while the PR is unmerged", v)
+		}
+		// …and once the PR merges, the same goal reads as shipped again.
+		if v := AlreadyShipped(q41Candidate, []string{sgRow(301, "merged", q41Candidate)}); !v.Shipped {
+			t.Errorf("verdict = %+v, want shipped after the merge", v)
+		}
+	})
+
 	t.Run("unrelated goal, empty goal, and missing goal marker all read as not shipped", func(t *testing.T) {
 		if AlreadyShipped("Goal: something entirely new (Q99)", []string{loop100Row}).Shipped {
 			t.Error("unrelated goal must not match")

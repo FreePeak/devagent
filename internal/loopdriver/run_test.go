@@ -40,7 +40,7 @@ case "$1" in
   page-degrade-breach) exit 0 ;;
   extract-text) exit 0 ;;
   pane-run) exit 0 ;;
-  task) [ "${DEVAGENT_FAKE_TASK_NO_PR:-0}" = "1" ] || echo "PR opened: https://example.fake/pr/1"; exit ${DEVAGENT_FAKE_TASK_RC:-0} ;;
+  task) [ "${DEVAGENT_FAKE_TASK_NO_PR:-0}" = "1" ] || echo "PR opened: https://github.com/FreePeak/devagent/pull/1"; exit ${DEVAGENT_FAKE_TASK_RC:-0} ;;
 esac
 exit 0
 `,
@@ -187,6 +187,10 @@ func TestRunLoopIssueFirstShip(t *testing.T) {
 	repo := initFixtureRepo(t)
 	installFakes(t, repo)
 	t.Setenv("GH_ISSUES_JSON", `[{"number":202,"title":"Port loop driver","labels":[{"name":"priority:P0"}]},{"number":15,"title":"Older P2","labels":[]}]`)
+	// merged = shipped: the `ok` row and the issue close below depend on the
+	// fake tracker reporting the opened PR as MERGED (the merely-open variant
+	// is pinned by TestRunLoopPROpenLeavesIssueOpenAndRepickable below).
+	t.Setenv("GH_PR_STATE", "MERGED")
 	now, _ := frozenClock()
 	cfg := loopConfigFor(t, repo, func(c *LoopConfig) {
 		c.Now = now
@@ -221,6 +225,47 @@ func TestRunLoopIssueFirstShip(t *testing.T) {
 		t.Fatalf("goal text: %v", rows[0]["goal"])
 	}
 	assertFileContains(t, filepath.Join(repo, "devagent-calls.log"), "gh issue close")
+}
+
+// merged = shipped (loopdriver DECISION.md): a PR that is opened but not
+// merged records the productive `pr-open` row and leaves the tracker issue
+// open — and since `pr-open` rows do not satisfy AlreadyShipped, the very
+// next iteration re-picks the issue (the verify-and-merge re-pick path that
+// landed #286/#320 and #315/#324). The old close-at-PR-open stranded the
+// work on branches (#323 Case B).
+func TestRunLoopPROpenLeavesIssueOpenAndRepickable(t *testing.T) {
+	repo := initFixtureRepo(t)
+	installFakes(t, repo)
+	t.Setenv("GH_ISSUES_JSON", `[{"number":323,"title":"Shipped PR unrecorded","labels":[{"name":"priority:P2"}]}]`)
+	now, _ := frozenClock()
+	cfg := loopConfigFor(t, repo, func(c *LoopConfig) {
+		c.Now = now
+		c.MaxIterations = 3 // two iterations fit before the head cap (n >= cap)
+	})
+	cfg.DryRun = false
+	rc := RunLoop(cfg)
+	if rc != 0 {
+		t.Fatalf("rc = %d, want 0", rc)
+	}
+	rows := readLedger(t, repo)
+	if len(rows) != 2 {
+		t.Fatalf("rows = %d, want 2 (the issue must stay re-pickable)", len(rows))
+	}
+	for i, row := range rows {
+		if row["status"] != "pr-open" {
+			t.Fatalf("row %d status = %v, want pr-open", i, row["status"])
+		}
+		if !strings.HasPrefix(row["goal"].(string), "Goal: Implement GitHub issue #323") {
+			t.Fatalf("row %d goal: %v", i, row["goal"])
+		}
+	}
+	calls, err := os.ReadFile(filepath.Join(repo, "devagent-calls.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(calls), "gh issue close") {
+		t.Fatalf("issue must stay open until the PR merges:\n%s", calls)
+	}
 }
 
 // Issue #238 regression: task rc 0 with no PR behind it must NOT close the
@@ -885,6 +930,11 @@ func TestGoldenSoak(t *testing.T) {
 		repo := initFixtureRepo(t)
 		installFakes(t, repo)
 		t.Setenv("GH_ROTATE_STATE", filepath.Join(t.TempDir(), "pick-count"))
+		// merged = shipped: this soak pins the green path, so the fake
+		// tracker reports each opened PR as MERGED (the `pr-open` variant —
+		// productive row, issue left open and re-pickable — is pinned by
+		// TestRunLoopPROpenLeavesIssueOpenAndRepickable).
+		t.Setenv("GH_PR_STATE", "MERGED")
 		now, _ := frozenClock()
 		cfg := loopConfigFor(t, repo, func(c *LoopConfig) {
 			c.Now = now

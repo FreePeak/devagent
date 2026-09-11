@@ -52,6 +52,12 @@ type LoopConfig struct {
 	Visibility string
 	// NoSyncDocs skips the doc-freshness gate (SELFBUILD_NO_SYNC_DOCS=1).
 	NoSyncDocs bool
+	// NoLintGate skips the format/lint half of the post-merge-back gate
+	// (SELFBUILD_NO_LINT_GATE=1). The gate mirrors CI's lint job so the loop
+	// cannot record a productive row for work CI would reject — 2026-09-11:
+	// one unformatted file on main made every PR the loop opened red on
+	// `lint`, so several iterations "shipped" work that could never land.
+	NoLintGate bool
 	// GHRepo is owner/repo for the tracker queue; empty derives from
 	// `git remote get-url origin`.
 	GHRepo string
@@ -256,6 +262,7 @@ func ConfigFromGetenv(repo string, getenv func(string) string) LoopConfig {
 		ResearchTimeout:        getintOr(getenv, "SELFBUILD_RESEARCH_TIMEOUT", defaultResearchTimeout),
 		Visibility:             visibility,
 		NoSyncDocs:             getenvSet(getenv, "SELFBUILD_NO_SYNC_DOCS"),
+		NoLintGate:             getenvSet(getenv, "SELFBUILD_NO_LINT_GATE"),
 		GHRepo:                 getenv("SELFBUILD_GH_REPO"),
 		Model:                  getenv("SELFBUILD_MODEL"),
 		TaskTimeout:            getintOr(getenv, "SELFBUILD_TASK_TIMEOUT", defaultTaskTimeout),

@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -285,6 +287,105 @@ func (d *driver) runRepoTests() int {
 	cmd := exec.CommandContext(ctx, words[0], words[1:]...)
 	cmd.Dir = d.cfg.Repo
 	if err := runCmd(ctx, cmd); err != nil {
+		return 1
+	}
+	return 0
+}
+
+// lintChunk bounds one `gofmt -l` invocation's argv (headroom under ARG_MAX
+// for repos with thousands of tracked Go files).
+const lintChunk = 200
+
+// lintGateTimeoutMs is the golangci-lint wall — it type-checks the module, so
+// it is bounded like every other dispatch.
+const lintGateTimeoutMs = 15 * 60 * 1000
+
+// prURLNumRe captures the pull-request number in a GitHub PR URL.
+var prURLNumRe = regexp.MustCompile(`/pull/(\d+)`)
+
+// prNumberFromURL extracts the pull-request number from a GitHub PR URL
+// (".../pull/123" → 123; 0 when the URL carries none).
+func prNumberFromURL(url string) int {
+	m := prURLNumRe.FindStringSubmatch(url)
+	if m == nil {
+		return 0
+	}
+	n, err := strconv.Atoi(m[1])
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
+// runRepoLintGate is the cheap half of the post-merge-back gate: it rejects an
+// iteration for exactly what CI's lint job rejects, before the loop records a
+// productive row and (in pr mode) opens a pull request nobody can merge.
+// Motivated by 2026-09-11: one unformatted file on main (a single `gofmt -l`
+// hit) turned every PR the loop opened red on `lint`, so several iterations
+// "shipped" work that could never land while the ledger read green.
+//
+// Tier 1 (always, when gofmt resolves): `gofmt -l` over the tracked Go files —
+// `git ls-files -z` bounds the sweep to tracked paths, so stale
+// `.devagent-worktrees/` checkouts cannot fail the gate.
+// Tier 2 (when the binary is on PATH): `golangci-lint run`, CI's full lint
+// set. A missing binary is reported, not a failure — the gate must never fail
+// for a tool the operator has not installed. Both tiers run through
+// internal/spawn, so a hung linter is tree-killed and drained, not wedged
+// (#286's class).
+func (d *driver) runRepoLintGate(logF io.Writer) int {
+	if d.cfg.NoLintGate {
+		return 0
+	}
+	files, ok := d.gitQuiet("ls-files", "-z", "--", "*.go")
+	if !ok {
+		_, _ = fmt.Fprintln(logF, "[lint] git ls-files failed — lint gate skipped")
+		return 0
+	}
+	names := make([]string, 0, 64)
+	for _, f := range strings.Split(files, "\x00") {
+		if f = strings.TrimSpace(f); f != "" {
+			names = append(names, f)
+		}
+	}
+	if len(names) == 0 {
+		// Nothing tracked to lint (also the hermetic-test fixture shape):
+		// running golangci-lint over a repo with no Go files only exercises
+		// the toolchain, not the code — skip rather than spend the wall.
+		_, _ = fmt.Fprintln(logF, "[lint] no tracked Go files — lint gate skipped")
+		return 0
+	}
+	gofmtBin, err := exec.LookPath("gofmt")
+	if err != nil {
+		_, _ = fmt.Fprintln(logF, "[lint] gofmt not on PATH — lint gate skipped")
+		return 0
+	}
+	for start := 0; start < len(names); start += lintChunk {
+		end := start + lintChunk
+		if end > len(names) {
+			end = len(names)
+		}
+		res := spawn.RunCli(gofmtBin, append([]string{"-l"}, names[start:end]...), spawn.Options{Dir: d.cfg.Repo, TimeoutMs: 60_000})
+		if res.ExitCode != 0 {
+			_, _ = fmt.Fprintf(logF, "[lint] gofmt failed (exit %d): %s\n", res.ExitCode, firstLineCapped(strings.TrimSpace(res.Stderr), 160))
+			return 1
+		}
+		if bad := strings.TrimSpace(res.Stdout); bad != "" {
+			_, _ = fmt.Fprintf(logF, "[lint] unformatted (gofmt -l): %s\n", strings.Join(strings.Fields(bad), " "))
+			return 1
+		}
+	}
+	linter, err := exec.LookPath("golangci-lint")
+	if err != nil {
+		_, _ = fmt.Fprintln(logF, "[lint] golangci-lint not on PATH — gofmt tier only")
+		return 0
+	}
+	res := spawn.RunCli(linter, []string{"run"}, spawn.Options{Dir: d.cfg.Repo, TimeoutMs: lintGateTimeoutMs})
+	if res.TimedOut {
+		_, _ = fmt.Fprintln(logF, "[lint] golangci-lint timed out — gate failure")
+		return 1
+	}
+	if res.ExitCode != 0 {
+		_, _ = fmt.Fprintf(logF, "[lint] golangci-lint run (exit %d):\n%s\n", res.ExitCode, strings.Join(tailLines(res.Stdout+"\n"+res.Stderr, 8), "\n"))
 		return 1
 	}
 	return 0

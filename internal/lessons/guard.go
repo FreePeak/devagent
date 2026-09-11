@@ -87,8 +87,11 @@ type LoopResultStatus string
 
 const (
 	LoopStatusOK               LoopResultStatus = "ok"
+	LoopStatusPROpen           LoopResultStatus = "pr-open"
+	LoopStatusMerged           LoopResultStatus = "merged"
 	LoopStatusFailed           LoopResultStatus = "failed"
 	LoopStatusFailedTests      LoopResultStatus = "failed-tests"
+	LoopStatusFailedLint       LoopResultStatus = "failed-lint"
 	LoopStatusInvalid          LoopResultStatus = "invalid"
 	LoopStatusSkipped          LoopResultStatus = "skipped"
 	LoopStatusProviderDegraded LoopResultStatus = "provider-degraded"
@@ -97,12 +100,28 @@ const (
 
 var loopResultStatuses = map[LoopResultStatus]bool{
 	LoopStatusOK:               true,
+	LoopStatusPROpen:           true,
+	LoopStatusMerged:           true,
 	LoopStatusFailed:           true,
 	LoopStatusFailedTests:      true,
+	LoopStatusFailedLint:       true,
 	LoopStatusInvalid:          true,
 	LoopStatusSkipped:          true,
 	LoopStatusProviderDegraded: true,
 	LoopStatusPushFailed:       true,
+}
+
+// isLoopSuccess reports whether the row means the loop shipped: a landed
+// merge (`ok`/`merged`/`pushed`) or an open PR (`pr-open`, the loopdriver's
+// merged = shipped semantics — work exists on a branch and the tracker issue
+// stays open until the merge lands). Only failures and skips score against
+// the Q39 lesson impact.
+func isLoopSuccess(status string) bool {
+	switch LoopResultStatus(status) {
+	case LoopStatusOK, LoopStatusPROpen, LoopStatusMerged, "pushed":
+		return true
+	}
+	return false
 }
 
 // LoopResultLedgerRecord is one `loop-result` ledger row per loop iteration:
@@ -433,7 +452,7 @@ func ComputeLessonScores(events []map[string]any) map[string]LessonScore {
 	for loop := range allLoopsWithEval {
 		if status, ok := loopResultMap[loop]; ok {
 			overallLoopCount++
-			if status != string(LoopStatusOK) {
+			if !isLoopSuccess(status) {
 				overallFailedCount++
 			}
 		}
@@ -453,7 +472,7 @@ func ComputeLessonScores(events []map[string]any) map[string]LessonScore {
 		for _, loop := range entry.loopIDs {
 			if status, ok := loopResultMap[loop]; ok {
 				lessonLoopCount++
-				if status != string(LoopStatusOK) {
+				if !isLoopSuccess(status) {
 					lessonFailedCount++
 				}
 			}

@@ -17,11 +17,23 @@ var ProductiveStatuses = []string{"ok", "pr-open", "merged", "pushed"}
 // from starvation counting (expected operator/provider pauses).
 var DegradedStatuses = []string{"operator-degraded", "operator-diverged", "provider-degraded"}
 
-// productiveRe / degradedRe mirror the TS PRODUCTIVE_RE / DEGRADED_RE:
-// substring regexes over the raw JSONL line.
+// ShippedStatuses is the subset of productive statuses that means "the work
+// is in main" — the Q27 no-re-burn guard's match set. `pr-open` is productive
+// (a pull request exists; the loop is not starved) but NOT shipped: under the
+// merged = shipped semantics (loopdriver DECISION.md) the issue stays
+// re-pickable so the next iteration can drive the merge instead of skipping
+// it as already shipped — #323 Case B, where six PR-open iterations closed
+// their issues and left the work on branches.
+var ShippedStatuses = []string{"ok", "merged", "pushed"}
+
+// productiveRe / degradedRe / shippedRe mirror the TS PRODUCTIVE_RE /
+// DEGRADED_RE (+ the Go-era shipped split): substring regexes over the raw
+// JSONL line.
 var productiveRe = regexp.MustCompile(`"status":"(?:ok|pr-open|merged|pushed)"`)
 
 var degradedRe = regexp.MustCompile(`"status":"(?:operator-degraded|operator-diverged|provider-degraded)"`)
+
+var shippedRe = regexp.MustCompile(`"status":"(?:ok|merged|pushed)"`)
 
 // StarvationVerdict mirrors the TS StarvationVerdict.
 type StarvationVerdict struct {
@@ -135,7 +147,11 @@ func AlreadyShipped(goal string, ledgerLines []string) AlreadyShippedVerdict {
 	item := GoalSubjectItem(goal)
 	key := firstChars(want, 60)
 	for _, raw := range ledgerLines {
-		if !productiveRe.MatchString(raw) {
+		// merged = shipped: only ok|merged|pushed rows prove the issue's work
+		// is in main. A `pr-open` row is productive for the starvation gate
+		// but must NOT block the issue's next pick — that pick is the
+		// verify-and-merge dispatch that lands it (#323 Case B).
+		if !shippedRe.MatchString(raw) {
 			continue
 		}
 		row := NormalizeGoalText(raw)

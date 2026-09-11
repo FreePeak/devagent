@@ -133,6 +133,10 @@ func StatusColor(status string) string {
 		return Steel
 	case "ok", "pass", "done":
 		return Green
+	case "pr-open":
+		// The loopdriver's merged = shipped semantics: a PR exists, main does
+		// not have it yet — amber, merge pending (never green).
+		return Yellow
 	case "stale", "warn", "paused":
 		return Yellow
 	case "failed", "fail":
