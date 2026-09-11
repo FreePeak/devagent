@@ -197,3 +197,4 @@
 {"loop":236,"ts":"2026-09-11T00:26:44Z","status":"ok","goal":"Goal: Implement GitHub issue #301 (loopdriver: research pick rationale dropped in goal construction — merge-existing-PR picks re-implement from scratch) in full"}
 {"loop":237,"ts":"2026-09-11T00:43:59Z","status":"ok","goal":"Goal: Issue #308 (first half). Add `spawn.RunCliUntil(name, args, opts, completed func(stdout string) bool) Result`: feed `completed` the accumulated stdout per"}
 {"loop":238,"ts":"2026-09-11T02:51:22Z","status":"failed","goal":"Re-verified fresh: #311 OPEN/MERGEABLE, #312 OPEN/MERGEABLE (CI rollup all SUCCESS from the JSON query moments ago), #310 still OPEN to close. Pick holds.  Goal"}
+{"loop":239,"ts":"2026-09-11T02:54:42Z","status":"provider-degraded","goal":"preflight: provider probe failed"}
