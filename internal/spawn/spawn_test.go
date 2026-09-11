@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestBuildEnvScrubBlocklist(t *testing.T) {
@@ -105,4 +106,54 @@ func TestEnvBlocklistNotInResultEnv(t *testing.T) {
 	}
 	_ = os.Environ
 	_ = maps.Clone[map[string]string]
+}
+
+func TestRunCliUntilEarlyCompletion(t *testing.T) {
+	// The marker arrives mid-stream while the child is still sleeping; the
+	// predicate must fire on the accumulated stdout and return before the
+	// child's own exit, with our-kill semantics (ExitCode -1, TimedOut
+	// false) and the partial output preserved.
+	start := time.Now()
+	var seen []string
+	r := RunCliUntil("sh", []string{"-c", "printf part1; sleep 0.2; printf part2; sleep 30"}, Options{TimeoutMs: 20_000},
+		func(stdout string) bool {
+			seen = append(seen, stdout)
+			return strings.Contains(stdout, "part1part2")
+		})
+	if r.ExitCode != -1 || r.TimedOut {
+		t.Fatalf("early completion should be exit -1 not timedOut: %+v", r)
+	}
+	if r.Stdout != "part1part2" {
+		t.Fatalf("partial stdout not preserved: %q", r.Stdout)
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Fatalf("early completion did not return promptly: %s", elapsed)
+	}
+	// The predicate sees ACCUMULATED stdout: the last observation fires only
+	// if earlier prefixes were retained, not raw per-chunk reads.
+	if len(seen) == 0 || !strings.HasSuffix(seen[len(seen)-1], "part1part2") {
+		t.Fatalf("predicate did not receive accumulated stdout: %q", seen)
+	}
+}
+
+func TestRunCliUntilNilPredicate(t *testing.T) {
+	r := RunCliUntil("sh", []string{"-c", "echo out; echo err >&2; exit 3"}, Options{}, nil)
+	if r.ExitCode != 3 || r.Stdout != "out\n" || r.Stderr != "err\n" || r.TimedOut {
+		t.Fatalf("nil predicate should behave like RunCli: %+v", r)
+	}
+}
+
+func TestRunCliUntilTimeout(t *testing.T) {
+	r := RunCliUntil("sh", []string{"-c", "echo partial; sleep 5"}, Options{TimeoutMs: 100},
+		func(string) bool { return false })
+	if !r.TimedOut || r.ExitCode != -1 || r.Stdout != "partial\n" {
+		t.Fatalf("want timeout with partial stdout, got %+v", r)
+	}
+}
+
+func TestRunCliUntilSpawnFailure(t *testing.T) {
+	r := RunCliUntil("definitely-not-a-real-binary-xyz", []string{}, Options{}, nil)
+	if r.ExitCode != -1 || r.TimedOut {
+		t.Fatalf("spawn failure should be exit -1 not timedOut: %+v", r)
+	}
 }

@@ -142,6 +142,107 @@ func RunCli(name string, args []string, opts Options) Result {
 	return Result{ExitCode: exitCode, Stdout: stdout.String(), Stderr: stderr.String()}
 }
 
+// cliWaitDelay bounds the post-exit pipe drain in RunCliUntil: an orphaned
+// grandchild holding stdout must not push the return past the kill (the #248
+// bounded-drain lesson, loopdriver's wallWaitDelay value).
+const cliWaitDelay = 3 * time.Second
+
+// RunCliUntil is the streaming/early-completion variant of RunCli
+// (issue #308): completed receives the ACCUMULATED stdout after every chunk
+// (NDJSON markers split across reads), and when it returns true the process
+// tree is killed and a partial Result is returned with ExitCode -1 (our
+// kill) and TimedOut=false — the predicate, not the exit code, is the
+// verdict. A nil completed degrades to plain streaming capture with the
+// same timeout semantics. Like RunCli, on timeout TimedOut=true is returned
+// (ExitCode -1) instead of an error, partial stdout/stderr is preserved for
+// the ledger/gate details, stdin is closed immediately, and env hardening
+// goes through BuildEnv.
+//
+// RunCli keeps its own (direct-child) timeout kill for now: retargeting its
+// ~28 call sites at the process-group kill is the second half of #308 and
+// needs its own per-caller test sweep.
+func RunCliUntil(name string, args []string, opts Options, completed func(stdout string) bool) Result {
+	if opts.TimeoutMs <= 0 {
+		opts.TimeoutMs = 60_000
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(opts.TimeoutMs)*time.Millisecond)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Dir = opts.Dir
+	cmd.Env = envSlice(BuildEnv(opts))
+	// Stdin stays an open pipe that we close immediately (not /dev/null):
+	// stdio 'ignore' makes `claude -p` emit empty stdout (live-smoke lesson).
+	stdin, err := cmd.StdinPipe()
+	if err == nil {
+		_ = stdin.Close()
+	}
+	setOwnProcessGroup(cmd)
+	cmd.WaitDelay = cliWaitDelay
+	stdoutPipe, err := cmd.StdoutPipe()
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	if err != nil || cmd.Start() != nil {
+		// Start failed (ENOENT etc.) or StdoutPipe failed: never read as
+		// success. Stderr is empty; StdoutPipe failure is a programming
+		// error surfaced the same way.
+		return Result{ExitCode: -1, Stderr: stderr.String()}
+	}
+
+	var stdout strings.Builder
+	chunks := make(chan []byte)
+	waits := make(chan error, 1)
+	go func() {
+		defer close(chunks)
+		buf := make([]byte, 8192)
+		for {
+			n, rerr := stdoutPipe.Read(buf)
+			if n > 0 {
+				b := make([]byte, n)
+				copy(b, buf[:n])
+				chunks <- b
+			}
+			if rerr != nil {
+				break
+			}
+		}
+		waits <- cmd.Wait()
+	}()
+
+	early := false
+drain:
+	for {
+		select {
+		case b, ok := <-chunks:
+			if !ok {
+				break drain
+			}
+			stdout.Write(b)
+			if completed != nil && completed(stdout.String()) {
+				killProcessTree(cmd.Process)
+				early = true
+			}
+		case <-ctx.Done():
+			killProcessTree(cmd.Process)
+		}
+	}
+	waitErr := <-waits
+	if early {
+		return Result{ExitCode: -1, Stdout: stdout.String(), Stderr: stderr.String()}
+	}
+	if ctx.Err() == context.DeadlineExceeded {
+		return Result{ExitCode: -1, Stdout: stdout.String(), Stderr: stderr.String(), TimedOut: true}
+	}
+	exitCode := 0
+	if waitErr != nil {
+		if exitErr, ok := waitErr.(*exec.ExitError); ok {
+			exitCode = exitErr.ExitCode()
+		} else {
+			exitCode = -1 // spawn/drain failure: never read as success
+		}
+	}
+	return Result{ExitCode: exitCode, Stdout: stdout.String(), Stderr: stderr.String()}
+}
+
 func envSlice(env map[string]string) []string {
 	out := make([]string, 0, len(env))
 	for k, v := range env {

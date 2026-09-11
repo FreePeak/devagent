@@ -1569,7 +1569,22 @@ existing driver with validation surfaces (test, command, telemetry, chaos
 schedule) so "the driver works perfectly" is a checkable claim, not a hope.
 
 ---
-*Last updated: 2026-09-11 (issue #301, loopdriver research pick) — the
+*Last updated: 2026-09-11 (issue #308, first half) — `spawn.RunCliUntil`
+landed in `internal/spawn`: the streaming/early-completion exec primitive
+(predicate receives accumulated stdout per chunk; marker → process-tree kill
+with `ExitCode -1`/`TimedOut=false` — the predicate, not the exit code, is
+the verdict; partial stdout/stderr preserved for gate/ledger details;
+#248 bounded-drain `WaitDelay` 3s; kill does the unix group sweep
+`Kill(-pid)` AND the direct `Process.Kill` floor for windows). Pinned by
+TestRunCliUntilEarlyCompletion, TestRunCliUntilKillsGrandchild (grandchild
+reaping), TestRunCliUntilNilPredicate, TestRunCliUntilTimeout,
+TestRunCliUntilSpawnFailure. `RunCli` and its ~28 call sites keep the
+direct-child timeout kill for now — retargeting them at the tree kill is
+the second half of #308 and needs its own per-caller timeout-test sweep;
+`RunPreflightProbe` is not yet wired to it (that lands with the second
+half, closing the wait-for-exit cost noted in the 2026-09-11 preflight
+measurement below).
+Prior: 2026-09-11 (issue #301, loopdriver research pick) — the
 self-build loop no longer loses what phase 1 decided. Goal construction read
 only the tracker title, so iteration 219 dispatched "Implement GitHub issue
 #290 … in full" while `.selfbuild/research/loop-219.md` had picked
