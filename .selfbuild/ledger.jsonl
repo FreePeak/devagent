@@ -210,3 +210,4 @@
 {"loop":249,"ts":"2026-09-11T07:09:24Z","status":"failed","goal":"Goal: Implement GitHub issue #286 (loopdriver: starvation-halt path can hang forever on a child's unclosed stdout (os/exec io.Copy)) in full and verifiably. Rea"}
 {"loop":250,"ts":"2026-09-11T07:12:10Z","status":"failed","goal":"Goal: Implement GitHub issue #286 (loopdriver: starvation-halt path can hang forever on a child's unclosed stdout (os/exec io.Copy)) in full and verifiably. Rea"}
 {"loop":251,"ts":"2026-09-11T08:47:23Z","status":"failed","goal":"Goal: Implement GitHub issue #286 (loopdriver: starvation-halt path can hang forever on a child's unclosed stdout (os/exec io.Copy)) in full and verifiably. Rea"}
+{"loop":252,"ts":"2026-09-11T10:27:42Z","status":"ok","goal":"Goal: Implement GitHub issue #308 (spawn: move the streaming/early-completion primitive into internal/spawn and give RunCli the process-group kill) in full and "}
