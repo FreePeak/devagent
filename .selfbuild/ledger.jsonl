@@ -227,3 +227,4 @@
 {"loop":266,"ts":"2026-09-11T20:37:21Z","status":"failed","goal":"Goal: Maintenance pass closing stale tracker state; verify with evidence before every close. (1) Run `go test ./internal/config/ -count=1`; on pass close #278 c"}
 {"loop":267,"ts":"2026-09-11T20:49:16Z","status":"failed","goal":"Goal: Implement lease-generation fencing for selfbuild task locks. When `ledger.TryAcquireRun` (or the daemon task-claim path) breaks a stale lock and re-issues"}
 {"loop":268,"ts":"2026-09-11T21:09:08Z","status":"pr-open","goal":"Goal: Make selfbuild run-lock acquisition atomic and fenced in internal/ledger/runregistry.go (TryAcquireRun). Today stale-break is Stat → ReadFile → Remove → W"}
+{"loop":269,"ts":"2026-09-11T21:29:47Z","status":"pr-open","goal":"The advisory matches my framing — the goal already anchors on extending `pr-hygiene` rather than a new path. Final validated statement:  Goal: Extend the existi"}
