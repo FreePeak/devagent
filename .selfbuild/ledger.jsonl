@@ -231,3 +231,4 @@
 {"loop":270,"ts":"2026-09-11T21:40:48Z","status":"no-pr","goal":"Goal: Land the selfbuild run-lock fencing by verifying and merging the existing open PR #335 (atomic, fenced TryAcquireRun in internal/ledger/runregistry.go) — "}
 {"loop":271,"ts":"2026-09-11T21:52:07Z","status":"no-pr","goal":"Goal: Land the selfbuild pr-hygiene capability by verifying and merging open PR #336 (extends internal/orchestrator/pr-hygiene.go with landing-evidence triage f"}
 {"loop":272,"ts":"2026-09-11T22:05:11Z","status":"failed","goal":"Goal: Land the zombie-PR triage by running the pr-hygiene landing-evidence triage (shipped in merged PR #336) over all six open CONFLICTING/DIRTY PRs (#305, #30"}
+{"loop":273,"ts":"2026-09-11T22:35:16Z","status":"pr-open","goal":"Goal: Close the verify-and-merge loop end-to-end in the selfbuild driver. When a run finishes green (exit 0, `go test ./...` gate passed) with a mergeable PR op"}
