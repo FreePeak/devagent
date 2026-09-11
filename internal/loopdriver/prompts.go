@@ -81,3 +81,24 @@ Output ONLY the goal statement (max 120 words), starting with 'Goal:' — this t
 func issueGoalTemplate(num int, title string) string {
 	return fmt.Sprintf("Goal: Implement GitHub issue #%d (%s) in full and verifiably. Read the issue body for scope, acceptance criteria, and source links before planning. The PR must close the issue on merge.", num, title)
 }
+
+// mergeGoalTemplate is the verify-and-merge goal text for a research pick
+// that named an already-open PR implementing the issue (issue #301): the
+// iteration lands that PR instead of re-implementing the work from scratch.
+func mergeGoalTemplate(pr, issueNum int) string {
+	return fmt.Sprintf("Goal: Land GitHub issue #%d by verifying and merging the existing open PR #%d — do NOT re-implement it. Check the pull request's CI (`gh pr checks %d`) and run the tests for the packages it touches; if it is green and mergeable, merge it and close issue #%d citing the pull request. If it is red, unmergeable, or incomplete, record exactly what is missing on the pull request instead of writing a parallel implementation.", issueNum, pr, pr, issueNum)
+}
+
+// pickRationaleCap bounds the phase-1 pick rationale carried into the goal.
+const pickRationaleCap = 500
+
+// withPickRationale appends the research pick rationale to a goal statement
+// (issue #301: goal construction dropped it, so a pick that said "the work
+// is already done in PR #N" dispatched the raw implement template anyway).
+// No-op when there is nothing to carry.
+func withPickRationale(goal, rationale string) string {
+	if rationale == "" {
+		return goal
+	}
+	return goal + "\nPick rationale from phase 1 (act on it; do not re-derive it): " + rationale
+}

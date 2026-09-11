@@ -97,3 +97,32 @@ func (d *driver) closeIssue(num int, comment string) {
 	cmd.Dir = d.cfg.Repo
 	_ = cmd.Run()
 }
+
+// prState returns gh's state for pull request num — OPEN | MERGED | CLOSED —
+// or "" when gh cannot say. Decoded rather than substring-matched: the verdict
+// gates a merge, gh's JSON shape is not contractual, and decoding is this
+// file's own convention (pickIssue).
+func (d *driver) prState(num int) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, d.cfg.GhBin, "pr", "view", strconv.Itoa(num),
+		"--repo", d.cfg.GHRepo, "--json", "state")
+	cmd.Dir = d.cfg.Repo
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	var view struct {
+		State string `json:"state"`
+	}
+	if err := json.Unmarshal(out, &view); err != nil {
+		return ""
+	}
+	return view.State
+}
+
+// prMerged reports whether pull request num has merged — the publish evidence
+// for a verify-and-merge dispatch (issue #301), which lands an existing PR and
+// so never prints a "PR opened:" line. Anything else reads as not shipped: the
+// issue stays open for re-pick (#238 semantics).
+func (d *driver) prMerged(num int) bool { return d.prState(num) == "MERGED" }

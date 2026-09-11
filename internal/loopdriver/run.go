@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/FreePeak/devagent/internal/orchestrator"
@@ -218,14 +219,38 @@ func (d *driver) runIteration(n int, logF io.Writer, gradient, clusters string) 
 		_ = os.WriteFile(filepath.Join(d.stateDir, "goals", fmt.Sprintf("loop-%d.md", n)), []byte(queued.Goal+"\n"), 0o644)
 	}
 
-	// Phase 2a-issue: the tracker outranks LLM selection.
+	// Phase 2a-issue: the tracker outranks LLM selection. The phase-1 pick
+	// text rides along (issue #301): research had concluded "#290 — merge
+	// PR #298, not a rewrite" and the goal dispatched anyway said
+	// "Implement … in full", burning an hour re-doing green work.
 	issueNum, issueTitle := 0, ""
+	var pick pickAction
 	if queued == nil && issuePick != "" {
 		issueNum, issueTitle = parseIssuePick(issuePick)
-		goal := issueGoalTemplate(issueNum, issueTitle)
+		pick = d.researchPick(n, issueNum)
+		// A pick naming a pull request that is no longer open is reporting
+		// history, not work — phase 1 is explicitly asked "does a merged PR
+		// already cover it?" — so only an OPEN pull request may route this
+		// iteration to merge (issue #301).
+		if pick.mergePR != 0 {
+			if state := d.prState(pick.mergePR); state != "OPEN" {
+				_, _ = fmt.Fprintf(logF, "[issue] research pick names PR #%d but it is %s, not open — implementing #%d\n", pick.mergePR, state, issueNum)
+				pick.mergePR = 0
+			}
+		}
 		_, _ = fmt.Fprintf(logF, "[issue] claimed #%d from tracker (issue-first outranks LLM selection): %s\n", issueNum, issueTitle)
+		goal := issueGoalTemplate(issueNum, issueTitle)
+		if pick.mergePR != 0 {
+			goal = mergeGoalTemplate(pick.mergePR, issueNum)
+			_, _ = fmt.Fprintf(logF, "[issue] research pick lands existing PR #%d — verify-and-merge dispatch, not a rewrite\n", pick.mergePR)
+		}
+		goal = withPickRationale(goal, pick.rationale)
 		_ = os.WriteFile(filepath.Join(d.stateDir, "goals", fmt.Sprintf("loop-%d.md", n)), []byte(goal+"\n"), 0o644)
-		d.phase(n, "issue", fmt.Sprintf("#%d %s", issueNum, issueTitle))
+		detail := fmt.Sprintf("#%d %s", issueNum, issueTitle)
+		if pick.mergePR != 0 {
+			detail = fmt.Sprintf("#%d merge PR #%d", issueNum, pick.mergePR)
+		}
+		d.phase(n, "issue", detail)
 	} else if queued == nil {
 		_, _ = fmt.Fprintln(logF, "[issue] no open selfbuild issue found — falling back to LLM selection")
 	}
@@ -280,10 +305,29 @@ func (d *driver) runIteration(n int, logF io.Writer, gradient, clusters string) 
 	// exists. Without one, record a non-productive row and leave the issue
 	// open for re-pick (soak-169 closed #230 on rc 0 with zero publish
 	// events). push mode "main" commits+pushes below, so its close stays.
-	if cfg.PushMode == "pr" && prURL == "" {
+	//
+	// Issue #301: a verify-and-merge dispatch lands an EXISTING pull request,
+	// so it can never print "PR opened:" — that pull request having merged is
+	// its publish evidence. The pick-time OPEN guard is what makes the evidence
+	// mean anything: without it, a pull request merged last week would "prove"
+	// an iteration that did nothing.
+	landed := pick.mergePR != 0 && d.prMerged(pick.mergePR)
+	shipped := prURL != "" || landed
+	if cfg.PushMode == "pr" && !shipped {
 		_, _ = fmt.Fprintln(logF, "[publish] task succeeded without opening a PR — leaving the issue open for re-pick")
 		d.record(logF, n, "no-pr", goal)
 		return outcomeSkip // bash: continue
+	}
+
+	// A landed merge moved origin/main: the repo-level gate has to judge the
+	// merged tree, not the pre-merge checkout the driver is sitting in
+	// (issue #301 — otherwise a successful land can only read as failed-tests).
+	// The gate still runs when the pull is refused: main being unfast-
+	// forwardable is itself worth a non-productive row, not a silent pass.
+	if landed {
+		if _, ff := d.gitQuiet("pull", "--ff-only"); !ff {
+			_, _ = fmt.Fprintln(logF, "[testing] origin/main is not fast-forwardable — the gate judges the pre-merge tree")
+		}
 	}
 
 	// Post-merge-back repo-level test gate.
@@ -310,7 +354,13 @@ func (d *driver) runIteration(n int, logF io.Writer, gradient, clusters string) 
 		}
 	}
 
-	// OK path.
+	// OK path. A landed merge still records `ok`, not `merged`: internal/
+	// lessons scores the Q39 lesson impact by tallying every loop-result row
+	// whose status != "ok" as a failed loop (guard.go, both the overall and the
+	// per-lesson rate), and the TUI status palette has no case for `merged`, so
+	// a distinct label would read a successful land as a failure and render it
+	// uncoloured. What the loop actually did is recorded where it is read: the
+	// iteration log line, the `loop-phase` detail, and this row's goal text.
 	d.record(logF, n, "ok", goal)
 	if queued != nil {
 		_ = markQueueTaskDone(cfg.Repo, queued.ID, "done", "", queued)
@@ -502,6 +552,100 @@ func parseIssuePick(pick string) (int, string) {
 	n := 0
 	_, _ = fmt.Sscanf(pick[:i], "%d", &n)
 	return n, pick[i+1:]
+}
+
+// pickAction is what phase-1 research concluded about the issue the tracker
+// handed it: land an already-open pull request, or implement from scratch
+// (mergePR 0), plus the pick rationale verbatim.
+type pickAction struct {
+	mergePR   int
+	rationale string
+}
+
+// researchPickHeadingRe matches the research artifact's trailing "## Pick"
+// heading (the phase-1 prompt asks for the ranked top-3 "then THE single
+// pick").
+var researchPickHeadingRe = regexp.MustCompile(`(?im)^\s*#+\s*pick\b`)
+
+// mergePickRe matches a pick that says do-not-implement, land-the-PR: a
+// present-tense merge/land/ship verb within one clause of a pull-request
+// reference ("merge PR #298", "land via open PR #298"). Past tense
+// ("merged", "landed", "shipped") and bare "via"/"through" are excluded on
+// purpose: research is asked "does a merged PR already cover it?"
+// (prompts.go), so history is written in exactly those words.
+//
+// ponytail: verb proximity over prose, so a negated directive ("do not merge
+// PR #298") still reads as a merge — and a false hit is the destructive
+// direction: the merge route prints no "PR opened:", so shipping rests on
+// prMerged, which is true for a PR that merged weeks ago, and the iteration
+// would record a productive row AND close an issue nobody worked. runIteration
+// caps that: the route requires prState == OPEN at pick time, so every stale or
+// incidental PR reference self-disqualifies and a miss degrades to today's
+// implement dispatch. Upgrade path if phrasing ever defeats the parse: have the
+// research prompt emit `PICK: issue=#N action=merge-pr pr=#N
+// rationale=<one line>` and parse key=value instead of prose.
+var mergePickRe = regexp.MustCompile(`(?i)\b(?:merge|merges|merging|land|lands|landing|ship|ships|shipping)\b[^#.\n]{0,24}?PR\s*#(\d+)`)
+
+// researchPickText returns the pick rationale from a phase-1 research
+// artifact: the "## Pick" section body, or — with no heading — the last
+// non-empty line (the prompt asks for the pick last).
+func researchPickText(text string) string {
+	if i := researchPickHeadingRe.FindStringIndex(text); i != nil {
+		return strings.TrimSpace(text[i[1]:])
+	}
+	lines := tailLines(text, 8)
+	for i := len(lines) - 1; i >= 0; i-- {
+		if s := strings.TrimSpace(lines[i]); s != "" {
+			return s
+		}
+	}
+	return ""
+}
+
+// issueRefRe matches a GitHub `#N` reference, capturing the "PR" that makes
+// it a pull-request mention rather than an issue one.
+var issueRefRe = regexp.MustCompile(`(?i)(PR\s*)?#(\d+)`)
+
+// firstIssueRef returns the issue the pick acts on: its first `#N` reference
+// that is not a pull-request mention. Real artifacts lead with it
+// ("**#290 — merge PR #298.**") and name other issues only in passing
+// ("…fall through to #291"), so first-ref is what ties a pick to an iteration.
+func firstIssueRef(text string) int {
+	for _, m := range issueRefRe.FindAllStringSubmatch(text, -1) {
+		if m[1] != "" {
+			continue
+		}
+		n, _ := strconv.Atoi(m[2])
+		return n
+	}
+	return 0
+}
+
+// researchPick reads iteration loopNum's research artifact and reports what
+// it said about issueNum. Only the pick whose subject IS issueNum counts: a
+// missing artifact, an extract-failure diagnostic, or a pick about another
+// issue (including one that merely mentions issueNum as a fallback) yields the
+// zero action — the implement template with no rationale, i.e. the pre-#301
+// behavior.
+func (d *driver) researchPick(loopNum, issueNum int) pickAction {
+	if issueNum <= 0 {
+		return pickAction{}
+	}
+	data, err := os.ReadFile(d.researchPaths(loopNum).out)
+	if err != nil {
+		return pickAction{}
+	}
+	pick := researchPickText(string(data))
+	if firstIssueRef(pick) != issueNum {
+		return pickAction{}
+	}
+	a := pickAction{rationale: rowText(pick, pickRationaleCap)}
+	if m := mergePickRe.FindStringSubmatch(pick); m != nil {
+		if pr, err := strconv.Atoi(m[1]); err == nil && pr > 0 && pr != issueNum {
+			a.mergePR = pr
+		}
+	}
+	return a
 }
 
 // tailFile prints the last n lines of path to w (bash `tail -5 "$LOG"`).

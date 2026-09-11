@@ -945,6 +945,24 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 > 2026-09-10 (issue #300): the repo-level gate default flipped from `npm
 > test` to `go test ./...` — after the Node retirement an npm default could
 > only ENOENT, stamping green iterations `failed-tests` (loop 216 evidence).
+> 2026-09-11 (issue #301): goal construction carries the phase-1 pick forward.
+> Iteration 219 re-implemented #290 from scratch — burning a full 60-min
+> attempt — while green, mergeable PR #298 sat open (it has since merged,
+> 2026-09-10T16:37Z, and #290 is closed), because
+> `.selfbuild/research/loop-219.md` said "**#290 — merge PR #298, not a
+> rewrite**" and the goal file contained only the raw implement template.
+> `loopdriver.researchPick` now reads the iteration's research artifact,
+> appends its pick rationale to the dispatched goal, and turns a present-tense
+> "merge/land PR #N" directive into a verify-and-merge dispatch (`gh pr checks`
+> → merge → close → PRD update) instead of a rewrite — but only while that
+> pull request is still `OPEN`, because research is also asked whether a
+> *merged* PR already covers the pick, and a landed PR's merged state would
+> otherwise satisfy the ship gate for work nobody did. Such an iteration ships
+> on that pull request's merged state rather than the `PR opened:` line it can
+> never print, and fast-forwards the repo test gate onto the merged tree before
+> verdicting it. The ledger status stays `ok`: `internal/lessons` scores any
+> non-`ok` loop-result row as a failed loop, so the land is recorded in the
+> iteration log, the `loop-phase` detail and the row's goal text instead.
 
 ~~- **Cross-board retry memory beyond the SHA guard** — commit 60638d3 stops re-issuing shipped goals, but re-queued failures still get a fresh attempt budget; carry the prior board's failure class onto the re-bridged goal so the scout deprioritizes until the root-cause fix lands (Q27).~~
 ~~- **Regression oracle before board merge** — gates judge single PRs and PR #108's committed STRIDE allowlist widens suppression paths; add a board-level "is the system at least as good?" check (full suite on the merged result) ahead of `autoMerge`, per the Kitchen Loop zero-regression rule.~~
@@ -1541,7 +1559,7 @@ Master tracker with definition of done: [#207](https://github.com/FreePeak/devag
 | ID | Requirement | Pri | Issue |
 |---|---|---|---|
 | FR-VAL-01 ✅ | Golden soak self-test: a hermetic CI test runs the full loop driver end-to-end (pick → research → PO → task → gate → ledger) over a fixture repo with fake worker CLIs, asserting N consecutive `ok` ledger rows, correct artifact creation, already-shipped guard behavior, and failure-path classification — shipped as `TestGoldenSoak` in `internal/loopdriver/run_test.go` (issue-first path over the existing `installFakes` fixture; the deterministic `GH_ROTATE_STATE` fake gh serves pick N as issue #200+N): 3 consecutive `ok` rows with goal artifacts under `.selfbuild/`, the 4th re-pick rejected as `skipped` by the already-shipped guard (no 4th task dispatch, guard-side issue close), and the repo-gate failure pin (`TestCmd=false` → `failed-tests` row, tracker issue left open). Runs in CI via the existing `go test ./...` job — mutation-checked: breaking the ledger row writer or the issue pick order turns it red | M | [#289](https://github.com/FreePeak/devagent/issues/289) |
-| FR-VAL-02 | `devagent doctor`: one-command machine validation (version stamp, config, DEVAGENT_HOME, git remote, gh auth incl. invalid-env-token detection, herdr session, daemon /status, provider preflight, stale artifacts) with human + `--json` output for the TUI/Tauri app | M | [#290](https://github.com/FreePeak/devagent/issues/290) |
+| FR-VAL-02 ✅ | `devagent doctor`: one-command machine validation (version stamp, config, DEVAGENT_HOME, git remote, gh auth incl. invalid-env-token detection, herdr session, daemon /status, provider preflight, stale artifacts) with human + `--json` output for the TUI/Tauri app | M | ✅ [#290](https://github.com/FreePeak/devagent/issues/290) — shipped as PR [#298](https://github.com/FreePeak/devagent/pull/298) (`internal/commands/doctor.go` + `internal/cli/actions_doctor.go`, merged 2026-09-10T16:37Z); status row corrected by issue #301's work, which measured the row still open after the merge |
 | FR-VAL-03 ✅ | Driver observability parity: truthful `runs.active` (closes #287), visible worker panes via wired `HerdrPaneRunner` (closes #288), periodic watchdog-health rows + enforced no-progress kill on ALL spawn paths, and a loopdriver heartbeat (`{iteration, phase, pid}`) surfaced on `GET /status` | M | ✅ [#291](https://github.com/FreePeak/devagent/issues/291) — shipped 2026-09-11: run lock acquired in `taskCommand` before `RunTask` (live-smoked: second concurrent `task --id` exits 1 "already active" and the lock is visible under `DEVAGENT_HOME/locks` while the first runs); `workers.WireHerdrPaneRunner` installed from `cli.Execute` (nil seam kept for tests); 30s periodic `watchdog-health` rows on the direct path (`emitWatchdogRow` in `spawnCliStreaming`'s poll loop) and the pane path (`emitPaneWatchdogRow` in `RunCommandInHerdrPane`'s poll loop) with the no-progress kill enforced on both; driver `writeHeartbeat` at every `phase()` boundary → `.selfbuild/heartbeat.json` → `GET /status` `loop:{iteration,phase,pid,updatedAt}` |
 | FR-VAL-04 | Chaos soak: nightly fault-injection scenarios — SIGKILL driver mid-iteration (stale-lock break), SIGKILL worker mid-run (attempt 2/3 retry), fake provider hang (watchdog kill), network blackhole during state push (deferred push), repeated failure (circuit breaker) — each asserting recovery + correct ledger classification | S | [#292](https://github.com/FreePeak/devagent/issues/292) |
 | FR-VAL-05 | Quality-drift ratchet: LLM-judge rubric scoring of shipped PRs recorded as `eval-score` ledger rows, trailing-window regression warning in `ledger --clusters` + research prompts, nightly CI drift job; rubric version recorded per score | S | [#293](https://github.com/FreePeak/devagent/issues/293) |
@@ -1551,7 +1569,41 @@ existing driver with validation surfaces (test, command, telemetry, chaos
 schedule) so "the driver works perfectly" is a checkable claim, not a hope.
 
 ---
-*Last updated: 2026-09-11 (preflight probe: cap reverted, attribution
+*Last updated: 2026-09-11 (issue #301, loopdriver research pick) — the
+self-build loop no longer loses what phase 1 decided. Goal construction read
+only the tracker title, so iteration 219 dispatched "Implement GitHub issue
+#290 … in full" while `.selfbuild/research/loop-219.md` had picked
+"#290 — merge PR #298, not a rewrite" (and loop 216 had picked the same).
+`internal/loopdriver` now parses that artifact (`researchPick`: the
+`## Pick` section, else the last line, only when the tracker issue is that
+pick's subject), carries the rationale into the dispatched goal (`withPickRationale`,
+single-lined and capped at 500 chars) and switches a **present-tense**
+"merge/land/ship … PR #N" directive to `mergeGoalTemplate` — a verify-and-merge
+dispatch (`gh pr checks`, merge, close the issue, PRD status) instead of a
+from-scratch implementation. Past tense and bare "via" are excluded and the
+route additionally requires the named pull request to be `OPEN` at pick time
+(`prState`): research is asked whether a *merged* PR already covers the pick,
+and landing-the-merged-PR evidence is permanently true, so an unprotected
+match would record a productive row and close an issue nobody worked. Because
+such a dispatch lands an **existing** pull request it can never print
+`PR opened:`, so its #238 ship evidence is that pull request's merged state
+(`prMerged`, decoded `gh pr view --json state` — the file's own `pickIssue`
+convention, and it drops a whitespace assumption the fixtures cannot police);
+an unmerged one still records the non-productive `no-pr` row and leaves the
+issue open. A landed merge fast-forwards the repo test gate onto the merged
+tree before verdicting it. Its ledger status stays `ok`: `internal/lessons`
+tallies every non-`ok` loop-result row as a failed loop (`guard.go`'s
+`status != LoopStatusOK`, in both the overall baseline and the per-lesson rate)
+and the TUI status palette has no case for `merged`, so the implemented-vs-landed
+distinction is recorded in the iteration log, the `loop-phase` detail and the
+row's goal text. Pinned by `TestRunLoopMergePickDispatchesVerifyAndMerge`,
+`TestRunLoopMergePickIgnoresAlreadyLandedPR`,
+`TestRunLoopMergePickWithoutMergedPRRecordsNoPR`,
+`TestRunLoopImplementPickCarriesRationale` and the
+`TestResearchPickReadsTheArtifact` table (foreign-issue picks, a fallback
+mention of the *next* issue, past-tense history, extract failures,
+`#2900` ≠ `#290`).
+Prior: 2026-09-11 (preflight probe: cap reverted, attribution
 corrected) — the 60s→120s raise (b5059c9) is **reverted**: measuring the probe
 gave two distinct modes — a 15-75s tail (one gate cleared at 56s) and a
 hard-stall mode that never answered within 170s (5/5) — and 120s cannot fix the

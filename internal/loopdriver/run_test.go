@@ -58,12 +58,25 @@ case "$1 $2" in
       printf '%s' "$GH_ISSUES_JSON"
     fi ;;
   "issue close") exit 0 ;;
+  # gh 2.98 pipes --json output (compact); prState decodes, so the shape is
+  # the real one and the driver must not care. GH_PR_STATE answers every call;
+  # GH_PR_STATE_FIRST + GH_PR_STATE_FILE sequence the first one differently
+  # (a merge route reads the PR twice: OPEN at pick time, MERGED at ship).
+  "pr view")
+    s="${GH_PR_STATE:-OPEN}"
+    if [ -n "${GH_PR_STATE_FIRST:-}" ] && [ ! -f "${GH_PR_STATE_FILE:-/nonexistent-marker}" ]; then
+      : > "${GH_PR_STATE_FILE:?}"; s="$GH_PR_STATE_FIRST"
+    fi
+    printf '{"state":"%s"}\n' "$s" ;;
 esac
 exit 0
 `,
-		"npm":      "#!/bin/sh\nexit 0\n",
-		"go":       "#!/bin/sh\nexit 0\n",
-		"omp-fake": "#!/bin/sh\nexit 0\n",
+		"npm": "#!/bin/sh\nexit 0\n",
+		"go":  "#!/bin/sh\nexit 0\n",
+		// The headless research/PO bin: RESEARCH_OUT names the artifact a
+		// test wants phase 1 to have produced (stdout → raw → the extractor's
+		// plain-text passthrough).
+		"omp-fake": "#!/bin/sh\nif [ -n \"${RESEARCH_OUT:-}\" ]; then cat \"$RESEARCH_OUT\"; fi\nexit 0\n",
 	})
 	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
 	t.Setenv("DEVAGENT_LOG", filepath.Join(repo, "devagent-calls.log"))
@@ -245,6 +258,319 @@ func TestRunLoopNoPRLeavesIssueOpen(t *testing.T) {
 	}
 	if strings.Contains(string(calls), "gh issue close") {
 		t.Fatalf("issue must stay open, calls:\n%s", calls)
+	}
+}
+
+// researchMergePick is a phase-1 research artifact in the shape the live
+// loop writes (loop-219 verbatim in spirit): a ranked list, then a "## Pick"
+// section that names the tracker issue AND the green, already-open PR that
+// implements it.
+const researchMergePick = `## Ranked Top-3
+
+**1. #290 (FR-VAL-02: devagent doctor) — merge PR #298, not a rewrite.** PR #298 is OPEN, MERGEABLE, +1114 lines, full CI matrix green.
+
+**2. #291 (FR-VAL-03: driver observability parity).** Strong local evidence.
+
+## Pick
+
+**#290 — land via open PR #298, not a rewrite.** Evidence says the work is done and green; re-implementing from scratch would duplicate a passing 1114-line PR.
+`
+
+// seedResearchOutput points the fake research bin's stdout at body, so the
+// driver's own extraction lands it as this iteration's research artifact.
+func seedResearchOutput(t *testing.T, body string) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "research.md")
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("RESEARCH_OUT", path)
+}
+
+// Issue #301 regression: a research pick that says "land via open PR #N"
+// must dispatch a verify-and-merge iteration, never the implement template.
+func TestRunLoopMergePickDispatchesVerifyAndMerge(t *testing.T) {
+	repo := initFixtureRepo(t)
+	installFakes(t, repo)
+	seedResearchOutput(t, researchMergePick)
+	t.Setenv("GH_ISSUES_JSON", `[{"number":290,"title":"FR-VAL-02: devagent doctor","labels":[{"name":"priority:P0"}]}]`)
+	// A merge dispatch lands the EXISTING pull request, so it opens none:
+	// DEVAGENT_FAKE_TASK_NO_PR proves the ship rests on the merged state,
+	// not on a "PR opened:" line. The PR must read OPEN when the pick is
+	// taken (that is what makes it work to land) and MERGED by the ship gate.
+	t.Setenv("DEVAGENT_FAKE_TASK_NO_PR", "1")
+	t.Setenv("GH_PR_STATE_FILE", filepath.Join(t.TempDir(), "pr-view-count"))
+	t.Setenv("GH_PR_STATE_FIRST", "OPEN")
+	t.Setenv("GH_PR_STATE", "MERGED")
+	now, _ := frozenClock()
+	cfg := loopConfigFor(t, repo, func(c *LoopConfig) {
+		c.Now = now
+		// A resolved tracker repo, like production's origin-derived
+		// SELFBUILD_GH_REPO fallback, so the gh evidence call is assertable
+		// whole.
+		c.GHRepo = "FreePeak/devagent"
+	})
+	cfg.DryRun = false
+	if rc := RunLoop(cfg); rc != 0 {
+		logData, _ := os.ReadFile(filepath.Join(repo, ".selfbuild", "logs", "loop-1.log"))
+		t.Fatalf("rc = %d, want 0\nlog:\n%s", rc, logData)
+	}
+	goalData, err := os.ReadFile(filepath.Join(repo, ".selfbuild", "goals", "loop-1.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	goal := string(goalData)
+	if strings.Contains(goal, "Implement GitHub issue") {
+		t.Fatalf("merge pick must not emit the implement template:\n%s", goal)
+	}
+	if !strings.Contains(goal, "merging the existing open PR #298") {
+		t.Fatalf("verify-and-merge goal missing:\n%s", goal)
+	}
+	if !strings.Contains(goal, "gh pr checks 298") {
+		t.Fatalf("verify-and-merge goal must name the CI check:\n%s", goal)
+	}
+	if !strings.Contains(goal, "land via open PR #298") {
+		t.Fatalf("pick rationale dropped from the goal:\n%s", goal)
+	}
+	// The ship rests on gh's merged state for the existing PR, read from a
+	// decoded `--json state` (real gh output shape), with the tracker repo
+	// resolved.
+	assertFileContains(t, filepath.Join(repo, "devagent-calls.log"),
+		"gh pr view 298 --repo FreePeak/devagent --json state")
+	logData, err := os.ReadFile(filepath.Join(repo, ".selfbuild", "logs", "loop-1.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(logData), "[issue] research pick lands existing PR #298") {
+		t.Fatalf("merge dispatch not logged:\n%s", logData)
+	}
+	// The landed merge moved origin/main ahead of the driver's checkout, so
+	// the repo gate must try to sync before verdicting it.
+	if !strings.Contains(string(logData), "origin/main is not fast-forwardable") {
+		t.Fatalf("merge route must sync before the repo gate:\n%s", logData)
+	}
+	rows := readLedger(t, repo)
+	// The row stays `ok` (lessons tallies any other status as a failure); the
+	// land is recorded in the row's goal text and the phase detail.
+	if len(rows) != 1 || rows[0]["status"] != "ok" ||
+		!strings.HasPrefix(rows[0]["goal"].(string), "Goal: Land GitHub issue #290") {
+		t.Fatalf("rows: %v", rows)
+	}
+	assertFileContains(t, filepath.Join(repo, "devagent-calls.log"), "gh issue close")
+}
+
+// The destructive false-positive class: research mentions a pull request that
+// already landed (it is ASKED to weigh "does a merged PR already cover it?").
+// Such a mention must never route the iteration to merge — shipping evidence
+// for an already-merged PR is always true, so the iteration would record a
+// productive row and close an issue nobody worked (issue #301).
+func TestRunLoopMergePickIgnoresAlreadyLandedPR(t *testing.T) {
+	repo := initFixtureRepo(t)
+	installFakes(t, repo)
+	seedResearchOutput(t, researchMergePick)
+	t.Setenv("GH_ISSUES_JSON", `[{"number":290,"title":"FR-VAL-02: devagent doctor","labels":[{"name":"priority:P0"}]}]`)
+	t.Setenv("GH_PR_STATE", "MERGED") // merged before this iteration started
+	now, _ := frozenClock()
+	cfg := loopConfigFor(t, repo, func(c *LoopConfig) {
+		c.Now = now
+		c.GHRepo = "FreePeak/devagent"
+	})
+	cfg.DryRun = false
+	if rc := RunLoop(cfg); rc != 0 {
+		t.Fatalf("rc = %d, want 0", rc)
+	}
+	goalData, err := os.ReadFile(filepath.Join(repo, ".selfbuild", "goals", "loop-1.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	goal := string(goalData)
+	if !strings.HasPrefix(goal, "Goal: Implement GitHub issue #290") {
+		t.Fatalf("a landed PR is not work to merge — implement route expected:\n%s", goal)
+	}
+	if strings.Contains(goal, "merging the existing open PR") {
+		t.Fatalf("verify-and-merge goal emitted for a merged PR:\n%s", goal)
+	}
+	if !strings.Contains(goal, "land via open PR #298") {
+		t.Fatalf("rationale must still ride along:\n%s", goal)
+	}
+	logData, err := os.ReadFile(filepath.Join(repo, ".selfbuild", "logs", "loop-1.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(logData), "[issue] research pick names PR #298 but it is MERGED, not open") {
+		t.Fatalf("pick-time state guard not logged:\n%s", logData)
+	}
+	// It ships as an ordinary implement run.
+	rows := readLedger(t, repo)
+	if len(rows) != 1 || rows[0]["status"] != "ok" {
+		t.Fatalf("rows: %v", rows)
+	}
+}
+
+// The merged pull request is the only publish evidence a merge dispatch can
+// produce, so an unmerged one must still record the non-productive no-pr row
+// and leave the issue open (#238 semantics carried onto the new path).
+func TestRunLoopMergePickWithoutMergedPRRecordsNoPR(t *testing.T) {
+	repo := initFixtureRepo(t)
+	installFakes(t, repo)
+	seedResearchOutput(t, researchMergePick)
+	t.Setenv("GH_ISSUES_JSON", `[{"number":290,"title":"FR-VAL-02: devagent doctor","labels":[{"name":"priority:P0"}]}]`)
+	t.Setenv("DEVAGENT_FAKE_TASK_NO_PR", "1")
+	now, _ := frozenClock()
+	cfg := loopConfigFor(t, repo, func(c *LoopConfig) {
+		c.Now = now
+		c.GHRepo = "FreePeak/devagent"
+	})
+	cfg.DryRun = false
+	if rc := RunLoop(cfg); rc != 0 {
+		t.Fatalf("rc = %d, want 0", rc)
+	}
+	rows := readLedger(t, repo)
+	if len(rows) != 1 || rows[0]["status"] != "no-pr" {
+		t.Fatalf("rows: %v, want one no-pr", rows)
+	}
+	assertFileContains(t, filepath.Join(repo, "devagent-calls.log"), "gh pr view 298")
+	calls, err := os.ReadFile(filepath.Join(repo, "devagent-calls.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(calls), "gh issue close") {
+		t.Fatalf("issue must stay open, calls:\n%s", calls)
+	}
+}
+
+// Issue #301, first acceptance criterion: an ordinary implement pick still
+// carries the research rationale into the goal the worker is dispatched with.
+func TestRunLoopImplementPickCarriesRationale(t *testing.T) {
+	repo := initFixtureRepo(t)
+	installFakes(t, repo)
+	seedResearchOutput(t, "## Ranked Top-3\n\n**1. #202 (Port loop driver).** Tractable.\n\n## Pick\n\n**#202 — implement.** Nothing in the ledger covers it; the failure-cluster report points at queue numbering, so it is the highest-impact tractable item.\n")
+	t.Setenv("GH_ISSUES_JSON", `[{"number":202,"title":"Port loop driver","labels":[{"name":"priority:P0"}]}]`)
+	now, _ := frozenClock()
+	cfg := loopConfigFor(t, repo, func(c *LoopConfig) { c.Now = now })
+	cfg.DryRun = false
+	if rc := RunLoop(cfg); rc != 0 {
+		t.Fatalf("rc = %d, want 0", rc)
+	}
+	goalData, err := os.ReadFile(filepath.Join(repo, ".selfbuild", "goals", "loop-1.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	goal := string(goalData)
+	if !strings.HasPrefix(goal, "Goal: Implement GitHub issue #202 (Port loop driver) in full and verifiably.") {
+		t.Fatalf("implement template changed shape:\n%s", goal)
+	}
+	if !strings.Contains(goal, "highest-impact tractable item") {
+		t.Fatalf("pick rationale dropped from the goal:\n%s", goal)
+	}
+}
+
+// TestResearchPickReadsTheArtifact pins the seam #301 removed: what phase 1
+// said about THIS issue is what the iteration acts on — and anything it said
+// about another issue (or no parsable text at all) steers nothing.
+func TestResearchPickReadsTheArtifact(t *testing.T) {
+	dir := t.TempDir()
+	d := &driver{stateDir: dir}
+	cases := []struct {
+		name      string
+		artifact  string // "" = no artifact written
+		issueNum  int
+		wantPR    int
+		wantRatio string // substring the rationale must carry; "" = none
+	}{
+		{
+			name:      "merge verb beside the PR ref",
+			artifact:  "## Pick\n\n**#290 — merge PR #298.** Green and complete.\n",
+			issueNum:  290,
+			wantPR:    298,
+			wantRatio: "Green and complete.",
+		},
+		{
+			name:      "land-via phrasing",
+			artifact:  "## Pick\n\n**#290 — land via open PR #298, not a rewrite.**\n",
+			issueNum:  290,
+			wantPR:    298,
+			wantRatio: "not a rewrite",
+		},
+		{
+			name:      "implement pick keeps its rationale, names no PR",
+			artifact:  "## Pick\n\n**#202 — implement.** Nothing in the ledger covers it.\n",
+			issueNum:  202,
+			wantPR:    0,
+			wantRatio: "Nothing in the ledger covers it.",
+		},
+		{
+			name:      "no Pick heading falls back to the last line",
+			artifact:  "## Ranked Top-3\n\n**1. #202 ...**\n\n**#202 — merge PR #211.**\n",
+			issueNum:  202,
+			wantPR:    211,
+			wantRatio: "merge PR #211",
+		},
+		{
+			name:      "past-tense history is not a directive",
+			artifact:  "## Pick\n\n**#291 — implement.** The same pattern shipped via PR #260 last loop; extend it.\n",
+			issueNum:  291,
+			wantPR:    0,
+			wantRatio: "extend it",
+		},
+		{
+			name:      "a PR reference equal to the issue number is not a PR",
+			artifact:  "## Pick\n\n**#290 — merge PR #290.**\n",
+			issueNum:  290,
+			wantPR:    0,
+			wantRatio: "merge PR #290",
+		},
+		{
+			name:     "a pick about another issue is ignored",
+			artifact: "## Pick\n\n**#291 — merge PR #298.**\n",
+			issueNum: 290,
+			wantPR:   0,
+		},
+		{
+			name:     "a longer issue number is not this issue",
+			artifact: "## Pick\n\n**#2900 — merge PR #298.**\n",
+			issueNum: 290,
+			wantPR:   0,
+		},
+		{
+			// The live loop-219 paragraph read by the NEXT iteration's pick:
+			// "#291" there is a fallback mention, not that pick's subject.
+			name:     "a passing mention is not the pick's subject",
+			artifact: "## Pick\n\n**#290 — merge PR #298.** Fallback if the merge hits a surprise: fall through to #291.\n",
+			issueNum: 291,
+			wantPR:   0,
+		},
+		{
+			name:     "extract failure carries nothing",
+			artifact: "[extract-failed] research produced no parsable output\n",
+			issueNum: 290,
+			wantPR:   0,
+		},
+		{name: "missing artifact reads as no pick", issueNum: 290, wantPR: 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(dir, "research", "loop-1.md")
+			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+				t.Fatal(err)
+			}
+			if tc.artifact != "" {
+				writeRepoFile(t, dir, filepath.Join("research", "loop-1.md"), tc.artifact)
+			}
+			got := d.researchPick(1, tc.issueNum)
+			if got.mergePR != tc.wantPR {
+				t.Fatalf("mergePR = %d, want %d (artifact %q)", got.mergePR, tc.wantPR, tc.artifact)
+			}
+			if tc.wantRatio == "" {
+				if got.rationale != "" {
+					t.Fatalf("rationale = %q, want none", got.rationale)
+				}
+				return
+			}
+			if !strings.Contains(got.rationale, tc.wantRatio) {
+				t.Fatalf("rationale = %q, want it to carry %q", got.rationale, tc.wantRatio)
+			}
+		})
 	}
 }
 
