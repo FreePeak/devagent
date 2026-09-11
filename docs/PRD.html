@@ -2,7 +2,7 @@
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head>
   <meta charset="utf-8" />
-  <meta name="generator" content="pandoc 3.10.2" />
+  <meta name="generator" content="pandoc 3.11" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
   <title>DevAgent - Product Requirements Document</title>
   <style>
@@ -171,7 +171,6 @@
       margin: 0 0.8em 0.2em -1.6em;
       vertical-align: middle;
     }
-    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
     /* CSS for syntax highlighting */
     html { -webkit-text-size-adjust: 100%; }
     pre > code.sourceCode { white-space: pre; position: relative; }
@@ -4772,11 +4771,105 @@ existing driver with validation surfaces (test, command, telemetry,
 chaos schedule) so "the driver works perfectly" is a checkable claim,
 not a hope.</p>
 <hr />
-<p>*Last updated: 2026-09-11 (competitor deep scout) — eight-scout web
-pass on how every competitor builds its automatic dev workflow
-(Devin/Outposts, Copilot cloud-agent rename + HydraFusion, OpenHands V1,
-Factory Missions, Jules Planning Critic, Antigravity verification
-ladder, Claude Code routines, startup-tail deaths), distilled into
+<p>*Last updated: 2026-09-11 (selfbuild-loop liveness: preflight, run
+lock, status, TUI input) — the loop had stopped shipping entirely
+(breaker cycling: provider-degraded rows, zero dispatches, three
+consecutive failed iterations, then the starvation halt). Root causes
+fixed, each mutation-checked: (1) <code>RunPreflightProbe</code>
+completes on the STREAMED <code>"text":"OK"</code> marker via
+<code>spawn.RunCliUntil</code> instead of waiting for process exit —
+measured live: the answer arrived at ~24s
+(<code>stopReason:"stop"</code>, ttft 8.1s) with the marker present 3x
+while the CLI lingered past a 70s kill, so a HEALTHY provider was
+stamped provider-degraded; the probe now returns
+<code>ok, attempts=1</code> in 5.3s (785e1ae); (2)
+<code>ledger.TryAcquireRun</code> breaks a lock whose holder pid is DEAD
+regardless of TTL — a breaker-killed incarnation's
+<code>TASK.lock</code> (pid 6762 gone) refused every
+<code>devagent task</code> for up to the 1h TTL, so issue-first pick
+claimed #286, research completed, and dispatch died at the lock
+(f8efde0); (3) same liveness rule for <code>countActiveRuns</code>, so
+<code>/status runs.active</code> stops reporting 0 for a task whose lock
+outlived the TTL (the 87-minute #286 task), and the TUI header/hero read
+the daemon's lock-derived count instead of the (empty,
+workers-bypass-herdr) pane roster (be4c9a5, 1e5e49e); (4) the TUI
+dispatch/approve sheets are multi-line with a fixed terminal-sized
+viewport (Ctrl+N / Alt+Enter insert breaks; Enter still submits)
+(be4c9a5). Outcome verified end-to-end: loop 252 <code>[ok]</code>
+shipped issue #308 as PR #322 (gate passed, merged 5c19df9) after
+shipping #286 as PR #320 (merged 0ead693) via its own verify-and-merge
+dispatch. Prior: 2026-09-11 (issue #308, second half: the tree kill
+reaches every caller) — <code>RunCli</code> is now
+<code>RunCliUntil(..., nil)</code>, so every
+git/gh/launchctl/worktree/gate/worker call site inherits the swept
+process-group kill and the 3s bounded drain instead of CommandContext's
+direct-child kill. Measured pre-change: a <code>RunCli</code> timeout
+(500ms wall) against a child that had forked a grandchild holding the
+inherited stdout pipe did not return until that grandchild's own 45s
+sleep ended (45.02s — #273's loop pin, red-before pin
+<code>TestRunCliTimeoutKillsGrandchild</code>); post-change the same
+call returns in 0.51s with the grandchild reaped. The retarget also
+surfaced a mapping hole: on the WaitDelay path <code>Wait</code> returns
+<code>exec.ErrWaitDelay</code> (not an <code>ExitError</code>) when a
+descendant holds a pipe, and RunCliUntil's tail mapped every
+non-ExitError wait to -1 — a child that exited 0 with a lingering
+grandchild would have reported -1 ("spawn failure") to all ~28 callers.
+<code>runDevagent</code>'s existing rule now lives in spawn too:
+<code>ErrWaitDelay</code> resolves from
+<code>cmd.ProcessState.ExitCode()</code> (os/exec prefers a real
+ExitError, so ProcessState is the child's own verdict), pinned
+red-before by <code>TestRunCliDrainCutoffKeepsChildExitCode</code>
+(3.01s <code>ExitCode:-1</code> pre-fix, <code>ExitCode:0</code>
+post-fix). <code>internal/loopdriver</code>'s duplicated
+<code>setOwnProcessGroup</code>/<code>killDispatchTree</code> are
+deleted — its <code>proc_*.go</code> keep only
+<code>processAlive</code>, and the outer dispatch wall calls the shared
+<code>spawn.SetOwnProcessGroup</code> +
+<code>spawn.KillProcessTree</code> (which also upgrades that wall's
+post-deadline sweep from one <code>kill(-pgid)</code> to the
+retry-until-ESRCH rounds #312 added), closing the "helper was
+duplicated, not lifted" residue #312 left.
+<code>RunPreflightProbe</code> reached <code>RunCliUntil</code>
+separately (785e1ae). Prior: 2026-09-11 (issue #286, starvation-halt
+teardown) — the starvation halt can no longer hang the driver. A child
+spawned during the iteration (pane-run/exec helper) that left a
+grandchild holding the stdout pipe write-end pinned os/exec's
+<code>io.Copy</code> forever: the driver printed
+<code>[starvation] … halting loop</code> and never exited (PID 84739,
+2026-09-10; SIGQUIT showed the copy goroutine parked in
+<code>io.copyBuffer</code> on the exec pipe). Two bounds: (1) every
+captured-pipe teardown in <code>internal/loopdriver</code> now sets
+<code>WaitDelay = pipeDrainDelay</code> (3s — the #248 bounded-drain
+semantics generalized package-wide: <code>gitQuiet</code>,
+<code>runDevagent</code> <code>CombinedOutput</code>, the outer dispatch
+wall, <code>pickIssue</code>/<code>prState</code> gh captures,
+state-sync git), and a drain cutoff never relabels a child that itself
+exited 0 (push/pull/PR verdicts feed loop control); (2) every terminal
+<code>RunLoop</code> verdict (starvation, iteration cap, lock
+contention, circuit breaker, log-open failure) arms an exit watchdog
+(<code>ExitWatchdogDelay</code>, 10s default) that forces exit with the
+verdict code if the graceful unwind still blocks — the hard exit skips
+the deferred lock release, which self-heals on the next start
+(stale-holder break). Pinned by
+<code>TestRunLoopStarvationHaltArmsExitWatchdog</code> (exit seam
+swapped for a recorder),
+<code>TestRunDevagentDrainBoundedOnHeldPipe</code> (helper exits 0, its
+grandchild holds the pipe — child output and rc 0 preserved within the
+drain bound) and <code>TestTaskDispatchWallKillsWedgedWorkerTree</code>
+(retargeted at <code>pipeDrainDelay</code>). The issue's secondary (a
+<code>restart=always</code> supervisor turning each intentional halt
+into a hollow restart — 133 overnight) has no in-repo enforcement point:
+<code>make loop-start</code> is plain <code>nohup</code> with no restart
+policy, and nothing in the tree registers the loop with
+<code>restart=always</code> — that policy lived in the external hub
+process config. The driver-side guarantee is what landed: intentional
+halts exit 0 (so <code>on-failure</code> correctly ignores them) and the
+watchdog guarantees the process actually leaves. Prior: 2026-09-11
+(competitor deep scout) — eight-scout web pass on how every competitor
+builds its automatic dev workflow (Devin/Outposts, Copilot cloud-agent
+rename + HydraFusion, OpenHands V1, Factory Missions, Jules Planning
+Critic, Antigravity verification ladder, Claude Code routines,
+startup-tail deaths), distilled into
 <code>docs/research/2026-09-11-competitor-scout-synthesis.md</code> +
 eight cluster docs, summarized in §19.8; §4.2 item 1 narrowed to
 <em>execution-based</em> migration validation (CodeRabbit ships Squawk
@@ -4808,16 +4901,17 @@ does the unix group sweep <code>Kill(-pid)</code> AND the direct
 <code>Process.Kill</code> floor for windows). Pinned by
 TestRunCliUntilEarlyCompletion, TestRunCliUntilKillsGrandchild
 (grandchild reaping), TestRunCliUntilNilPredicate,
-TestRunCliUntilTimeout, TestRunCliUntilSpawnFailure. <code>RunCli</code>
-and its ~28 call sites keep the direct-child timeout kill for now —
-retargeting them at the tree kill is the second half of #308 and needs
-its own per-caller timeout-test sweep; <code>RunPreflightProbe</code> is
-not yet wired to it (that lands with the second half, closing the
-wait-for-exit cost noted in the 2026-09-11 preflight measurement below).
-Prior: 2026-09-11 (issue #301, loopdriver research pick) — the
-self-build loop no longer loses what phase 1 decided. Goal construction
-read only the tracker title, so iteration 219 dispatched "Implement
-GitHub issue #290 … in full" while
+TestRunCliUntilTimeout, TestRunCliUntilSpawnFailure.
+~~<code>RunCli</code> and its ~28 call sites keep the direct-child
+timeout kill for now — retargeting them at the tree kill is the second
+half of #308 and needs its own per-caller timeout-test sweep;
+<code>RunPreflightProbe</code> is not yet wired to it.~~ Delivered:
+<code>RunPreflightProbe</code> reached <code>RunCliUntil</code> in
+785e1ae (the paragraph's "not yet wired" aged out there), and the RunCli
+retarget is the 2026-09-11 footer entry above. Prior: 2026-09-11 (issue
+#301, loopdriver research pick) — the self-build loop no longer loses
+what phase 1 decided. Goal construction read only the tracker title, so
+iteration 219 dispatched "Implement GitHub issue #290 … in full" while
 <code>.selfbuild/research/loop-219.md</code> had picked "#290 — merge PR
 #298, not a rewrite" (and loop 216 had picked the same).
 <code>internal/loopdriver</code> now parses that artifact

@@ -1589,7 +1589,23 @@ existing driver with validation surfaces (test, command, telemetry, chaos
 schedule) so "the driver works perfectly" is a checkable claim, not a hope.
 
 ---
-*Last updated: 2026-09-11 (issue #308, second half: the tree kill reaches every caller) — `RunCli`
+*Last updated: 2026-09-11 (selfbuild-loop liveness: preflight, run lock, status, TUI input) — the loop
+had stopped shipping entirely (breaker cycling: provider-degraded rows, zero dispatches, three
+consecutive failed iterations, then the starvation halt). Root causes fixed, each mutation-checked:
+(1) `RunPreflightProbe` completes on the STREAMED `"text":"OK"` marker via `spawn.RunCliUntil` instead
+of waiting for process exit — measured live: the answer arrived at ~24s (`stopReason:"stop"`, ttft
+8.1s) with the marker present 3x while the CLI lingered past a 70s kill, so a HEALTHY provider was
+stamped provider-degraded; the probe now returns `ok, attempts=1` in 5.3s (785e1ae);
+(2) `ledger.TryAcquireRun` breaks a lock whose holder pid is DEAD regardless of TTL — a
+breaker-killed incarnation's `TASK.lock` (pid 6762 gone) refused every `devagent task` for up to the
+1h TTL, so issue-first pick claimed #286, research completed, and dispatch died at the lock (f8efde0);
+(3) same liveness rule for `countActiveRuns`, so `/status runs.active` stops reporting 0 for a task
+whose lock outlived the TTL (the 87-minute #286 task), and the TUI header/hero read the daemon's
+lock-derived count instead of the (empty, workers-bypass-herdr) pane roster (be4c9a5, 1e5e49e);
+(4) the TUI dispatch/approve sheets are multi-line with a fixed terminal-sized viewport (Ctrl+N /
+Alt+Enter insert breaks; Enter still submits) (be4c9a5). Outcome verified end-to-end: loop 252
+`[ok]` shipped issue #308 as PR #322 (gate passed, merged 5c19df9) after shipping #286 as PR #320
+(merged 0ead693) via its own verify-and-merge dispatch. Prior: 2026-09-11 (issue #308, second half: the tree kill reaches every caller) — `RunCli`
 is now `RunCliUntil(..., nil)`, so every git/gh/launchctl/worktree/gate/worker call site inherits
 the swept process-group kill and the 3s bounded drain instead of CommandContext's direct-child kill.
 Measured pre-change: a `RunCli` timeout (500ms wall) against a child that had forked a grandchild
