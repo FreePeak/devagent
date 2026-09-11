@@ -217,3 +217,4 @@
 {"loop":256,"ts":"2026-09-11T15:36:23Z","status":"no-pr","goal":"Goal: Implement GitHub issue #316 (devagent task run lock uses generic key TASK: concurrent runs steal/drop each other's lock, runs.active miscounts, refused di"}
 {"loop":257,"ts":"2026-09-11T15:39:39Z","status":"no-pr","goal":"Goal: Implement GitHub issue #316 (devagent task run lock uses generic key TASK: concurrent runs steal/drop each other's lock, runs.active miscounts, refused di"}
 {"loop":258,"ts":"2026-09-11T18:03:31Z","status":"failed","goal":"Goal: Implement GitHub issue #316 (devagent task run lock uses generic key TASK: concurrent runs steal/drop each other's lock, runs.active miscounts, refused di"}
+{"loop":259,"ts":"2026-09-11T18:46:05Z","status":"pr-open","goal":"Goal: Implement GitHub issue #316 (devagent task run lock uses generic key TASK: concurrent runs steal/drop each other's lock, runs.active miscounts, refused di"}
