@@ -39,7 +39,7 @@ the Node tree (FR-GO-16, #205).
 
 ## Phases
 
-2. **Ideas** — Select ONE work item informed by the newest research and the ledger's recent failures/gaps. Selection is **issue-first (2026-09-07 operator policy)**: the task tracker is the GitHub issue queue (open issues labeled `selfbuild`, ordered `priority:P0` > `priority:P1` > `priority:P2`, oldest first within a tier), never a static PRD backlog section. Only when the tracker is empty does the LLM selection path run, deriving one goal from research + ledger + lessons.
+2. **Ideas** — Select ONE work item informed by the newest research and the ledger's recent failures/gaps. Selection is **issue-first (2026-09-07 operator policy)**: the task tracker is the GitHub issue queue (open issues labeled `selfbuild`, ordered `priority:P0` > `priority:P1` > `priority:P2`, oldest first within a tier), never a static PRD backlog section. Only when the tracker is empty does the LLM selection path run, deriving one goal from research + ledger + lessons. On an issue-first pick the phase-1 rationale — including a "merge PR #N, not a rewrite" action — rides along into the goal file (issue #301; see "Tracker + PRD policy"); a queue-claimed goal and a PO-derived goal are written verbatim.
 3. **Validate** — Goal must pass three checks: it implements an open tracker
    issue (or, empty-tracker fallback, a research-derived goal that nothing in
    the ledger says shipped); scoped to a single iteration (implementable +
@@ -61,10 +61,16 @@ the Node tree (FR-GO-16, #205).
    every PR lands with its `docs/PRD.md` state update** — the sections the change
    affects plus the *Last updated* footer, applied in the same branch via the
    dispatch-prompt policy rider. The shipped iteration closes its tracker
-   issue only once the dispatch actually reported a PR: in pr push mode a
+   issue only once the dispatch actually published: in pr push mode a
    task that exits 0 without a `PR opened:` line records a non-productive
-   `no-pr` ledger row and leaves the issue open for re-pick (#238);
-   push mode `main` closes on the merge-to-main commit.
+   `no-pr` ledger row and leaves the issue open for re-pick (#238) — except
+   for a verify-and-merge dispatch (#301), which lands an existing pull
+   request and so proves itself with that pull request's merged state
+   (`gh pr view --json state`), after fast-forwarding the repo test gate onto
+   the merged tree. Its status row is still `ok` — `internal/lessons` scores
+   any non-`ok` loop-result row as a failed loop — and the land is recorded in
+   the iteration log, the `loop-phase` detail and the goal text; push mode
+   `main` closes on the merge-to-main commit.
 
 ## Running
 
@@ -155,6 +161,19 @@ default and the bash driver is gone.
   rank, then oldest issue number), builds it, and closes it with evidence. The
   LLM selection path exists only as the empty-tracker fallback; anything it picks
   still ships against the repo directly.
+- **The phase-1 pick rides along (issue #301).** The tracker decides *which*
+  issue, research decides *what to do with it* — so on an issue-first pick the
+  driver reads this iteration's `.selfbuild/research/loop-N.md` (the `## Pick`
+  section, else the last line) and, when that issue is the pick's own subject,
+  carries the rationale into `.selfbuild/goals/loop-N.md` and honours its
+  action. A pick directing a present-tense "merge PR #N" / "land via open PR
+  #N" dispatches `mergeGoalTemplate` — `gh pr checks`, merge the existing pull
+  request, close the issue, and land the PRD status update the pull request
+  itself may have missed — never a re-implementation of work already green on
+  `origin`. The route is taken only while that pull request is still `OPEN`:
+  research is asked to weigh merged PRs too ("does a merged PR already cover
+  it?"), and a landed PR is history, not work — ship evidence is its merged
+  state, which would already be true and would close an untouched issue.
 - **The PRD is a state document.** `docs/PRD.md` records what the repo IS:
   status blockquotes, completion notes, architecture, the *Last updated* footer.
   It must reflect the current repo state at all times — enforced three ways:
