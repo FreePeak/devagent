@@ -34,22 +34,34 @@ func trunc(s string, n int) string {
 // ("Still starting after <n>s — phase: ...").
 var OMPStartupWedgePattern = regexp.MustCompile(`Still starting after \d+s`)
 
-// RunPreflightProbe asks the worker CLI to reply to "OK" and require an
-// answer. `--mode json` (omp) success looks like an event stream containing
+// probeMarkerSeen reports whether the probe answer has already streamed:
+// `--mode json` (omp) success looks like an event stream containing
 // `"text":"OK"`; grok's `--output-format streaming-json` emits the answer as
 // a text chunk — `{"type":"text","data":"OK"}` (captured 2026-09-06) — so
-// both shapes count. A probe that exits 0 without either is degraded. This
-// mirrors the orchestrate-loop probe but runs through the same spawn path as
-// the worker adapters so env hardening stays consistent.
+// both shapes count.
+func probeMarkerSeen(stdout string) bool {
+	return strings.Contains(stdout, `"text":"OK"`) ||
+		strings.Contains(stdout, `"type":"text","data":"OK"`)
+}
+
+// RunPreflightProbe asks the worker CLI to reply to "OK" and require an
+// answer. It completes on the STREAMED MARKER, not the process exit
+// (issue #308): measured 2026-09-11 on the live route, the answer arrived at
+// ~24s (`stopReason:"stop"`, ttft 8.1s) with `"text":"OK"` present 3x in the
+// captured stdout, while the CLI process still lingered past a 70s kill —
+// waiting on exit turned a HEALTHY provider into provider-degraded rows, the
+// breaker, and endless hub restarts. RunCliUntil kills the process tree the
+// moment the predicate fires; the predicate, not the exit code, is the
+// verdict. A run that ends without ever streaming the marker (exit 0,
+// nonzero exit, or deadline) is degraded. This mirrors the orchestrate-loop
+// probe but runs through the same spawn path as the worker adapters so env
+// hardening stays consistent.
 func RunPreflightProbe(cmd string, args []string, dir string, timeoutMs int) Probe {
 	if timeoutMs <= 0 {
 		timeoutMs = 60_000
 	}
-	run := spawn.RunCli(cmd, args, spawn.Options{Dir: dir, TimeoutMs: timeoutMs})
-	ok := run.ExitCode == 0 &&
-		(strings.Contains(run.Stdout, `"text":"OK"`) ||
-			strings.Contains(run.Stdout, `"type":"text","data":"OK"`))
-	if ok {
+	run := spawn.RunCliUntil(cmd, args, spawn.Options{Dir: dir, TimeoutMs: timeoutMs}, probeMarkerSeen)
+	if probeMarkerSeen(run.Stdout) {
 		return Probe{OK: true}
 	}
 	detail := boundDetail(run.Stderr + "\n" + run.Stdout)

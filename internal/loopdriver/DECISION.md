@@ -13,9 +13,11 @@ selfbuild loop during the FR-GO-15 cutover window.
 
 The Go driver takes over production only after **it survives at least one
 full live iteration** against the real devagent CLI (scan-text → preflight →
-sync-docs → issue/queue pick → research → task → npm test → record → state
-push) during the FR-GO-15 soak, with byte-identical ledger/event rows
-verified against the bash driver's output on the same inputs.
+issue/queue pick → research → task → repo test gate (`go test ./...` — the
+Node tree retired in PR #240, so an `npm test` default can only fail, issue
+#300) → record → state push) during the FR-GO-15 soak, with byte-identical
+ledger/event rows verified against the bash driver's output on the same
+inputs.
 
 ## Byte-compatibility contract (enforced by golden tests)
 

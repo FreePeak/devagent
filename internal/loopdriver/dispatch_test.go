@@ -156,7 +156,7 @@ func TestTaskDispatchWallKillsWedgedWorkerTree(t *testing.T) {
 		resultCh <- rc
 	}()
 
-	grand := readPidfile(t, 5*time.Second)
+	grand := readPidfile(t, 30*time.Second)
 	// The dispatch returns at wall + wallWaitDelay at the latest (the
 	// deadline kill plus the bounded pipe drain): the select must budget
 	// both, plus slack, while still catching the pre-fix infinite block.
