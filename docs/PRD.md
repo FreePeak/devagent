@@ -91,7 +91,7 @@ DevAgent addresses all three by owning delivery end to end and refusing to submi
 
 ### 4.2 The white space DevAgent occupies
 
-1. **Nobody validates database migrations.** Every competitor treats "tests pass" as the correctness ceiling. None offer schema-diff analysis, migration dry-runs against a shadow database, rollback verification, or destructive-change detection. This is the core of DevAgent's differentiation.
+1. **Nobody does execution-based migration validation.** Static migration lint is no longer absent from the field (CodeRabbit runs Squawk on migration globs by default as of 2026-09-11; Ellipsis ships a prompt-only schema reviewer), but every competitor still treats "tests pass" as the correctness ceiling: none offer schema-diff analysis, migration dry-runs against a shadow database, rollback verification, or destructive-change detection. This is the core of DevAgent's differentiation.
 2. **Validation is outsourced to the target repo's CI.** Copilot, Codex, Jules, Droid, and Claude Code Actions all inherit whatever the repository already has. Under-tested backends get green-lit unvalidated PRs.
 3. **Backend correctness is implicit.** No vendor ships contract-level verification (API behavior vs spec, transactional integrity, concurrency hazards) as a product feature.
 4. **Cost opacity punishes exactly this workload.** Devin ACUs and Codex credits punish long-running backend work; DevAgent's fixed-gate design gives predictable per-task cost.
@@ -1180,6 +1180,26 @@ PRODUCTION-READINESS #1), Squawk/Atlas G3 engines + migration-history hashing,
 bors-style batched merged-result oracle (PRD:885), sentinel worker exits +
 format-error breakers, synthetic-bug gate calibration.
 
+### 19.8 Competitor deep scout: how the field builds the automatic dev workflow (2026-09-11)
+
+Eight-scout parallel web pass (~290 primary sources) profiling the workflow
+mechanics of every competitor cluster: Devin/Cognition, GitHub Copilot + OpenAI
+Codex, open-source harnesses (OpenHands/SWE-agent/Agentless/Aider), enterprise
+platforms (Factory/Cursor/AWS Kiro/Amp), Google (Jules/Gemini CLI/Antigravity),
+the Claude Code substrate, the ticket→PR/review-loop long tail (Sweep dead,
+Codegen→ClickUp, Qodo review-only), and 12 cross-vendor workflow patterns:
+`docs/research/2026-09-11-competitor-scout-synthesis.md` + eight per-cluster docs.
+Moat deltas: migration white space narrows to *execution-based* validation only
+(CodeRabbit ships Squawk statically; nobody runs shadow-DB/reversibility/FK
+gates); evidence-per-PR and cache-aware orchestration are now competitor-shipped;
+local-first is attacked by Devin Outposts/air-gapped Factory; the
+orchestrator-over-CLIs pattern became a product category (Ellipsis Agent Cloud,
+Greptile /greploop). Highest-value imports: schema-required worker exits, hooks
+as external-gate contract on worker CLIs (Gemini/Copilot/Factory), event-sourced
+evidence artifacts (Jules bashOutput shape), documented reviewer→worker retry
+caps, path-triggered deterministic rule injection (OpenHands V1), readiness as
+intake gate (Factory), pre-sandbox budget enforcement (Ellipsis).
+
 ---
 
 
@@ -1569,7 +1589,15 @@ existing driver with validation surfaces (test, command, telemetry, chaos
 schedule) so "the driver works perfectly" is a checkable claim, not a hope.
 
 ---
-*Last updated: 2026-09-11 (spawn tree-kill follow-up, on top of #312) — the
+*Last updated: 2026-09-11 (competitor deep scout) — eight-scout web pass on how
+every competitor builds its automatic dev workflow (Devin/Outposts, Copilot
+cloud-agent rename + HydraFusion, OpenHands V1, Factory Missions, Jules
+Planning Critic, Antigravity verification ladder, Claude Code routines,
+startup-tail deaths), distilled into
+`docs/research/2026-09-11-competitor-scout-synthesis.md` + eight cluster docs,
+summarized in §19.8; §4.2 item 1 narrowed to *execution-based* migration
+validation (CodeRabbit ships Squawk statically). Prior: 2026-09-11 (spawn
+tree-kill follow-up, on top of #312) — the
 early-completion kill is now a swept kill, not a one-shot. #312's
 `killProcessTree` signaled the process group once; `kill(-pgid)` reaches only
 the members alive at that instant, so a child forked microseconds after the

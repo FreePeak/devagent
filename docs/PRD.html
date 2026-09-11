@@ -630,11 +630,14 @@ Enterprise</td>
 <h3 id="42-the-white-space-devagent-occupies">4.2 The white space
 DevAgent occupies</h3>
 <ol type="1">
-<li><strong>Nobody validates database migrations.</strong> Every
-competitor treats "tests pass" as the correctness ceiling. None offer
-schema-diff analysis, migration dry-runs against a shadow database,
-rollback verification, or destructive-change detection. This is the core
-of DevAgent's differentiation.</li>
+<li><strong>Nobody does execution-based migration validation.</strong>
+Static migration lint is no longer absent from the field (CodeRabbit
+runs Squawk on migration globs by default as of 2026-09-11; Ellipsis
+ships a prompt-only schema reviewer), but every competitor still treats
+"tests pass" as the correctness ceiling: none offer schema-diff
+analysis, migration dry-runs against a shadow database, rollback
+verification, or destructive-change detection. This is the core of
+DevAgent's differentiation.</li>
 <li><strong>Validation is outsourced to the target repo's CI.</strong>
 Copilot, Codex, Jules, Droid, and Claude Code Actions all inherit
 whatever the repository already has. Under-tested backends get green-lit
@@ -2213,7 +2216,28 @@ Node is deleted from main, and CI/release are single-language Go (issue
 #204/#205 closed). 2026-09-10 (issue #300): the repo-level gate default
 flipped from <code>npm test</code> to <code>go test ./...</code> — after
 the Node retirement an npm default could only ENOENT, stamping green
-iterations <code>failed-tests</code> (loop 216 evidence).</p>
+iterations <code>failed-tests</code> (loop 216 evidence). 2026-09-11
+(issue #301): goal construction carries the phase-1 pick forward.
+Iteration 219 re-implemented #290 from scratch — burning a full 60-min
+attempt — while green, mergeable PR #298 sat open (it has since merged,
+2026-09-10T16:37Z, and #290 is closed), because
+<code>.selfbuild/research/loop-219.md</code> said "<strong>#290 — merge
+PR #298, not a rewrite</strong>" and the goal file contained only the
+raw implement template. <code>loopdriver.researchPick</code> now reads
+the iteration's research artifact, appends its pick rationale to the
+dispatched goal, and turns a present-tense "merge/land PR #N" directive
+into a verify-and-merge dispatch (<code>gh pr checks</code> → merge →
+close → PRD update) instead of a rewrite — but only while that pull
+request is still <code>OPEN</code>, because research is also asked
+whether a <em>merged</em> PR already covers the pick, and a landed PR's
+merged state would otherwise satisfy the ship gate for work nobody did.
+Such an iteration ships on that pull request's merged state rather than
+the <code>PR opened:</code> line it can never print, and fast-forwards
+the repo test gate onto the merged tree before verdicting it. The ledger
+status stays <code>ok</code>: <code>internal/lessons</code> scores any
+non-<code>ok</code> loop-result row as a failed loop, so the land is
+recorded in the iteration log, the <code>loop-phase</code> detail and
+the row's goal text instead.</p>
 </blockquote>
 <p><del>- <strong>Cross-board retry memory beyond the SHA guard</strong>
 — commit 60638d3 stops re-issuing shipped goals, but re-queued failures
@@ -3409,6 +3433,31 @@ reported metric. Top five backlog items: sandboxed gate subprocesses
 migration-history hashing, bors-style batched merged-result oracle
 (PRD:885), sentinel worker exits + format-error breakers, synthetic-bug
 gate calibration.</p>
+<h3
+id="198-competitor-deep-scout-how-the-field-builds-the-automatic-dev-workflow-2026-09-11">19.8
+Competitor deep scout: how the field builds the automatic dev workflow
+(2026-09-11)</h3>
+<p>Eight-scout parallel web pass (~290 primary sources) profiling the
+workflow mechanics of every competitor cluster: Devin/Cognition, GitHub
+Copilot + OpenAI Codex, open-source harnesses
+(OpenHands/SWE-agent/Agentless/Aider), enterprise platforms
+(Factory/Cursor/AWS Kiro/Amp), Google (Jules/Gemini CLI/Antigravity),
+the Claude Code substrate, the ticket→PR/review-loop long tail (Sweep
+dead, Codegen→ClickUp, Qodo review-only), and 12 cross-vendor workflow
+patterns:
+<code>docs/research/2026-09-11-competitor-scout-synthesis.md</code> +
+eight per-cluster docs. Moat deltas: migration white space narrows to
+<em>execution-based</em> validation only (CodeRabbit ships Squawk
+statically; nobody runs shadow-DB/reversibility/FK gates);
+evidence-per-PR and cache-aware orchestration are now
+competitor-shipped; local-first is attacked by Devin Outposts/air-gapped
+Factory; the orchestrator-over-CLIs pattern became a product category
+(Ellipsis Agent Cloud, Greptile /greploop). Highest-value imports:
+schema-required worker exits, hooks as external-gate contract on worker
+CLIs (Gemini/Copilot/Factory), event-sourced evidence artifacts (Jules
+bashOutput shape), documented reviewer→worker retry caps, path-triggered
+deterministic rule injection (OpenHands V1), readiness as intake gate
+(Factory), pre-sandbox budget enforcement (Ellipsis).</p>
 <hr />
 <h2
 id="20-product-direction-addendum-grok-bot-xai-integration-cross-platform-control-app">20.
@@ -4653,15 +4702,21 @@ order turns it red</td>
 href="https://github.com/FreePeak/devagent/issues/289">#289</a></td>
 </tr>
 <tr>
-<td>FR-VAL-02</td>
+<td>FR-VAL-02 ✅</td>
 <td><code>devagent doctor</code>: one-command machine validation
 (version stamp, config, DEVAGENT_HOME, git remote, gh auth incl.
 invalid-env-token detection, herdr session, daemon /status, provider
 preflight, stale artifacts) with human + <code>--json</code> output for
 the TUI/Tauri app</td>
 <td>M</td>
-<td><a
-href="https://github.com/FreePeak/devagent/issues/290">#290</a></td>
+<td>✅ <a
+href="https://github.com/FreePeak/devagent/issues/290">#290</a> —
+shipped as PR <a
+href="https://github.com/FreePeak/devagent/pull/298">#298</a>
+(<code>internal/commands/doctor.go</code> +
+<code>internal/cli/actions_doctor.go</code>, merged 2026-09-10T16:37Z);
+status row corrected by issue #301's work, which measured the row still
+open after the merge</td>
 </tr>
 <tr>
 <td>FR-VAL-03 ✅</td>
@@ -4717,24 +4772,111 @@ existing driver with validation surfaces (test, command, telemetry,
 chaos schedule) so "the driver works perfectly" is a checkable claim,
 not a hope.</p>
 <hr />
-<p>*Last updated: 2026-09-11 (preflight probe: cap reverted, attribution
-corrected) — the 60s→120s raise (b5059c9) is <strong>reverted</strong>:
-measuring the probe gave two distinct modes — a 15-75s tail (one gate
-cleared at 56s) and a hard-stall mode that never answered within 170s
-(5/5) — and 120s cannot fix the second; it only doubles the burn, since
-preflight runs twice per iteration (selfbuild + po). 60s stands. Also
-corrected: the degraded iterations are <strong>not</strong> upstream
-saturation (a raw gateway completion on the same route answers in
-1.0-2.1s, 5/5, while the CLI stalls) — the cost is the worker CLI's
-per-invocation machinery, and at least one sample shows
-<code>"text":"OK"</code> already in the output when the cap fired, i.e.
-<code>RunPreflightProbe</code> waits for process <strong>exit</strong>,
-paying full CLI teardown after the answer arrived. That
-complete-on-streamed-marker change is the durable fix, filed separately.
-<code>advisor: enabled</code> and <code>retry.maxRetries: 999999</code>
-remain unconfirmed confounds present in both arms — not attributed. The
-breaker counting degraded rows stays (bash parity:
-<code>selfbuild-loop.sh:277</code>,
+<p>*Last updated: 2026-09-11 (competitor deep scout) — eight-scout web
+pass on how every competitor builds its automatic dev workflow
+(Devin/Outposts, Copilot cloud-agent rename + HydraFusion, OpenHands V1,
+Factory Missions, Jules Planning Critic, Antigravity verification
+ladder, Claude Code routines, startup-tail deaths), distilled into
+<code>docs/research/2026-09-11-competitor-scout-synthesis.md</code> +
+eight cluster docs, summarized in §19.8; §4.2 item 1 narrowed to
+<em>execution-based</em> migration validation (CodeRabbit ships Squawk
+statically). Prior: 2026-09-11 (spawn tree-kill follow-up, on top of
+#312) — the early-completion kill is now a swept kill, not a one-shot.
+#312's <code>killProcessTree</code> signaled the process group once;
+<code>kill(-pgid)</code> reaches only the members alive at that instant,
+so a child forked microseconds after the leader's death survived,
+inherited the stdout write-end, and left <code>RunCliUntil</code>'s
+reader without EOF — the call hung until the context deadline with the
+correct verdict already in hand (reproduced deterministically: marker at
+t=214ms, <code>kill(-pgid)</code> returning nil, the orphaned
+<code>sleep</code> alive with the killed child's pgid; macOS CI-Go went
+red on #312's merge commit with exactly this 20.00s signature, 1-in-40
+locally). The kill now does the direct leader kill first (removes
+whoever does the forking) and then sweeps the group up to 10 rounds x
+5ms until <code>Kill(-pgid)</code> returns ESRCH — the group empty, not
+a guess. Pinned by the pre-existing
+<code>TestRunCliUntilEarlyCompletion</code> (60x and 200x -count runs
+and -race clean; was a 1-in-40 hang before the fix). Prior: 2026-09-11
+(issue #308, first half) — <code>spawn.RunCliUntil</code> landed in
+<code>internal/spawn</code>: the streaming/early-completion exec
+primitive (predicate receives accumulated stdout per chunk; marker →
+process-tree kill with
+<code>ExitCode -1</code>/<code>TimedOut=false</code> — the predicate,
+not the exit code, is the verdict; partial stdout/stderr preserved for
+gate/ledger details; #248 bounded-drain <code>WaitDelay</code> 3s; kill
+does the unix group sweep <code>Kill(-pid)</code> AND the direct
+<code>Process.Kill</code> floor for windows). Pinned by
+TestRunCliUntilEarlyCompletion, TestRunCliUntilKillsGrandchild
+(grandchild reaping), TestRunCliUntilNilPredicate,
+TestRunCliUntilTimeout, TestRunCliUntilSpawnFailure. <code>RunCli</code>
+and its ~28 call sites keep the direct-child timeout kill for now —
+retargeting them at the tree kill is the second half of #308 and needs
+its own per-caller timeout-test sweep; <code>RunPreflightProbe</code> is
+not yet wired to it (that lands with the second half, closing the
+wait-for-exit cost noted in the 2026-09-11 preflight measurement below).
+Prior: 2026-09-11 (issue #301, loopdriver research pick) — the
+self-build loop no longer loses what phase 1 decided. Goal construction
+read only the tracker title, so iteration 219 dispatched "Implement
+GitHub issue #290 … in full" while
+<code>.selfbuild/research/loop-219.md</code> had picked "#290 — merge PR
+#298, not a rewrite" (and loop 216 had picked the same).
+<code>internal/loopdriver</code> now parses that artifact
+(<code>researchPick</code>: the <code>## Pick</code> section, else the
+last line, only when the tracker issue is that pick's subject), carries
+the rationale into the dispatched goal (<code>withPickRationale</code>,
+single-lined and capped at 500 chars) and switches a
+<strong>present-tense</strong> "merge/land/ship … PR #N" directive to
+<code>mergeGoalTemplate</code> — a verify-and-merge dispatch
+(<code>gh pr checks</code>, merge, close the issue, PRD status) instead
+of a from-scratch implementation. Past tense and bare "via" are excluded
+and the route additionally requires the named pull request to be
+<code>OPEN</code> at pick time (<code>prState</code>): research is asked
+whether a <em>merged</em> PR already covers the pick, and
+landing-the-merged-PR evidence is permanently true, so an unprotected
+match would record a productive row and close an issue nobody worked.
+Because such a dispatch lands an <strong>existing</strong> pull request
+it can never print <code>PR opened:</code>, so its #238 ship evidence is
+that pull request's merged state (<code>prMerged</code>, decoded
+<code>gh pr view --json state</code> — the file's own
+<code>pickIssue</code> convention, and it drops a whitespace assumption
+the fixtures cannot police); an unmerged one still records the
+non-productive <code>no-pr</code> row and leaves the issue open. A
+landed merge fast-forwards the repo test gate onto the merged tree
+before verdicting it. Its ledger status stays <code>ok</code>:
+<code>internal/lessons</code> tallies every non-<code>ok</code>
+loop-result row as a failed loop (<code>guard.go</code>'s
+<code>status != LoopStatusOK</code>, in both the overall baseline and
+the per-lesson rate) and the TUI status palette has no case for
+<code>merged</code>, so the implemented-vs-landed distinction is
+recorded in the iteration log, the <code>loop-phase</code> detail and
+the row's goal text. Pinned by
+<code>TestRunLoopMergePickDispatchesVerifyAndMerge</code>,
+<code>TestRunLoopMergePickIgnoresAlreadyLandedPR</code>,
+<code>TestRunLoopMergePickWithoutMergedPRRecordsNoPR</code>,
+<code>TestRunLoopImplementPickCarriesRationale</code> and the
+<code>TestResearchPickReadsTheArtifact</code> table (foreign-issue
+picks, a fallback mention of the <em>next</em> issue, past-tense
+history, extract failures, <code>#2900</code> ≠ <code>#290</code>), plus
+the prompts-level unit pins <code>TestWithPickRationale</code> and
+<code>TestMergeGoalTemplateDropsImplementTemplate</code>
+(<code>prompts_test.go</code>). Prior: 2026-09-11 (preflight probe: cap
+reverted, attribution corrected) — the 60s→120s raise (b5059c9) is
+<strong>reverted</strong>: measuring the probe gave two distinct modes —
+a 15-75s tail (one gate cleared at 56s) and a hard-stall mode that never
+answered within 170s (5/5) — and 120s cannot fix the second; it only
+doubles the burn, since preflight runs twice per iteration (selfbuild +
+po). 60s stands. Also corrected: the degraded iterations are
+<strong>not</strong> upstream saturation (a raw gateway completion on
+the same route answers in 1.0-2.1s, 5/5, while the CLI stalls) — the
+cost is the worker CLI's per-invocation machinery, and at least one
+sample shows <code>"text":"OK"</code> already in the output when the cap
+fired, i.e. <code>RunPreflightProbe</code> waits for process
+<strong>exit</strong>, paying full CLI teardown after the answer
+arrived. That complete-on-streamed-marker change is the durable fix,
+filed separately. <code>advisor: enabled</code> and
+<code>retry.maxRetries: 999999</code> remain unconfirmed confounds
+present in both arms — not attributed. The breaker counting degraded
+rows stays (bash parity: <code>selfbuild-loop.sh:277</code>,
 <code>TestRunLoopPreflightBreaker</code>). Full measurements live on
 <code>PreflightProbeTimeoutMs</code>. Prior: 2026-09-11 (config
 decision, reverted) — tried pinning <code>devagent.json</code>
