@@ -1,10 +1,13 @@
 package ledger
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
+	"sync"
 	"testing"
 )
 
@@ -103,5 +106,64 @@ func TestReleaseKeepsReplacedLock(t *testing.T) {
 	l1b.Release()
 	if _, err := os.Stat(l1.Path); !os.IsNotExist(err) {
 		t.Fatal("own lock must be removed by release")
+	}
+}
+
+// TestTryAcquireRunAtomicUnderContention pins the acquisition fence: N
+// contenders racing on the same stale (dead-holder) lock must produce
+// exactly one winner. The pre-fence sequence (stat → read → judge →
+// remove → write) let every contender that read the stale payload remove
+// the same file and write its own lock — two processes each believing they
+// hold the run. On unix the flock fence serializes the sequence, so later
+// judges see the winner's live pid and refuse.
+func TestTryAcquireRunAtomicUnderContention(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("acquisition fence needs flock (unix)")
+	}
+	home := t.TempDir()
+	path := filepath.Join(home, "locks", "RACE.lock")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pid := deadPid(t)
+	payload := `{"pid":` + strconv.Itoa(pid) + `,"startedAt":` + strconv.FormatInt(NowFunc(), 10) + `}`
+	if err := os.WriteFile(path, []byte(payload), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	const contenders = 16
+	wins := make(chan *RunLock, contenders)
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for range contenders {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			if l := TryAcquireRun(home, "RACE", 0); l != nil {
+				wins <- l
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(wins)
+	n := 0
+	for range wins {
+		n++
+	}
+	if n != 1 {
+		t.Fatalf("exactly one contender must win the stale lock, got %d", n)
+	}
+	// The winner's payload, not the seeded dead pid, must be what's on disk.
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var holder struct {
+		Pid int64 `json:"pid"`
+	}
+	if json.Unmarshal(raw, &holder) != nil || holder.Pid != int64(os.Getpid()) {
+		t.Fatalf("lock file must carry the winner's live pid, got %s", raw)
 	}
 }
