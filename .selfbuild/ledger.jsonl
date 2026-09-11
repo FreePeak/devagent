@@ -234,3 +234,4 @@
 {"loop":273,"ts":"2026-09-11T22:35:16Z","status":"pr-open","goal":"Goal: Close the verify-and-merge loop end-to-end in the selfbuild driver. When a run finishes green (exit 0, `go test ./...` gate passed) with a mergeable PR op"}
 {"loop":274,"ts":"2026-09-11T22:40:30Z","status":"no-pr","goal":"Goal: Land PR #339 (branch `devagent/TASK-mtxicq2q-245o`) — the verify-and-merge loop driver shipped by loop 273, orphaned at exactly the gap it fixes. It is ME"}
 {"loop":275,"ts":"2026-09-11T23:22:07Z","status":"ok","goal":"Goal: Land GitHub issue #340 by verifying and merging the existing open PR #341 — do NOT re-implement it. Check the pull request's CI (`gh pr checks 341`) and r"}
+{"loop":276,"ts":"2026-09-11T23:45:54Z","status":"pr-open","goal":"Goal: Add a deterministic seeded fault-injection simulation of the devagent run-lock lifecycle in `internal/ledger/runregistry_sim_test.go`, proving the resume-"}
