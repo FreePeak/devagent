@@ -663,17 +663,23 @@ func TestKillViaAnswer(t *testing.T) {
 	}
 
 	// herdr calls: send-keys p1 ctrl+c then workspace close w1.
-	// Call 0 is the roster probe (agent list); 1 = send-keys, 2 = close.
-	if len(fake.calls) != 3 {
+	// Call 0 is the roster probe (agent list); 1 is the #317 process-info
+	// probe for the idle TASK-old pane (best-effort live-worker upgrade,
+	// returns no process_info here); 2 = send-keys, 3 = close.
+	if len(fake.calls) != 4 {
 		t.Fatalf("herdr calls = %v", fake.calls)
 	}
+	wantProbe := []string{"pane", "process-info", "--pane", "p2"}
 	wantKeys := []string{"--session", "sess", "pane", "send-keys", "p1", "ctrl+c"}
 	wantClose := []string{"--session", "sess", "workspace", "close", "w1"}
-	if strings.Join(fake.calls[1], " ") != strings.Join(wantKeys, " ") {
+	if strings.Join(fake.calls[1], " ") != strings.Join(wantProbe, " ") {
 		t.Fatalf("call1 = %v", fake.calls[1])
 	}
-	if strings.Join(fake.calls[2], " ") != strings.Join(wantClose, " ") {
+	if strings.Join(fake.calls[2], " ") != strings.Join(wantKeys, " ") {
 		t.Fatalf("call2 = %v", fake.calls[2])
+	}
+	if strings.Join(fake.calls[3], " ") != strings.Join(wantClose, " ") {
+		t.Fatalf("call3 = %v", fake.calls[3])
 	}
 	// Reaper seam scoped to this repo's worktrees.
 	if filepath.Base(reaperCwd) != ".devagent-worktrees" || filepath.Dir(reaperCwd) != repo {

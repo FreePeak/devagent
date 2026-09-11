@@ -451,6 +451,53 @@ func TestListSessionPanesMapsRosterRows(t *testing.T) {
 	}
 }
 
+// Regression (2026-09-11, #317): headless worker invocations (`omp -p --mode
+// json` via pane-run) never advance herdr's agent_status past "idle", so the
+// TUI rendered LIVE workers as "● idle". A pane whose foreground process is a
+// worker binary must map to "running" regardless of agent_status; an idle pane
+// at its shell keeps the status-derived state.
+func TestListSessionPanesUpgradesLiveHeadlessWorker(t *testing.T) {
+	cli := newFakeCli(t)
+	cli.agentList = "testdata/roster/agent-list-headless-worker.json"
+	cli.procInfo["pane-live"] = "testdata/sweep/process-info-omp.json"
+	cli.procInfo["pane-dead"] = "testdata/sweep/process-info-zsh.json"
+	panes := ListSessionPanes(cli, "")
+	if len(panes) != 2 {
+		t.Fatalf("panes = %d rows, want 2", len(panes))
+	}
+	var live, dead *SessionPaneInfo
+	for i := range panes {
+		switch panes[i].PaneID {
+		case "pane-live":
+			live = &panes[i]
+		case "pane-dead":
+			dead = &panes[i]
+		}
+	}
+	if live == nil || dead == nil {
+		t.Fatalf("missing rows: %+v", panes)
+	}
+	// The exact false-idle shape: agent_status "idle", live omp foreground.
+	if live.AgentStatus != "idle" || live.State != "running" {
+		t.Fatalf("live = agentStatus %q state %q, want idle/running", live.AgentStatus, live.State)
+	}
+	// Same idle status, shell foreground: stays status-derived.
+	if dead.State != "stale" {
+		t.Fatalf("dead = state %q, want stale", dead.State)
+	}
+	// process-info is only paid for on idle/unknown rows, and the working
+	// rows of the two-pane fixture never trigger a probe.
+	probed := false
+	for _, c := range cli.calls {
+		if strings.Contains(c, "process-info") {
+			probed = true
+		}
+	}
+	if !probed {
+		t.Fatalf("no process-info probe recorded: %v", cli.calls)
+	}
+}
+
 func TestListSessionPanesStripsRecoverySuffix(t *testing.T) {
 	cli := newFakeCli(t)
 	cli.agentList = "testdata/roster/agent-list-recovery-suffix.json"

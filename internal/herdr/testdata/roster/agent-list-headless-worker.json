@@ -1,0 +1,25 @@
+{
+  "id": "x",
+  "result": {
+    "type": "agent_list",
+    "agents": [
+      {
+        "name": "TASK-mtx-a1",
+        "label": "TASK-mtx-a1",
+        "agent": "omp",
+        "pane_id": "pane-live",
+        "workspace_id": "ws-live",
+        "agent_status": "idle",
+        "cwd": "/tmp/devagent/.devagent-worktrees/TASK-mtx-a1"
+      },
+      {
+        "name": "TASK-dead-a1",
+        "label": "TASK-dead-a1",
+        "pane_id": "pane-dead",
+        "workspace_id": "ws-dead",
+        "agent_status": "idle",
+        "cwd": "/tmp/devagent/.devagent-worktrees/TASK-dead-a1"
+      }
+    ]
+  }
+}
