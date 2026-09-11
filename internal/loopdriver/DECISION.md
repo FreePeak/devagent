@@ -110,3 +110,5 @@ test gate). `pr-open` rows score as loop successes in internal/lessons
 **Row status stays `ok` for landed merges** (byte-compatibility contract
 above): internal/lessons and the TUI palette key on `ok`; what the loop
 actually did lives in the iteration log, `loop-phase` detail, and goal text.
+
+(Recorded 2026-09-11; shipped as PR #326.)
