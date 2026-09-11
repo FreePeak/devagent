@@ -695,7 +695,7 @@ func dispatchOverlayLines(overlay *Overlay, width, rows int) []string {
 	body = append(body, goalInputLines(overlay.Input, inner, inputRows)...)
 	body = append(body,
 		"",
-		" " + Cyan + "Enter" + Reset + Dim + " dispatch · " + Reset + Cyan + "Ctrl+N" + Reset + Dim + "/" + Reset + Cyan + "Alt+Enter" + Reset + Dim + " new line · Esc cancel" + Reset,
+		" "+Cyan+"Enter"+Reset+Dim+" dispatch · "+Reset+Cyan+"Ctrl+N"+Reset+Dim+"/"+Reset+Cyan+"Alt+Enter"+Reset+Dim+" new line · Esc cancel"+Reset,
 	)
 	return boxLinesLines("Dispatch", body, inner)
 }
@@ -713,7 +713,7 @@ func approveOverlayLines(overlay *Overlay, width, rows int) []string {
 	body = append(body, goalInputLines(overlay.Input, inner, inputRows)...)
 	body = append(body,
 		"",
-		" " + Cyan + "y" + Reset + Dim + "/Enter answer · " + Reset + Cyan + "Ctrl+N" + Reset + Dim + " new line · Esc cancel" + Reset,
+		" "+Cyan+"y"+Reset+Dim+"/Enter answer · "+Reset+Cyan+"Ctrl+N"+Reset+Dim+" new line · Esc cancel"+Reset,
 	)
 	return boxLinesLines("Answer task", body, inner)
 }
