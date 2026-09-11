@@ -622,6 +622,50 @@ func TestRunLoopStarvationHaltsZero(t *testing.T) {
 	}
 }
 
+// TestRunLoopStarvationHaltArmsExitWatchdog is the issue #286 wiring test:
+// once the driver has printed the starvation halt verdict, something must
+// guarantee the process leaves — the 2026-09-10 hang kept a live driver
+// pinned in an exec teardown after the banner, and restart=always turned
+// it into a zombie that logged halts forever. With os.Exit swapped for a
+// recorder and the grace shortened, the halt must return 0 AND leave a
+// watchdog that fires with the verdict code.
+func TestRunLoopStarvationHaltArmsExitWatchdog(t *testing.T) {
+	repo := initFixtureRepo(t)
+	installFakes(t, repo)
+	writeRepoFile(t, repo, ".selfbuild/ledger.jsonl",
+		`{"loop":1,"ts":"2026-09-07T00:00:00Z","status":"failed","goal":"a"}
+{"loop":2,"ts":"2026-09-07T00:00:01Z","status":"failed","goal":"b"}
+{"loop":3,"ts":"2026-09-07T00:00:02Z","status":"failed","goal":"c"}
+{"loop":4,"ts":"2026-09-07T00:00:03Z","status":"failed","goal":"d"}
+{"loop":5,"ts":"2026-09-07T00:00:04Z","status":"failed","goal":"e"}
+`)
+	fired := make(chan int, 1)
+	now, _ := frozenClock()
+	// MaxIterations 7 > the next loop number (6): the loop-head cap must
+	// not fire first — this test is about the starvation halt path. The
+	// watchdog seams ride the config: 50ms grace, a recorder instead of
+	// the real os.Exit.
+	cfg := loopConfigFor(t, repo, func(c *LoopConfig) {
+		c.Now = now
+		c.MaxIterations = 7
+		c.ExitWatchdogDelay = 50 * time.Millisecond
+		c.Exit = func(code int) { fired <- code }
+	})
+	if rc := RunLoop(cfg); rc != 0 {
+		t.Fatalf("rc = %d, want 0 (intentional stop)", rc)
+	}
+	assertFileContains(t, filepath.Join(repo, ".selfbuild", "logs", "loop-6.log"),
+		"[starvation] 5 consecutive non-productive iterations — halting loop")
+	select {
+	case code := <-fired:
+		if code != 0 {
+			t.Fatalf("watchdog exit = %d, want the verdict code 0", code)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("exit watchdog never armed at the starvation halt — the #286 hang class is unguarded")
+	}
+}
+
 func TestRunLoopStarvationExemptsDegraded(t *testing.T) {
 	repo := initFixtureRepo(t)
 	installFakes(t, repo)

@@ -1589,7 +1589,37 @@ existing driver with validation surfaces (test, command, telemetry, chaos
 schedule) so "the driver works perfectly" is a checkable claim, not a hope.
 
 ---
-*Last updated: 2026-09-11 (competitor deep scout) — eight-scout web pass on how
+*Last updated: 2026-09-11 (issue #286, starvation-halt teardown) — the
+starvation halt can no longer hang the driver. A child spawned during the
+iteration (pane-run/exec helper) that left a grandchild holding the stdout
+pipe write-end pinned os/exec's `io.Copy` forever: the driver printed
+`[starvation] … halting loop` and never exited (PID 84739, 2026-09-10;
+SIGQUIT showed the copy goroutine parked in `io.copyBuffer` on the exec
+pipe). Two bounds: (1) every captured-pipe teardown in `internal/loopdriver`
+now sets `WaitDelay = pipeDrainDelay` (3s — the #248 bounded-drain
+semantics generalized package-wide: `gitQuiet`, `runDevagent`
+`CombinedOutput`, the outer dispatch wall, `pickIssue`/`prState` gh
+captures, state-sync git), and a drain cutoff never relabels a child that
+itself exited 0 (push/pull/PR verdicts feed loop control); (2) every
+terminal `RunLoop` verdict (starvation, iteration cap, lock contention,
+circuit breaker, log-open failure) arms an exit watchdog
+(`ExitWatchdogDelay`, 10s default) that forces exit with the verdict code
+if the graceful unwind still blocks — the hard exit skips the deferred lock
+release, which self-heals on the next start (stale-holder break). Pinned by
+`TestRunLoopStarvationHaltArmsExitWatchdog` (exit seam swapped for a
+recorder), `TestRunDevagentDrainBoundedOnHeldPipe` (helper exits 0, its
+grandchild holds the pipe — child output and rc 0 preserved within the
+drain bound) and `TestTaskDispatchWallKillsWedgedWorkerTree` (retargeted at
+`pipeDrainDelay`).
+The issue's secondary (a `restart=always` supervisor turning each
+intentional halt into a hollow restart — 133 overnight) has no in-repo
+enforcement point: `make loop-start` is plain `nohup` with no restart
+policy, and nothing in the tree registers the loop with `restart=always` —
+that policy lived in the external hub process config. The driver-side
+guarantee is what landed: intentional halts exit 0 (so `on-failure`
+correctly ignores them) and the watchdog guarantees the process actually
+leaves.
+Prior: 2026-09-11 (competitor deep scout) — eight-scout web pass on how
 every competitor builds its automatic dev workflow (Devin/Outposts, Copilot
 cloud-agent rename + HydraFusion, OpenHands V1, Factory Missions, Jules
 Planning Critic, Antigravity verification ladder, Claude Code routines,

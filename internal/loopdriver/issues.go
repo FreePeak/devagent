@@ -67,8 +67,13 @@ func (d *driver) pickIssue() string {
 		"--repo", d.cfg.GHRepo, "--state", "open", "--label", d.cfg.IssueLabel,
 		"--limit", itoa(d.cfg.IssueMax), "--json", "number,title,labels")
 	cmd.Dir = d.cfg.Repo
+	// Drain-bounded like every other pipe capture in the driver (#286): the
+	// ctx kill reaches gh, not a grandchild left holding the write end.
+	cmd.WaitDelay = pipeDrainDelay
 	out, err := cmd.Output()
-	if err != nil {
+	// A drain cutoff (ErrWaitDelay) must not read the listing as failed
+	// when gh itself exited 0 (#286).
+	if err != nil && (cmd.ProcessState == nil || !cmd.ProcessState.Success()) {
 		return ""
 	}
 	var items []ghIssue
@@ -108,8 +113,11 @@ func (d *driver) prState(num int) string {
 	cmd := exec.CommandContext(ctx, d.cfg.GhBin, "pr", "view", strconv.Itoa(num),
 		"--repo", d.cfg.GHRepo, "--json", "state")
 	cmd.Dir = d.cfg.Repo
+	cmd.WaitDelay = pipeDrainDelay
 	out, err := cmd.Output()
-	if err != nil {
+	// A drain cutoff (ErrWaitDelay) must not read the view as failed when
+	// gh itself exited 0 (#286).
+	if err != nil && (cmd.ProcessState == nil || !cmd.ProcessState.Success()) {
 		return ""
 	}
 	var view struct {

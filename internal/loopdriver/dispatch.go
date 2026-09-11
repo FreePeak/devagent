@@ -34,10 +34,14 @@ func (d *driver) devagentEnv(extra ...string) []string {
 }
 
 // runDevagent runs a devagent CLI step whose output matters only as text
-// (gates, sweeps); returns (combined output, rc).
+// (gates, sweeps); returns (combined output, rc). CombinedOutput captures
+// through a pipe, so the teardown is drain-bounded (issue #286): a
+// grandchild that inherited the pipe write end must not pin Wait's
+// io.Copy forever after the child itself exited.
 func (d *driver) runDevagent(args ...string) (string, int) {
 	cmd := d.agentCommand(args...)
 	cmd.Env = d.devagentEnv()
+	cmd.WaitDelay = pipeDrainDelay
 	out, err := cmd.CombinedOutput()
 	rc := 0
 	if err != nil {
@@ -45,17 +49,26 @@ func (d *driver) runDevagent(args ...string) (string, int) {
 		if errors.As(err, &ee) {
 			rc = ee.ExitCode()
 		} else {
-			rc = 1
+			// A child that exited 0 and only hit the drain cutoff keeps
+			// its 0 (dispatchRc semantics): relabeling it failed would
+			// turn a late grandchild write into a loop failure.
+			if errors.Is(err, exec.ErrWaitDelay) && cmd.ProcessState != nil && cmd.ProcessState.Success() {
+				rc = 0
+			} else {
+				rc = 1
+			}
 		}
 	}
 	return string(out), rc
 }
 
-// wallWaitDelay bounds Wait after a wall kill or a child exit whose output
-// pipes are held by a grandchild (the #248 bounded-drain semantics,
-// generalized to the outer dispatch): an orphaned worker session holding
-// the pipes must not push the dispatch return past the wall.
-const wallWaitDelay = 3 * time.Second
+// pipeDrainDelay bounds every captured-pipe teardown in the driver (the
+// #248 bounded-drain semantics, generalized package-wide by issue #286):
+// once the child exits or its ctx kills it, os/exec's io.Copy goroutine can
+// still wait forever on a grandchild that inherited the pipe write end —
+// the starvation-halt hang. WaitDelay closes the read end after this bound
+// and abandons the copy, so Wait always returns.
+const pipeDrainDelay = 3 * time.Second
 
 // runDevagentWithTimeout wraps runDevagent in the outer `timeout N` wall the
 // bash driver applied to the task dispatch. The wall is a process-group
@@ -70,7 +83,7 @@ func (d *driver) runDevagentWithTimeout(timeoutSecs int, args ...string) (string
 	defer cancel()
 	cmd := d.agentCommandCtx(ctx, args...)
 	setOwnProcessGroup(cmd)
-	cmd.WaitDelay = wallWaitDelay
+	cmd.WaitDelay = pipeDrainDelay
 	cmd.Env = d.devagentEnv(
 		"DEVAGENT_API_MAX_ATTEMPTS="+itoa(d.cfg.APIMaxAttempts),
 		"DEVAGENT_NO_PROGRESS_TIMEOUT_MS="+itoa(d.cfg.NoProgressTimeoutMS),
