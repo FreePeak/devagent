@@ -48,9 +48,13 @@ func SanitizeKey(ticketID string) string {
 }
 
 // TryAcquireRun acquires the run lock for ticketID, or returns nil when a
-// fresh lock is held elsewhere. ttlMs <= 0 uses DefaultLockTTL; a stale or
-// corrupt lock is broken (latest-wins). The lock payload is
-// {"pid":<pid>,"startedAt":<ms>} — JSON.stringify key order.
+// fresh lock is held elsewhere. ttlMs <= 0 uses DefaultLockTTL. A lock whose
+// holder pid is DEAD breaks immediately regardless of TTL (issue #316
+// class, verified live 2026-09-11: a breaker-killed incarnation left
+// TASK.lock with pid 6762 gone; the 1h TTL then refused every task dispatch
+// for up to an hour — one orphaned lock bricks the whole selfbuild loop);
+// otherwise a stale (TTL-expired) or corrupt lock is broken (latest-wins).
+// The lock payload is {"pid":<pid>,"startedAt":<ms>} — JSON.stringify key order.
 func TryAcquireRun(homeDir, ticketID string, ttlMs int64) *RunLock {
 	locksDir := filepath.Join(homeDir, "locks")
 	if err := os.MkdirAll(locksDir, 0o755); err != nil {
@@ -65,15 +69,18 @@ func TryAcquireRun(homeDir, ticketID string, ttlMs int64) *RunLock {
 	if _, err := os.Stat(path); err == nil {
 		if data, err := os.ReadFile(path); err == nil {
 			var holder struct {
+				Pid       *int64 `json:"pid"`
 				StartedAt *int64 `json:"startedAt"`
 			}
-			if json.Unmarshal(data, &holder) == nil && holder.StartedAt != nil {
-				if now-*holder.StartedAt <= ttlMs {
-					return nil // someone else holds it fresh
+			if json.Unmarshal(data, &holder) == nil {
+				holderDead := holder.Pid != nil && *holder.Pid > 0 && !processAlive(int(*holder.Pid))
+				holderFresh := holder.StartedAt != nil && now-*holder.StartedAt <= ttlMs
+				if holderFresh && !holderDead {
+					return nil // someone else holds it fresh and alive
 				}
 			}
 		}
-		// stale or corrupt: break the lock (latest-wins)
+		// dead holder, stale, or corrupt: break the lock (latest-wins)
 		_ = os.Remove(path)
 	}
 
