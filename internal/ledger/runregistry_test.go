@@ -63,3 +63,41 @@ func TestTryAcquireRunRefusesFreshLiveHolder(t *testing.T) {
 		t.Fatal("fresh lock with live holder must NOT be broken")
 	}
 }
+
+// TestReleaseKeepsReplacedLock pins issue #316's Release contract: a lock
+// holder whose file was replaced by a later acquisition (stale-break winner)
+// must not delete the winner's live lock on its deferred Release — and its
+// own payload must still be removable. Verified live 2026-09-11 both ways:
+// older-exit deleted a newer run's lock, and a stale-break stole a live
+// older lock.
+func TestReleaseKeepsReplacedLock(t *testing.T) {
+	home := t.TempDir()
+	base := NowFunc()
+	l1 := TryAcquireRun(home, "ticket/one", 0)
+	if l1 == nil {
+		t.Fatal("fresh acquire must succeed")
+	}
+	// A later holder overwrites the file: different startedAt, so the bytes
+	// no longer belong to l1 even though the pid matches (same test process).
+	later := `{"pid":` + strconv.Itoa(os.Getpid()) + `,"startedAt":` + strconv.FormatInt(base+1, 10) + `}`
+	if err := os.WriteFile(l1.Path, []byte(later), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	l1.Release()
+	raw, err := os.ReadFile(l1.Path)
+	if err != nil || string(raw) != later {
+		t.Fatalf("release deleted a later holder's lock (err=%v, raw=%s)", err, raw)
+	}
+	// With the file back to l1's own payload a release must unlink. l1 has
+	// spent its idempotent release above, so drive the same acquisition
+	// through a fresh lock value (same pid+startedAt the file carries).
+	own := `{"pid":` + strconv.Itoa(os.Getpid()) + `,"startedAt":` + strconv.FormatInt(base, 10) + `}`
+	if err := os.WriteFile(l1.Path, []byte(own), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	l1b := &RunLock{TicketID: l1.TicketID, Path: l1.Path, pid: int64(os.Getpid()), startedAt: base}
+	l1b.Release()
+	if _, err := os.Stat(l1.Path); !os.IsNotExist(err) {
+		t.Fatal("own lock must be removed by release")
+	}
+}

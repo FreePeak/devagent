@@ -18,15 +18,37 @@ import (
 type RunLock struct {
 	TicketID string
 	Path     string
-	released bool
+	// pid/startedAt identify THIS acquisition: Release unlinks the file
+	// only when it still carries them (issue #316, 2026-09-11: a finished
+	// run's deferred Release unlinked TASK.lock after a TTL stale-break had
+	// handed it to a newer live run — runs.active lied and the newer run
+	// lost its lock).
+	pid       int64
+	startedAt int64
+	released  bool
 }
 
-// Release removes the lock file (idempotent, like the TS closure).
+// Release removes the lock file — but only when the file still holds THIS
+// acquisition's payload. A lock another process broke and re-acquired
+// (stale-break winner) must survive our deferred release. Idempotent, like
+// the TS closure.
 func (l *RunLock) Release() {
 	if l.released {
 		return
 	}
 	l.released = true
+	raw, err := os.ReadFile(l.Path)
+	if err != nil {
+		return // gone or unreadable: nothing of ours to unlink
+	}
+	var holder struct {
+		Pid       *int64 `json:"pid"`
+		StartedAt *int64 `json:"startedAt"`
+	}
+	if json.Unmarshal(raw, &holder) != nil || holder.Pid == nil || holder.StartedAt == nil ||
+		*holder.Pid != l.pid || *holder.StartedAt != l.startedAt {
+		return // the file belongs to a later acquisition — never unlink it
+	}
 	_ = os.Remove(l.Path) // rmSync(path, { force: true })
 }
 
@@ -53,8 +75,11 @@ func SanitizeKey(ticketID string) string {
 // class, verified live 2026-09-11: a breaker-killed incarnation left
 // TASK.lock with pid 6762 gone; the 1h TTL then refused every task dispatch
 // for up to an hour — one orphaned lock bricks the whole selfbuild loop);
-// otherwise a stale (TTL-expired) or corrupt lock is broken (latest-wins).
-// The lock payload is {"pid":<pid>,"startedAt":<ms>} — JSON.stringify key order.
+// a LIVE holder is never broken, TTL notwithstanding (issue #316
+// amendment: loop task runs routinely outlive the 1h TTL, so the old
+// stale-break let a newcomer steal a long run's lock); only a lock with no
+// usable pid falls back to the TTL check (corrupt/legacy payloads). The
+// lock payload is {"pid":<pid>,"startedAt":<ms>} — JSON.stringify key order.
 func TryAcquireRun(homeDir, ticketID string, ttlMs int64) *RunLock {
 	locksDir := filepath.Join(homeDir, "locks")
 	if err := os.MkdirAll(locksDir, 0o755); err != nil {
@@ -73,14 +98,20 @@ func TryAcquireRun(homeDir, ticketID string, ttlMs int64) *RunLock {
 				StartedAt *int64 `json:"startedAt"`
 			}
 			if json.Unmarshal(data, &holder) == nil {
-				holderDead := holder.Pid != nil && *holder.Pid > 0 && !processAlive(int(*holder.Pid))
-				holderFresh := holder.StartedAt != nil && now-*holder.StartedAt <= ttlMs
-				if holderFresh && !holderDead {
-					return nil // someone else holds it fresh and alive
+				if holder.Pid != nil && *holder.Pid > 0 {
+					// pid known: liveness decides, TTL never relabels it
+					// (mirrors countActiveRuns). On the non-unix fallback
+					// any pid reads as alive, so only the pid-less path
+					// still breaks on TTL there.
+					if processAlive(int(*holder.Pid)) {
+						return nil // live holder: never stolen, TTL notwithstanding
+					}
+				} else if holder.StartedAt != nil && now-*holder.StartedAt <= ttlMs {
+					return nil // no usable pid: TTL backstops corrupt/legacy payloads
 				}
 			}
 		}
-		// dead holder, stale, or corrupt: break the lock (latest-wins)
+		// dead holder, pid-less stale, or corrupt: break the lock (latest-wins)
 		_ = os.Remove(path)
 	}
 
@@ -88,5 +119,5 @@ func TryAcquireRun(homeDir, ticketID string, ttlMs int64) *RunLock {
 	if err := os.WriteFile(path, []byte(payload), 0o644); err != nil {
 		return nil
 	}
-	return &RunLock{TicketID: ticketID, Path: path}
+	return &RunLock{TicketID: ticketID, Path: path, pid: int64(os.Getpid()), startedAt: now}
 }

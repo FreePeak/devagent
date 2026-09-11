@@ -434,6 +434,15 @@ func taskCommand() *cobra.Command {
 			if taskID == "" {
 				taskID = os.Getenv("DEVAGENT_TASK_ID")
 			}
+			if taskID == "" {
+				// Issue #316: a no-id run must never fall back to the
+				// constant "TASK" — every such run locked the same
+				// ~/.devagent/locks/TASK.lock, so concurrent runs stole
+				// and deleted each other's lock and /status undercounted.
+				// Resolve the unique id BEFORE TryAcquireRun so the lock,
+				// the worktree and the branch all name this run.
+				taskID = pipeline.DefaultTaskID(nil)
+			}
 			// Issue #315: the control API enqueued this id as a queue row and
 			// claimed it (owner daemon) before spawning this child. Release the
 			// claim at every exit of this run, HERE rather than in the daemon:
@@ -550,19 +559,15 @@ func taskCommand() *cobra.Command {
 			} else if st.Action == "created" {
 				logger.Info(ledger.StageTask, "created selfbuild/state branch on origin", nil)
 			}
-
-			synthID := taskID
-			if synthID == "" {
-				synthID = "TASK"
-			}
-
 			// FR-VAL-03 (#291a): the task path must acquire the run lock so
 			// countActiveRuns (locks/*.lock) reports truthful runs.active on
 			// /status — and one active run per ticket holds across processes.
-			lock := pipeline.TryAcquireRun(devagentHome(), synthID)
+			// The key is the run's resolved task id (issue #316): never the
+			// generic "TASK" constant two concurrent runs used to share.
+			lock := pipeline.TryAcquireRun(devagentHome(), taskID)
 			if lock == nil {
-				claimNote = "run for " + synthID + " already active"
-				fmt.Fprintf(os.Stderr, "Run for %s already active\n", synthID)
+				claimNote = "run for " + taskID + " already active"
+				fmt.Fprintf(os.Stderr, "Run for %s already active\n", taskID)
 				setExitCode(1)
 				return nil
 			}
@@ -586,7 +591,7 @@ func taskCommand() *cobra.Command {
 			deps := pipeline.TaskDeps{
 				RunPipelineDeps: pipeline.PipelineDeps{
 					FetchTicket: func(string) (pipeline.TicketSpec, error) {
-						return pipeline.TicketSpec{ID: synthID, Labels: []string{}, AcceptanceCriteria: []string{}}, nil
+						return pipeline.TicketSpec{ID: taskID, Labels: []string{}, AcceptanceCriteria: []string{}}, nil
 					},
 					RunGateG3: func(rp string, classification pipeline.TicketClass) pipeline.GateCheck {
 						r := gates.RunMigrationStaticGate(gates.GateContext{RepoPath: rp, Classification: string(classification)})
