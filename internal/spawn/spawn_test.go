@@ -90,6 +90,46 @@ func TestRunCliTimeout(t *testing.T) {
 	}
 }
 
+// The bounded drain must never relabel a child that exited on its own:
+// RunCliUntil arms WaitDelay, so a lingering grandchild that inherited the
+// stderr pipe write-end cuts the copy short with exec.ErrWaitDelay while the
+// ProcessState says 0 — the #248/#286 rule loopdriver's dispatchRc and
+// runDevagent already follow. Surfaced by the issue #308 retarget, which put
+// every RunCli caller on this path (pre-retarget RunCli had no WaitDelay).
+func TestRunCliDrainCutoffKeepsChildExitCode(t *testing.T) {
+	// stdout EOFs on `echo done` (the grandchild's own stdout goes to
+	// /dev/null), so the reader goroutine reaches Wait while the grandchild
+	// still holds the inherited stderr write-end: the copy timer, not the
+	// reader, is what WaitDelay cuts off — that is the path where Wait
+	// returns exec.ErrWaitDelay with ProcessState 0.
+	//
+	// NOTE: os/exec prefers the child's real ExitError over ErrWaitDelay,
+	// so only a child that exited 0 can land here — the sibling exit-3
+	// subtest below pins the nonzero side of the same held-pipe contract.
+	for _, tc := range []struct {
+		name, script string
+		want         int
+	}{
+		{"exit 0", `sleep 5 1>/dev/null & echo done; exit 0`, 0},
+		{"exit 3", `sleep 5 1>/dev/null & echo done; exit 3`, 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			subStart := time.Now()
+			r := RunCli("sh", []string{"-c", tc.script}, Options{TimeoutMs: 20_000})
+			elapsed := time.Since(subStart)
+			if r.ExitCode != tc.want || r.TimedOut {
+				t.Fatalf("drain cutoff relabeled a child that exited %d: %+v", tc.want, r)
+			}
+			if r.Stdout != "done\n" {
+				t.Fatalf("stdout = %q, want the child's own output", r.Stdout)
+			}
+			if elapsed > 10*time.Second {
+				t.Fatalf("returned after %s: the bounded drain never fired", elapsed)
+			}
+		})
+	}
+}
+
 func TestRunCliSpawnFailure(t *testing.T) {
 	r := RunCli("definitely-not-a-real-binary-xyz", []string{}, Options{})
 	if r.ExitCode != -1 || r.TimedOut {

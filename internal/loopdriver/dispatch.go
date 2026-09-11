@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/FreePeak/devagent/internal/scout"
+	"github.com/FreePeak/devagent/internal/spawn"
 )
 
 // agentCommand builds the devagent CLI invocation (DevagentArgs prepended).
@@ -72,9 +73,10 @@ const pipeDrainDelay = 3 * time.Second
 
 // runDevagentWithTimeout wraps runDevagent in the outer `timeout N` wall the
 // bash driver applied to the task dispatch. The wall is a process-group
-// kill: the dispatch child runs in its own group (setOwnProcessGroup) and,
-// once the deadline passes, surviving group members are SIGKILLed
-// (killDispatchTree). CommandContext kills only the direct child, and the
+// kill: the dispatch child runs in its own group (spawn.SetOwnProcessGroup)
+// and, once the deadline passes, surviving group members are SIGKILLed
+// (spawn.KillProcessTree — the shared primitive, lifted out of this package
+// by issue #308). CommandContext kills only the direct child, and the
 // child's descendants hold the output pipes — without the group sweep a
 // wedged worker session outlives every anchor and pins the iteration
 // (issue #273). WaitDelay keeps the Wait itself bounded in the same case.
@@ -82,7 +84,7 @@ func (d *driver) runDevagentWithTimeout(timeoutSecs int, args ...string) (string
 	ctx, cancel := context.WithTimeout(context.Background(), secsToDuration(timeoutSecs))
 	defer cancel()
 	cmd := d.agentCommandCtx(ctx, args...)
-	setOwnProcessGroup(cmd)
+	spawn.SetOwnProcessGroup(cmd)
 	cmd.WaitDelay = pipeDrainDelay
 	cmd.Env = d.devagentEnv(
 		"DEVAGENT_API_MAX_ATTEMPTS="+itoa(d.cfg.APIMaxAttempts),
@@ -102,7 +104,7 @@ func (d *driver) runDevagentWithTimeout(timeoutSecs int, args ...string) (string
 	// child itself ended — nothing dispatched may outlive the anchor.
 	wallFired := ctx.Err() == context.DeadlineExceeded
 	if wallFired && cmd.Process != nil {
-		killDispatchTree(cmd.Process.Pid)
+		spawn.KillProcessTree(cmd.Process)
 	}
 	return out, dispatchRc(cmd.ProcessState, wallFired)
 }

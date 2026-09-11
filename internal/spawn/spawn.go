@@ -7,6 +7,7 @@ package spawn
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"strings"
@@ -24,8 +25,9 @@ type Options struct {
 	ReplaceEnv bool
 }
 
-// Result mirrors SpawnCliResult. ExitCode -1 means timeout or spawn failure;
-// TimedOut distinguishes the two for callers.
+// Result mirrors SpawnCliResult. ExitCode -1 means timeout or spawn failure
+// (TimedOut distinguishes the two); RunCliUntil's early-completion kill is
+// also -1, with TimedOut=false — there the predicate is the verdict.
 type Result struct {
 	ExitCode int
 	Stdout   string
@@ -104,42 +106,16 @@ func BuildEnv(opts Options) map[string]string {
 }
 
 // RunCli runs a CLI to completion with a hard wall-clock timeout. On timeout
-// the child is killed and TimedOut=true is returned (ExitCode -1) instead of
-// an error, so callers can map it to their own result shapes. Stdin is closed
-// immediately: headless prompts come via argv, and an open stdin makes
-// `omp -p` sit in readPipedInput until the pipe closes (2026-09-03).
+// the child's whole process tree is killed and TimedOut=true is returned
+// (ExitCode -1) instead of an error, so callers can map it to their own
+// result shapes. It is RunCliUntil with no early-completion predicate: issue
+// #308 retargeted every caller off CommandContext's direct-child kill, since
+// a surviving grandchild holding the inherited stdout pipe pinned the
+// capture past the wall (#273's loop pin). Stdin is closed immediately:
+// headless prompts come via argv, and an open stdin makes `omp -p` sit in
+// readPipedInput until the pipe closes (2026-09-03).
 func RunCli(name string, args []string, opts Options) Result {
-	if opts.TimeoutMs <= 0 {
-		opts.TimeoutMs = 60_000
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(opts.TimeoutMs)*time.Millisecond)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.Dir = opts.Dir
-	cmd.Env = envSlice(BuildEnv(opts))
-	// Stdin stays an open pipe that we close immediately (not /dev/null):
-	// stdio 'ignore' makes `claude -p` emit empty stdout (live-smoke lesson).
-	stdin, err := cmd.StdinPipe()
-	if err == nil {
-		_ = stdin.Close()
-	}
-	var stdout, stderr strings.Builder
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	runErr := cmd.Run()
-	timedOut := ctx.Err() == context.DeadlineExceeded
-	if timedOut {
-		return Result{ExitCode: -1, Stdout: stdout.String(), Stderr: stderr.String(), TimedOut: true}
-	}
-	exitCode := 0
-	if runErr != nil {
-		if exitErr, ok := runErr.(*exec.ExitError); ok {
-			exitCode = exitErr.ExitCode()
-		} else {
-			exitCode = -1 // spawn failure (ENOENT etc.): never read as success
-		}
-	}
-	return Result{ExitCode: exitCode, Stdout: stdout.String(), Stderr: stderr.String()}
+	return RunCliUntil(name, args, opts, nil)
 }
 
 // cliWaitDelay bounds the post-exit pipe drain in RunCliUntil: an orphaned
@@ -152,15 +128,13 @@ const cliWaitDelay = 3 * time.Second
 // (NDJSON markers split across reads), and when it returns true the process
 // tree is killed and a partial Result is returned with ExitCode -1 (our
 // kill) and TimedOut=false — the predicate, not the exit code, is the
-// verdict. A nil completed degrades to plain streaming capture with the
-// same timeout semantics. Like RunCli, on timeout TimedOut=true is returned
-// (ExitCode -1) instead of an error, partial stdout/stderr is preserved for
-// the ledger/gate details, stdin is closed immediately, and env hardening
-// goes through BuildEnv.
+// verdict.
 //
-// RunCli keeps its own (direct-child) timeout kill for now: retargeting its
-// ~28 call sites at the process-group kill is the second half of #308 and
-// needs its own per-caller test sweep.
+// A nil completed degrades to plain streaming capture with the same timeout
+// semantics (that is exactly RunCli). Like RunCli, on timeout the tree is
+// killed and TimedOut=true is returned (ExitCode -1) instead of an error,
+// partial stdout/stderr is preserved for the ledger/gate details, stdin is
+// closed immediately, and env hardening goes through BuildEnv.
 func RunCliUntil(name string, args []string, opts Options, completed func(stdout string) bool) Result {
 	if opts.TimeoutMs <= 0 {
 		opts.TimeoutMs = 60_000
@@ -176,7 +150,7 @@ func RunCliUntil(name string, args []string, opts Options, completed func(stdout
 	if err == nil {
 		_ = stdin.Close()
 	}
-	setOwnProcessGroup(cmd)
+	SetOwnProcessGroup(cmd)
 	cmd.WaitDelay = cliWaitDelay
 	stdoutPipe, err := cmd.StdoutPipe()
 	var stderr strings.Builder
@@ -218,11 +192,11 @@ drain:
 			}
 			stdout.Write(b)
 			if completed != nil && completed(stdout.String()) {
-				killProcessTree(cmd.Process)
+				KillProcessTree(cmd.Process)
 				early = true
 			}
 		case <-ctx.Done():
-			killProcessTree(cmd.Process)
+			KillProcessTree(cmd.Process)
 		}
 	}
 	waitErr := <-waits
@@ -234,9 +208,19 @@ drain:
 	}
 	exitCode := 0
 	if waitErr != nil {
-		if exitErr, ok := waitErr.(*exec.ExitError); ok {
+		var exitErr *exec.ExitError
+		switch {
+		case errors.As(waitErr, &exitErr):
 			exitCode = exitErr.ExitCode()
-		} else {
+		case errors.Is(waitErr, exec.ErrWaitDelay) && cmd.ProcessState != nil:
+			// The bounded drain is not a step failure: a child that already
+			// exited keeps its own code when a lingering grandchild held the
+			// pipes past WaitDelay (the #248/#286 rule loopdriver's
+			// dispatchRc and runDevagent follow). os/exec prefers a real
+			// ExitError over this one, so ProcessState here is the child's
+			// own verdict.
+			exitCode = cmd.ProcessState.ExitCode()
+		default:
 			exitCode = -1 // spawn/drain failure: never read as success
 		}
 	}

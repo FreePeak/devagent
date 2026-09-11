@@ -43,3 +43,49 @@ func TestRunCliUntilKillsGrandchild(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 }
+
+// grandPIDFromStdout reads the "GC=<pid>" marker the fixture children below
+// echo before they fork off into a long sleep.
+func grandPIDFromStdout(t *testing.T, stdout string) int {
+	t.Helper()
+	i := strings.Index(stdout, "GC=")
+	if i < 0 {
+		t.Fatalf("no grandchild pid in stdout: %q", stdout)
+	}
+	pid, err := strconv.Atoi(strings.Fields(stdout[i+3:])[0])
+	if err != nil {
+		t.Fatalf("bad grandchild pid in %q: %v", stdout, err)
+	}
+	return pid
+}
+
+// waitPIDGone fails when pid is still alive after the bound.
+func waitPIDGone(t *testing.T, pid int, why string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for pidAlive(pid) {
+		if time.Now().After(deadline) {
+			t.Fatalf("%s: pid %d still alive", why, pid)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// RunCli's hard-timeout kill must reap the whole tree, not just the direct
+// child (issue #308's retarget): the grandchild holds the inherited stdout
+// write-end, so waiting it out is the #273 loop pin, not a timeout. The
+// fixture sleeps far past the wall — pre-retarget the call returned only
+// when that sleep ended.
+func TestRunCliTimeoutKillsGrandchild(t *testing.T) {
+	start := time.Now()
+	r := RunCli("sh", []string{"-c", `sleep 45 & echo GC=$!; sleep 45`}, Options{TimeoutMs: 500})
+	elapsed := time.Since(start)
+	if !r.TimedOut || r.ExitCode != -1 {
+		t.Fatalf("want timeout exit -1, got %+v", r)
+	}
+	grand := grandPIDFromStdout(t, r.Stdout)
+	if elapsed > 15*time.Second {
+		t.Fatalf("timeout took %s: an orphaned grandchild pinned the capture (issue #273)", elapsed)
+	}
+	waitPIDGone(t, grand, "RunCli timeout kill")
+}

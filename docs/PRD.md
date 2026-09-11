@@ -1589,7 +1589,26 @@ existing driver with validation surfaces (test, command, telemetry, chaos
 schedule) so "the driver works perfectly" is a checkable claim, not a hope.
 
 ---
-*Last updated: 2026-09-11 (issue #286, starvation-halt teardown) — the
+*Last updated: 2026-09-11 (issue #308, second half: the tree kill reaches every caller) — `RunCli`
+is now `RunCliUntil(..., nil)`, so every git/gh/launchctl/worktree/gate/worker call site inherits
+the swept process-group kill and the 3s bounded drain instead of CommandContext's direct-child kill.
+Measured pre-change: a `RunCli` timeout (500ms wall) against a child that had forked a grandchild
+holding the inherited stdout pipe did not return until that grandchild's own 45s sleep ended
+(45.02s — #273's loop pin, red-before pin `TestRunCliTimeoutKillsGrandchild`); post-change the same
+call returns in 0.51s with the grandchild reaped. The retarget also surfaced a mapping hole: on the
+WaitDelay path `Wait` returns `exec.ErrWaitDelay` (not an `ExitError`) when a descendant holds a
+pipe, and RunCliUntil's tail mapped every non-ExitError wait to -1 — a child that exited 0 with a
+lingering grandchild would have reported -1 ("spawn failure") to all ~28 callers. `runDevagent`'s
+existing rule now lives in spawn too: `ErrWaitDelay` resolves from `cmd.ProcessState.ExitCode()`
+(os/exec prefers a real ExitError, so ProcessState is the child's own verdict), pinned red-before by
+`TestRunCliDrainCutoffKeepsChildExitCode` (3.01s `ExitCode:-1` pre-fix, `ExitCode:0` post-fix).
+`internal/loopdriver`'s duplicated `setOwnProcessGroup`/`killDispatchTree` are deleted — its
+`proc_*.go` keep only `processAlive`, and the outer dispatch wall calls the shared
+`spawn.SetOwnProcessGroup` + `spawn.KillProcessTree` (which also upgrades that wall's post-deadline
+sweep from one `kill(-pgid)` to the retry-until-ESRCH rounds #312 added), closing the "helper was
+duplicated, not lifted" residue #312 left. `RunPreflightProbe` reached `RunCliUntil` separately
+(785e1ae).
+Prior: 2026-09-11 (issue #286, starvation-halt teardown) — the
 starvation halt can no longer hang the driver. A child spawned during the
 iteration (pane-run/exec helper) that left a grandchild holding the stdout
 pipe write-end pinned os/exec's `io.Copy` forever: the driver printed
@@ -1651,12 +1670,12 @@ the verdict; partial stdout/stderr preserved for gate/ledger details;
 `Kill(-pid)` AND the direct `Process.Kill` floor for windows). Pinned by
 TestRunCliUntilEarlyCompletion, TestRunCliUntilKillsGrandchild (grandchild
 reaping), TestRunCliUntilNilPredicate, TestRunCliUntilTimeout,
-TestRunCliUntilSpawnFailure. `RunCli` and its ~28 call sites keep the
+TestRunCliUntilSpawnFailure. ~~`RunCli` and its ~28 call sites keep the
 direct-child timeout kill for now — retargeting them at the tree kill is
 the second half of #308 and needs its own per-caller timeout-test sweep;
-`RunPreflightProbe` is not yet wired to it (that lands with the second
-half, closing the wait-for-exit cost noted in the 2026-09-11 preflight
-measurement below).
+`RunPreflightProbe` is not yet wired to it.~~ Delivered: `RunPreflightProbe`
+reached `RunCliUntil` in 785e1ae (the paragraph's "not yet wired" aged out
+there), and the RunCli retarget is the 2026-09-11 footer entry above.
 Prior: 2026-09-11 (issue #301, loopdriver research pick) — the
 self-build loop no longer loses what phase 1 decided. Goal construction read
 only the tracker title, so iteration 219 dispatched "Implement GitHub issue
