@@ -255,11 +255,28 @@ func (d *driver) runIteration(n int, logF io.Writer, gradient, clusters string) 
 				pick.mergePR = 0
 			}
 		}
+		// merged = shipped, detection half: a PR cross-referenced on the
+		// issue's timeline that is OPEN means the work exists on a branch —
+		// dispatch the verify-and-merge route instead of a rewrite that
+		// cannot open a second PR (#323 Case B: three no-pr rows re-running
+		// #316 while its PR sat open). Fires only when research did not name
+		// a PR; the pick-time OPEN guard above still applies to both.
+		detected := false
+		if pick.mergePR == 0 {
+			if prNum := d.openPROfIssue(issueNum); prNum != 0 {
+				pick.mergePR = prNum
+				detected = true
+			}
+		}
 		_, _ = fmt.Fprintf(logF, "[issue] claimed #%d from tracker (issue-first outranks LLM selection): %s\n", issueNum, issueTitle)
 		goal := issueGoalTemplate(issueNum, issueTitle)
 		if pick.mergePR != 0 {
 			goal = mergeGoalTemplate(pick.mergePR, issueNum)
-			_, _ = fmt.Fprintf(logF, "[issue] research pick lands existing PR #%d — verify-and-merge dispatch, not a rewrite\n", pick.mergePR)
+			if detected {
+				_, _ = fmt.Fprintf(logF, "[issue] open PR #%d found for issue #%d — verify-and-merge dispatch (merged = shipped)\n", pick.mergePR, issueNum)
+			} else {
+				_, _ = fmt.Fprintf(logF, "[issue] research pick lands existing PR #%d — verify-and-merge dispatch, not a rewrite\n", pick.mergePR)
+			}
 		}
 		goal = withPickRationale(goal, pick.rationale)
 		_ = os.WriteFile(filepath.Join(d.stateDir, "goals", fmt.Sprintf("loop-%d.md", n)), []byte(goal+"\n"), 0o644)

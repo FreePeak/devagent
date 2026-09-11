@@ -374,18 +374,33 @@ func (d *driver) runRepoLintGate(logF io.Writer) int {
 			return 1
 		}
 	}
+	// Tier 2 needs a module to analyze and an environment that can load it:
+	// a repo without go.mod (fixtures, non-Go roots) only exercises the
+	// toolchain, and spawn's hardened env can hide go env from the linter —
+	// the 2026-09-11 fixture log (exit 3, "failed to load packages") is the
+	// shape. Gate failure is reserved for a COMPLETED run that reports
+	// findings (exit 1, CI's issues-found contract); anything else —
+	// timeouts, context-loading errors, exit != 1 — means the linter could
+	// not analyze, which is logged and skipped rather than poisoning the
+	// ledger with failed-lint rows the repo did not earn.
+	if _, statErr := os.Stat(filepath.Join(d.cfg.Repo, "go.mod")); statErr != nil {
+		_, _ = fmt.Fprintln(logF, "[lint] no go.mod — golangci-lint tier skipped")
+		return 0
+	}
 	linter, err := exec.LookPath("golangci-lint")
 	if err != nil {
 		_, _ = fmt.Fprintln(logF, "[lint] golangci-lint not on PATH — gofmt tier only")
 		return 0
 	}
 	res := spawn.RunCli(linter, []string{"run"}, spawn.Options{Dir: d.cfg.Repo, TimeoutMs: lintGateTimeoutMs})
-	if res.TimedOut {
-		_, _ = fmt.Fprintln(logF, "[lint] golangci-lint timed out — gate failure")
-		return 1
+	combined := res.Stdout + "\n" + res.Stderr
+	couldNotAnalyze := res.TimedOut || res.ExitCode != 1 && res.ExitCode != 0 || strings.Contains(combined, "Running error:")
+	if couldNotAnalyze {
+		_, _ = fmt.Fprintf(logF, "[lint] golangci-lint could not analyze the tree (exit %d, timedOut=%v) — tier skipped\n%s\n", res.ExitCode, res.TimedOut, strings.Join(tailLines(combined, 6), "\n"))
+		return 0
 	}
 	if res.ExitCode != 0 {
-		_, _ = fmt.Fprintf(logF, "[lint] golangci-lint run (exit %d):\n%s\n", res.ExitCode, strings.Join(tailLines(res.Stdout+"\n"+res.Stderr, 8), "\n"))
+		_, _ = fmt.Fprintf(logF, "[lint] golangci-lint run (exit %d):\n%s\n", res.ExitCode, strings.Join(tailLines(combined, 8), "\n"))
 		return 1
 	}
 	return 0

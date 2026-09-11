@@ -58,6 +58,7 @@ case "$1 $2" in
       printf '%s' "$GH_ISSUES_JSON"
     fi ;;
   "issue close") exit 0 ;;
+  api\ *) printf '%s' "$GH_TIMELINE_JSON" ;;
   # gh 2.98 pipes --json output (compact); prState decodes, so the shape is
   # the real one and the driver must not care. GH_PR_STATE answers every call;
   # GH_PR_STATE_FIRST + GH_PR_STATE_FILE sequence the first one differently
@@ -399,6 +400,58 @@ func TestRunLoopMergePickDispatchesVerifyAndMerge(t *testing.T) {
 	// land is recorded in the row's goal text and the phase detail.
 	if len(rows) != 1 || rows[0]["status"] != "ok" ||
 		!strings.HasPrefix(rows[0]["goal"].(string), "Goal: Land GitHub issue #290") {
+		t.Fatalf("rows: %v", rows)
+	}
+	assertFileContains(t, filepath.Join(repo, "devagent-calls.log"), "gh issue close")
+}
+
+// merged = shipped, detection half (end to end): research names no PR, but
+// the issue's timeline cross-references an OPEN pull request — the pick must
+// route to the verify-and-merge template (a rewrite cannot open a second PR)
+// and the iteration ships on that PR's merged state. #323 Case B: three
+// no-pr rows re-ran #316 while its PR sat open.
+func TestRunLoopOpenPRDetectedRoutesToVerifyAndMerge(t *testing.T) {
+	repo := initFixtureRepo(t)
+	installFakes(t, repo)
+	t.Setenv("GH_ISSUES_JSON", `[{"number":316,"title":"run locks","labels":[{"name":"priority:P0"}]}]`)
+	t.Setenv("GH_TIMELINE_JSON", `[{"event":"cross-referenced","source":{"issue":{"number":325,"pull_request":{}}}}]`)
+	// The merge dispatch lands the EXISTING PR and opens none; the PR reads
+	// OPEN at detection time and MERGED by the ship gate (same sequencing
+	// contract as the merge-pick route).
+	t.Setenv("DEVAGENT_FAKE_TASK_NO_PR", "1")
+	t.Setenv("GH_PR_STATE_FILE", filepath.Join(t.TempDir(), "pr-view-count"))
+	t.Setenv("GH_PR_STATE_FIRST", "OPEN")
+	t.Setenv("GH_PR_STATE", "MERGED")
+	now, _ := frozenClock()
+	cfg := loopConfigFor(t, repo, func(c *LoopConfig) {
+		c.Now = now
+		c.GHRepo = "FreePeak/devagent"
+	})
+	cfg.DryRun = false
+	if rc := RunLoop(cfg); rc != 0 {
+		logData, _ := os.ReadFile(filepath.Join(repo, ".selfbuild", "logs", "loop-1.log"))
+		t.Fatalf("rc = %d, want 0\nlog:\n%s", rc, logData)
+	}
+	goalData, err := os.ReadFile(filepath.Join(repo, ".selfbuild", "goals", "loop-1.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	goal := string(goalData)
+	if !strings.Contains(goal, "Land GitHub issue #316 by verifying and merging the existing open PR #325") {
+		t.Fatalf("detection must route to verify-and-merge:\n%s", goal)
+	}
+	if strings.Contains(goal, "Implement GitHub issue") {
+		t.Fatalf("implement template emitted for an issue with an open PR:\n%s", goal)
+	}
+	logData, err := os.ReadFile(filepath.Join(repo, ".selfbuild", "logs", "loop-1.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(logData), "[issue] open PR #325 found for issue #316 — verify-and-merge dispatch (merged = shipped)") {
+		t.Fatalf("detection not logged:\n%s", logData)
+	}
+	rows := readLedger(t, repo)
+	if len(rows) != 1 || rows[0]["status"] != "ok" {
 		t.Fatalf("rows: %v", rows)
 	}
 	assertFileContains(t, filepath.Join(repo, "devagent-calls.log"), "gh issue close")
