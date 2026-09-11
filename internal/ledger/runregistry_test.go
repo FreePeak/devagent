@@ -83,7 +83,7 @@ func TestReleaseKeepsReplacedLock(t *testing.T) {
 	// NowFunc() read can tick past the lock's real startedAt on a ms
 	// boundary, making the "later" payload byte-identical to l1's own and
 	// flaking the assertion (CI-Go macOS, 2026-09-11).
-	later := `{"pid":` + strconv.Itoa(os.Getpid()) + `,"startedAt":` + strconv.FormatInt(base+1, 10) + `}`
+	later := `{"pid":` + strconv.Itoa(os.Getpid()) + `,"startedAt":` + strconv.FormatInt(base+1, 10) + `,"generation":1}`
 	if err := os.WriteFile(l1.Path, []byte(later), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -95,11 +95,11 @@ func TestReleaseKeepsReplacedLock(t *testing.T) {
 	// With the file back to l1's own payload a release must unlink. l1 has
 	// spent its idempotent release above, so drive the same acquisition
 	// through a fresh lock value (same pid+startedAt the file carries).
-	own := `{"pid":` + strconv.Itoa(os.Getpid()) + `,"startedAt":` + strconv.FormatInt(base, 10) + `}`
+	own := `{"pid":` + strconv.Itoa(os.Getpid()) + `,"startedAt":` + strconv.FormatInt(base, 10) + `,"generation":1}`
 	if err := os.WriteFile(l1.Path, []byte(own), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	l1b := &RunLock{TicketID: l1.TicketID, Path: l1.Path, pid: int64(os.Getpid()), startedAt: base}
+	l1b := &RunLock{TicketID: l1.TicketID, Path: l1.Path, Generation: 1, pid: int64(os.Getpid()), startedAt: base}
 	l1b.Release()
 	if _, err := os.Stat(l1.Path); !os.IsNotExist(err) {
 		t.Fatal("own lock must be removed by release")

@@ -532,12 +532,13 @@ func TestTaskTryAcquireRun(t *testing.T) {
 	if l2 := TryAcquireRun(home, "TASK-abc-123"); l2 != nil {
 		t.Fatal("second acquire while fresh must fail")
 	}
-	// The on-disk payload mirrors the TS JSON.stringify shape.
+	// The on-disk payload carries the lease-generation fencing token
+	// (RunLock.Generation) alongside the pid/startedAt identity.
 	raw, err := os.ReadFile(l1.Path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !regexp.MustCompile(`^\{"pid":\d+,"startedAt":\d+\}$`).MatchString(strings.TrimSpace(string(raw))) {
+	if !regexp.MustCompile(`^\{"pid":\d+,"startedAt":\d+,"generation":\d+\}$`).MatchString(strings.TrimSpace(string(raw))) {
 		t.Fatalf("lock payload = %q", raw)
 	}
 	l1.Release()

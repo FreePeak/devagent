@@ -18,6 +18,12 @@ import (
 type RunLock struct {
 	TicketID string
 	Path     string
+	// Generation is this lease's fencing token: 1 for a fresh lock, and
+	// prevGeneration+1 on every break-and-reacquire — a token is never
+	// reused. A holder compares it against the on-disk payload before an
+	// irreversible action (StillHeld) so a run whose lock was broken and
+	// re-acquired by a newer incarnation can detect it lost the lease.
+	Generation int64
 	// pid/startedAt identify THIS acquisition: Release unlinks the file
 	// only when it still carries them (issue #316, 2026-09-11: a finished
 	// run's deferred Release unlinked TASK.lock after a TTL stale-break had
@@ -26,6 +32,35 @@ type RunLock struct {
 	pid       int64
 	startedAt int64
 	released  bool
+}
+
+// holdsPayload reports whether the lock file still carries THIS
+// acquisition's identity (pid, startedAt, generation).
+func (l *RunLock) holdsPayload() bool {
+	raw, err := os.ReadFile(l.Path)
+	if err != nil {
+		return false // gone or unreadable: nothing of ours there
+	}
+	var holder struct {
+		Pid        *int64 `json:"pid"`
+		StartedAt  *int64 `json:"startedAt"`
+		Generation *int64 `json:"generation"`
+	}
+	if json.Unmarshal(raw, &holder) != nil || holder.Pid == nil || holder.StartedAt == nil ||
+		*holder.Pid != l.pid || *holder.StartedAt != l.startedAt ||
+		holder.Generation == nil || *holder.Generation != l.Generation {
+		return false // the file belongs to a later acquisition — never touch it
+	}
+	return true
+}
+
+// StillHeld is the fencing check for lease holders: true only while the
+// lock file still carries this acquisition's payload. A run whose lease
+// was broken and re-acquired by a newer incarnation (stale-break winner),
+// released, or whose file vanished must refuse irreversible work (the
+// selfbuild task publish boundary consults this before pushing a PR).
+func (l *RunLock) StillHeld() bool {
+	return !l.released && l.holdsPayload()
 }
 
 // Release removes the lock file — but only when the file still holds THIS
@@ -37,19 +72,9 @@ func (l *RunLock) Release() {
 		return
 	}
 	l.released = true
-	raw, err := os.ReadFile(l.Path)
-	if err != nil {
-		return // gone or unreadable: nothing of ours to unlink
+	if l.holdsPayload() {
+		_ = os.Remove(l.Path) // rmSync(path, { force: true })
 	}
-	var holder struct {
-		Pid       *int64 `json:"pid"`
-		StartedAt *int64 `json:"startedAt"`
-	}
-	if json.Unmarshal(raw, &holder) != nil || holder.Pid == nil || holder.StartedAt == nil ||
-		*holder.Pid != l.pid || *holder.StartedAt != l.startedAt {
-		return // the file belongs to a later acquisition — never unlink it
-	}
-	_ = os.Remove(l.Path) // rmSync(path, { force: true })
 }
 
 // nowMillis is the wall clock in milliseconds (TS Date.now()).
@@ -79,7 +104,9 @@ func SanitizeKey(ticketID string) string {
 // amendment: loop task runs routinely outlive the 1h TTL, so the old
 // stale-break let a newcomer steal a long run's lock); only a lock with no
 // usable pid falls back to the TTL check (corrupt/legacy payloads). The
-// lock payload is {"pid":<pid>,"startedAt":<ms>} — JSON.stringify key order.
+// lock payload is {"pid":<pid>,"startedAt":<ms>,"generation":<n>} (key
+// order matches the Go struct field order; generation is the lease's
+// fencing token — see RunLock.Generation).
 func TryAcquireRun(homeDir, ticketID string, ttlMs int64) *RunLock {
 	locksDir := filepath.Join(homeDir, "locks")
 	if err := os.MkdirAll(locksDir, 0o755); err != nil {
@@ -91,13 +118,18 @@ func TryAcquireRun(homeDir, ticketID string, ttlMs int64) *RunLock {
 		ttlMs = DefaultLockTTL
 	}
 
+	prevGen := int64(0)
 	if _, err := os.Stat(path); err == nil {
 		if data, err := os.ReadFile(path); err == nil {
 			var holder struct {
-				Pid       *int64 `json:"pid"`
-				StartedAt *int64 `json:"startedAt"`
+				Pid        *int64 `json:"pid"`
+				StartedAt  *int64 `json:"startedAt"`
+				Generation *int64 `json:"generation"`
 			}
 			if json.Unmarshal(data, &holder) == nil {
+				if holder.Generation != nil && *holder.Generation > 0 {
+					prevGen = *holder.Generation
+				}
 				if holder.Pid != nil && *holder.Pid > 0 {
 					// pid known: liveness decides, TTL never relabels it
 					// (mirrors countActiveRuns). On the non-unix fallback
@@ -111,13 +143,17 @@ func TryAcquireRun(homeDir, ticketID string, ttlMs int64) *RunLock {
 				}
 			}
 		}
-		// dead holder, pid-less stale, or corrupt: break the lock (latest-wins)
+		// dead holder, pid-less stale, or corrupt: break the lock
+		// (latest-wins) and bump the lease generation — a token is never
+		// reused, so the broken holder's late fenced writes die here.
 		_ = os.Remove(path)
 	}
+	generation := prevGen + 1
 
-	payload := `{"pid":` + strconv.Itoa(os.Getpid()) + `,"startedAt":` + strconv.FormatInt(now, 10) + `}`
+	payload := `{"pid":` + strconv.Itoa(os.Getpid()) + `,"startedAt":` + strconv.FormatInt(now, 10) +
+		`,"generation":` + strconv.FormatInt(generation, 10) + `}`
 	if err := os.WriteFile(path, []byte(payload), 0o644); err != nil {
 		return nil
 	}
-	return &RunLock{TicketID: ticketID, Path: path, pid: int64(os.Getpid()), startedAt: now}
+	return &RunLock{TicketID: ticketID, Path: path, Generation: generation, pid: int64(os.Getpid()), startedAt: now}
 }

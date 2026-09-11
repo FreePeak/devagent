@@ -524,8 +524,8 @@ func RunDoctor(opts DoctorOptions) (DoctorResult, error) {
 	}
 
 	// 9. Stale artifacts. There are exactly two persisted pid registries:
-	// <home>/locks/<ticket>.lock ({"pid","startedAt"}, ledger/runregistry.go)
-	// and <repo>/.selfbuild/loop.lock.d/pid (loopdriver/lock.go) — the
+	// <home>/locks/<ticket>.lock ({"pid","startedAt","generation"},
+	// ledger/runregistry.go) and <repo>/.selfbuild/loop.lock.d/pid (loopdriver/lock.go) — the
 	// daemon keeps no pidfile. TTL-expired run locks self-heal (TryAcquireRun
 	// breaks them), so they warn; a dead holder pid or a wedged/crashed
 	// loop.lock.d fails. ponytail: bare kill-0 liveness can false-positive

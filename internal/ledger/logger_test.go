@@ -177,3 +177,92 @@ func TestTryAcquireRunCorruptLockBroken(t *testing.T) {
 		t.Fatalf("lock payload incomplete: %s", raw)
 	}
 }
+
+// TestTryAcquireRunFencingGeneration pins the lease-generation fencing
+// contract: a fresh lock carries generation 1, every break-and-reacquire
+// bumps the broken holder's token (a token is never reused), and a legacy
+// payload without a generation field restarts the sequence at 1.
+func TestTryAcquireRunFencingGeneration(t *testing.T) {
+	home := t.TempDir()
+	path := filepath.Join(home, "locks", "TASK.lock")
+
+	l1 := TryAcquireRun(home, "TASK", 0)
+	if l1 == nil || l1.Generation != 1 {
+		t.Fatalf("fresh acquire must carry generation 1, got %+v", l1)
+	}
+	var onDisk struct {
+		Generation int64 `json:"generation"`
+	}
+	raw, _ := os.ReadFile(path)
+	if err := json.Unmarshal(raw, &onDisk); err != nil || onDisk.Generation != 1 {
+		t.Fatalf("lock payload must carry the fencing token: %s", raw)
+	}
+	l1.Release()
+
+	// A dead holder's lock with generation 7 must be broken into a
+	// generation-8 acquisition — the dead holder's token is retired.
+	if err := os.WriteFile(path, []byte(`{"pid":`+strconv.Itoa(deadPid(t))+`,"startedAt":`+strconv.FormatInt(time.Now().UnixMilli(), 10)+`,"generation":7}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	l2 := TryAcquireRun(home, "TASK", 0)
+	if l2 == nil || l2.Generation != 8 {
+		t.Fatalf("break-and-reacquire must bump generation 7 to 8, got %+v", l2)
+	}
+	l2.Release()
+
+	// Legacy/corrupt payload with no generation field: token restarts at 1.
+	if err := os.WriteFile(path, []byte(`{"startedAt":1}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	l3 := TryAcquireRun(home, "TASK", 0)
+	if l3 == nil || l3.Generation != 1 {
+		t.Fatalf("legacy payload must restart the token at 1, got %+v", l3)
+	}
+}
+
+// TestRunLockStillHeldFencing pins the fencing check a lease holder
+// consults before irreversible work: true while the file carries this
+// acquisition's payload, false once a newer acquisition replaced it or the
+// lock was released — and a stolen lease's Release must leave the winner's
+// lock untouched.
+func TestRunLockStillHeldFencing(t *testing.T) {
+	home := t.TempDir()
+	l1 := TryAcquireRun(home, "TASK", 0)
+	if l1 == nil {
+		t.Fatal("fresh acquire must succeed")
+	}
+	if !l1.StillHeld() {
+		t.Fatal("holder must see its own live lease as held")
+	}
+
+	// A newer incarnation's acquisition replaces the file (the stale-break
+	// winner writes its own generation-2 payload).
+	stolen := `{"pid":` + strconv.Itoa(os.Getpid()) + `,"startedAt":` + strconv.FormatInt(time.Now().UnixMilli(), 10) + `,"generation":2}`
+	if err := os.WriteFile(l1.Path, []byte(stolen), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if l1.StillHeld() {
+		t.Fatal("stolen lease must read as lost")
+	}
+	l1.Release() // the old holder's deferred release
+	raw, err := os.ReadFile(l1.Path)
+	if err != nil {
+		t.Fatalf("predecessor release must keep the winner's lock: %v", err)
+	}
+	var winner struct {
+		Generation int64 `json:"generation"`
+	}
+	if err := json.Unmarshal(raw, &winner); err != nil || winner.Generation != 2 {
+		t.Fatalf("winner's lock must survive the stale holder's release: %s", raw)
+	}
+
+	// After its own Release the fence reads lost as well.
+	l2 := TryAcquireRun(home, "TASK2", 0)
+	if l2 == nil || !l2.StillHeld() {
+		t.Fatalf("fresh acquire must read held, got %+v", l2)
+	}
+	l2.Release()
+	if l2.StillHeld() {
+		t.Fatal("released lease must read as lost")
+	}
+}

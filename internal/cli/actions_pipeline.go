@@ -607,7 +607,17 @@ func taskCommand() *cobra.Command {
 					}
 					return pipeline.TaskImplResult{OK: res.OK, Worker: res.Worker, Attempts: res.Attempts, WorktreePath: res.WorktreePath}
 				},
-				PublishStage: taskPublishStage(repo, prompt, base, autoMerge, logger, &pubErr),
+				PublishStage: func(c pipeline.TaskOptions, ticket pipeline.TicketSpec, impl pipeline.PublishImpl) string {
+					// Lease-generation fencing: the run lock can be broken and
+					// re-acquired by a newer incarnation while this run still
+					// streams (dead-holder stale-break). A holder that lost its
+					// lease must never publish — refuse loudly before any push.
+					if !lock.StillHeld() {
+						pubErr = fmt.Errorf("run lock for %s lost (broken or re-acquired by a newer run) — refusing to publish", taskID)
+						return ""
+					}
+					return taskPublishStage(repo, prompt, base, autoMerge, logger, &pubErr)(c, ticket, impl)
+				},
 			}
 
 			result := pipeline.RunTask(pipeline.TaskOptions{

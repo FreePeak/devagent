@@ -1589,6 +1589,24 @@ existing driver with validation surfaces (test, command, telemetry, chaos
 schedule) so "the driver works perfectly" is a checkable claim, not a hope.
 
 ---
+*Last updated: 2026-09-12 (lease-generation fencing for task run locks) — the
+§"run dedup / latest-wins" lock (ledger/runregistry.go, the `src/runregistry.ts`
+port) now carries a fencing token: the lock payload is
+`{"pid":<pid>,"startedAt":<ms>,"generation":<n>}`, a fresh lock stamps
+generation 1, and every break-and-reacquire (dead-holder stale-break,
+pid-less TTL break, corrupt payload) bumps the broken holder's token — a
+token is never reused. `RunLock.Generation` exposes the token and
+`RunLock.StillHeld()` re-reads the lock file and answers whether THIS
+acquisition still owns it; `Release` keeps the #316 contract (a replaced
+lock's predecessor never unlinks the winner's file) and now also compares
+generation. The selfbuild task publish boundary (`devagent task`, the path
+the loop dispatches) consults the fence before any push: a run whose lease
+was broken and re-acquired by a newer incarnation refuses to publish with
+"run lock for <task> lost … refusing to publish" and exits 1 instead of
+double-shipping a PR. Legacy payloads without `generation` restart the
+sequence at 1; downstream payload readers (doctor artifacts check, daemon
+`countActiveRuns`) ignore the new key.
+
 *Last updated: 2026-09-12 (issue #321: loop supervision mode is versioned and checked) — `devagent doctor` gains a read-only `supervision` row: `DetectSupervision` (internal/commands/supervision.go) scans launchd/systemd unit dirs for a unit running `devagent-go loop` (adjacency-matched so the builder/orchestrator `-loop.sh` agents never match) and classifies the restart policy — `restart=always` / `KeepAlive=true` warns naming the unit (the #286 secondary hollow-restart hazard), `on-failure` or no policy passes, and nothing registered passes labeled `unsupervised (nohup) — intentional halts leave the loop stopped`. Also new: `devagent supervision` one-liner, the same mode printed by `make loop-status`, and a reviewable, opt-in launchd template `launchagents/com.devagent.selfbuild-loop.plist.template` (KeepAlive {SuccessfulExit=false} only; outside `agents-install`'s `*.plist` wildcard so installing it is a deliberate act). Pinned by fixture-file unit tests, no live supervisor required. Details §23.*
 *Last updated: 2026-09-12 (CI flake: TestReleaseKeepsReplacedLock tick-proofed) — the #316 regression test built its "later holder" decoy from a second `NowFunc()` read taken before `TryAcquireRun` stamped the lock; one ms tick between the two reads made the decoy byte-identical to `l1`'s own payload and `Release` correctly unlinked it, failing the macOS CI job on an otherwise-green PR (#329's first run, rerun green; ~0.25%/iteration measured locally). The decoy now derives from `l1.startedAt` — the value the acquisition actually stamped — so the test is wall-clock independent.*
 *Last updated: 2026-09-12 (issue #317: TUI worker panes no longer render idle while headless workers stream) — herdr's `agent_status` never leaves "idle" for `omp -p --mode json` panes launched via pane-run, so `mapPaneState`'s status-only mapping showed live workers as "● idle" in `/agents` and the TUI (and fed the stale classification). The FR-VIS-02 roster now mirrors the FR-VIS-07 sweep discriminator: `paneState` probes `pane process-info` for idle/unknown rows and upgrades a live worker foreground to `running`; interactive panes keep the agent_status signal. Pinned by `TestListSessionPanesUpgradesLiveHeadlessWorker`.*
