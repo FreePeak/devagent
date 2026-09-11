@@ -1602,7 +1602,8 @@ row's goal text. Pinned by `TestRunLoopMergePickDispatchesVerifyAndMerge`,
 `TestRunLoopImplementPickCarriesRationale` and the
 `TestResearchPickReadsTheArtifact` table (foreign-issue picks, a fallback
 mention of the *next* issue, past-tense history, extract failures,
-`#2900` ≠ `#290`).
+`#2900` ≠ `#290`), plus the prompts-level unit pins `TestWithPickRationale`
+and `TestMergeGoalTemplateDropsImplementTemplate` (`prompts_test.go`).
 Prior: 2026-09-11 (preflight probe: cap reverted, attribution
 corrected) — the 60s→120s raise (b5059c9) is **reverted**: measuring the probe
 gave two distinct modes — a 15-75s tail (one gate cleared at 56s) and a
