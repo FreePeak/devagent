@@ -112,3 +112,30 @@ above): internal/lessons and the TUI palette key on `ok`; what the loop
 actually did lives in the iteration log, `loop-phase` detail, and goal text.
 
 (Recorded 2026-09-11; shipped as PR #326.)
+
+## DECISION: open-PR detection at pick time + lint-gate analysis tolerance (2026-09-11, #328)
+
+1. **Detection half of merged = shipped.** When research names no PR, the
+   pick path checks the claimed issue's timeline for a cross-referenced OPEN
+   pull request (`openPROfIssue`: `gh api …/issues/N/timeline`, decoded like
+   prState; the pick-time OPEN guard applies to the detected PR too) and
+   routes the iteration to the verify-and-merge template. Without it,
+   merged = shipped inverts the failure: the oldest-first pick re-selects an
+   issue whose PR is open and dispatches a rewrite that cannot open a second
+   PR (live: three `no-pr` rows re-running #316 while PR #325 sat open).
+   Live-verified: iteration 261 detected PR #327 and landed #316.
+2. **Lint-gate analysis tolerance.** Tier 2 fails the gate only for a
+   completed `golangci-lint run` that reports findings (exit 1, CI's
+   issues-found contract). Timeouts, context-loading errors (`Running
+   error:`), other exits, and repos without go.mod mean the linter could not
+   analyze — logged and skipped, never a `failed-lint` row the repo did not
+   earn. Tier 2 logs its version: install CI's pinned golangci-lint
+   (ci-go.yml) for parity — a local v2.1.6 certified green where CI's v2.13.2
+   is stricter (and a shared-cache artifact produced phantom findings from
+   another branch's WIP; re-running the job cleared it).
+3. **`ProductiveGoals` filters on the shipped subset** (ok|merged|pushed):
+   CheckBacklogPick strikes PRD backlog entries from these goals, and a
+   `pr-open` row must not read as landed in the PRD while the Q27 guard
+   correctly leaves the issue re-pickable.
+
+(Recorded 2026-09-11; shipped as PR #328.)

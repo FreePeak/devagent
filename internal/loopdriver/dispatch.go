@@ -392,6 +392,14 @@ func (d *driver) runRepoLintGate(logF io.Writer) int {
 		_, _ = fmt.Fprintln(logF, "[lint] golangci-lint not on PATH — gofmt tier only")
 		return 0
 	}
+	// Version visibility: CI pins its own golangci-lint (ci-go.yml), and a
+	// local version can certify green where CI's stricter one fails — the
+	// local-green/CI-red/PR-stranded class this gate exists to kill. Log the
+	// version so a mismatch is visible in the iteration log; operators should
+	// install CI's pinned version.
+	if vres := spawn.RunCli(linter, []string{"--version"}, spawn.Options{Dir: d.cfg.Repo, TimeoutMs: 30_000}); vres.ExitCode == 0 {
+		_, _ = fmt.Fprintf(logF, "[lint] %s\n", firstLineCapped(strings.TrimSpace(vres.Stdout), 90))
+	}
 	res := spawn.RunCli(linter, []string{"run"}, spawn.Options{Dir: d.cfg.Repo, TimeoutMs: lintGateTimeoutMs})
 	combined := res.Stdout + "\n" + res.Stderr
 	couldNotAnalyze := res.TimedOut || res.ExitCode != 1 && res.ExitCode != 0 || strings.Contains(combined, "Running error:")
