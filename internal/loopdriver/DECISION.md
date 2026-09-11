@@ -85,3 +85,28 @@ inputs.
   only bash-adjacent leftovers are the LaunchAgent wiring and the
   `npx tsx src/cli.ts` wrapper, both replaced by `DevagentBin`/`DevagentArgs`
   on `LoopConfig`.
+
+## DECISION: merged = shipped (2026-09-11, #323)
+
+**Shipped** means the work is IN main. Three kinds of evidence count:
+
+1. a verify-and-merge pick whose PR is MERGED (`landed`),
+2. the PR this iteration opened having merged by record time (auto-merge or
+   a human),
+3. push mode `main` (commit+push in phase 7).
+
+A merely-open PR records the productive `pr-open` row and leaves the tracker
+issue **open** — `pr-open` breaks the starvation streak but is NOT an
+`AlreadyShipped` match (`ShippedStatuses` = ok|merged|pushed), so the issue
+stays re-pickable and the next iteration drives the merge (the
+verify-and-merge route that landed #286/#320 and #315/#324). This replaces
+close-at-PR-open, which closed the issue as shipped and stranded the work on
+unmergeable branches: 2026-09-11 found six such PRs (#323 Case B), five of
+them red on CI's `lint` job for a single unformatted file the loop's
+test-only gate never caught (now caught by the format/lint gate above the
+test gate). `pr-open` rows score as loop successes in internal/lessons
+(isLoopSuccess) and render amber in the TUI (merge pending, never green).
+
+**Row status stays `ok` for landed merges** (byte-compatibility contract
+above): internal/lessons and the TUI palette key on `ok`; what the loop
+actually did lives in the iteration log, `loop-phase` detail, and goal text.

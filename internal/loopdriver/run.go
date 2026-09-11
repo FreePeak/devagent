@@ -347,7 +347,17 @@ func (d *driver) runIteration(n int, logF io.Writer, gradient, clusters string) 
 		}
 	}
 
-	// Post-merge-back repo-level test gate.
+	// Post-merge-back repo-level gate: format/lint first (cheap, and it
+	// rejects exactly what CI's lint job rejects), then the test command.
+	if rc := d.runRepoLintGate(logF); rc != 0 {
+		_, _ = fmt.Fprintln(logF, "[testing] format/lint gate failed after merge-back")
+		d.record(logF, n, "failed-lint", goal)
+		*d.fails++
+		if d.breakerTripped(logF) {
+			return outcomeExit1
+		}
+		return outcomeSkip // bash: continue
+	}
 	if rc := d.runRepoTests(); rc != 0 {
 		_, _ = fmt.Fprintln(logF, "[testing] repo tests failed after merge-back")
 		d.record(logF, n, "failed-tests", goal)
@@ -371,19 +381,42 @@ func (d *driver) runIteration(n int, logF io.Writer, gradient, clusters string) 
 		}
 	}
 
-	// OK path. A landed merge still records `ok`, not `merged`: internal/
-	// lessons scores the Q39 lesson impact by tallying every loop-result row
-	// whose status != "ok" as a failed loop (guard.go, both the overall and the
-	// per-lesson rate), and the TUI status palette has no case for `merged`, so
-	// a distinct label would read a successful land as a failure and render it
-	// uncoloured. What the loop actually did is recorded where it is read: the
-	// iteration log line, the `loop-phase` detail, and this row's goal text.
-	d.record(logF, n, "ok", goal)
+	// merged = shipped (DECISION.md): the tracker issue closes only when the
+	// work is IN main. Three evidence kinds count: a verify-and-merge pick
+	// whose PR merged (`landed`), the opened PR having merged since (auto-
+	// merge or a human — #323 Case B: the loop used to close the issue at
+	// PR-open, stranding six shipped-but-unmergeable branches), and main
+	// push mode (commit+push above).
+	merged := landed || cfg.PushMode == "main"
+	if prNum := prNumberFromURL(prURL); prNum != 0 && d.prMerged(prNum) {
+		merged = true
+	}
+	// A landed merge records `ok` rather than `merged`: internal/lessons
+	// scores the Q39 lesson impact over loop-result rows (guard.go), and the
+	// TUI palette keys on `ok` — either a distinct label would read a
+	// successful land as a failure. What the loop actually did is recorded
+	// where it is read: the iteration log line, the `loop-phase` detail, and
+	// this row's goal text.
+	//
+	// A merely-open PR records `pr-open` — productive for the starvation gate
+	// (a PR exists; the loop is not starved) but deliberately NOT an
+	// AlreadyShipped match (selfbuild-gate.go ships on ok|merged|pushed, not
+	// pr-open), so the next iteration can pick the issue again and drive the
+	// merge instead of skipping it and closing the issue as "already shipped".
+	status := "ok"
+	if !merged {
+		status = "pr-open"
+	}
+	d.record(logF, n, status, goal)
 	if queued != nil {
 		_ = markQueueTaskDone(cfg.Repo, queued.ID, "done", "", queued)
 	}
 	if issueNum != 0 {
-		d.closeIssue(issueNum, fmt.Sprintf("self-build loop %d shipped this issue: %s", n, goal))
+		if merged {
+			d.closeIssue(issueNum, fmt.Sprintf("self-build loop %d: PR merged — shipped: %s", n, goal))
+		} else {
+			_, _ = fmt.Fprintf(logF, "[publish] PR opened, not merged — issue #%d stays open for a verify-and-merge pick (merged = shipped)\n", issueNum)
+		}
 	}
 	if cfg.PushMode == "pr" {
 		d.scheduleCleanup(n)

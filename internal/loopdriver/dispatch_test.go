@@ -1,6 +1,8 @@
 package loopdriver
 
 import (
+	"bytes"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -85,6 +87,79 @@ func TestDispatchRcMapping(t *testing.T) {
 	if rc := dispatchRc(state(7), false); rc != 7 {
 		t.Fatalf("own exit code rc = %d, want 7", rc)
 	}
+}
+
+// repoLintGateFixture tracks one Go file of the given content and returns the
+// gate driver with a fake `golangci-lint` (exiting exitCode) first on PATH —
+// tier 2's healthy/issue shapes without a real toolchain, mirroring CI's
+// golangci-lint v2 exit contract (0 clean, 1 issues found).
+func repoLintGateFixture(t *testing.T, content string, lintExit int) (*driver, *bytes.Buffer) {
+	t.Helper()
+	repo := initFixtureRepo(t)
+	writeRepoFile(t, repo, "x.go", content)
+	if out, err := exec.Command("git", "-C", repo, "add", "x.go").CombinedOutput(); err != nil {
+		t.Fatalf("git add: %v\n%s", err, out)
+	}
+	dir := fakeBinDir(t, map[string]string{
+		"golangci-lint": fmt.Sprintf("#!/bin/sh\ncat >/dev/null\necho 'issues found' >&2\nexit %d", lintExit),
+	})
+	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
+	var log bytes.Buffer
+	return gateDriver(t, repo, ""), &log
+}
+
+// The format half of the post-merge-back gate fails an iteration for exactly
+// what CI's lint job rejects: 2026-09-11 recorded an `ok` row with one
+// unformatted file on main and every PR the loop opened went red on `lint`
+// while `go test ./...` stayed green — the work could never land.
+func TestRepoLintGate(t *testing.T) {
+	formatted := "package x\n\nfunc G() int {\n\treturn 2\n}\n"
+	unformatted := "package x\n\nfunc G() int {\n  return 2\n}\n"
+
+	t.Run("unformatted tracked Go file fails the gate", func(t *testing.T) {
+		d, log := repoLintGateFixture(t, unformatted, 0)
+		if rc := d.runRepoLintGate(log); rc != 1 {
+			t.Fatalf("rc = %d, want 1\nlog:\n%s", rc, log.String())
+		}
+		if !strings.Contains(log.String(), "unformatted (gofmt -l)") {
+			t.Fatalf("gofmt finding not logged:\n%s", log.String())
+		}
+	})
+
+	t.Run("formatted tracked Go file passes", func(t *testing.T) {
+		d, log := repoLintGateFixture(t, formatted, 0)
+		if rc := d.runRepoLintGate(log); rc != 0 {
+			t.Fatalf("rc = %d, want 0\nlog:\n%s", rc, log.String())
+		}
+	})
+
+	t.Run("golangci-lint findings fail the gate (tier 2)", func(t *testing.T) {
+		d, log := repoLintGateFixture(t, formatted, 1)
+		if rc := d.runRepoLintGate(log); rc != 1 {
+			t.Fatalf("rc = %d, want 1\nlog:\n%s", rc, log.String())
+		}
+		if !strings.Contains(log.String(), "golangci-lint run") {
+			t.Fatalf("tier-2 finding not logged:\n%s", log.String())
+		}
+	})
+
+	t.Run("NoLintGate restores the pre-gate behavior", func(t *testing.T) {
+		d, log := repoLintGateFixture(t, unformatted, 1)
+		d.cfg.NoLintGate = true
+		if rc := d.runRepoLintGate(log); rc != 0 {
+			t.Fatalf("rc = %d, want 0\nlog:\n%s", rc, log.String())
+		}
+	})
+
+	t.Run("a repo with no tracked Go files skips the gate (hermetic fixtures)", func(t *testing.T) {
+		d, log := gateDriver(t, initFixtureRepo(t), ""), &bytes.Buffer{}
+		if rc := d.runRepoLintGate(log); rc != 0 {
+			t.Fatalf("rc = %d, want 0\nlog:\n%s", rc, log.String())
+		}
+		if !strings.Contains(log.String(), "no tracked Go files") {
+			t.Fatalf("skip reason not logged:\n%s", log.String())
+		}
+	})
 }
 
 // readPidfile polls for the shim's recorded pid.
