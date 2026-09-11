@@ -100,17 +100,43 @@ func paneCardLines(p TuiPane, inner int, selected bool) []string {
 	return boxLinesLines(title, body, inner)
 }
 
-// queuedCardLines renders a boxed queued-task card.
+// queuedCardLines renders a boxed queued-task card. The card follows the
+// row's status (issue #315): a row the daemon already claimed is not
+// "waiting for a worker claim", so it carries its own status and names the
+// holder — the phantom pending card while the worker streams is the bug.
 func queuedCardLines(t TuiQueuedTask, inner int, selected bool) []string {
 	body := []string{
-		" " + ChipFor("queued", "queued") + "  " + Dim + Truncate(t.Title, maxInt(10, inner-14)) + Reset,
-		" " + Dim + "waiting for a worker claim" + Reset,
+		" " + queueRowChip(t) + "  " + Dim + Truncate(t.Title, maxInt(10, inner-14)) + Reset,
+		" " + Dim + queueClaimLine(t) + Reset,
 	}
 	title := Truncate(orDefault(t.ID, "?"), inner-6)
 	if selected {
 		title = Cyan + "▸" + Reset + " " + Truncate(orDefault(t.ID, "?"), inner-8)
 	}
 	return boxLinesLines(title, body, inner)
+}
+
+// queueRowChip is the status chip of a queue-row card: a pending row keeps
+// the historical "queued" chip, any other status carries its own name.
+func queueRowChip(t TuiQueuedTask) string {
+	status := orDefault(t.Status, "pending")
+	if status == "pending" {
+		return ChipFor("queued", "queued")
+	}
+	return ChipFor(chipStateForQueue(status), status)
+}
+
+// queueClaimLine is the second line of a queue-row card: what the row waits
+// for, or who holds it (issue #315).
+func queueClaimLine(t TuiQueuedTask) string {
+	status := orDefault(t.Status, "pending")
+	if status == "pending" {
+		return "waiting for a worker claim"
+	}
+	if t.ClaimedBy != "" {
+		return status + " by " + t.ClaimedBy
+	}
+	return status
 }
 
 func orDefault(v, def string) string {
@@ -276,9 +302,10 @@ func liveRunsField(status *StatusPayload, panes []TuiPane) string {
 	}
 	var failed float64
 	if status.Runs != nil {
-		// FR-TUI-P-03: failed_recent is a historical count — it must never
-		// paint the aggregate FAILED (only circuit=="open" does). Render it
-		// as a dim amber "Nf recent" suffix beside the live active count.
+		// FR-TUI-P-03: failed_recent is a windowed queue-failed count (24h
+		// since issue #315; all-time before) — even a fresh past failure must
+		// never paint the aggregate FAILED (only circuit=="open" does).
+		// Render it as a dim amber "Nf recent" suffix beside the live count.
 		failed = orNum(status.Runs.FailedRecent)
 	}
 	if failed > 0 {
@@ -596,11 +623,10 @@ func detailOverlayLines(item any, width int) []string {
 	case TuiQueuedTask:
 		titleID = orDefault(it.ID, "?")
 		body = []string{
-			" " + ChipFor("queued", "queued") + "  " + Dim + orDefault(it.Status, "pending") + Reset,
-			" " + Dim + "created " + Truncate(orDefault(it.CreatedAt, "-"), inner-10) + Reset,
+			" " + queueRowChip(it) + "  " + Dim + "created " + Truncate(orDefault(it.CreatedAt, "-"), inner-10) + Reset,
 			"",
 			" " + Truncate(it.Title, inner-2),
-			DimText(" waiting for a worker claim"),
+			DimText(" " + queueClaimLine(it)),
 		}
 	}
 	title = Cyan + "▸" + Reset + " " + Truncate(titleID, inner-8)

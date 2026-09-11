@@ -144,7 +144,7 @@ func TestAggregateStatusLiveOutranksFailedCount(t *testing.T) {
 	st3.Queue = &StatusQueueCounts{Pending: fptr(0), Claimed: fptr(0), Done: fptr(3)}
 	st3.Circuit = "closed"
 	if got := AggregateStatus(&st3, nil); got != "IDLE" {
-		t.Fatalf("lifetime failed count must not pin FAILED: %s", got)
+		t.Fatalf("failed_recent must not pin FAILED: %s", got)
 	}
 	st4 := *snap.Status
 	st4.Runs = &RunsPayload{Active: fptr(0), FailedRecent: fptr(0)}
@@ -376,6 +376,13 @@ func TestNormalizeAgentsEnvelope(t *testing.T) {
 	if ag == nil || len(ag.Panes) != 0 || len(ag.Queued) != 0 {
 		t.Fatalf("non-object pane rows must degrade to empty: %+v", ag)
 	}
+	// Issue #315: the claim owner rides the envelope so the card can name it.
+	claimed := NormalizeAgents(map[string]any{
+		"queued": []any{map[string]any{"id": "TASK-q", "status": "claimed", "claimedBy": "daemon"}},
+	})
+	if len(claimed.Queued) != 1 || claimed.Queued[0].ClaimedBy != "daemon" {
+		t.Fatalf("claimedBy dropped by the envelope: %+v", claimed.Queued)
+	}
 }
 
 func TestRenderDashboardHeaderLoopHeartbeat(t *testing.T) {
@@ -414,5 +421,33 @@ func TestRenderDashboardHeaderLoopHeartbeat(t *testing.T) {
 	bare := plain(RenderDashboard(testSnapshot(), RenderOptions{}))
 	if strings.Contains(bare, "phase:") {
 		t.Fatalf("no heartbeat and no history must yield no phase line: %s", bare)
+	}
+}
+
+func TestQueuedCardFollowsRowStatus(t *testing.T) {
+	// Issue #315: the daemon claims the row it dispatches before spawning, so
+	// a claimed row must not render as the phantom "queued · waiting for a
+	// worker claim" card while its worker runs.
+	snap := testSnapshot()
+	snap.Agents.Queued = []TuiQueuedTask{{
+		ID: "TASK-315", Title: "dispatched goal", Status: "claimed",
+		ClaimedBy: "daemon", CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
+	}}
+	out := plain(RenderDashboard(snap, RenderOptions{}))
+	if !strings.Contains(out, "claimed by daemon") {
+		t.Fatalf("claimed card must name its holder:\n%s", out)
+	}
+	if strings.Contains(out, "waiting for a worker claim") {
+		t.Fatalf("claimed row must not wait for a claim:\n%s", out)
+	}
+
+	// A pending row keeps the historical card.
+	snap.Agents.Queued = []TuiQueuedTask{{
+		ID: "TASK-316", Title: "queued goal", Status: "pending",
+		CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
+	}}
+	out = plain(RenderDashboard(snap, RenderOptions{}))
+	if !strings.Contains(out, "● queued") || !strings.Contains(out, "waiting for a worker claim") {
+		t.Fatalf("pending card changed:\n%s", out)
 	}
 }

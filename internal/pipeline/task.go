@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/FreePeak/devagent/internal/ledger"
+	"github.com/FreePeak/devagent/internal/queue"
 	"github.com/FreePeak/devagent/internal/scout"
 )
 
@@ -265,4 +266,41 @@ func PublishTaskBranch(opts TaskPublishOptions, impl PublishImpl, io TaskPublish
 		Title:    title,
 		Body:     body,
 	})
+}
+
+// DispatchClaimOwner is the queue claim owner the control API stamps on the
+// row it dispatches (`POST /dispatch`, issue #315). The selfbuild loop claims
+// under `selfbuild-loop-<pid>`, so a daemon-owned claim is never confused
+// with a loop claim.
+const DispatchClaimOwner = "daemon"
+
+// FinishDispatchClaim releases the control API's claim on a dispatched row
+// once the run it spawned ends: `done` on a clean run, `failed` with the
+// detail otherwise. The write is fenced on the generation read back from the
+// row, so a row another worker reclaimed meanwhile is never overwritten, and
+// a row this process does not own (any other claimedBy) is left alone —
+// `devagent task --id` is also driven with ids that have no daemon row (the
+// CI fixer, remote forwarding), and those must not touch the queue.
+//
+// The release lives in the CHILD (`devagent task`), not the daemon: the
+// detached child outlives a daemon restart (setDetach), so a daemon-side
+// release would silently drop the completion, leave the row claimed until its
+// lease lapses, and the selfbuild loop would then re-run a finished goal.
+func FinishDispatchClaim(repoPath, taskID string, ok bool, detail string) {
+	if taskID == "" {
+		return
+	}
+	row := queue.ReadTask(repoPath, taskID)
+	if row == nil || row.ClaimedBy == nil || *row.ClaimedBy != DispatchClaimOwner {
+		return
+	}
+	gen := int64(0)
+	if row.LeaseGeneration != nil {
+		gen = int64(*row.LeaseGeneration)
+	}
+	if ok {
+		_ = queue.CompleteTask(repoPath, taskID, gen, nil)
+		return
+	}
+	_ = queue.FailTask(repoPath, taskID, gen, detail, nil)
 }

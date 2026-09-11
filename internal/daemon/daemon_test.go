@@ -18,6 +18,7 @@ import (
 	"github.com/FreePeak/devagent/internal/herdr"
 	"github.com/FreePeak/devagent/internal/ledger"
 	"github.com/FreePeak/devagent/internal/orchestrator"
+	"github.com/FreePeak/devagent/internal/pipeline"
 	"github.com/FreePeak/devagent/internal/platform"
 	"github.com/FreePeak/devagent/internal/queue"
 )
@@ -485,6 +486,9 @@ func TestDispatchHappyPath(t *testing.T) {
 	if captured.TimeoutMinutes != nil {
 		t.Fatalf("spec.timeoutMinutes = %v, want unset", captured.TimeoutMinutes)
 	}
+	if captured.TaskID != taskID {
+		t.Fatalf("spec.taskId = %q, want %q", captured.TaskID, taskID)
+	}
 
 	// autoPr: explicit true threads through; absent defaults to false.
 	code, out = authedPost(t, base+"/dispatch", `{"prompt":"headless","autoPr":true}`)
@@ -522,6 +526,21 @@ func TestDispatchHappyPath(t *testing.T) {
 	}
 	if row.Goal != "do the thing\nsecond line" {
 		t.Fatalf("goal = %q", row.Goal)
+	}
+
+	// Issue #315: the row is claimed by the daemon before the worker spawns,
+	// with a lease the selfbuild loop must respect.
+	if row.Status != queue.StatusClaimed {
+		t.Fatalf("status = %q, want claimed", row.Status)
+	}
+	if row.ClaimedBy == nil || *row.ClaimedBy != pipeline.DispatchClaimOwner {
+		t.Fatalf("claimedBy = %v, want %s", row.ClaimedBy, pipeline.DispatchClaimOwner)
+	}
+	if row.LeaseExpiresAt == nil || *row.LeaseExpiresAt == "" {
+		t.Fatalf("claimed row carries no lease: %+v", row)
+	}
+	if next := queue.ClaimNextPending(repo, "selfbuild-loop-1", nil); next != nil {
+		t.Fatalf("selfbuild loop claimed a dispatched row: %+v", next)
 	}
 }
 
@@ -1201,5 +1220,73 @@ func TestCountActiveRuns(t *testing.T) {
 	}
 	if got := countActiveRuns(home); got != 1 {
 		t.Fatalf("active = %d, want 1 (fresh lock only; stale/corrupt/non-lock skipped)", got)
+	}
+}
+
+func TestDispatchArgvTaskID(t *testing.T) {
+	// Issue #315: the queue row's id reaches the child as --id, so its run
+	// lock, worktree and branch all name the row the card shows.
+	withID := dispatchArgv(DispatchSpec{RepoPath: "/repo", Prompt: "p", TaskID: "TASK-1234abcd"})
+	i := slices.Index(withID, "--id")
+	if i < 0 || i+1 >= len(withID) || withID[i+1] != "TASK-1234abcd" {
+		t.Fatalf("argv = %v, want --id TASK-1234abcd", withID)
+	}
+	if slices.Contains(dispatchArgv(DispatchSpec{RepoPath: "/repo", Prompt: "p"}), "--id") {
+		t.Fatalf("empty task id emitted --id")
+	}
+	// An empty worker must not produce a bare --worker "" (the flag pair is
+	// emitted only when a worker is set).
+	if slices.Contains(dispatchArgv(DispatchSpec{RepoPath: "/repo", Prompt: "p"}), "--worker") {
+		t.Fatalf("empty worker emitted --worker")
+	}
+}
+
+func TestStatusFailedRecentWindow(t *testing.T) {
+	repo := t.TempDir()
+	// The issue #315 field case: a row failed 17 days ago must not read as
+	// "1f recent" on the dashboard banner or pin the desktop tray at failed.
+	queue.EnsureQueueDirs(repo)
+	old := `{"id":"SCOUT-20260825-lvvj","title":"old","goal":"g","acceptanceCriteria":[],` +
+		`"status":"failed","createdAt":"2026-08-25T00:00:00.000Z","updatedAt":"2026-08-25T00:00:00.000Z"}`
+	if err := os.WriteFile(filepath.Join(queue.QueueDir(repo), "SCOUT-20260825-lvvj.json"),
+		[]byte(old), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := testDaemon(t, func(o *Options) { o.RepoPath = repo })
+	base := daemonBase(h)
+	runs := func() int {
+		t.Helper()
+		code, body := authedGet(t, base+"/status")
+		if code != http.StatusOK {
+			t.Fatalf("status = %d (%v)", code, body)
+		}
+		r, _ := body["runs"].(map[string]any)
+		n, _ := r["failed_recent"].(float64)
+		return int(n)
+	}
+	if got := runs(); got != 0 {
+		t.Fatalf("failed_recent = %d, want 0 (17-day-old failure)", got)
+	}
+
+	// A failure inside the window counts, and decays out of it.
+	if _, err := queue.EnqueueTask(repo, queue.EnqueueInput{ID: "TASK-new", Title: "n", Goal: "g"}); err != nil {
+		t.Fatal(err)
+	}
+	claimed := queue.ClaimTask(repo, "TASK-new", "w", nil)
+	if claimed == nil {
+		t.Fatal("claim TASK-new failed")
+	}
+	if queue.FailTask(repo, "TASK-new", int64(*claimed.LeaseGeneration), "boom", nil) == nil {
+		t.Fatal("fail TASK-new refused")
+	}
+	if got := runs(); got != 1 {
+		t.Fatalf("failed_recent = %d, want 1 (fresh failure)", got)
+	}
+	at, err := queue.ParseISO(queue.ReadTask(repo, "TASK-new").UpdatedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := countRecentFailed(repo, at+failedRecentWindowMs+1); got != 0 {
+		t.Fatalf("failed_recent = %d one window later, want 0", got)
 	}
 }

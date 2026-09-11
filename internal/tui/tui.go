@@ -73,9 +73,12 @@ type TuiPane struct {
 
 // TuiQueuedTask is the queue-row subset exposed on /agents.queued.
 type TuiQueuedTask struct {
-	ID        string `json:"id"`
-	Title     string `json:"title"`
-	Status    string `json:"status"`
+	ID     string `json:"id"`
+	Title  string `json:"title"`
+	Status string `json:"status"`
+	// ClaimedBy is the worker holding the row (issue #315): a claimed row is
+	// not "waiting for a worker claim", and the card names its holder.
+	ClaimedBy string `json:"claimedBy,omitempty"`
 	CreatedAt string `json:"createdAt"`
 }
 
@@ -366,6 +369,9 @@ func NormalizeAgents(value any) *AgentPayload {
 				if s, ok := qm["status"].(string); ok {
 					q.Status = s
 				}
+				if s, ok := qm["claimedBy"].(string); ok {
+					q.ClaimedBy = s
+				}
 				if s, ok := qm["createdAt"].(string); ok {
 					q.CreatedAt = s
 				}
@@ -402,9 +408,10 @@ func queueRows(snap *Snapshot) []TuiQueuedTask {
 }
 
 // AggregateStatus computes the header aggregate. FAILED means live trouble
-// (circuit open — the factory cannot dispatch), not "some task failed at
-// some point": runs.failed_recent is a lifetime queue-failed count that never
-// decays, so it pinned the header at FAILED permanently (2026-09-05 fix).
+// (circuit open — the factory cannot dispatch), not "some task failed": even
+// a current-window failure (runs.failed_recent, 24h since issue #315, all-time
+// before) is not live trouble, so it pinned the header at FAILED permanently
+// (2026-09-05 fix).
 // PAUSED means a task waits on the operator (a paused 'ask' gate): the
 // approval moment is the one state a dashboard must never render as idle
 // (the opencode/crush convention — permission-needed is unmissable), so it

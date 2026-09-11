@@ -262,16 +262,17 @@ func LeaseIsExpired(task *QueuedTask, now int64) bool {
 	if task.LeaseExpiresAt == nil || *task.LeaseExpiresAt == "" {
 		return true
 	}
-	at, err := parseIso(*task.LeaseExpiresAt)
+	at, err := ParseISO(*task.LeaseExpiresAt)
 	if err != nil {
 		return true
 	}
 	return at <= now
 }
 
-// parseIso parses a JS-style ISO timestamp. Time zone: Go's time package
-// accepts the trailing Z / +hh:mm forms directly.
-func parseIso(s string) (int64, error) {
+// ParseISO parses a JS-style ISO timestamp into Unix milliseconds. Time
+// zone: Go's time package accepts the trailing Z / +hh:mm forms directly.
+// (Exported for /status runs.failed_recent's window, issue #315.)
+func ParseISO(s string) (int64, error) {
 	t, err := time.Parse(time.RFC3339Nano, s)
 	if err != nil {
 		return 0, err
@@ -748,7 +749,7 @@ func PruneDone(repoPath string, cutoffMs int64) int {
 	removed := 0
 	now := time.Now().UnixMilli()
 	for _, t := range tasks {
-		at, err := parseIso(t.UpdatedAt)
+		at, err := ParseISO(t.UpdatedAt)
 		if err != nil {
 			continue
 		}
