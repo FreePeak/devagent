@@ -1162,6 +1162,21 @@ PRODUCTION-READINESS #1), Squawk/Atlas G3 engines + migration-history hashing,
 bors-style batched merged-result oracle (PRD:885), sentinel worker exits +
 format-error breakers, synthetic-bug gate calibration.
 
+### 19.8 Competitor handoff-workflow mechanics (2026-09-11)
+
+Nine-scout internet research on how the competitive set (Devin, Copilot cloud
+agent + Agent HQ, Codex, Jules, Factory, OpenHands, Claude Code, Cursor, plus the
+Amp/Qodo/Blitzy long tail) builds unattended ticket→PR handoffs: nine-part
+anti-babysitting pattern catalog (soft/timed plan gates, park-and-wake event
+subscriptions, stuck taxonomies, bounded CI-fix loops with base-failure skip,
+evidence artifacts at PR time, human-keeps-merge, sandbox/egress/budget/ceiling
+guardrails, resume + local↔cloud baton passes) mapped onto DevAgent §10 pipeline
+states with eight concrete deltas (Clarify wake-up, stuck-signature checks,
+review-request-as-notification, advisory plan gate, CI-fix guards, migration
+evidence artifact, secrets-out-of-agent-phase, schema completion contract):
+`docs/research/2026-09-11-competitor-handoff-workflows.md`. Confirms §4.2 white
+space: nobody syncs ticket state post-merge or does domain-level validation.
+
 ---
 
 
@@ -1551,7 +1566,13 @@ existing driver with validation surfaces (test, command, telemetry, chaos
 schedule) so "the driver works perfectly" is a checkable claim, not a hope.
 
 ---
-*Last updated: 2026-09-11 (preflight probe: cap reverted, attribution
+*Last updated: 2026-09-11 (competitor handoff-workflow research) — nine-scout
+internet research on how competitors run ticket→PR unattended (soft plan gates,
+park-and-wake states, stuck taxonomies, bounded CI-fix loops, evidence artifacts,
+guardrail stack) distilled into a pattern catalog + eight pipeline deltas in
+`docs/research/2026-09-11-competitor-handoff-workflows.md`, linked as §19.8.
+Confirms §4.2 white space.
+Prior: 2026-09-11 (preflight probe: cap reverted, attribution
 corrected) — the 60s→120s raise (b5059c9) is **reverted**: measuring the probe
 gave two distinct modes — a 15-75s tail (one gate cleared at 56s) and a
 hard-stall mode that never answered within 170s (5/5) — and 120s cannot fix the
