@@ -103,6 +103,10 @@ type DoctorOptions struct {
 	// ProcessAlive is the pid-liveness seam (check 9). Nil = signal 0 probe
 	// on unix, loopdriver's off-unix degradation elsewhere.
 	ProcessAlive func(pid int) bool
+	// Supervision resolves the loop's supervision mode (check 10, issue
+	// #321). Nil = DetectSupervision over the user's home (read-only unit
+	// scan: no launchctl / systemctl calls).
+	Supervision func() SupervisionMode
 }
 
 // doctorHome mirrors the daemon's devagentHome: DEVAGENT_HOME wins, else
@@ -582,6 +586,42 @@ func RunDoctor(opts DoctorOptions) (DoctorResult, error) {
 			check.Hint = strings.Join(uniqueStrings(append(failHints, warnHints...)), "; ")
 		} else {
 			check.Detail += "no stale locks"
+		}
+		result.Checks = append(result.Checks, check)
+	}
+
+	// 10. Loop supervision mode (issue #321). Nothing in-tree supervises
+	// the loop (make loop-start is plain nohup); the exposure is external
+	// supervisor config — a restart=always / KeepAlive=true unit turned the
+	// 2026-09-10 intentional exit-0 halt into 133 hollow overnight
+	// restarts. Warn on restart-on-success units (naming the unit path);
+	// on-failure and unsupervised both pass. Read-only: unit files are
+	// scanned, never launchctl/systemctl.
+	{
+		probe := opts.Supervision
+		if probe == nil {
+			probe = func() SupervisionMode {
+				home, _ := os.UserHomeDir()
+				return DetectSupervision(home)
+			}
+		}
+		m := probe()
+		check := DoctorCheck{Name: "supervision"}
+		switch {
+		case m.Unit == "":
+			check.OK = true
+			check.Detail = firstNonEmpty(m.Detail, "unsupervised (nohup) — intentional halts leave the loop stopped")
+		case m.Policy == "on-failure":
+			check.OK = true
+			check.Detail = m.Source + " unit " + m.Unit + " restarts on failure only — intentional exit-0 halts stay stopped"
+		case m.Policy == "none":
+			check.OK = true
+			check.Detail = m.Source + " unit " + m.Unit + " has no restart policy — intentional halts stay stopped"
+		default: // always (or an unrecognized restart-on-success shape)
+			check.OK = true
+			check.Warn = true
+			check.Detail = m.Source + " unit " + m.Unit + " restarts on success — every intentional exit-0 halt becomes a hollow restart (the 2026-09-10 incident: 133 overnight restarts, zero work)"
+			check.Hint = "switch the unit to restart=on-failure / KeepAlive {SuccessfulExit=false} (template: launchagents/com.devagent.selfbuild-loop.plist.template — opt-in, not installed by agents-install)"
 		}
 		result.Checks = append(result.Checks, check)
 	}

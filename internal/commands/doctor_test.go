@@ -57,6 +57,7 @@ func newDoctorFixture(t *testing.T) *doctorFixture {
 			return resilience.Probe{OK: true}
 		},
 		ProcessAlive: func(int) bool { return true },
+		Supervision:  func() SupervisionMode { return SupervisionMode{} },
 	}
 	t.Cleanup(func() {
 		for _, r := range f.restores {
@@ -96,7 +97,7 @@ func checkByName(t *testing.T, res DoctorResult, name string) DoctorCheck {
 }
 
 // TestDoctorHealthyBoxPasses: the acceptance criterion — a healthy box
-// exits 0 (result.OK true) and all nine checks answer.
+// exits 0 (result.OK true) and all ten checks answer.
 func TestDoctorHealthyBoxPasses(t *testing.T) {
 	f := newDoctorFixture(t)
 	f.stampVersion("1.2.3")
@@ -104,7 +105,7 @@ func TestDoctorHealthyBoxPasses(t *testing.T) {
 	if !res.OK {
 		t.Fatalf("healthy box reported ok=false: %+v", res)
 	}
-	want := []string{"version", "config", "home", "git-remote", "gh-auth", "herdr", "daemon", "provider", "artifacts"}
+	want := []string{"version", "config", "home", "git-remote", "gh-auth", "herdr", "daemon", "provider", "artifacts", "supervision"}
 	if len(res.Checks) != len(want) {
 		t.Fatalf("got %d checks, want %d: %+v", len(res.Checks), len(want), res.Checks)
 	}
