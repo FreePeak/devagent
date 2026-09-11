@@ -195,3 +195,4 @@
 {"loop":234,"ts":"2026-09-10T23:23:23Z","status":"provider-degraded","goal":"preflight: provider probe failed"}
 {"loop":235,"ts":"2026-09-10T23:26:42Z","status":"provider-degraded","goal":"preflight: provider probe failed"}
 {"loop":236,"ts":"2026-09-11T00:26:44Z","status":"ok","goal":"Goal: Implement GitHub issue #301 (loopdriver: research pick rationale dropped in goal construction — merge-existing-PR picks re-implement from scratch) in full"}
+{"loop":237,"ts":"2026-09-11T00:43:59Z","status":"ok","goal":"Goal: Issue #308 (first half). Add `spawn.RunCliUntil(name, args, opts, completed func(stdout string) bool) Result`: feed `completed` the accumulated stdout per"}
