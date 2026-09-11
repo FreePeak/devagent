@@ -72,13 +72,17 @@ func TestTryAcquireRunRefusesFreshLiveHolder(t *testing.T) {
 // older lock.
 func TestReleaseKeepsReplacedLock(t *testing.T) {
 	home := t.TempDir()
-	base := NowFunc()
 	l1 := TryAcquireRun(home, "ticket/one", 0)
 	if l1 == nil {
 		t.Fatal("fresh acquire must succeed")
 	}
+	base := l1.startedAt
 	// A later holder overwrites the file: different startedAt, so the bytes
 	// no longer belong to l1 even though the pid matches (same test process).
+	// Derive the decoy from the acquisition's own startedAt — a fresh
+	// NowFunc() read can tick past the lock's real startedAt on a ms
+	// boundary, making the "later" payload byte-identical to l1's own and
+	// flaking the assertion (CI-Go macOS, 2026-09-11).
 	later := `{"pid":` + strconv.Itoa(os.Getpid()) + `,"startedAt":` + strconv.FormatInt(base+1, 10) + `}`
 	if err := os.WriteFile(l1.Path, []byte(later), 0o644); err != nil {
 		t.Fatal(err)
