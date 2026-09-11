@@ -206,3 +206,4 @@
 {"loop":245,"ts":"2026-09-11T06:18:03Z","status":"provider-degraded","goal":"preflight: provider probe failed"}
 {"loop":246,"ts":"2026-09-11T06:21:22Z","status":"provider-degraded","goal":"preflight: provider probe failed"}
 {"loop":247,"ts":"2026-09-11T06:24:46Z","status":"provider-degraded","goal":"preflight: provider probe failed"}
+{"loop":248,"ts":"2026-09-11T07:05:25Z","status":"failed","goal":"Goal: Implement GitHub issue #286 (loopdriver: starvation-halt path can hang forever on a child's unclosed stdout (os/exec io.Copy)) in full and verifiably. Rea"}
