@@ -132,13 +132,19 @@ func TryAcquireRun(homeDir, ticketID string, ttlMs int64) *RunLock {
 			return nil
 		}
 		tmpName := tmp.Name()
-		defer os.Remove(tmpName) // no-op once the rename has moved it
+		defer func() { _ = os.Remove(tmpName) }() // no-op once the rename has moved it
 		if _, err := tmp.WriteString(payload); err != nil {
-			tmp.Close()
+			if err := tmp.Close(); err != nil {
+				return nil
+			}
 			return nil
 		}
-		tmp.Close()
-		_ = tmp.Chmod(0o644)
+		if err := tmp.Close(); err != nil {
+			return nil
+		}
+		if err := os.Chmod(tmpName, 0o644); err != nil {
+			return nil
+		}
 		if err := os.Rename(tmpName, path); err != nil {
 			return nil
 		}

@@ -38,7 +38,7 @@ func fenceAcquire(path string, acquire func() *RunLock) *RunLock {
 	if err != nil {
 		return nil
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	for {
 		err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
 		if err == nil || err != syscall.EINTR {
@@ -48,6 +48,6 @@ func fenceAcquire(path string, acquire func() *RunLock) *RunLock {
 	if err != nil {
 		return nil // another contender holds the fence: refuse
 	}
-	defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+	defer func() { _ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN) }()
 	return acquire()
 }
