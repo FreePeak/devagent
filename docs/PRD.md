@@ -1569,7 +1569,22 @@ existing driver with validation surfaces (test, command, telemetry, chaos
 schedule) so "the driver works perfectly" is a checkable claim, not a hope.
 
 ---
-*Last updated: 2026-09-11 (issue #308, first half) — `spawn.RunCliUntil`
+*Last updated: 2026-09-11 (spawn tree-kill follow-up, on top of #312) — the
+early-completion kill is now a swept kill, not a one-shot. #312's
+`killProcessTree` signaled the process group once; `kill(-pgid)` reaches only
+the members alive at that instant, so a child forked microseconds after the
+leader's death survived, inherited the stdout write-end, and left
+`RunCliUntil`'s reader without EOF — the call hung until the context deadline
+with the correct verdict already in hand (reproduced deterministically:
+marker at t=214ms, `kill(-pgid)` returning nil, the orphaned `sleep` alive
+with the killed child's pgid; macOS CI-Go went red on #312's merge commit
+with exactly this 20.00s signature, 1-in-40 locally). The kill now does the
+direct leader kill first (removes whoever does the forking) and then sweeps
+the group up to 10 rounds x 5ms until `Kill(-pgid)` returns ESRCH — the
+group empty, not a guess. Pinned by the pre-existing
+`TestRunCliUntilEarlyCompletion` (60x and 200x -count runs and -race clean;
+was a 1-in-40 hang before the fix).
+Prior: 2026-09-11 (issue #308, first half) — `spawn.RunCliUntil`
 landed in `internal/spawn`: the streaming/early-completion exec primitive
 (predicate receives accumulated stdout per chunk; marker → process-tree kill
 with `ExitCode -1`/`TimedOut=false` — the predicate, not the exit code, is
