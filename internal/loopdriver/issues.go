@@ -134,3 +134,53 @@ func (d *driver) prState(num int) string {
 // so never prints a "PR opened:" line. Anything else reads as not shipped: the
 // issue stays open for re-pick (#238 semantics).
 func (d *driver) prMerged(num int) bool { return d.prState(num) == "MERGED" }
+
+// ghTimelineEvent mirrors the cross-referenced entries of the issue timeline
+// REST response (GET /repos/{owner}/{repo}/issues/{n}/timeline).
+type ghTimelineEvent struct {
+	Event  string `json:"event"`
+	Source *struct {
+		Issue *struct {
+			Number      int       `json:"number"`
+			PullRequest *struct{} `json:"pull_request,omitempty"`
+		} `json:"issue"`
+	} `json:"source"`
+}
+
+// openPROfIssue returns the number of the pull request cross-referenced on
+// issue issueNum's timeline that is currently OPEN — the deterministic
+// detection half of merged = shipped: an issue whose own PR is open must
+// route to a verify-and-merge dispatch, not a fresh rewrite that cannot open
+// a second PR (#323 Case B: three no-pr rows re-running #316 while its PR sat
+// open). The research prose parse stays as the richer fallback; this only
+// fires when research did not name a PR. 0 when gh cannot say or no open PR
+// is linked.
+func (d *driver) openPROfIssue(issueNum int) int {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, d.cfg.GhBin, "api",
+		"repos/"+d.cfg.GHRepo+"/issues/"+strconv.Itoa(issueNum)+"/timeline?per_page=100")
+	cmd.Dir = d.cfg.Repo
+	cmd.WaitDelay = pipeDrainDelay
+	out, err := cmd.Output()
+	// Drain-cutoff tolerance, same contract as prState (#286).
+	if err != nil && (cmd.ProcessState == nil || !cmd.ProcessState.Success()) {
+		return 0
+	}
+	var events []ghTimelineEvent
+	if err := json.Unmarshal(out, &events); err != nil {
+		return 0
+	}
+	for _, ev := range events {
+		if ev.Event != "cross-referenced" || ev.Source == nil || ev.Source.Issue == nil {
+			continue
+		}
+		if ev.Source.Issue.PullRequest == nil {
+			continue // an issue cross-reference, not a pull request
+		}
+		if num := ev.Source.Issue.Number; num != issueNum && d.prState(num) == "OPEN" {
+			return num
+		}
+	}
+	return 0
+}

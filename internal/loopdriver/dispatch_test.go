@@ -97,7 +97,10 @@ func repoLintGateFixture(t *testing.T, content string, lintExit int) (*driver, *
 	t.Helper()
 	repo := initFixtureRepo(t)
 	writeRepoFile(t, repo, "x.go", content)
-	if out, err := exec.Command("git", "-C", repo, "add", "x.go").CombinedOutput(); err != nil {
+	// Tier 2 only runs on Go modules (a repo without go.mod skips it), so the
+	// fixture is a minimal module.
+	writeRepoFile(t, repo, "go.mod", "module x\n\ngo 1.25\n")
+	if out, err := exec.Command("git", "-C", repo, "add", "x.go", "go.mod").CombinedOutput(); err != nil {
 		t.Fatalf("git add: %v\n%s", err, out)
 	}
 	dir := fakeBinDir(t, map[string]string{

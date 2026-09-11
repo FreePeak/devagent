@@ -175,13 +175,17 @@ func AlreadyShipped(goal string, ledgerLines []string) AlreadyShippedVerdict {
 	return AlreadyShippedVerdict{Shipped: false, Reason: ShippedReasonNone}
 }
 
-// ProductiveGoals mirrors productiveGoals: goal texts of productive ledger
-// rows. Rows that are not JSON or carry no non-empty `goal` field (release
+// ProductiveGoals mirrors productiveGoals: goal texts of ledger rows whose
+// work is IN main (the ShippedStatuses subset, not the productive set — a
+// `pr-open` row is productive for the starvation gate but its backlog item
+// must not read as landed: CheckBacklogPick strikes PRD backlog entries from
+// these goals, and a merely-open PR is exactly what must NOT be struck).
+// Rows that are not JSON or carry no non-empty `goal` field (release
 // records, malformed lines) are skipped — they are not goal evidence.
 func ProductiveGoals(ledgerLines []string) []string {
 	goals := []string{}
 	for _, raw := range ledgerLines {
-		if !productiveRe.MatchString(raw) {
+		if !shippedRe.MatchString(raw) {
 			continue
 		}
 		var row struct {
