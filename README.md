@@ -145,6 +145,8 @@ none is reachable it embeds an ephemeral one for the session (marked
 a long-lived shared daemon. Flicker-free htop-style redraw; a non-TTY stdin
 prints one snapshot and exits 0.
 
+![DevAgent TUI: live worker cards, queue meter, sparkline, and ledger tail](docs/screenshots/tui-dashboard.png)
+
 See [docs/TUI.md](docs/TUI.md) for the keyboard reference, daemon modes, and architecture.
 
 ### Herdr worker panes
