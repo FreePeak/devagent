@@ -841,8 +841,8 @@ func DefaultDispatchRunner(spec DispatchSpec) DispatchResult {
 	cmd.Dir = cwd
 	cmd.Env = append(os.Environ(), "DEVAGENT_VISIBILITY="+visibilityEnv())
 	if logf := dispatchLogWriter(spec.TaskID); logf != nil {
-		defer logf.Close()
-		fmt.Fprintf(logf, "[%s] dispatch %s started\n", time.Now().UTC().Format(time.RFC3339), spec.TaskID)
+		defer func() { _ = logf.Close() }()
+		_, _ = fmt.Fprintf(logf, "[%s] dispatch %s started\n", time.Now().UTC().Format(time.RFC3339), spec.TaskID)
 		cmd.Stdout = logf
 		cmd.Stderr = logf
 	}

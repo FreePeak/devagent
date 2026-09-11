@@ -1254,7 +1254,7 @@ func TestDispatchLogWriter(t *testing.T) {
 	if _, err := f.WriteString("first spawn\n"); err != nil {
 		t.Fatal(err)
 	}
-	f.Close()
+	_ = f.Close()
 	// A later dispatch to the same id appends: a daemon restart must not
 	// wipe the refused-spawn evidence.
 	f2 := dispatchLogWriter("TASK-1234abcd")
@@ -1264,7 +1264,7 @@ func TestDispatchLogWriter(t *testing.T) {
 	if _, err := f2.WriteString("second spawn\n"); err != nil {
 		t.Fatal(err)
 	}
-	f2.Close()
+	_ = f2.Close()
 	raw, err := os.ReadFile(filepath.Join(home, "runs", "dispatch-TASK-1234abcd.log"))
 	if err != nil {
 		t.Fatal(err)
@@ -1276,7 +1276,7 @@ func TestDispatchLogWriter(t *testing.T) {
 	if f3 := dispatchLogWriter(""); f3 == nil {
 		t.Fatal("empty task id must fall back to the unscoped log")
 	} else {
-		f3.Close()
+		_ = f3.Close()
 	}
 }
 
