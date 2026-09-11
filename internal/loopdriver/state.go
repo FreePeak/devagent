@@ -61,6 +61,11 @@ func newStateSync(repo string, stdout io.Writer, now func() time.Time) *stateSyn
 	return &stateSync{repo: repo, stdout: stdout, now: now}
 }
 
+// git runs one state-sync git command, network-bounded by networkTimeout.
+// Output() captures through a pipe, so the teardown is drain-bounded
+// (issue #286): the ctx kill takes out the git child, but an ssh
+// grandchild it spawned keeps the pipe write end open — without WaitDelay
+// the copy goroutine pins Wait forever even after the deadline fired.
 func (s *stateSync) git(captureStderr io.Writer, stdin string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), networkTimeout)
 	defer cancel()
@@ -68,10 +73,16 @@ func (s *stateSync) git(captureStderr io.Writer, stdin string, args ...string) (
 	cmd.Dir = s.repo
 	cmd.Env = gitEnv()
 	cmd.Stderr = captureStderr
+	cmd.WaitDelay = pipeDrainDelay
 	if stdin != "" {
 		cmd.Stdin = strings.NewReader(stdin)
 	}
 	out, err := cmd.Output()
+	// A drain cutoff (ErrWaitDelay) must not flip a git child that itself
+	// exited 0 into an error — push/pull verdicts feed the ledger.
+	if err != nil && cmd.ProcessState != nil && cmd.ProcessState.Success() {
+		err = nil
+	}
 	return string(out), err
 }
 

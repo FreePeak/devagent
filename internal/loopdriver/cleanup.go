@@ -44,12 +44,18 @@ func (d *driver) scheduleCleanup(loopNum int) {
 }
 
 // gitQuiet runs a local git command in the repo; returns (stdout, ok) with
-// ok = exit 0.
+// ok = exit 0. Output() captures through a pipe, so the teardown is
+// drain-bounded (issue #286): a git child that left a grandchild holding
+// the write end must not pin Wait's io.Copy forever.
 func (d *driver) gitQuiet(args ...string) (string, bool) {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = d.cfg.Repo
+	cmd.WaitDelay = pipeDrainDelay
 	out, err := cmd.Output()
-	return string(out), err == nil
+	// A drain cutoff (ErrWaitDelay) must not flip a git child that itself
+	// exited 0 into "failed" — push/pull verdicts feed loop control flow.
+	ok := err == nil || (cmd.ProcessState != nil && cmd.ProcessState.Success())
+	return string(out), ok
 }
 
 // remoteBranchTip returns the remote tip sha for a branch via unbounded

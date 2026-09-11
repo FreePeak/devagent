@@ -92,6 +92,10 @@ func loopConfigFor(t *testing.T, repo string, mutate func(*LoopConfig)) LoopConf
 		// the real omp CLI from PATH on this machine.
 		ResearchBin: "omp-fake",
 		POBin:       "omp-fake",
+		// Every hermetic RunLoop test that reaches a terminal verdict arms
+		// the #286 exit watchdog; a real os.Exit would kill the test
+		// binary. Watchdog-specific tests override it via mutate.
+		Exit: func(int) {},
 	}
 	if mutate != nil {
 		mutate(&cfg)

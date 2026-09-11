@@ -82,6 +82,16 @@ type LoopConfig struct {
 	GhBin string
 	// LockDir overrides the default Repo/.selfbuild/loop.lock.d; test seam.
 	LockDir string
+	// ExitWatchdogDelay bounds how long a terminal loop verdict may take
+	// to actually leave the process (issue #286): the driver printed its
+	// starvation halt and then hung forever in a wedged exec teardown
+	// while restart=always supervised the zombie. The watchdog fires Exit
+	// past this delay; 0 = the 10s default.
+	ExitWatchdogDelay time.Duration
+	// Exit is the process-exit seam the watchdog fires through; nil =
+	// os.Exit (WithDefaults fills). Hermetic tests swap it — a real
+	// os.Exit inside a test binary kills the run.
+	Exit func(code int)
 	// Now / Sleep / Stdout / Stderr are hermetic-test seams.
 	Now    func() time.Time
 	Sleep  func(time.Duration)
@@ -91,6 +101,8 @@ type LoopConfig struct {
 
 const (
 	defaultMaxFails        = 3
+	defaultIssueMax        = 50
+	defaultExitWatchdog    = 10 * time.Second
 	defaultStarvationLimit = 5
 	defaultCleanupDelay    = 1800
 	defaultClaudeTimeout   = 600
@@ -99,7 +111,6 @@ const (
 	defaultAPIMaxAttempts  = 40
 	defaultNoProgressMS    = 600000
 	defaultSyncRetrySecs   = 60
-	defaultIssueMax        = 50
 
 	defaultDispatchBin = "omp -p --mode json --no-prewalk --no-lsp --no-extensions --model onegw/free"
 
@@ -189,6 +200,12 @@ func (c LoopConfig) WithDefaults() LoopConfig {
 	}
 	if c.GhBin == "" {
 		c.GhBin = "gh"
+	}
+	if c.ExitWatchdogDelay == 0 {
+		c.ExitWatchdogDelay = defaultExitWatchdog
+	}
+	if c.Exit == nil {
+		c.Exit = os.Exit
 	}
 	if c.Now == nil {
 		c.Now = time.Now

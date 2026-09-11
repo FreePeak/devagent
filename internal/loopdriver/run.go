@@ -16,6 +16,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/FreePeak/devagent/internal/orchestrator"
 )
@@ -63,10 +64,27 @@ const (
 	outcomeExit1                      // circuit breaker or push failure
 )
 
+// haltExit arms the exit watchdog for a terminal RunLoop verdict and
+// returns the code the driver exits with. The graceful path (log close,
+// deferred release, CLI unwind) is expected to finish long before the
+// timer; the watchdog only fires if something still blocks. The hard exit
+// skips the deferred lock release, which self-heals: the next start clears
+// a dead-holder lock as stale (acquireLock).
+func (d *driver) haltExit(code int) int {
+	delay, exit, stderr := d.cfg.ExitWatchdogDelay, d.cfg.Exit, d.cfg.Stderr
+	time.AfterFunc(delay, func() {
+		_, _ = fmt.Fprintf(stderr, "[loop] exit watchdog: still alive %s after the halt verdict — forcing exit %d (issue #286)\n", delay, code)
+		exit(code)
+	})
+	return code
+}
+
 // RunLoop executes the self-build loop until max iterations, the circuit
 // breaker, or the starvation gate ends it. The returned int mirrors the
 // bash driver's exit code: 0 for intentional stops (starvation, cap, lock
-// contention), 1 for the circuit breaker / push-mode failure.
+// contention), 1 for the circuit breaker / push-mode failure. Every
+// terminal return passes through haltExit: the process must die once the
+// driver has decided to stop (issue #286).
 func RunLoop(cfg LoopConfig) int {
 	cfg = cfg.WithDefaults()
 	d := &driver{cfg: cfg, stateDir: filepath.Join(cfg.Repo, ".selfbuild")}
@@ -96,7 +114,7 @@ func RunLoop(cfg LoopConfig) int {
 	}
 	release, ok := acquireLock(cfg, d)
 	if !ok {
-		return 0
+		return d.haltExit(0)
 	}
 	defer release()
 
@@ -110,16 +128,15 @@ func RunLoop(cfg LoopConfig) int {
 		// (2026-09-04 smoke evidence).
 		if cfg.MaxIterations > 0 && n >= cfg.MaxIterations {
 			_, _ = fmt.Fprintln(cfg.Stdout, "max iterations reached")
-			return 0
+			return d.haltExit(0)
 		}
 
 		logPath := filepath.Join(d.stateDir, "logs", fmt.Sprintf("loop-%d.log", n))
 		logF, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 		if err != nil {
 			_, _ = fmt.Fprintf(cfg.Stderr, "[loop] cannot open %s: %v\n", logPath, err)
-			return 1
+			return d.haltExit(1)
 		}
-
 		_, _ = fmt.Fprintf(logF, "=== self-build loop %d start %s ===\n", n, rowTimestamp(cfg.Now))
 
 		// Starvation gate: halt a loop that stopped shipping (checked before
@@ -129,7 +146,7 @@ func RunLoop(cfg LoopConfig) int {
 		if d.starved() {
 			_, _ = fmt.Fprintf(logF, "[starvation] %d consecutive non-productive iterations — halting loop\n", cfg.StarvationLimit)
 			_ = logF.Close()
-			return 0
+			return d.haltExit(0)
 		}
 
 		// Sweep auto-pr leftovers whose grace period has elapsed.
@@ -149,7 +166,7 @@ func RunLoop(cfg LoopConfig) int {
 			}
 		case outcomeExit1:
 			_ = logF.Close()
-			return 1
+			return d.haltExit(1)
 		case outcomeNext:
 			// keep fails as-is
 		}

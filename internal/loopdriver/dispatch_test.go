@@ -157,7 +157,7 @@ func TestTaskDispatchWallKillsWedgedWorkerTree(t *testing.T) {
 	}()
 
 	grand := readPidfile(t, 30*time.Second)
-	// The dispatch returns at wall + wallWaitDelay at the latest (the
+	// The dispatch returns at wall + pipeDrainDelay at the latest (the
 	// deadline kill plus the bounded pipe drain): the select must budget
 	// both, plus slack, while still catching the pre-fix infinite block.
 	select {
@@ -165,7 +165,7 @@ func TestTaskDispatchWallKillsWedgedWorkerTree(t *testing.T) {
 		if rc != 124 {
 			t.Fatalf("rc = %d, want 124 (GNU timeout convention)", rc)
 		}
-	case <-time.After(time.Duration(d.cfg.TaskTimeout)*time.Second + wallWaitDelay + 10*time.Second):
+	case <-time.After(time.Duration(d.cfg.TaskTimeout)*time.Second + pipeDrainDelay + 10*time.Second):
 		t.Fatal("dispatch never returned after the wall — the loop pin of issue #273")
 	}
 	// The tree must be gone: the group sweep reaped the orphaned session.
@@ -175,6 +175,30 @@ func TestTaskDispatchWallKillsWedgedWorkerTree(t *testing.T) {
 			t.Fatalf("grandchild %d still alive after the wall — orphaned worker session (issue #273)", grand)
 		}
 		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// TestRunDevagentDrainBoundedOnHeldPipe is the issue #286 regression: a
+// pane-run/gate helper exits 0 but a grandchild it forked keeps the stdout
+// pipe open — os/exec's io.Copy goroutine never sees EOF and the teardown
+// pinned forever (the driver logged its starvation halt and never left).
+// The drain must return with the child's own output and its own rc 0: the
+// drain cutoff is not a step failure.
+func TestRunDevagentDrainBoundedOnHeldPipe(t *testing.T) {
+	repo := initFixtureRepo(t)
+	taskWallShim(t, "sleep 30 &\necho $! > \"$PIDFILE\"\necho helper-done\nexit 0\n")
+	killPidfileAtCleanup(t)
+	d := taskWallDriver(t, repo)
+	start := time.Now()
+	out, rc := d.runDevagent("gate-step")
+	if rc != 0 {
+		t.Fatalf("rc = %d (out %q), want the child's own 0 — the drain cutoff must not relabel it", rc, out)
+	}
+	if !strings.Contains(out, "helper-done") {
+		t.Fatalf("out = %q, want the child's output captured before the drain cut", out)
+	}
+	if elapsed := time.Since(start); elapsed > pipeDrainDelay+10*time.Second {
+		t.Fatalf("held-pipe teardown took %s — unbounded io.Copy (issue #286)", elapsed)
 	}
 }
 
