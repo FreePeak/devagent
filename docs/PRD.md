@@ -81,25 +81,63 @@ DevAgent addresses all three by owning delivery end to end and refusing to submi
 
 | Product | Trigger | Testing/validation depth | Pricing model |
 |---|---|---|---|
-| Devin (Cognition) | Slack, Linear/Jira, GitHub, API, web | Repo tests in own VM; no structured verification; retry loops burn credits | $0/$20/$200 per-user + pay-as-you-go ACUs (~$2.25 / 15 active min) |
-| GitHub Copilot coding agent | Issue assignment, @copilot comment | Reuses repo CI on ephemeral Actions runners; iterates on CI failures; human review mandatory | Bundled in Copilot Pro/Business/Enterprise seats |
-| OpenHands (All Hands AI) | Issue assignment, manual/API | Whatever tests exist in repo/Docker runtime — fully user-supplied | OSS free + API costs; Cloud ~$20/mo + tokens |
-| Factory Droid | CLI, Slack, PR comments, tickets, webhooks | Repo tests + audit/compliance controls, no domain checks | Pro ~$20 / Plus ~$100 / Max ~$200 per-user; quota risk below Enterprise |
-| Google Jules | Task assignment; plan-approval gate | Plan preview + diff review; tests only if configured in VM | Free 15 tasks/day; paid via Google AI Pro/Ultra tiers |
-| OpenAI Codex cloud agent | ChatGPT sidebar, CLI/IDE/SDK, GitHub | Container test runs; no structured gates | Bundled in ChatGPT plans; credit-metered |
-| Claude Code GitHub Actions | @claude mention, any GitHub event | Auto-fix on CI failures; validation = user's CI | Anthropic subscription/API usage |
+| Devin (Cognition) | Slack, Teams, Linear/Jira, GitHub/GitLab/Bitbucket/Azure comments, API, email, schedules/webhooks | Repo tests/lint in own VM until green + video proof of browser E2E + CI auto-fix + Security Swarm scans; **no migration/DB gates** | Free/$20/$200; Teams $80 org + $40 seats + prepaid on-demand credits (ACUs now enterprise-only) |
+| Copilot cloud agent (GitHub) | Issue assign, `@copilot`, agents panel, **Automations** (schedule/issue/PR events), Slack/Teams preview | Tests in ephemeral Actions sandbox + CodeQL/advisory/secret scans + self-review; **repo CI does not run until a human approves the workflow**; 59-min session cap | **AI credits** (1 = $0.01): Business 1,900, Enterprise 3,900/user/mo, org-pooled + Actions minutes |
+| OpenHands / Agent Canvas | GitHub/Slack/Linear/Jira/Bitbucket events, webhooks, cron, CLI, API | **Verification Stack**: diff-review agent + `qa-changes` boots the app, reproduces on base, posts PASS/FAIL/PARTIAL with evidence; explicitly does *not* run the test suite; no migration gates | OSS 87k★ MIT + Cloud (dollars unverified) |
+| Factory Droid | CLI, desktop, Slack, GitHub/Linear/GitLab, API/SDK, SDLC automations | "Software Factory" Validate stage = Code Review + QA + Security Audit as PR checks; Triage routes tickets; **no execution/migration gates** | Pro $20 / Plus $100 / Max $200; Teams $60 + $40/seat; Enterprise custom |
+| Google Jules | Web UI only (repo+prompt); plan-approval gate | Build/test in per-task VM per your setup script, retries; no CI iteration, no scanners, no migration awareness | Free 15 tasks/24h; Pro 100; Ultra 300 (individual accounts only) |
+| OpenAI Codex cloud | ChatGPT web/CLI/IDE/mobile, GitHub PRs, GitLab beta, Linear, Slack, automations | Container loop runs checks discovered from AGENTS.md + separate Code/Security Review products; no structured delivery gates, no migration verification | ChatGPT plans $0–$200; Business $20/user; rolling 5-hour + weekly per-model windows; on-demand fallback |
+| Claude Code Actions / web | `@claude` on issues/PRs, any event incl. cron, routines, Slack | Only what you wire; per-PR **auto-fix** on CI failure + reviewer comments; validation = your CI | No product fee — API rates or Claude subscription (web/auto-fix need paid seats) |
+| Cursor Cloud Agents | iOS/web/desktop, Slack/GitHub/Bitbucket/Linear `@cursor`, REST, **Automations** (cron, CI-completed, webhooks) | Runs repo scripts in full cloud VMs; hands off PR + screenshots/video/logs; Bugbot + Security Agents checks are **non-blocking by default**; no migration gates | Pro $20 / Pro Plus $60 / Ultra $200; Teams $40 or $120/user; BYOK taxed $0.25/M tokens |
+| Ellipsis | Agents-as-code YAML in repo, cron, GitHub/Linear/Slack `@ellipsis`, webhooks, REST, CLI — **orchestrates Claude Code + Codex** | Per-task sandbox "runs tests", per-run budgets, structured JSON output, transcripts; review findings as evidence; no migration/schema gates | **$0 seats; tokens at cost + 10%** platform fee; CPU/RAM metered; free with a Claude/Codex sub |
+| Qodo 2.0 | PR webhooks/comments (GitHub/GitLab/Bitbucket/Azure), IDE, CLI "Agentic Toolbox" | Agentic review + blast-radius risk + rule mining + compliance-to-ticket; **analysis only — executes nothing** | $0.012/credit pooled; packs 2.5k/5k/20k |
+
+Verified 2026-09-11 against vendor docs/pricing pages. Per-product sources and the
+full sweep (19 products incl. Pilot, Codegen, Roomote, Amp, Zencoder, CodeRabbit,
+Greptile, plus the funding/consolidation map) live in
+`docs/research/2026-09-11-competitor-sweep.md`.
 
 ### 4.2 The white space DevAgent occupies
 
-1. **Nobody validates database migrations.** Every competitor treats "tests pass" as the correctness ceiling. None offer schema-diff analysis, migration dry-runs against a shadow database, rollback verification, or destructive-change detection. This is the core of DevAgent's differentiation.
-2. **Validation is outsourced to the target repo's CI.** Copilot, Codex, Jules, Droid, and Claude Code Actions all inherit whatever the repository already has. Under-tested backends get green-lit unvalidated PRs.
-3. **Backend correctness is implicit.** No vendor ships contract-level verification (API behavior vs spec, transactional integrity, concurrency hazards) as a product feature.
-4. **Cost opacity punishes exactly this workload.** Devin ACUs and Codex credits punish long-running backend work; DevAgent's fixed-gate design gives predictable per-task cost.
-5. **Ticket-driven autonomy exists but is shallow** — Devin and Droid already do ticket→PR, which validates the workflow; their gap is verification depth, not trigger plumbing.
+Refreshed against the 2026-09 sweep: what changed is that **verification became a
+marketing layer**; what did not change is that **nobody executes backend domain
+gates**.
 
-Implication for positioning: compete on *trust per PR* (validation evidence attached), not on raw generation capability.
+1. **Nobody validates database migrations.** Nineteen products probed against
+   primary docs; zero ship shadow-DB dry-runs, apply/rollback verification,
+   schema-diff analysis, or destructive-change/FK detection. Competitors now
+   advertise *behavioral evidence* — OpenHands boots the app and posts
+   PASS/FAIL, Devin attaches browser-test video, Cursor attaches
+   screenshots/logs, CodeRabbit runs 50+ scanners — and none of it proves a
+   migration is safe. The distinction to keep in every pitch: **evidence exists,
+   domain gates do not.** The gap now has a paper trail (2026 agent
+   database-wipe incidents; Oracle and AWS publishing "agent-safe change
+   delivery" at the platform layer) and a funded neighbor category (Blacksmith
+   $45M, Neo $100M).
+2. **Validation is still outsourced to the target repo's CI — and now gated
+   behind a human click.** Copilot's Actions workflows do not run until someone
+   with write access approves them; Devin/Cursor/Factory inherit whatever tests
+   exist. Under-tested backends get green-lit unvalidated PRs everywhere.
+3. **Worker orchestration is no longer a differentiator.** OpenHands (ACP),
+   Ellipsis (Claude Code/Codex harnesses), Roomote and Qodo's toolbox all run
+   the same third-party CLIs DevAgent spawns. The moat is what the gates prove
+   about a worker's output, not that multiple workers can be driven.
+4. **Cost predictability needs to be *reported*, not claimed.** Pricing
+   converged on seats + pooled credits (Devin, Copilot AI credits, Zencoder)
+   with a transparent-consumption flank (Ellipsis tokens+10%, Amp no-markup BYOK,
+   Zencoder BYOK consumes nothing). Devin's ACU→credit switch shows metering
+   anxiety is real. DevAgent's claim survives only as an artifact: per-task cost
+   and gate evidence computed in-band and attached to the PR.
+5. **Ticket→PR triggers are commoditized.** Slack + Linear/Jira + assign +
+   @mention + webhook + cron + mobile is table stakes at every tier; GitHub
+   Agent HQ (Claude + Codex in-platform, 2026-02-04) is absorbing the control
+   plane above us. Positioning weight stays on gates and the local-first/BYO
+   pole opposite the cloud consolidation — never on trigger plumbing.
 
-*(Full profiles with sources: [appendix 19.2](#192-competitive-profiles).)*
+Implication for positioning: compete on *trust per PR* (validation evidence attached), not on raw generation capability — and note SWE-bench Verified has plateaued at ~79% with the top band crowded by harnesses, so resolved-rate no longer sells either.
+
+*(Full profiles with sources: [appendix 19.2](#192-competitive-profiles); the
+2026-09-11 re-verification: [appendix 19.8](#198-competitor-sweep-2026-09-11).)*
 
 ## 5. Target Users and Personas
 
@@ -1086,21 +1124,25 @@ Direction addendum 2026-09-03 (section 20): DevAgent becomes the local-first, BY
 
 ### 19.2 Competitive profiles
 
-**Devin (Cognition).** Archetype "AI software engineer": autonomous cloud agent in its own VM (shell, editor, browser). Strongest ticket-driven player — Slack mentions, Linear/Jira assignment, GitHub events, REST API. Pricing collapsed from $500/mo team plan to consumption: Free / Pro $20 / Max $200 / Teams from $80/org, plus pay-as-you-go ACUs (~$2.25 per 15 active minutes; auto-reloading credits can silently overspend). Documented weaknesses: struggles with complex unfamiliar codebases (the stated reason for repricing), inconsistent results across identical runs, and its own Session Insights classifying >20-ACU sessions as "unhealthy" — an implicit admission that broad tasks burn credits through failure loops. No structured post-build verification beyond repo tests.
+**Devin (Cognition).** Archetype "AI software engineer", now a multi-surface platform (cloud sessions + CLI + Desktop + standalone Devin Review). Strongest ticket-driven player — Slack, Teams, Linear/Jira, GitHub/GitLab/Bitbucket/Azure DevOps comments, API, email, event Automations; `devin /handoff` accepts tasks pushed from Claude Code/Codex. Runs repo tests/lint in its VM until green, records **video proof of browser E2E**, auto-fixes CI failures, runs "Security Swarm" scans; **no migration/DB gates** — its "migration" marketing is code migration (framework/COBOL upgrades), prompt-driven via Playbooks, never gate-driven. 2026 changes: ACUs became **enterprise-only**; self-serve is Free/$20/$200 + Teams $80 org with $40 seats drawing prepaid on-demand credits; **Devin Outposts** (self-hosted workers); Windsurf folded in as Devin Desktop; Series E $2B at $48B (2026-09-08).
 
-**GitHub Copilot coding agent.** Distribution winner. Assign Copilot to an issue or @mention it; it opens a draft PR, commits with progress logs, marks ready for review. Validation runs on ephemeral GitHub Actions runners with network allowlists, read-only repo permissions, branch-scoped short-lived tokens; it cannot approve PRs or trigger workflows. Iterates against CI failures before handoff — but that CI is the repo's own; no opinionated validation layer (no migration checks, no semantic backend review). Requires Copilot Pro/Business/Enterprise.
+**Copilot cloud agent (GitHub; renamed from "coding agent").** Distribution winner: issue assign, `@copilot`, agents panel, **Automations** (scheduled + issue/PR events), Slack/Teams preview. Runs tests/linters in an ephemeral Actions sandbox, self-checks with CodeQL + advisory/secret scans + a second-opinion review — but **repo Actions workflows do not run on the PR until a human with write access approves them**, and sessions cap at 59 minutes; one repo, one branch. Pricing moved to **AI credits** (1 = $0.01; Business 1,900, Enterprise 3,900 included per user/mo, org-pooled) plus Actions minutes; the same pool meters Agent HQ third-party agents. **No migration gates** (confirmed against risks-and-mitigations docs).
 
-**OpenHands (All Hands AI).** Open-source challenger (ex-OpenDevin): plan → edit → run shell → test → iterate inside Docker-sandboxed runtimes; issue assignment resolves to PRs on GitHub/GitLab. Managed Cloud or self-hosted (free, LLM costs only); model-agnostic via API keys. Weaknesses: validation depth is whatever the target repo has; self-hosting demands ops investment; quality varies sharply by model.
+**OpenHands → Agent Canvas (All Hands AI).** Pivoted in 2026 from Docker GUI to a multi-backend control center: agents can be its SDK agent **or any ACP-compatible third-party CLI (Claude Code, Codex, Gemini)** — it now hosts DevAgent's worker CLIs. New **Verification Stack**: a diff-review agent plus a `qa-changes` plugin that boots the app, exercises real HTTP/CLI/browser, reproduces the bug on the base branch, and posts PASS/FAIL/PARTIAL with evidence — the nearest approach to behavioral verification in the set; it explicitly does *not* run the test suite and has **zero migration/schema capability**. 87k★ MIT; triggers cover GitHub/Slack/Linear/Jira/Bitbucket, webhooks, cron, CLI, API; Cloud pricing unverified.
 
-**Factory Droid.** Enterprise-oriented; broadest execution topology (CLI, VS Code, Slack, PR comments/labels, Linear/Jira, API/webhooks); multi-model routing per task; parallel Droids; spec-driven workflows; Droid Computers (managed cloud dev environments or BYOM) for private-network/Fortune 500 use. Weaknesses: rolling rate limits can exhaust quota mid-task below Enterprise tier; sales-led pricing; validation is "run repo's tests" plus audit logs — no domain-specific correctness checks.
+**Factory Droid.** Enterprise-oriented, broadest execution topology (CLI incl. Windows ARM, desktop app, Slack, GitHub/Linear/GitLab, API/SDK, SDLC automations) on top of **Droid Computers** (persistent managed compute or BYOM on any VPS). "Software Factory" SDLC model (Private Preview) adds an explicit Validate stage — Code Review + QA + Security Audit as PR checks — and a Triage stage that classifies/routes tickets; **the Validate stage is reviewer agents, not execution gates** (no migration dry-run/rollback/schema analysis). Pricing: Pro $20 / Plus $100 / Max $200; Teams $60 + $40/seat; Enterprise custom; $150M Series C at $1.5B (2026-04-17).
 
-**Google Jules.** Async Gemini agent bound to GitHub: clones into a private Google Cloud VM, presents a step-by-step plan first, executes on its own branch, PRs only after approval. CLI + API companions. Pricing rides Google AI subscriptions (free 15 tasks/day; Pro ~$19.99/mo 100 tasks/day; Ultra 300/day). Beta-labeled, individual-account gating, English-only support, capacity not guaranteed, task-count pricing incentivizes shallow tasks.
+**Google Jules.** Async Gemini agent, **web UI only** (no docs-visible API/CLI), GitHub-only repos: fresh cloud VM per task, runs your setup script's builds/tests, retries, then PRs after a **plan-approval gate**. No CI iteration, no scanners, no migration awareness. Quotas: Free 15 tasks/24h (3 concurrent), Pro 100, Ultra 300; individual @gmail accounts only; free tier rides Gemini 2.5 Pro, paid starts at Gemini 3 Pro. Public Beta as of 2026.
 
-**OpenAI Codex cloud agent.** Woven into ChatGPT: cloud tasks in isolated containers preloaded with the repo produce diffs/PRs; triggered from ChatGPT, CLI, IDE, SDK, GitHub; parallel execution; includes code review and Slack integrations. Credit-metered within ChatGPT plans (5-hour rolling windows), extendable by purchased credits; API-key fallback. Opaque variable credit consumption ("similar tasks consume different amounts"); limits shared across agentic features; no structured validation beyond container test runs.
+**OpenAI Codex cloud.** Woven into ChatGPT: cloud tasks in isolated containers (public `codex-universal` image, 12h container cache, internet off by default in the agent phase) produce diffs/PRs; triggers span ChatGPT web/CLI/IDE/mobile, GitHub PRs, **GitLab (Beta)**, Linear, Slack, scheduled/event Automations, and an app-server/SDK so *others* can use Codex as a worker. Runs checks discovered from AGENTS.md; separate **Code Review / Security Review** products and a Codex Security line. Bundled in ChatGPT plans (Free/Go $8/Plus $20/Pro $100 5×/$200 20×/Business $20 user) with rolling 5-hour + weekly per-model windows. **No migration verification.**
 
-**Claude Code GitHub Actions / background agents.** Framework more than product: `claude-code-action` runs Claude Code in repo workflows (@claude mentions, any event trigger), built on the Agent SDK; autonomously responds to CI failures and review comments; explicit security posture (actor verification, least-privilege App permissions). Web/mobile background sessions plus scheduled routines round it out. DIY burden: you own workflow YAML, runner environment, and validation wiring.
+**Claude Code GitHub Actions / background agents.** Worker substrate more than competitor: `claude-code-action` **v1.0** (2026 rewrite) runs Claude Code in repo workflows (`@claude`, any event incl. cron; OIDC federation; Bedrock/Vertex/Foundry auth), auto-fixes CI failures + reviewer comments per-PR, and the web/`--cloud`/mobile surface adds background sessions, `/schedule` routines, and Slack. Validation remains **only what you wire** — DevAgent is its orchestrator, not its rival, though Anthropic's own ergonomics now overlap DevAgent's at subscription price. No migration gates.
 
-Sources: [devin.ai/pricing](https://devin.ai/pricing/) · [TechCrunch on Devin pricing](https://techcrunch.com/2025/04/03/devin-the-viral-coding-ai-agent-gets-a-new-pay-as-you-go-plan/) · [Copilot coding agent docs](https://docs.github.com/en/copilot/concepts/agents/copilot-coding-agent) · [OpenHands](https://github.com/All-Hands-AI/OpenHands) · [factory.ai/pricing](https://factory.ai/pricing) · [Droid Computers](https://factory.ai/news/droid-computers) · [Jules usage limits](https://jules.google/docs/usage-limits/) · [Codex pricing](https://developers.openai.com/codex/pricing) · [ChatGPT plans](https://openai.com/chatgpt/pricing/) · [Claude Code GitHub Actions](https://code.claude.com/docs/en/github-actions)
+**Cursor Cloud Agents (Anysphere).** The largest-distribution threat: cloud VMs with full dev environments (`.cursor/environment.json`, secrets, egress controls, Tailscale, multi-repo, BYO compute) driven from iOS/web/desktop/Slack/GitHub/Bitbucket/Linear/REST plus an **Automations** platform (cron, CI-completed, generic webhooks). Hands off merge-ready PRs with **screenshots/video/logs** artifacts and remote desktop control; Bugbot + Security Agents run as managed review agents whose checks are **non-blocking by default (`neutral`)**. Own loop + own models (Composer 2.5, co-trained Grok 4.5/4.6); does not orchestrate rival CLIs. Pro $20 / Pro Plus $60 / Ultra $200; Teams $40–$120/user; **BYOK taxed $0.25/M tokens**. **No migration gates.** Acquired by SpaceX for a reported $60B (2026-06, headline-verified).
+
+**Ellipsis.** The closest architectural analogue: pivoted from PR-review SaaS to a **managed cloud that orchestrates Claude Code and Codex as workers** — agents-as-code YAML in the repo, cron, GitHub/Linear/Slack `@ellipsis`, webhooks, REST, agent CLI; per-task declarative sandboxes; **BYO-AWS-VPC** deployment. Dev sessions "build, fix, and run tests" with per-run budgets, structured JSON exits, durable per-PR transcripts. Pricing: **$0 seats, tokens at provider cost + 10% platform fee**, metered CPU/RAM, free with a Claude/Codex subscription. **No migration/schema gates** — DevAgent's differentiation against it is exactly G2/G3/G4 and backend evidence in the PR body.
+
+Sources (re-verified 2026-09-11; per-product URLs in [appendix 19.8](#198-competitor-sweep-2026-09-11) and `docs/research/2026-09-11-competitor-sweep.md`): [docs.devin.ai](https://docs.devin.ai) · [Copilot cloud agent docs](https://docs.github.com/en/copilot/concepts/agents/cloud-agent/about-cloud-agent) · [OpenHands](https://github.com/OpenHands/OpenHands) · [docs.factory.ai](https://docs.factory.ai) · [jules.google/docs](https://jules.google/docs/) · [learn.chatgpt.com/docs](https://learn.chatgpt.com/docs) · [claude-code-action](https://github.com/anthropics/claude-code-action) · [cursor.com/docs](https://cursor.com/docs) · [ellipsis.dev](https://ellipsis.dev)
 
 ### 19.3 Headless CLI orchestration
 
@@ -1180,6 +1222,27 @@ PRODUCTION-READINESS #1), Squawk/Atlas G3 engines + migration-history hashing,
 bors-style batched merged-result oracle (PRD:885), sentinel worker exits +
 format-error breakers, synthetic-bug gate calibration.
 
+### 19.8 Competitor sweep (2026-09-11)
+
+A four-scout re-verification of the entire competitive landscape against
+primary vendor docs/pricing pages (fetched 2026-09-11), distilled into
+`docs/research/2026-09-11-competitor-sweep.md`; §4.1/§4.2 and §19.2 were
+refreshed from it in the same change. Headlines: the migration/DB-gate white
+space holds (19 products probed; zero ship shadow-DB dry-run, rollback
+verification, schema-diff, or FK/destructive-change detection — verified as
+explicit negatives, not assumptions); trigger surfaces are fully commoditized;
+pricing converged on seats + pooled credits with a transparent-consumption
+flank; verification itself became a marketing layer (OpenHands Verification
+Stack, Devin video proof, Cursor artifacts, CodeRabbit $143M) that still stops
+short of execution gates; the worker-orchestration slot is now contested
+(OpenHands ACP, Ellipsis, Roomote); and the market consolidated hard
+(SpaceX/Cursor $60B, Cognition $2B Series E @ $48B, OpenAI/Ona,
+Databricks/Electric) while SWE-bench Verified plateaued at ~79% — which moves
+the selling argument decisively from "solve rate" to "trust per PR". Two new
+§4.1 rows: **Cursor Cloud Agents** (largest distribution) and **Ellipsis**
+(closest architecture). Market-map scouting used Google News RSS, so funding
+figures are headline-verified and flagged for cross-check before external use.
+
 ---
 
 
@@ -1201,6 +1264,19 @@ format-error breakers, synthetic-bug gate calibration.
 | Bots "get smarter over time" | Lessons feedback loop ships (PR #39, eval-ranked per Q39); childTrails digest ships (PR #57); KG context digest specified (FR-CTX-01..05) but not yet implemented — local markdown baseline + opt-in LeanKG |
 
 Grok Bot is cloud-hosted and Cursor/XAI-plan-gated ($20+/mo, shared per-account "computer"). DevAgent's wedge: the same teammate UX, **local, private, BYO-model**.
+
+> **Refreshed 2026-09-11** (Cursor docs; see `docs/research/2026-09-11-competitor-sweep.md`
+> §3): Grok Bot is now surfaced **inside Cursor** — persistent Bots on
+> Cursor-hosted cloud computers (shared browser/filesystem/terminal, hibernation,
+> durable disk, daily backups; explicitly **no on-prem, no BYO image, no VPN into
+> your network**), with Bot-to-Bot delegation, learned skills + routines, and
+> delegation down to Cursor Cloud Agents for coding work — it is still not a
+> ticket→PR delivery agent. Two patterns worth importing: **"Auto Review"** (an
+> independent review model that gates risky shell/computer-use/automation-write
+> actions — mirrors DevAgent's gate-before-submit thesis at the action level) and
+> **weekly-usage grants** with on-demand overage metered through Cursor (Cursor
+> plan + SuperGrok link do not stack). xAI-side (x.ai/bot) pricing/availability
+> was not reachable in this pass and remains as verified 2026-09-03 above.
 
 ### 20.2 Grok/xAI integration (FR-GROK)
 
@@ -1569,6 +1645,16 @@ existing driver with validation surfaces (test, command, telemetry, chaos
 schedule) so "the driver works perfectly" is a checkable claim, not a hope.
 
 ---
+*Last updated: 2026-09-11 (competitive-landscape refresh) — a four-scout
+internet re-verification of the §4/§19.2 competitive landscape against
+primary vendor docs/pricing pages, distilled into
+`docs/research/2026-09-11-competitor-sweep.md`. §4.1 got two new rows
+(Cursor Cloud Agents, Ellipsis) and corrected facts on all seven existing
+rows (Devin ACU→enterprise-only credits, Copilot "cloud agent" rename +
+AI-credits billing, Jules web-only/quotas, Codex plan ladder, Factory tier
+numbers, OpenHands Agent Canvas + Verification Stack pivot); §4.2 rewritten
+to separate behavioral evidence (now exists) from domain execution gates
+(still nobody); §19.2 profiles rewritten and §19.8 added. Prior:
 *Last updated: 2026-09-11 (spawn tree-kill follow-up, on top of #312) — the
 early-completion kill is now a swept kill, not a one-shot. #312's
 `killProcessTree` signaled the process group once; `kill(-pgid)` reaches only
