@@ -228,3 +228,4 @@
 {"loop":267,"ts":"2026-09-11T20:49:16Z","status":"failed","goal":"Goal: Implement lease-generation fencing for selfbuild task locks. When `ledger.TryAcquireRun` (or the daemon task-claim path) breaks a stale lock and re-issues"}
 {"loop":268,"ts":"2026-09-11T21:09:08Z","status":"pr-open","goal":"Goal: Make selfbuild run-lock acquisition atomic and fenced in internal/ledger/runregistry.go (TryAcquireRun). Today stale-break is Stat → ReadFile → Remove → W"}
 {"loop":269,"ts":"2026-09-11T21:29:47Z","status":"pr-open","goal":"The advisory matches my framing — the goal already anchors on extending `pr-hygiene` rather than a new path. Final validated statement:  Goal: Extend the existi"}
+{"loop":270,"ts":"2026-09-11T21:40:48Z","status":"no-pr","goal":"Goal: Land the selfbuild run-lock fencing by verifying and merging the existing open PR #335 (atomic, fenced TryAcquireRun in internal/ledger/runregistry.go) — "}
