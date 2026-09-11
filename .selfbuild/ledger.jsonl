@@ -213,3 +213,4 @@
 {"loop":252,"ts":"2026-09-11T10:27:42Z","status":"ok","goal":"Goal: Implement GitHub issue #308 (spawn: move the streaming/early-completion primitive into internal/spawn and give RunCli the process-group kill) in full and "}
 {"loop":253,"ts":"2026-09-11T11:04:07Z","status":"ok","goal":"Goal: Implement GitHub issue #315 (daemon /dispatch never claims its own queue row: phantom 'queued' card and selfbuild double-run of a dispatched goal) in full"}
 {"loop":254,"ts":"2026-09-11T14:52:31Z","status":"failed-tests","goal":"Goal: Implement GitHub issue #316 (devagent task run lock uses generic key TASK: concurrent runs steal/drop each other's lock, runs.active miscounts, refused di"}
+{"loop":255,"ts":"2026-09-11T15:25:33Z","status":"no-pr","goal":"Goal: Implement GitHub issue #316 (devagent task run lock uses generic key TASK: concurrent runs steal/drop each other's lock, runs.active miscounts, refused di"}
