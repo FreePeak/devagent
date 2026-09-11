@@ -42,6 +42,18 @@ func mapPaneState(agentStatus, cwd string) string {
 	return "idle"
 }
 
+// paneState maps a roster row's agent_status to a display state, upgrading
+// idle/unknown rows with a live worker foreground process to "running"
+// (regression 2026-09-11, #317). Best-effort: an uninspectable pane keeps the
+// status-derived state.
+func paneState(cli CliRunner, agentStatus, cwd, paneID string) string {
+	state := mapPaneState(agentStatus, cwd)
+	if idleStatuses[agentStatus] && PaneForegroundWorker(cli, paneID) {
+		return "running"
+	}
+	return state
+}
+
 // agentRow mirrors HerdrAgentRow; pointers so "field absent" is observable the
 // way TS `??` and `||` treat undefined.
 type agentRow struct {
@@ -131,16 +143,24 @@ func ListSessionPanes(cli CliRunner, session string) []SessionPaneInfo {
 		if a.Agent != nil && *a.Agent != "" {
 			worker = *a.Agent
 		}
+		// Regression (2026-09-11, #317): herdr's agent status machine never
+		// advances for headless worker invocations (`omp -p --mode json`
+		// launched via pane-run), so a LIVE worker reports idle/unknown and
+		// the TUI rendered mid-run panes as "● idle". Mirror the sweep's
+		// discriminator (PaneForegroundWorker): a pane whose foreground
+		// process is a worker binary is running regardless of agent_status;
+		// agent_status stays the signal for interactive panes.
+		paneID := derefOr(a.PaneID, "")
 		out = append(out, SessionPaneInfo{
 			Worker:      worker,
 			TaskID:      paneTaskIdFromCwd(cwd),
 			Role:        "worker",
-			PaneID:      derefOr(a.PaneID, ""),
 			WorkspaceID: derefOr(a.WorkspaceID, ""),
 			Label:       label,
 			Cwd:         cwd,
 			AgentStatus: agentStatus,
-			State:       mapPaneState(agentStatus, cwd),
+			State:       paneState(cli, agentStatus, cwd, paneID),
+			PaneID:      paneID,
 			// Never fabricated: only what herdr reports.
 			StartedAt: derefOr(a.CreatedAt, ""),
 		})
