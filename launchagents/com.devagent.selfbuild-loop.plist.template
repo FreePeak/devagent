@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Issue #321: the recommended (reviewable) supervisor template for the
+  selfbuild loop, if you choose to supervise it at all. OPT-IN: the
+  .template suffix keeps `make agents-install` (a wildcard over *.plist)
+  from installing and loading it — the loop deliberately runs unsupervised. KeepAlive is
+  keyed on SuccessfulExit=false ONLY: intentional halts exit 0
+  (internal/loopdriver/run.go), so launchd leaves them stopped — the
+  hollow-restart hazard #286/#321 record. NEVER use <true/> here: the
+  2026-09-10 incident (restart=always, 133 overnight hollow restarts).
+
+  Install: sed "s|\${HOME}|$HOME|g" launchagents/com.devagent.selfbuild-loop.plist.template \
+    > ~/Library/LaunchAgents/com.devagent.selfbuild-loop.plist
+  launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.devagent.selfbuild-loop.plist
+  Verify:  devagent supervision   (must report "on-failure")
+  Remove:  launchctl bootout gui/$(id -u)/com.devagent.selfbuild-loop && rm ~/Library/LaunchAgents/com.devagent.selfbuild-loop.plist
+-->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.devagent.selfbuild-loop</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>${HOME}/work/harvey/freepeak/devagent/devagent-go</string>
+		<string>loop</string>
+	</array>
+	<key>WorkingDirectory</key>
+	<string>${HOME}/work/harvey/freepeak/devagent</string>
+	<key>StandardOutPath</key>
+	<string>${HOME}/work/harvey/freepeak/devagent/.selfbuild/logs/driver.log</string>
+	<key>StandardErrorPath</key>
+	<string>${HOME}/work/harvey/freepeak/devagent/.selfbuild/logs/driver.log</string>
+	<key>KeepAlive</key>
+	<dict>
+		<key>SuccessfulExit</key>
+		<false/>
+	</dict>
+</dict>
+</plist>

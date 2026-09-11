@@ -3,7 +3,7 @@
 #   make agents-status     # what is loaded / disabled / running
 #   make agents-off        # stop + disable all auto-trigger agents (survives reboot)
 #   make agents-on         # re-enable + load them again
-#   make agents-install    # render launchagents/*.plist into ~/Library/LaunchAgents + load
+#   make loop-status       # is the loop running? (+ supervision mode) tail of its latest iteration log
 #   make agents-uninstall  # bootout + disable + delete installed plists (repo copies kept)
 #   make loop-start        # start the Go selfbuild loop (./devagent-go loop) in the background
 #   make loop-stop         # stop the background selfbuild loop
@@ -12,6 +12,10 @@
 #   make daemon-start      # start the FR-CTRL daemon (./devagent-go daemon) in the background
 #   make daemon-stop       # stop the background daemon
 #   make kill              # kill running devagent loops/workers (no launchctl changes)
+# NOTE: launchagents/com.devagent.selfbuild-loop.plist.template is OPT-IN
+# (issue #321): agents-install does NOT install it — the loop deliberately
+# runs unsupervised (nohup); copy+render it manually if you want launchd
+# supervision, keeping the KeepAlive {SuccessfulExit=false} policy.
 #   make orca-quit         # quit Orca app + background daemon
 #
 # Plist sources live in ./launchagents/ with ${HOME} placeholders; they are
@@ -60,6 +64,7 @@ loop-status:
 	@if pgrep -f "devagent-go loop" >/dev/null 2>&1; then \
 		echo "RUNNING (pid $$(pgrep -f 'devagent-go loop' | head -1))"; \
 	else echo "STOPPED — start with: make loop-start"; fi
+	@./devagent-go supervision 2>/dev/null || echo "supervision: unknown (./devagent-go missing — run: make build)"
 	@test -f "$(LOOP_LOG_DIR)/driver.log" && tail -3 "$(LOOP_LOG_DIR)/driver.log" || true
 
 loop-log:
