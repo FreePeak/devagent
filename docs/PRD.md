@@ -835,7 +835,13 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 > `src/orchestrator/executor.ts:106`, `ledger.ts:126`). Zombie-PR hygiene —
 > `devagent pr-hygiene` + the `allDone` sweep close base-superseded `TASK-*`
 > PRs, flag red-across-grace ones, and skip `autoMerge` until green (PR #103,
-> `src/orchestrator/pr-hygiene.ts`). Legacy `mergeProjectBranches` gated so a
+> `src/orchestrator/pr-hygiene.ts`). Landing-evidence triage (2026-09-12):
+> when a TASK PR's body cites an issue that is CLOSED, the same sweep closes
+> it — `shipped-elsewhere` citing the `(#N)` landing commit on main, or
+> `superseded` with an explicit not-shipped comment when no landing commit
+> exists; an open issue keeps the PR open with a once-per-PR evidence
+> comment (internal/orchestrator/pr-hygiene.go).
+> Legacy `mergeProjectBranches` gated so a
 > board that published per-task PRs no longer double-merges (PR #107,
 > `src/cli.ts:850`). Adapter-declared `WorkerAdapter.isProgress` replaces the
 > `"thinking_delta"` substring heuristic (Q33, commit 8d08e6f), and the
@@ -1589,6 +1595,7 @@ existing driver with validation surfaces (test, command, telemetry, chaos
 schedule) so "the driver works perfectly" is a checkable claim, not a hope.
 
 ---
+*Last updated: 2026-09-12 (pr-hygiene landing-evidence triage) — the zombie-PR sweep now checks the issues a `devagent/TASK-*` PR cites (`#N` in the body): a CLOSED issue with a `(#N)` commit on main closes the PR as `shipped-elsewhere` citing the sha; a CLOSED issue with no landing commit closes it as `superseded` ("not shipped"); an open issue keeps a red-across-grace PR open with a once-per-PR evidence comment. Triage lives inside the existing sweep (internal/orchestrator/pr-hygiene.go), not a new path; PR body is now part of PrStatus (prFields).
 *Last updated: 2026-09-12 (run-lock acquisition is atomic and fenced) — `ledger.TryAcquireRun`'s judge-break-write sequence (stat → read → judge → remove → write) raced: two processes reading the same stale lock could both remove-and-write, each believing it held the run (reproduced: 10–11 simultaneous "winners" out of 16 goroutine contenders). The sequence now runs under `fenceAcquire` — an exclusive `flock` on the lock file held only for the acquisition (unix; `LOCK_NB` losers refuse, which is always the correct verdict since the fence holder either acquires or the lock was live) — and the new payload is published with an atomic temp-file rename so concurrent readers never see a truncated lock. Ownership stays pid/payload based (`Release` fence unchanged), so on-disk format, `doctor`, and non-Go readers are unaffected; non-unix keeps the unfenced fallback. Pinned by `TestTryAcquireRunAtomicUnderContention` (exactly one winner under contention).*
 *Last updated: 2026-09-12 (issue #321: loop supervision mode is versioned and checked) — `devagent doctor` gains a read-only `supervision` row: `DetectSupervision` (internal/commands/supervision.go) scans launchd/systemd unit dirs for a unit running `devagent-go loop` (adjacency-matched so the builder/orchestrator `-loop.sh` agents never match) and classifies the restart policy — `restart=always` / `KeepAlive=true` warns naming the unit (the #286 secondary hollow-restart hazard), `on-failure` or no policy passes, and nothing registered passes labeled `unsupervised (nohup) — intentional halts leave the loop stopped`. Also new: `devagent supervision` one-liner, the same mode printed by `make loop-status`, and a reviewable, opt-in launchd template `launchagents/com.devagent.selfbuild-loop.plist.template` (KeepAlive {SuccessfulExit=false} only; outside `agents-install`'s `*.plist` wildcard so installing it is a deliberate act). Pinned by fixture-file unit tests, no live supervisor required. Details §23.*
 *Last updated: 2026-09-12 (CI flake: TestReleaseKeepsReplacedLock tick-proofed) — the #316 regression test built its "later holder" decoy from a second `NowFunc()` read taken before `TryAcquireRun` stamped the lock; one ms tick between the two reads made the decoy byte-identical to `l1`'s own payload and `Release` correctly unlinked it, failing the macOS CI job on an otherwise-green PR (#329's first run, rerun green; ~0.25%/iteration measured locally). The decoy now derives from `l1.startedAt` — the value the acquisition actually stamped — so the test is wall-clock independent.*

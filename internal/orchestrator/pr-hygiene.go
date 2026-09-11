@@ -3,7 +3,10 @@
 package orchestrator
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -12,6 +15,111 @@ import (
 	"github.com/FreePeak/devagent/internal/config"
 	"github.com/FreePeak/devagent/internal/ledger"
 )
+
+// Landing-evidence triage (closed-or-stale issues): the sweep already owns
+// base-superseded and red-across-grace; this extends the same pass with a
+// check of the issues a TASK PR cites (`#N` in its body):
+// - shipped-elsewhere: a commit on main cites the issue → close citing the sha;
+// - superseded/abandoned: issue closed, no landing commit → close as not shipped;
+// - genuinely-still-wanted: issue open → leave the PR open, comment evidence.
+// Only an actual landing commit may claim a merge; the close comments state it.
+
+var issueRefRe = regexp.MustCompile(`#[0-9]+`)
+
+// closingRefRe matches the closing keywords that tie an issue to the PR's
+// purpose (`Closes #7`, `Fixes: #7`, `resolves #7`) — bare `#N` mentions
+// elsewhere in the body are incidental and cite many numbers.
+var closingRefRe = regexp.MustCompile(`(?i)\b(?:closes|fixes|resolves)\s*:?\s*#[0-9]+`)
+
+// citedIssues extracts the distinct issue numbers the PR body cites.
+// Closing-keyword references win when present; otherwise any `#N` mention
+// is used (legacy bodies without keywords).
+func citedIssues(body string) []int {
+	extract := func(re *regexp.Regexp) []int {
+		seen := map[int]bool{}
+		out := []int{}
+		for _, m := range re.FindAllStringSubmatch(body, -1) {
+			ref := m[0]
+			if i := strings.LastIndex(ref, "#"); i >= 0 {
+				ref = ref[i:]
+			}
+			n, err := strconv.Atoi(ref[1:])
+			if err != nil || seen[n] {
+				continue
+			}
+			seen[n] = true
+			out = append(out, n)
+		}
+		return out
+	}
+	if refs := extract(closingRefRe); len(refs) > 0 {
+		return refs
+	}
+	return extract(issueRefRe)
+}
+
+// issueState returns "open"/"closed" via `gh issue view N --json state`, ""
+// when the lookup or parse fails (unknown → never triaged on it).
+func issueState(repoPath string, n int, run RunGh) string {
+	r, err := run([]string{"issue", "view", strconv.Itoa(n), "--json", "state"}, repoPath)
+	if err != nil {
+		return ""
+	}
+
+	var v struct {
+		State string `json:"state"`
+	}
+	if json.Unmarshal([]byte(r.Stdout), &v) != nil {
+		return ""
+	}
+	return v.State
+}
+
+// prHygieneFlaggedInApply reports whether the ledger already holds an
+// apply-mode pr-hygiene record (detail without the "[dry-run] " prefix) for
+// the given PR and reason — the still-wanted evidence comment is posted once
+// per PR, not once per sweep.
+func prHygieneFlaggedInApply(repoPath string, pr int, reason string) bool {
+	data, err := os.ReadFile(filepath.Join(repoPath, ".devagent", "runs", "orchestration", "events.jsonl"))
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		var r ledger.PrHygieneRecord
+		if json.Unmarshal([]byte(line), &r) != nil {
+			continue
+		}
+		if r.Event == "pr-hygiene" && r.PR == pr && r.Reason == reason && r.Detail != nil && !strings.HasPrefix(*r.Detail, "[dry-run]") {
+			return true
+		}
+	}
+	return false
+}
+
+// landingCommitOnMain returns the sha of the first commit on main whose
+// message cites the issue as `(#N)` (the squash-merge convention), "" when
+// none or the lookup fails.
+func landingCommitOnMain(repoPath string, n int, run RunGh) string {
+	r, err := run([]string{"api", "repos/{owner}/{repo}/commits?sha=main&per_page=100"}, repoPath)
+	if err != nil {
+		return ""
+	}
+	var commits []struct {
+		SHA    string `json:"sha"`
+		Commit struct {
+			Message string `json:"message"`
+		} `json:"commit"`
+	}
+	if json.Unmarshal([]byte(r.Stdout), &commits) != nil {
+		return ""
+	}
+	for _, c := range commits {
+		if strings.Contains(c.Commit.Message, fmt.Sprintf("(#%d)", n)) {
+			return c.SHA
+		}
+	}
+	return ""
+}
 
 // Zombie-PR hygiene (PRD §17, surviving half of post-PR lifecycle automation):
 // per-task PRs ship via publishTaskPr, but nothing reaped them when their
@@ -193,6 +301,70 @@ func SweepTaskPrHygiene(repoPath string, opts PrHygieneOptions, run RunGh) PrHyg
 			continue
 		}
 
+		// Landing-evidence triage: when the PR cites an issue that is
+		// closed, CI state no longer matters — the question is whether the
+		// work already landed.
+		cited := citedIssues(status.Body)
+		handled := false
+		for _, n := range cited {
+			if issueState(repoPath, n, run) != "CLOSED" {
+				continue
+			}
+			var detail, comment, reason string
+			if sha := landingCommitOnMain(repoPath, n, run); sha != "" {
+				reason = "shipped-elsewhere"
+				detail = fmt.Sprintf("issue #%d is closed and shipped elsewhere: landing commit %s on main", n, sha)
+				comment = strings.Join([]string{
+					"DevAgent zombie-PR sweep: auto-closing this PR.",
+					fmt.Sprintf("Issue #%d is closed and already shipped as commit %s on main.", n, sha),
+				}, "\n")
+			} else {
+				reason = "superseded"
+				detail = fmt.Sprintf("issue #%d is closed and no landing commit exists on main: not shipped", n)
+				comment = strings.Join([]string{
+					"DevAgent zombie-PR sweep: auto-closing this PR.",
+					fmt.Sprintf("Issue #%d is closed and no landing commit exists on main, so this work was not shipped.", n),
+					"Reopen the issue and this PR if the work is still wanted.",
+				}, "\n")
+			}
+			if dryRun {
+				ledger.AppendPrHygieneRecord(repoPath, ledger.PrHygieneRecord{
+					TS: ledger.NowISO(), Kind: "event", Event: "pr-hygiene",
+					TaskID: fmt.Sprintf("TASK-%d", status.Number), Attempt: 1,
+					PR: status.Number, Action: "flagged", Reason: reason,
+					GraceAgeHours: age,
+					Detail:        strPtr(fmt.Sprintf("[dry-run] %s", detail)),
+				})
+				outcomes = append(outcomes, PrHygieneOutcome{
+					PR: status.Number, Title: status.Title, Action: "flagged",
+					Reason: reason, GraceAgeHours: age,
+					Detail: fmt.Sprintf("[dry-run] %s", detail),
+				})
+			} else {
+				_ = PostPrComment(repoPath, status.Number, comment, run)
+				_, _ = run([]string{"pr", "close", fmt.Sprintf("%d", status.Number)}, repoPath)
+				ledger.AppendPrHygieneRecord(repoPath, ledger.PrHygieneRecord{
+					TS: ledger.NowISO(), Kind: "event", Event: "pr-hygiene",
+					TaskID: fmt.Sprintf("TASK-%d", status.Number), Attempt: 1,
+					PR: status.Number, Action: "closed", Reason: reason,
+					GraceAgeHours: age,
+					Detail:        strPtr(detail),
+				})
+				if log != nil {
+					log(fmt.Sprintf("#%d closed: %s", status.Number, detail))
+				}
+				outcomes = append(outcomes, PrHygieneOutcome{
+					PR: status.Number, Title: status.Title, Action: "closed",
+					Reason: reason, GraceAgeHours: age, Detail: detail,
+				})
+			}
+			handled = true
+			break
+		}
+		if handled {
+			continue
+		}
+
 		if !cv.Pending && !cv.Passed && len(status.Checks) > 0 {
 			// Red across the grace window: flag it and hold autoMerge until
 			// a green check arrives. Never closed — a fix may still land.
@@ -202,6 +374,18 @@ func SweepTaskPrHygiene(repoPath string, opts PrHygieneOptions, run RunGh) PrHyg
 				ageStr := "unknown age"
 				if age != nil {
 					ageStr = fmt.Sprintf("%dh since last update", int(*age))
+				}
+				// Genuinely-still-wanted: the cited issues are open, so
+				// the PR stays open — record the evidence on the PR.
+				if !dryRun && len(cited) > 0 && !prHygieneFlaggedInApply(repoPath, status.Number, "red-across-grace") {
+					refs := make([]string, 0, len(cited))
+					for _, n := range cited {
+						refs = append(refs, fmt.Sprintf("#%d", n))
+					}
+					_ = PostPrComment(repoPath, status.Number, strings.Join([]string{
+						"DevAgent zombie-PR sweep: this PR is red across the grace window and stays open.",
+						fmt.Sprintf("Cited issue(s) %s are still open, so the work is still wanted.", strings.Join(refs, ", ")),
+					}, "\n"), run)
 				}
 				detail := fmt.Sprintf("red across %sh grace window (%s); autoMerge skipped until green: %s",
 					formatGraceHours(graceHours), ageStr, cv.Summary)

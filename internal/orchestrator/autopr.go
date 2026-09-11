@@ -91,12 +91,15 @@ type PrStatus struct {
 	UpdatedAt string `json:"updatedAt"`
 	// Author login; when it equals the gh token's viewer, approvals are
 	// impossible.
-	Author string    `json:"author"`
+	Author string `json:"author"`
+	// PR body text; the pr-hygiene landing-evidence triage reads the cited
+	// issue references (`#N`) from it.
+	Body   string    `json:"body"`
 	Checks []PrCheck `json:"checks"`
 }
 
 // prFields mirrors the TS PR_FIELDS.
-const prFields = "number,title,headRefName,baseRefName,state,mergeable,reviewDecision,author,statusCheckRollup,headRefOid,updatedAt"
+const prFields = "number,title,headRefName,baseRefName,state,mergeable,reviewDecision,author,statusCheckRollup,headRefOid,updatedAt,body"
 
 // parsePr mirrors the TS parsePr.
 func parsePr(raw map[string]any) PrStatus {
@@ -134,6 +137,7 @@ func parsePr(raw map[string]any) PrStatus {
 		HeadRefOid:     jsString(raw["headRefOid"], ""),
 		UpdatedAt:      jsString(raw["updatedAt"], ""),
 		Author:         author,
+		Body:           jsString(raw["body"], ""),
 		Checks:         checks,
 	}
 }
