@@ -425,7 +425,7 @@ func helpLines() []string {
 		"  1 / 2 / 3  switch view: workers / sessions / live log   (s and l toggle back)",
 		"",
 		Dim + "  — act —" + Reset,
-		"  n          dispatch sheet (FR-HAND-02): type a one-line goal, Enter → POST /dispatch",
+		"  n          dispatch sheet (FR-HAND-02): type a goal (Ctrl+N new line), Enter → POST /dispatch",
 		"  g          answer a paused task (FR-HAND-07): y/n or free text → POST /approve",
 		"             (no paused task: g jumps to the first item)",
 		"  k  kill the running task via POST /approve (answer __kill__); daemon must advertise kill-via-answer",
@@ -590,36 +590,88 @@ func detailOverlayLines(item any, width int) []string {
 	return boxLinesLines(title, body, inner)
 }
 
-// dispatchOverlayLines renders the dispatch sheet (FR-HAND-02 / FR-TUI-04):
-// one-line goal input. Defaults are the configured worker and the daemon's
-// repo — the sheet asks nothing else, so a goal typed here is enough to
-// start work (1+1 bar).
-func dispatchOverlayLines(overlay *Overlay, width int) []string {
+// goalInputRows is the fixed input-viewport height: a slice of the terminal
+// row budget (never content-sized, so the box does not jump while typing).
+func goalInputRows(rows int) int {
+	if rows <= 0 {
+		rows = 100
+	}
+	n := rows / 6
+	if n < 3 {
+		n = 3
+	}
+	if n > 10 {
+		n = 10
+	}
+	return n
+}
+
+// goalInputLines renders a fixed-height, multi-line input viewport: the text
+// is split on newlines and the TAIL is shown (the cursor lives at the end), so
+// growing the goal scrolls the box instead of resizing it. The first visible
+// row carries the " > " prompt, continuations are indented, and the cursor
+// cell sits on the last visible row.
+func goalInputLines(text string, width, inputRows int) []string {
+	lines := strings.Split(text, "\n")
+	if len(lines) > inputRows {
+		lines = lines[len(lines)-inputRows:]
+	}
+	out := make([]string, 0, inputRows)
+	for i := range inputRows {
+		if i >= len(lines) {
+			out = append(out, "")
+			continue
+		}
+		prefix := "   "
+		if i == 0 {
+			prefix = " > "
+		}
+		line := Truncate(lines[i], maxInt(1, width-4))
+		if i == len(lines)-1 {
+			// Cursor cell on the line being typed.
+			out = append(out, " "+prefix+line+Inverse+" "+Reset)
+			continue
+		}
+		out = append(out, " "+prefix+line)
+	}
+	return out
+}
+
+// dispatchOverlayLines renders the dispatch sheet (FR-HAND-02 / FR-TUI-04): a
+// multi-line goal input whose box is a fixed slice of the terminal (rows and
+// width both derived from the window, never from the typed text). Defaults are
+// the configured worker and the daemon's repo — the sheet asks nothing else, so
+// a goal typed here is enough to start work (1+1 bar).
+func dispatchOverlayLines(overlay *Overlay, width, rows int) []string {
 	inner := maxInt(34, width-4)
-	text := overlay.Input
+	inputRows := goalInputRows(rows)
 	body := []string{
 		" " + Bold + "New goal" + Reset + " " + Dim + "(worker + repo come from your config)" + Reset,
 		"",
-		" > " + Truncate(text, inner-5) + Inverse + " " + Reset,
-		"",
-		" " + Cyan + "Enter" + Reset + Dim + " dispatch · Esc cancel" + Reset,
 	}
+	body = append(body, goalInputLines(overlay.Input, inner, inputRows)...)
+	body = append(body,
+		"",
+		" " + Cyan + "Enter" + Reset + Dim + " dispatch · " + Reset + Cyan + "Ctrl+N" + Reset + Dim + "/" + Reset + Cyan + "Alt+Enter" + Reset + Dim + " new line · Esc cancel" + Reset,
+	)
 	return boxLinesLines("Dispatch", body, inner)
 }
 
 // approveOverlayLines renders the approve sheet (FR-HAND-07): answer a
 // paused 'ask' task. `y`/`n` submit approve/deny words; any other typing is
-// a free-text answer for the worker.
-func approveOverlayLines(overlay *Overlay, width int) []string {
+// a free-text answer for the worker (also multi-line, same fixed box).
+func approveOverlayLines(overlay *Overlay, width, rows int) []string {
 	inner := maxInt(34, width-4)
-	text := overlay.Input
+	inputRows := goalInputRows(rows)
 	body := []string{
 		" " + Dim + "task " + Reset + Truncate(orDefault(overlay.TaskID, "?"), 24),
 		"",
-		" > " + Truncate(text, inner-5) + Inverse + " " + Reset,
-		"",
-		" " + Cyan + "y" + Reset + Dim + "/Enter answer · Esc cancel" + Reset,
 	}
+	body = append(body, goalInputLines(overlay.Input, inner, inputRows)...)
+	body = append(body,
+		"",
+		" " + Cyan + "y" + Reset + Dim + "/Enter answer · " + Reset + Cyan + "Ctrl+N" + Reset + Dim + " new line · Esc cancel" + Reset,
+	)
 	return boxLinesLines("Answer task", body, inner)
 }
 
@@ -752,10 +804,10 @@ func RenderLines(snap *Snapshot, ropts RenderOptions) []string {
 		return fitLines(header, append(help, ""), footer, rows, "bottom")
 	}
 	if ropts.Overlay != nil && ropts.Overlay.Kind == "dispatch" {
-		return fitLines(header, append(dispatchOverlayLines(ropts.Overlay, width), ""), footer, rows, "top")
+		return fitLines(header, append(dispatchOverlayLines(ropts.Overlay, width, rows), ""), footer, rows, "top")
 	}
 	if ropts.Overlay != nil && ropts.Overlay.Kind == "approve" {
-		return fitLines(header, append(approveOverlayLines(ropts.Overlay, width), ""), footer, rows, "top")
+		return fitLines(header, append(approveOverlayLines(ropts.Overlay, width, rows), ""), footer, rows, "top")
 	}
 
 	if ropts.Overlay != nil && ropts.Overlay.Kind == "upgrade" {

@@ -312,6 +312,13 @@ func enqueueFromSpec(repoPath string, taskID string, spec DispatchSpec) (*queue.
 
 // countActiveRuns mirrors countActiveRuns: count live run locks under
 // DEVAGENT_HOME/locks (the runregistry's on-disk state).
+//
+// "Active" means the holder pid is ALIVE (issue #287 family, verified live
+// 2026-09-11: an 87-minute task — 60m wall + infra retry — showed
+// runs.active 0 the whole time because its lock outlived the 1h TTL while
+// its holder was still editing files). TTL now only backstops locks with
+// no usable pid (corrupt/legacy payloads); a dead holder never counts even
+// inside the TTL.
 func countActiveRuns(home string) int {
 	locksDir := filepath.Join(home, "locks")
 	entries, err := os.ReadDir(locksDir)
@@ -330,10 +337,17 @@ func countActiveRuns(home string) int {
 				return
 			}
 			var holder struct {
+				Pid       *int64   `json:"pid"`
 				StartedAt *float64 `json:"startedAt"`
 			}
 			if json.Unmarshal(raw, &holder) != nil {
 				return // corrupt lock file does not count as an active run
+			}
+			if holder.Pid != nil && *holder.Pid > 0 {
+				if ledger.ProcessAlive(int(*holder.Pid)) {
+					active++
+				}
+				return // pid known: liveness decides, TTL never relabels it
 			}
 			startedAt := 0.0
 			if holder.StartedAt != nil {

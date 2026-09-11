@@ -7,3 +7,7 @@ package ledger
 func processAlive(pid int) bool {
 	return pid > 0
 }
+
+// ProcessAlive mirrors the unix surface: any positive pid reads as alive,
+// so counting falls back to the TTL check on non-unix.
+func ProcessAlive(pid int) bool { return pid > 0 }

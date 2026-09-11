@@ -41,6 +41,11 @@ const (
 	KeyHome
 	KeyEnd
 	KeyDelete
+	// KeyNewline is an explicit "insert a line break" key inside a
+	// multi-line input (Alt+Enter / Ctrl+N). Plain Enter stays the submit
+	// key, and \n stays Enter: several terminals deliver Enter as 0x0a, so
+	// remapping \n would break Enter for them.
+	KeyNewline
 )
 
 // Key is one decoded keypress. Ch is set only for KeyChar (a possibly
@@ -82,6 +87,8 @@ func (k Key) String() string {
 		return "end"
 	case KeyDelete:
 		return "delete"
+	case KeyNewline:
+		return "newline"
 	}
 	return "unknown"
 }
@@ -229,6 +236,15 @@ func DecodeKeys(chunk string, flush bool) DecodeResult {
 				s = s[size+2:]
 				continue
 			}
+			// Alt+Enter (ESC CR, how terminals deliver Option+Enter with
+			// meta-sends-escape): the explicit line-break key. Emitting
+			// ESC + Enter instead would close the overlay and then submit
+			// it — the opposite of what the operator asked for.
+			if c1 == '\r' {
+				keys = append(keys, Key{Kind: KeyNewline})
+				s = s[size+1:]
+				continue
+			}
 			// ESC + non-sequence char (e.g. alt-j): treat as ESC, redecode the char.
 			keys = append(keys, Key{Kind: KeyEsc})
 			s = s[size:]
@@ -239,6 +255,12 @@ func DecodeKeys(chunk string, flush bool) DecodeResult {
 			continue
 		case r == '\t':
 			keys = append(keys, Key{Kind: KeyTab})
+			s = s[size:]
+			continue
+		case r == 0x0e:
+			// Ctrl+N: the layout-independent line-break key (Alt+Enter
+			// needs meta-sends-escape configured; this one always works).
+			keys = append(keys, Key{Kind: KeyNewline})
 			s = s[size:]
 			continue
 		case r < ' ' || r == 0x7f:

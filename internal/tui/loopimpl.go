@@ -465,6 +465,10 @@ func (l *loop) handleKeyLocked(key Key) {
 				ov.Input = string(r[:len(r)-1])
 			}
 			l.overlay = &ov
+		case key.Kind == KeyNewline:
+			ov := *l.overlay
+			ov.Input += "\n"
+			l.overlay = &ov
 		case key.Kind == KeyChar:
 			ov := *l.overlay
 			ov.Input += key.Ch
