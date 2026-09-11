@@ -132,6 +132,11 @@ func TestHeroShowsRunningPane(t *testing.T) {
 func TestHeroIdleShowsNextAction(t *testing.T) {
 	snap := testSnapshot()
 	snap.Agents.Panes[0].State = "idle"
+	// The next-action cue is the genuinely-idle contract: no running pane
+	// AND no live runs. (The fixture carries runs.active=1, which is the
+	// mid-task case — the hero must then report the in-flight run instead
+	// of coaching the operator to dispatch something, so zero it here.)
+	snap.Status.Runs = &RunsPayload{Active: fptr(0), FailedRecent: fptr(0)}
 	out := plain(RenderDashboard(snap, RenderOptions{}))
 	if !strings.Contains(out, "next:") {
 		t.Fatalf("idle hero must show a next-action cue:\n%s", out)

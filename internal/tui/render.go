@@ -259,10 +259,19 @@ func herdrSession(status *StatusPayload) string {
 }
 
 func liveRunsField(status *StatusPayload, panes []TuiPane) string {
-	active := 0
-	for _, p := range panes {
-		if p.State == "running" {
-			active++
+	// The daemon's runs.active (lock-derived, holder-liveness checked) is the
+	// truthful live count: verified on the real surface 2026-09-11 — a task
+	// was mid-flight (runs.active 1) while the pane-derived count painted
+	// "0a", because workers are not herdr panes (issue #288/#317 lineage).
+	// Pane state stays as the fallback for payloads without a runs block.
+	active := 0.0
+	if status.Runs != nil {
+		active = orNum(status.Runs.Active)
+	} else {
+		for _, p := range panes {
+			if p.State == "running" {
+				active++
+			}
 		}
 	}
 	var failed float64
@@ -276,7 +285,7 @@ func liveRunsField(status *StatusPayload, panes []TuiPane) string {
 		return jsNum(float64(active)) + "a " + Dim + "/ " + Reset + Yellow +
 			jsNum(failed) + "f recent" + Reset
 	}
-	return jsNum(float64(active)) + "a"
+	return jsNum(active) + "a"
 }
 
 // heroLines renders the FR-TUI-P-05 hero: one focused line for the running
@@ -310,9 +319,17 @@ func heroLines(snap *Snapshot, ropts RenderOptions, panes []TuiPane) []string {
 			" paused — [g] answer · [k] kill" + Reset
 	}
 	if sel == nil {
-		// Idle: paused cue first, else one next-action line.
+		// Idle: paused cue first, else one next-action line. "Idle" must not
+		// be painted while the daemon reports live runs (pane-rostered or
+		// not — workers currently bypass herdr, so the roster is empty even
+		// mid-task): the count is the truth, the next-action cue is not.
 		if paused != "" {
 			return append(iterationLines(snap), paused, "")
+		}
+		if snap.Status != nil && snap.Status.Runs != nil && orNum(snap.Status.Runs.Active) > 0 {
+			return append(iterationLines(snap),
+				"  "+Steel+"● "+Reset+jsNum(orNum(snap.Status.Runs.Active))+
+					" run(s) in flight "+Dim+"· pane roster empty (workers are not herdr panes)"+Reset, "")
 		}
 		next := "n goal · 1 workers · ? help"
 		switch ropts.View {
