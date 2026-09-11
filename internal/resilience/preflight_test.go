@@ -13,17 +13,26 @@ import (
 // moment the marker streams — well before the timeout — even though the fake
 // CLI never exits.
 func TestRunPreflightProbeCompletesOnStreamedMarker(t *testing.T) {
-	// omp --mode json event-stream shape (the live captured shape), then the
-	// lingering post-answer machinery the fix exists for.
-	script := `printf '%s' '{"type":"assistant","text":"OK","stopReason":"stop"}'; sleep 600`
-	start := time.Now()
-	probe := RunPreflightProbe("/bin/sh", []string{"-c", script}, t.TempDir(), 5000)
-	elapsed := time.Since(start)
-	if !probe.OK {
-		t.Fatalf("probe degraded despite streamed marker: %+v", probe)
-	}
-	if elapsed >= 4500*time.Millisecond {
-		t.Fatalf("probe waited %s (timeout 5s) instead of completing on the marker", elapsed)
+	// Both captured marker shapes must stay verbatim: omp's `--mode json`
+	// event stream and grok's `--output-format streaming-json` text chunk.
+	// Each is followed by the lingering post-answer machinery the fix
+	// exists for.
+	for _, tc := range []struct{ name, marker string }{
+		{"omp", `{"type":"assistant","text":"OK","stopReason":"stop"}`},
+		{"grok", `{"type":"text","data":"OK"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			script := `printf '%s' '` + tc.marker + `'; sleep 600`
+			start := time.Now()
+			probe := RunPreflightProbe("/bin/sh", []string{"-c", script}, t.TempDir(), 5000)
+			elapsed := time.Since(start)
+			if !probe.OK {
+				t.Fatalf("probe degraded despite streamed %s marker: %+v", tc.name, probe)
+			}
+			if elapsed >= 4500*time.Millisecond {
+				t.Fatalf("probe waited %s (timeout 5s) instead of completing on the marker", elapsed)
+			}
+		})
 	}
 }
 

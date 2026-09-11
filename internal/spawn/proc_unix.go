@@ -9,12 +9,12 @@ import (
 	"time"
 )
 
-// setOwnProcessGroup puts the child into its own process group (pgid == its
-// pid) so RunCliUntil's kill reaches grandchildren too: a CLI that fans out
-// into its own children survives CommandContext's direct-child kill and keeps
-// the output pipes open (issue #273's loop pin, generalized to the
+// SetOwnProcessGroup puts the child into its own process group (pgid == its
+// pid) so the RunCli/RunCliUntil kills reach grandchildren too: a CLI that
+// fans out into its own children survives CommandContext's direct-child kill
+// and keeps the output pipes open (issue #273's loop pin, generalized to the
 // early-completion kill of issue #308).
-func setOwnProcessGroup(cmd *exec.Cmd) {
+func SetOwnProcessGroup(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 }
 
@@ -41,7 +41,7 @@ const (
 // deadline — a verify-and-merge iteration reporting the right verdict 20 s
 // late. Killing the leader first removes whoever does the forking; each later
 // round catches the previous round's survivors. ESRCH means the group is gone.
-func killProcessTree(p *os.Process) {
+func KillProcessTree(p *os.Process) {
 	_ = p.Kill()
 	for i := 0; i < treeKillRounds; i++ {
 		if err := syscall.Kill(-p.Pid, syscall.SIGKILL); err != nil {
