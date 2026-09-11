@@ -40,7 +40,19 @@ case "$1" in
   page-degrade-breach) exit 0 ;;
   extract-text) exit 0 ;;
   pane-run) exit 0 ;;
-  task) [ "${DEVAGENT_FAKE_TASK_NO_PR:-0}" = "1" ] || echo "PR opened: https://github.com/FreePeak/devagent/pull/1"; exit ${DEVAGENT_FAKE_TASK_RC:-0} ;;
+  task)
+    if [ -n "${DEVAGENT_FAULT_SCRIPT:-}" ]; then
+      c=$(cat "${DEVAGENT_FAULT_STATE:?}" 2>/dev/null || echo 0)
+      c=$((c + 1))
+      echo "$c" > "${DEVAGENT_FAULT_STATE:?}"
+      f=$(sed -n "${c}p" "${DEVAGENT_FAULT_SCRIPT:?}" 2>/dev/null)
+      case "$f" in
+        worker-error) exit 3 ;;
+        timeout) sleep 2; exit 0 ;; # the dispatch wall (TaskTimeout) fires first → rc 124
+        no-pr) exit 0 ;;            # rc 0 without the "PR opened:" line → no-pr re-pick path
+      esac
+    fi
+    [ "${DEVAGENT_FAKE_TASK_NO_PR:-0}" = "1" ] || echo "PR opened: https://github.com/FreePeak/devagent/pull/1"; exit ${DEVAGENT_FAKE_TASK_RC:-0} ;;
 esac
 exit 0
 `,
@@ -52,7 +64,8 @@ case "$1 $2" in
       c=$(cat "$GH_ROTATE_STATE" 2>/dev/null || echo 0)
       c=$((c + 1))
       echo "$c" > "$GH_ROTATE_STATE"
-      n=$(( (c - 1) % 3 + 1 ))
+      m="${GH_ROTATE_MOD:-3}"
+      n=$(( (c - 1) % m + 1 ))
       printf '[{"number":%d,"title":"Soak goal %d","labels":[{"name":"priority:P0"}]}]' "$((200 + n))" "$n"
     else
       printf '%s' "$GH_ISSUES_JSON"
