@@ -80,6 +80,17 @@ func SanitizeKey(ticketID string) string {
 // stale-break let a newcomer steal a long run's lock); only a lock with no
 // usable pid falls back to the TTL check (corrupt/legacy payloads). The
 // lock payload is {"pid":<pid>,"startedAt":<ms>} — JSON.stringify key order.
+//
+// Atomicity: the judge-break-write sequence runs under fenceAcquire, an
+// exclusive flock taken for the duration only (unix). Two processes that
+// read the same stale lock can no longer both remove-and-write — exactly
+// one winner per acquisition — and no contender can unlink a lock another
+// process re-acquired mid-judge. A contender losing the flock itself
+// refuses: the flock holder either acquires (the refuser must refuse too)
+// or the lock was live anyway. The new payload is published with an atomic
+// rename so a concurrent reader never sees a half-written lock file.
+// Non-unix runs the sequence unfenced (ponytail: no portable flock —
+// upgrade path is LockFileEx in a lock_other GOOS split).
 func TryAcquireRun(homeDir, ticketID string, ttlMs int64) *RunLock {
 	locksDir := filepath.Join(homeDir, "locks")
 	if err := os.MkdirAll(locksDir, 0o755); err != nil {
@@ -90,8 +101,9 @@ func TryAcquireRun(homeDir, ticketID string, ttlMs int64) *RunLock {
 	if ttlMs <= 0 {
 		ttlMs = DefaultLockTTL
 	}
+	payload := `{"pid":` + strconv.Itoa(os.Getpid()) + `,"startedAt":` + strconv.FormatInt(now, 10) + `}`
 
-	if _, err := os.Stat(path); err == nil {
+	return fenceAcquire(path, func() *RunLock {
 		if data, err := os.ReadFile(path); err == nil {
 			var holder struct {
 				Pid       *int64 `json:"pid"`
@@ -111,13 +123,25 @@ func TryAcquireRun(homeDir, ticketID string, ttlMs int64) *RunLock {
 				}
 			}
 		}
-		// dead holder, pid-less stale, or corrupt: break the lock (latest-wins)
-		_ = os.Remove(path)
-	}
-
-	payload := `{"pid":` + strconv.Itoa(os.Getpid()) + `,"startedAt":` + strconv.FormatInt(now, 10) + `}`
-	if err := os.WriteFile(path, []byte(payload), 0o644); err != nil {
-		return nil
-	}
-	return &RunLock{TicketID: ticketID, Path: path, pid: int64(os.Getpid()), startedAt: now}
+		// dead holder, pid-less stale, corrupt, unreadable, or absent:
+		// take the lock (latest-wins). Write to a temp file and rename so
+		// the publish is atomic — a concurrent reader sees either the old
+		// payload or ours, never a truncated file.
+		tmp, err := os.CreateTemp(locksDir, ".acquire-")
+		if err != nil {
+			return nil
+		}
+		tmpName := tmp.Name()
+		defer os.Remove(tmpName) // no-op once the rename has moved it
+		if _, err := tmp.WriteString(payload); err != nil {
+			tmp.Close()
+			return nil
+		}
+		tmp.Close()
+		_ = tmp.Chmod(0o644)
+		if err := os.Rename(tmpName, path); err != nil {
+			return nil
+		}
+		return &RunLock{TicketID: ticketID, Path: path, pid: int64(os.Getpid()), startedAt: now}
+	})
 }
