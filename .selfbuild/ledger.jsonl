@@ -221,3 +221,4 @@
 {"loop":260,"ts":"2026-09-11T19:01:14Z","status":"operator-degraded","goal":"doc-sync deferred: PRD locally modified"}
 {"loop":261,"ts":"2026-09-11T19:14:29Z","status":"ok","goal":"Goal: Land GitHub issue #316 by verifying and merging the existing open PR #327 — do NOT re-implement it. Check the pull request's CI (`gh pr checks 327`) and r"}
 {"loop":262,"ts":"2026-09-11T19:26:03Z","status":"pr-open","goal":"Goal: Implement GitHub issue #317 (TUI worker panes always render idle: mapPaneState trusts herdr agent_status, which never leaves idle for headless worker pane"}
+{"loop":263,"ts":"2026-09-11T19:55:32Z","status":"ok","goal":"Goal: Land GitHub issue #317 by verifying and merging the existing open PR #329 — do NOT re-implement it. Check the pull request's CI (`gh pr checks 329`) and r"}
