@@ -5,6 +5,8 @@ import (
 	"os"
 	"strconv"
 	"time"
+
+	"github.com/FreePeak/devagent/internal/orchestrator"
 )
 
 // LoopConfig carries every knob the bash driver reads from the SELFBUILD_*
@@ -103,6 +105,10 @@ type LoopConfig struct {
 	Sleep  func(time.Duration)
 	Stdout io.Writer
 	Stderr io.Writer
+	// GhRun overrides the gh runner the verify-and-merge/automerge path uses
+	// (nil: DefaultRunGh, optionally wrapped with GHRepo). Tests inject a
+	// PATH-resolving runner because spawn's hardened env bypasses it.
+	GhRun orchestrator.RunGh
 }
 
 const (

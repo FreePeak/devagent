@@ -331,7 +331,18 @@ func (d *driver) runIteration(n int, logF io.Writer, gradient, clusters string) 
 	}
 
 	// Phases 4-5-6: task dispatch under the outer wall-clock cap.
-	out, prURL := d.runTaskPhase(n, logF, goal, queued)
+	// Driver-side verify-and-merge: when the run ends without shipping
+	// evidence (nonzero rc, or rc 0 with no "PR opened:" line) but the
+	// picked issue still has an OPEN pull request — research's pick, a
+	// cross-referenced one, or one this very run opened — the driver lands
+	// it itself instead of stopping one step short (loops 270-272 recorded
+	// failed/no-pr while green mergeable PRs sat open).
+	var rescuedPR int
+	rescue := func() bool {
+		rescuedPR = d.verifyAndMergeRescue(n, logF, pick.mergePR, issueNum)
+		return rescuedPR != 0
+	}
+	out, prURL := d.runTaskPhase(n, logF, goal, queued, rescue)
 	if out != outcomeNext {
 		return out
 	}
@@ -345,12 +356,18 @@ func (d *driver) runIteration(n int, logF io.Writer, gradient, clusters string) 
 	// its publish evidence. The pick-time OPEN guard is what makes the evidence
 	// mean anything: without it, a pull request merged last week would "prove"
 	// an iteration that did nothing.
-	landed := pick.mergePR != 0 && d.prMerged(pick.mergePR)
+	landed := pick.mergePR != 0 && d.prMerged(pick.mergePR) ||
+		rescuedPR != 0 && d.prMerged(rescuedPR)
 	shipped := prURL != "" || landed
 	if cfg.PushMode == "pr" && !shipped {
-		_, _ = fmt.Fprintln(logF, "[publish] task succeeded without opening a PR — leaving the issue open for re-pick")
-		d.record(logF, n, "no-pr", goal)
-		return outcomeSkip // bash: continue
+		if pr := d.verifyAndMergeRescue(n, logF, pick.mergePR, issueNum); pr != 0 {
+			rescuedPR = pr
+			landed = true
+		} else {
+			_, _ = fmt.Fprintln(logF, "[publish] task succeeded without opening a PR — leaving the issue open for re-pick")
+			d.record(logF, n, "no-pr", goal)
+			return outcomeSkip // bash: continue
+		}
 	}
 
 	// A landed merge moved origin/main: the repo-level gate has to judge the
@@ -431,6 +448,7 @@ func (d *driver) runIteration(n int, logF io.Writer, gradient, clusters string) 
 	if issueNum != 0 {
 		if merged {
 			d.closeIssue(issueNum, fmt.Sprintf("self-build loop %d: PR merged — shipped: %s", n, goal))
+			d.applyPrHygieneTriage(logF)
 		} else {
 			_, _ = fmt.Fprintf(logF, "[publish] PR opened, not merged — issue #%d stays open for a verify-and-merge pick (merged = shipped)\n", issueNum)
 		}
@@ -539,11 +557,17 @@ var prOpenedRe = regexp.MustCompile(`PR opened: (https?://\S+)`)
 
 // runTaskPhase ports the phase-4-7 task dispatch with the failure path
 // (failed row + queue done + breaker consult) and returns the PR URL the
-// dispatch reported ("" = no PR was opened).
-func (d *driver) runTaskPhase(n int, logF io.Writer, goal string, queued *claimedTask) (outcome, string) {
+// dispatch reported ("" = no PR was opened). Before recording a failure it
+// consults rescue: a run whose picked issue's PR landed anyway ships instead
+// of failing (verify-and-merge completion).
+func (d *driver) runTaskPhase(n int, logF io.Writer, goal string, queued *claimedTask, rescue func() bool) (outcome, string) {
 	d.phase(n, "task", firstLineCapped(goal, 100))
 	out, rc := d.taskDispatch(goal)
 	if rc != 0 {
+		if rescue != nil && rescue() {
+			_, _ = fmt.Fprintln(logF, "[verify] task dispatch failed but the picked issue's PR landed — recording the ship")
+			return outcomeNext, ""
+		}
 		_, _ = fmt.Fprintln(logF, "[implement] task failed")
 		d.record(logF, n, "failed", goal)
 		if queued != nil {
@@ -560,6 +584,80 @@ func (d *driver) runTaskPhase(n int, logF io.Writer, goal string, queued *claime
 		return outcomeNext, ""
 	}
 	return outcomeNext, m[1]
+}
+
+// mergeAttempts caps the driver-side verify-and-merge retries.
+const mergeAttempts = 2
+
+// ghRun wraps DefaultRunGh so the orchestrator automerge/sweep calls resolve
+// the tracker repo the way the driver's own gh calls do — via GHRepo —
+// instead of gh's cwd inference, which fails on checkouts whose origin is
+// not a GitHub remote.
+func (d *driver) ghRun() orchestrator.RunGh {
+	if d.cfg.GhRun != nil {
+		return d.cfg.GhRun
+	}
+	if d.cfg.GHRepo == "" {
+		return orchestrator.DefaultRunGh
+	}
+	repo := d.cfg.GHRepo
+	return func(args []string, cwd string) (*orchestrator.GhResult, error) {
+		return orchestrator.DefaultRunGh(append(append([]string{}, args...), "--repo", repo), cwd)
+	}
+}
+
+// mergePRBounded lands pull request pr through the existing
+// AutoReviewAndMergeOne pipeline (status → checks wait → CI-Fixer → merge),
+// retrying a bounded number of times; between attempts and at the end it
+// re-reads gh's merged state, so an attempt whose merge landed even when its
+// verdict row was lost still counts.
+func (d *driver) mergePRBounded(n int, logF io.Writer, pr int) bool {
+	run := d.ghRun()
+	for attempt := 1; attempt <= mergeAttempts; attempt++ {
+		o := orchestrator.AutoReviewAndMergeOne(d.cfg.Repo, pr, orchestrator.AutoReviewAndMergeOneOpts{
+			Log: func(msg string) { _, _ = fmt.Fprintf(logF, "[automerge] %s\n", msg) },
+		}, run)
+		_, _ = fmt.Fprintf(logF, "[automerge] attempt %d: PR #%d %s (%s)\n", attempt, pr, o.Action, o.Detail)
+		if o.Action == orchestrator.ActionMerged || d.prMerged(pr) {
+			return true
+		}
+	}
+	return d.prMerged(pr)
+}
+
+// verifyAndMergeRescue closes the verify-and-merge loop for an iteration
+// whose run ended without shipping evidence: when the picked issue still has
+// an OPEN pull request — research's pick (OPEN-guarded at pick time), a
+// cross-referenced one, or one the run itself opened — the driver lands it
+// through mergePRBounded and reports its number (0 = nothing landed).
+func (d *driver) verifyAndMergeRescue(n int, logF io.Writer, pr, issueNum int) int {
+	if pr == 0 && issueNum != 0 {
+		pr = d.openPROfIssue(issueNum)
+	}
+	if pr == 0 || d.prState(pr) != "OPEN" {
+		return 0
+	}
+	_, _ = fmt.Fprintf(logF, "[verify] run ended without shipping evidence — driver-side verify-and-merge of open PR #%d\n", pr)
+	if d.mergePRBounded(n, logF, pr) {
+		return pr
+	}
+	return 0
+}
+
+// applyPrHygieneTriage runs the shipped pr-hygiene sweep in apply mode after
+// a ship: zombie TASK PRs (base-superseded, red-across-grace) and the
+// landing-evidence triage of issues cited by open PRs (#336) act for real,
+// closing zombie duplicates with the evidence the merge just produced.
+// Best-effort observability only — a sweep failure never fails the ship.
+func (d *driver) applyPrHygieneTriage(logF io.Writer) {
+	dryRun := false
+	res := orchestrator.SweepTaskPrHygiene(d.cfg.Repo, orchestrator.PrHygieneOptions{
+		DryRun: &dryRun,
+		Log:    func(msg string) { _, _ = fmt.Fprintf(logF, "[pr-hygiene] %s\n", msg) },
+	}, d.ghRun())
+	for _, o := range res.Outcomes {
+		_, _ = fmt.Fprintf(logF, "[pr-hygiene] #%d %s (%s): %s\n", o.PR, o.Action, o.Reason, o.Detail)
+	}
 }
 
 // prevLedgerTail mirrors `tail -k "$STATE/ledger.jsonl"`.

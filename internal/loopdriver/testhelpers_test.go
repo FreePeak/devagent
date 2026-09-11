@@ -1,12 +1,42 @@
 package loopdriver
 
 import (
+	"bytes"
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/FreePeak/devagent/internal/orchestrator"
 )
+
+// execFakeGh runs the fake gh from the test PATH as an orchestrator.RunGh.
+// The automerge path must inject this: spawn's hardened env resolves gh
+// from a fallback PATH, bypassing the fake dir, and would hit the network.
+func execFakeGh(args []string, cwd string) (*orchestrator.GhResult, error) {
+	cmd := exec.Command("gh-fake", args...)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	if err != nil {
+		code := 1
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			code = exitErr.ExitCode()
+		}
+		return nil, &orchestrator.GhError{
+			Message: fmt.Sprintf("gh %s exited %d: %s", strings.Join(args, " "), code, stderr.String()),
+			Stdout:  stdout.String(),
+			Stderr:  stderr.String(),
+			Code:    code,
+		}
+	}
+	return &orchestrator.GhResult{Stdout: stdout.String(), Stderr: stderr.String()}, nil
+}
 
 // initFixtureRepo creates a hermetic git repo (no network, local user
 // config) under t.TempDir and returns its path.

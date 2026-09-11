@@ -63,10 +63,19 @@ case "$1 $2" in
   # the real one and the driver must not care. GH_PR_STATE answers every call;
   # GH_PR_STATE_FIRST + GH_PR_STATE_FILE sequence the first one differently
   # (a merge route reads the PR twice: OPEN at pick time, MERGED at ship).
+  # GH_PR_STATE_OPEN_CALLS + GH_PR_STATE_OPEN_CALLS_FILE go finer: the first
+  # K pr view calls read OPEN, every later one reads GH_PR_STATE — the
+  # driver-side verify-and-merge rescues read the PR several times before
+  # the final ship evidence.
   "pr view")
     s="${GH_PR_STATE:-OPEN}"
     if [ -n "${GH_PR_STATE_FIRST:-}" ] && [ ! -f "${GH_PR_STATE_FILE:-/nonexistent-marker}" ]; then
       : > "${GH_PR_STATE_FILE:?}"; s="$GH_PR_STATE_FIRST"
+    fi
+    if [ -n "${GH_PR_STATE_OPEN_CALLS:-}" ]; then
+      c=$(cat "${GH_PR_STATE_OPEN_CALLS_FILE:?}" 2>/dev/null || echo 0)
+      c=$((c + 1)); echo "$c" > "$GH_PR_STATE_OPEN_CALLS_FILE"
+      [ "$c" -le "$GH_PR_STATE_OPEN_CALLS" ] && s="OPEN" || s="${GH_PR_STATE:-OPEN}"
     fi
     printf '{"state":"%s"}\n' "$s" ;;
 esac
@@ -505,36 +514,92 @@ func TestRunLoopMergePickIgnoresAlreadyLandedPR(t *testing.T) {
 	}
 }
 
-// The merged pull request is the only publish evidence a merge dispatch can
-// produce, so an unmerged one must still record the non-productive no-pr row
-// and leave the issue open (#238 semantics carried onto the new path).
-func TestRunLoopMergePickWithoutMergedPRRecordsNoPR(t *testing.T) {
+// A verify-and-merge dispatch whose worker finished green but never merged:
+// the driver closes the loop itself — it lands the still-open PR through the
+// bounded AutoReviewAndMergeOne path, records the productive row, closes the
+// issue, and applies the pr-hygiene sweep (loop 272's failure class).
+func TestRunLoopMergePickRescuedByDriverSideMerge(t *testing.T) {
 	repo := initFixtureRepo(t)
 	installFakes(t, repo)
 	seedResearchOutput(t, researchMergePick)
 	t.Setenv("GH_ISSUES_JSON", `[{"number":290,"title":"FR-VAL-02: devagent doctor","labels":[{"name":"priority:P0"}]}]`)
 	t.Setenv("DEVAGENT_FAKE_TASK_NO_PR", "1")
+	// The PR reads OPEN through the pick, the post-run evidence check, the
+	// rescue's OPEN guard, and the auto-merge status poll — then MERGED for
+	// the final ship evidence (4 pr view calls precede it).
+	t.Setenv("GH_PR_STATE_OPEN_CALLS", "4")
+	t.Setenv("GH_PR_STATE_OPEN_CALLS_FILE", filepath.Join(t.TempDir(), "pr-view-calls"))
+	t.Setenv("GH_PR_STATE", "MERGED")
 	now, _ := frozenClock()
 	cfg := loopConfigFor(t, repo, func(c *LoopConfig) {
 		c.Now = now
 		c.GHRepo = "FreePeak/devagent"
+		c.GhRun = execFakeGh
 	})
 	cfg.DryRun = false
 	if rc := RunLoop(cfg); rc != 0 {
 		t.Fatalf("rc = %d, want 0", rc)
 	}
 	rows := readLedger(t, repo)
-	if len(rows) != 1 || rows[0]["status"] != "no-pr" {
-		t.Fatalf("rows: %v, want one no-pr", rows)
+	if len(rows) != 1 || rows[0]["status"] != "ok" {
+		t.Fatalf("rows: %v, want one productive ok row", rows)
 	}
-	assertFileContains(t, filepath.Join(repo, "devagent-calls.log"), "gh pr view 298")
 	calls, err := os.ReadFile(filepath.Join(repo, "devagent-calls.log"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(calls), "gh issue close") {
-		t.Fatalf("issue must stay open, calls:\n%s", calls)
+	assertFileContains(t, filepath.Join(repo, "devagent-calls.log"), "gh pr view 298")
+	if !strings.Contains(string(calls), "gh pr merge 298") {
+		t.Fatalf("driver-side merge not attempted, calls:\n%s", calls)
 	}
+	assertFileContains(t, filepath.Join(repo, "devagent-calls.log"), "gh issue close")
+	// The shipped pr-hygiene triage applied after the ship (sweep's PR list).
+	assertFileContains(t, filepath.Join(repo, "devagent-calls.log"), "gh pr list")
+	logData, err := os.ReadFile(filepath.Join(repo, ".selfbuild", "logs", "loop-1.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(logData), "[verify] run ended without shipping evidence — driver-side verify-and-merge of open PR #298") {
+		t.Fatalf("rescue not logged:\n%s", logData)
+	}
+}
+
+// Same rescue on the failure path: a task dispatch that exits nonzero must
+// not record `failed` when the picked issue's PR landed anyway — the run
+// ships (loops 270-272 mis-recorded green work as failures).
+func TestRunLoopFailedTaskRescuedByLandedPR(t *testing.T) {
+	repo := initFixtureRepo(t)
+	installFakes(t, repo)
+	seedResearchOutput(t, researchMergePick)
+	t.Setenv("GH_ISSUES_JSON", `[{"number":290,"title":"FR-VAL-02: devagent doctor","labels":[{"name":"priority:P0"}]}]`)
+	t.Setenv("DEVAGENT_FAKE_TASK_RC", "1")
+	// OPEN through pick, rescue guard, and status poll; MERGED for the
+	// final ship evidence (3 pr view calls precede it).
+	t.Setenv("GH_PR_STATE_OPEN_CALLS", "3")
+	t.Setenv("GH_PR_STATE_OPEN_CALLS_FILE", filepath.Join(t.TempDir(), "pr-view-calls"))
+	t.Setenv("GH_PR_STATE", "MERGED")
+	now, _ := frozenClock()
+	cfg := loopConfigFor(t, repo, func(c *LoopConfig) {
+		c.Now = now
+		c.GHRepo = "FreePeak/devagent"
+		c.GhRun = execFakeGh
+	})
+	cfg.DryRun = false
+	if rc := RunLoop(cfg); rc != 0 {
+		t.Fatalf("rc = %d, want 0", rc)
+	}
+	rows := readLedger(t, repo)
+	if len(rows) != 1 || rows[0]["status"] != "ok" {
+		t.Fatalf("rows: %v, want the landed run recorded ok, not failed", rows)
+	}
+	calls, err := os.ReadFile(filepath.Join(repo, "devagent-calls.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(calls), "gh issue close") == false {
+		t.Fatalf("shipped issue must close, calls:\n%s", calls)
+	}
+	assertFileContains(t, filepath.Join(repo, "devagent-calls.log"), "gh pr merge 298")
 }
 
 // Issue #301, first acceptance criterion: an ordinary implement pick still
