@@ -559,3 +559,216 @@ func TestSweepTaskPrHygiene(t *testing.T) {
 		}
 	})
 }
+
+// landingScriptGh drives the landing-evidence triage: a PR list, issue
+// states keyed by number, and the main-branch commit listing.
+func landingScriptGh(t *testing.T, list string, issues map[int]string, mainCommits []map[string]any) (RunGh, *[][]string) {
+	t.Helper()
+	commitsJSON, err := json.Marshal(mainCommits)
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := &[][]string{}
+	run := RunGh(func(args []string, cwd string) (*GhResult, error) {
+		*calls = append(*calls, args)
+		switch args[0] {
+		case "api":
+			return &GhResult{Stdout: string(commitsJSON)}, nil
+		case "issue":
+			var n int
+			if _, err := fmt.Sscanf(args[2], "%d", &n); err != nil {
+				t.Fatalf("bad issue view args %v", args)
+			}
+			state, ok := issues[n]
+			if !ok {
+				state = "OPEN"
+			}
+			return &GhResult{Stdout: fmt.Sprintf(`{"state":%q}`, state)}, nil
+		}
+		key := args[0]
+		if args[0] == "pr" && len(args) > 1 {
+			key = args[1]
+		}
+		if key == "list" {
+			return &GhResult{Stdout: list}, nil
+		}
+		return &GhResult{}, nil
+	})
+	return run, calls
+}
+
+func TestSweepTaskPrHygieneLandingEvidence(t *testing.T) {
+	old := time.Now().Add(-30 * time.Hour).UTC().Format("2006-01-02T15:04:05.000Z07:00")
+	now := time.Now().UTC().Format("2006-01-02T15:04:05.000Z07:00")
+	grace := 24.0
+	on := true
+	off := false
+	mainWithLanding := []map[string]any{
+		{"sha": "f00dc0de", "commit": map[string]any{"message": "implement the thing (#7)"}},
+	}
+	mainEmpty := []map[string]any{}
+
+	prJSON := func(body string, rollup []map[string]any, updated string) string {
+		pr := map[string]any{
+			"number": 9, "title": "T1",
+			"headRefName": "devagent/TASK-mtioq4ik-T1-a0",
+			"baseRefName": "devagent/TASK-mtioq4ik-T0-a0",
+			"state":       "OPEN", "mergeable": "MERGEABLE",
+			"headRefOid": "abc123", "updatedAt": updated, "body": body,
+			"statusCheckRollup": rollup,
+		}
+		b, err := json.Marshal([]map[string]any{pr})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+
+	t.Run("shipped-elsewhere: closed issue with a landing commit on main closes the PR citing the sha", func(t *testing.T) {
+		repo := hygieneTempRepo(t)
+		run, calls := landingScriptGh(t, prJSON("Closes #7", hygieneGreen, now),
+			map[int]string{7: "CLOSED"}, mainWithLanding)
+		res := SweepTaskPrHygiene(repo, PrHygieneOptions{DryRun: &off, GraceHours: &grace}, run)
+		if len(res.Outcomes) != 1 {
+			t.Fatalf("outcomes = %+v", res.Outcomes)
+		}
+		o := res.Outcomes[0]
+		if o.Action != "closed" || o.Reason != "shipped-elsewhere" {
+			t.Fatalf("outcome = %s/%s, want closed/shipped-elsewhere", o.Action, o.Reason)
+		}
+		if !strings.Contains(o.Detail, "f00dc0de") {
+			t.Fatalf("detail must cite the landing sha: %s", o.Detail)
+		}
+		commented, closed := false, false
+		for _, c := range *calls {
+			if c[0] == "pr" && c[1] == "comment" && strings.Contains(strings.Join(c, " "), "f00dc0de") {
+				commented = true
+			}
+			if c[0] == "pr" && c[1] == "close" {
+				closed = true
+			}
+		}
+		if !commented || !closed {
+			t.Fatalf("comment=%v close=%v", commented, closed)
+		}
+		rows := hygieneRows(t, repo)
+		if len(rows) != 1 || rows[0]["action"] != "closed" || rows[0]["reason"] != "shipped-elsewhere" {
+			t.Fatalf("rows = %v", rows)
+		}
+	})
+
+	t.Run("superseded: closed issue without a landing commit closes the PR as not shipped", func(t *testing.T) {
+		repo := hygieneTempRepo(t)
+		run, calls := landingScriptGh(t, prJSON("Closes #7", hygieneGreen, now),
+			map[int]string{7: "CLOSED"}, mainEmpty)
+		res := SweepTaskPrHygiene(repo, PrHygieneOptions{DryRun: &off, GraceHours: &grace}, run)
+		if len(res.Outcomes) != 1 {
+			t.Fatalf("outcomes = %+v", res.Outcomes)
+		}
+		o := res.Outcomes[0]
+		if o.Action != "closed" || o.Reason != "superseded" {
+			t.Fatalf("outcome = %s/%s, want closed/superseded", o.Action, o.Reason)
+		}
+		if !strings.Contains(o.Detail, "not shipped") {
+			t.Fatalf("detail must state not shipped: %s", o.Detail)
+		}
+		commented := false
+		for _, c := range *calls {
+			if c[0] == "pr" && c[1] == "comment" && strings.Contains(strings.Join(c, " "), "not shipped") {
+				commented = true
+			}
+		}
+		if !commented {
+			t.Fatal("expected an explicit not-shipped comment")
+		}
+		rows := hygieneRows(t, repo)
+		if len(rows) != 1 || rows[0]["action"] != "closed" || rows[0]["reason"] != "superseded" {
+			t.Fatalf("rows = %v", rows)
+		}
+	})
+
+	t.Run("still-wanted: open issue keeps a red-across-grace PR open with an evidence comment", func(t *testing.T) {
+		repo := hygieneTempRepo(t)
+		run, calls := landingScriptGh(t, prJSON("Closes #7", hygieneRed, old),
+			map[int]string{7: "OPEN"}, mainEmpty)
+		res := SweepTaskPrHygiene(repo, PrHygieneOptions{DryRun: &off, AutoMerge: &on, GraceHours: &grace}, run)
+		if len(res.Outcomes) != 1 {
+			t.Fatalf("outcomes = %+v", res.Outcomes)
+		}
+		o := res.Outcomes[0]
+		if o.Action != "flagged" || o.Reason != "red-across-grace" {
+			t.Fatalf("outcome = %s/%s, want flagged/red-across-grace", o.Action, o.Reason)
+		}
+		if !res.SkipAutoMerge {
+			t.Fatal("skipAutoMerge must hold for a still-wanted red PR")
+		}
+		commentCount := func() int {
+			n := 0
+			for _, c := range *calls {
+				if c[0] == "pr" && c[1] == "comment" && strings.Contains(strings.Join(c, " "), "still wanted") {
+					n++
+				}
+			}
+			return n
+		}
+		if commentCount() != 1 {
+			t.Fatalf("evidence comment count = %d, want 1", commentCount())
+		}
+		// Second sweep: the evidence comment must not be reposted.
+		SweepTaskPrHygiene(repo, PrHygieneOptions{DryRun: &off, GraceHours: &grace}, run)
+		if commentCount() != 1 {
+			t.Fatalf("evidence comment reposted: count = %d", commentCount())
+		}
+	})
+
+	t.Run("dry-run: triage flags without commenting or closing", func(t *testing.T) {
+		repo := hygieneTempRepo(t)
+		run, calls := landingScriptGh(t, prJSON("Closes #7", hygieneGreen, now),
+			map[int]string{7: "CLOSED"}, mainWithLanding)
+		res := SweepTaskPrHygiene(repo, PrHygieneOptions{GraceHours: &grace}, run)
+		if len(res.Outcomes) != 1 || res.Outcomes[0].Action != "flagged" {
+			t.Fatalf("outcomes = %+v", res.Outcomes)
+		}
+		if !strings.HasPrefix(res.Outcomes[0].Detail, "[dry-run] ") {
+			t.Fatalf("dry-run detail = %s", res.Outcomes[0].Detail)
+		}
+		for _, c := range *calls {
+			if c[0] == "pr" && (c[1] == "comment" || c[1] == "close") {
+				t.Fatalf("unexpected acting call %v", c)
+			}
+		}
+	})
+
+	t.Run("no closed issue: green PR is untouched and no issue lookups happen", func(t *testing.T) {
+		repo := hygieneTempRepo(t)
+		run, calls := landingScriptGh(t, prJSON("Closes #7", hygieneGreen, now),
+			map[int]string{7: "OPEN"}, mainEmpty)
+		res := SweepTaskPrHygiene(repo, PrHygieneOptions{DryRun: &off, GraceHours: &grace}, run)
+		if len(res.Outcomes) != 1 || res.Outcomes[0].Action != "untouched" || res.Outcomes[0].Reason != "green" {
+			t.Fatalf("outcomes = %+v", res.Outcomes)
+		}
+		for _, c := range *calls {
+			if c[0] == "pr" && (c[1] == "comment" || c[1] == "close") {
+				t.Fatalf("unexpected acting call %v", c)
+			}
+		}
+		if len(*calls) == 0 {
+			t.Fatal("sweep must still list PRs")
+		}
+	})
+
+	t.Run("closing-keyword refs win over incidental #N mentions", func(t *testing.T) {
+		repo := hygieneTempRepo(t)
+		run, calls := landingScriptGh(t, prJSON("Related to #12, see also #13. Closes #7", hygieneGreen, now),
+			map[int]string{7: "CLOSED"}, mainWithLanding)
+		res := SweepTaskPrHygiene(repo, PrHygieneOptions{DryRun: &off, GraceHours: &grace}, run)
+		if len(res.Outcomes) != 1 || res.Outcomes[0].Action != "closed" || res.Outcomes[0].Reason != "shipped-elsewhere" {
+			t.Fatalf("outcomes = %+v", res.Outcomes)
+		}
+		for _, c := range *calls {
+			if c[0] == "issue" && strings.Join(c, " ") != "issue view 7 --json state" {
+				t.Fatalf("incidental issue lookup: %v", c)
+			}
+		}
+	})
+}
