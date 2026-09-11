@@ -4809,15 +4809,14 @@ and #309 as <code>shipped-elsewhere</code> (cited issues #293 and #306
 closed, landing commits 8bc9618 and 8eea971 cited in the close
 comments); #314 and #318 stayed open (green, no closed-issue citation).
 Every close carries the standard sweep comment and one apply-mode ledger
-row (internal/orchestrator/pr-hygiene.go).</p>
-<p>*Last updated: 2026-09-12 (pr-hygiene landing-evidence triage) — the
-zombie-PR sweep now checks the issues a <code>devagent/TASK-*</code> PR
-cites (<code>#N</code> in the body): a CLOSED issue with a
-<code>(#N)</code> commit on main closes the PR as
-<code>shipped-elsewhere</code> citing the sha; a CLOSED issue with no
-landing commit closes it as <code>superseded</code> ("not shipped"); an
-open issue keeps a red-across-grace PR open with a once-per-PR evidence
-comment. Triage lives inside the existing sweep
+row (internal/orchestrator/pr-hygiene.go). *Last updated: 2026-09-12
+(pr-hygiene landing-evidence triage) — the zombie-PR sweep now checks
+the issues a <code>devagent/TASK-*</code> PR cites (<code>#N</code> in
+the body): a CLOSED issue with a <code>(#N)</code> commit on main closes
+the PR as <code>shipped-elsewhere</code> citing the sha; a CLOSED issue
+with no landing commit closes it as <code>superseded</code> ("not
+shipped"); an open issue keeps a red-across-grace PR open with a
+once-per-PR evidence comment. Triage lives inside the existing sweep
 (internal/orchestrator/pr-hygiene.go), not a new path; PR body is now
 part of PrStatus (prFields). <em>Last updated: 2026-09-12 (run-lock
 acquisition is atomic and fenced) — <code>ledger.TryAcquireRun</code>'s
