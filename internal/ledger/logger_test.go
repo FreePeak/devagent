@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -101,6 +102,7 @@ func TestSanitizeKey(t *testing.T) {
 func TestTryAcquireRunDedupAndStaleBreak(t *testing.T) {
 	home := t.TempDir()
 	base := time.Now().UnixMilli()
+	defer func() { NowFunc = nowMillis }()
 
 	NowFunc = func() int64 { return base }
 	l1 := TryAcquireRun(home, "ticket/one", 0)
@@ -119,15 +121,30 @@ func TestTryAcquireRunDedupAndStaleBreak(t *testing.T) {
 		t.Fatal("sanitized alias must hit the same fresh lock")
 	}
 
-	// Expired: the stale lock is broken and re-acquired.
+	// Issue #316 amendment: a TTL-expired lock whose holder is ALIVE must
+	// never be stale-broken — loop task runs routinely outlive the 1h TTL,
+	// and breaking the lock let a newcomer steal a long run's lock. The
+	// holder here is this very process, verifiably alive.
 	NowFunc = func() int64 { return base + DefaultLockTTL + 1 }
+	if l5 := TryAcquireRun(home, "ticket/one", 0); l5 != nil {
+		t.Fatal("live holder's expired lock must not be broken")
+	}
+
+	// With no usable pid the TTL stays the breaker: a pid-less (legacy or
+	// corrupt) expired payload is broken and re-acquired.
+	if err := os.WriteFile(l1.Path, []byte(`{"startedAt":`+strconv.FormatInt(base, 10)+`}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	l5 := TryAcquireRun(home, "ticket/one", 0)
 	if l5 == nil {
-		t.Fatal("stale lock must be broken")
+		t.Fatal("pid-less expired lock must be broken")
 	}
+	// Issue #316: the broken predecessor's deferred Release must not delete
+	// the new holder's live lock (observed live: a finished run unlinked
+	// TASK.lock while it already belonged to a newer run).
 	l1.Release()
-	if _, err := os.Stat(l1.Path); !os.IsNotExist(err) {
-		t.Fatal("release must remove the lock file")
+	if _, err := os.Stat(l5.Path); err != nil {
+		t.Fatal("predecessor release must keep the later holder's lock: " + err.Error())
 	}
 	l5.Release() // idempotent second release below
 	l5.Release()

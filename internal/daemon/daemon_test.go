@@ -1241,6 +1241,45 @@ func TestDispatchArgvTaskID(t *testing.T) {
 	}
 }
 
+// TestDispatchLogWriter pins the issue #316 observability fix: the detached
+// child's output lands in <home>/runs/dispatch-<taskID>.log (appended across
+// calls, not clobbered), best-effort under a resolved DEVAGENT_HOME.
+func TestDispatchLogWriter(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("DEVAGENT_HOME", home)
+	f := dispatchLogWriter("TASK-1234abcd")
+	if f == nil {
+		t.Fatal("dispatch log writer must open under a writable home")
+	}
+	if _, err := f.WriteString("first spawn\n"); err != nil {
+		t.Fatal(err)
+	}
+	_ = f.Close()
+	// A later dispatch to the same id appends: a daemon restart must not
+	// wipe the refused-spawn evidence.
+	f2 := dispatchLogWriter("TASK-1234abcd")
+	if f2 == nil {
+		t.Fatal("second open must succeed")
+	}
+	if _, err := f2.WriteString("second spawn\n"); err != nil {
+		t.Fatal(err)
+	}
+	_ = f2.Close()
+	raw, err := os.ReadFile(filepath.Join(home, "runs", "dispatch-TASK-1234abcd.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(raw) != "first spawn\nsecond spawn\n" {
+		t.Fatalf("log = %q, want appended content", raw)
+	}
+	// An empty task id still gets a file (never nil just for a missing id).
+	if f3 := dispatchLogWriter(""); f3 == nil {
+		t.Fatal("empty task id must fall back to the unscoped log")
+	} else {
+		_ = f3.Close()
+	}
+}
+
 func TestStatusFailedRecentWindow(t *testing.T) {
 	repo := t.TempDir()
 	// The issue #315 field case: a row failed 17 days ago must not read as

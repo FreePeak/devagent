@@ -792,6 +792,28 @@ func dispatchArgv(spec DispatchSpec) []string {
 	return argv
 }
 
+// dispatchLogWriter opens the per-dispatch log the detached child's
+// stdout/stderr stream into: <home>/runs/dispatch-<taskID>.log. Issue #316:
+// the detached child has no terminal (Stdout/Stderr default to /dev/null),
+// so a refused spawn — "Run for TASK-x already active" on stderr — died
+// silently while the TUI still reported the goal dispatched. Best effort:
+// nil means capture is unavailable and the dispatch proceeds as before.
+func dispatchLogWriter(taskID string) *os.File {
+	dir := filepath.Join(devagentHome(), "runs")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil
+	}
+	name := "dispatch-unscoped"
+	if taskID != "" {
+		name = "dispatch-" + ledger.SanitizeKey(taskID)
+	}
+	f, err := os.OpenFile(filepath.Join(dir, name+".log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return nil
+	}
+	return f
+}
+
 // DefaultDispatchRunner mirrors defaultDispatchRunner: a detached spawn of
 // the real `devagent task` pipeline (FR-CTRL-03). In a compiled binary the
 // executable itself is the CLI.
@@ -818,6 +840,12 @@ func DefaultDispatchRunner(spec DispatchSpec) DispatchResult {
 	cmd := exec.Command(exe, argv...)
 	cmd.Dir = cwd
 	cmd.Env = append(os.Environ(), "DEVAGENT_VISIBILITY="+visibilityEnv())
+	if logf := dispatchLogWriter(spec.TaskID); logf != nil {
+		defer func() { _ = logf.Close() }()
+		_, _ = fmt.Fprintf(logf, "[%s] dispatch %s started\n", time.Now().UTC().Format(time.RFC3339), spec.TaskID)
+		cmd.Stdout = logf
+		cmd.Stderr = logf
+	}
 	setDetach(cmd)
 	if err := cmd.Start(); err != nil {
 		return spawnFailed("dispatch spawn failed: " + err.Error())
