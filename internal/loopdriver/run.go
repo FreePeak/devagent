@@ -313,8 +313,11 @@ func (d *driver) runIteration(n int, logF io.Writer, gradient, clusters string) 
 		return outcomeFallThrough
 	}
 
-	// Phases 4-5-6: task dispatch under the outer wall-clock cap.
-	out, prURL := d.runTaskPhase(n, logF, goal, queued)
+	// Phases 4-5-6: task dispatch under the outer wall-clock cap. The id is
+	// this iteration's run identity everywhere downstream: the CLI's run lock,
+	// worktree and branch, and the deferred cleanup row (issue #316).
+	taskID := runTaskID(n)
+	out, prURL := d.runTaskPhase(n, logF, goal, queued, taskID)
 	if out != outcomeNext {
 		return out
 	}
@@ -386,7 +389,7 @@ func (d *driver) runIteration(n int, logF io.Writer, gradient, clusters string) 
 		d.closeIssue(issueNum, fmt.Sprintf("self-build loop %d shipped this issue: %s", n, goal))
 	}
 	if cfg.PushMode == "pr" {
-		d.scheduleCleanup(n)
+		d.scheduleCleanup(n, taskID)
 	}
 	_, _ = fmt.Fprintf(logF, "[ok] loop %d complete\n", n)
 	return outcomeFallThrough
@@ -490,9 +493,9 @@ var prOpenedRe = regexp.MustCompile(`PR opened: (https?://\S+)`)
 // runTaskPhase ports the phase-4-7 task dispatch with the failure path
 // (failed row + queue done + breaker consult) and returns the PR URL the
 // dispatch reported ("" = no PR was opened).
-func (d *driver) runTaskPhase(n int, logF io.Writer, goal string, queued *claimedTask) (outcome, string) {
+func (d *driver) runTaskPhase(n int, logF io.Writer, goal string, queued *claimedTask, taskID string) (outcome, string) {
 	d.phase(n, "task", firstLineCapped(goal, 100))
-	out, rc := d.taskDispatch(goal)
+	out, rc := d.taskDispatch(goal, taskID)
 	if rc != 0 {
 		_, _ = fmt.Fprintln(logF, "[implement] task failed")
 		d.record(logF, n, "failed", goal)

@@ -1580,7 +1580,7 @@ Master tracker with definition of done: [#207](https://github.com/FreePeak/devag
 |---|---|---|---|
 | FR-VAL-01 ✅ | Golden soak self-test: a hermetic CI test runs the full loop driver end-to-end (pick → research → PO → task → gate → ledger) over a fixture repo with fake worker CLIs, asserting N consecutive `ok` ledger rows, correct artifact creation, already-shipped guard behavior, and failure-path classification — shipped as `TestGoldenSoak` in `internal/loopdriver/run_test.go` (issue-first path over the existing `installFakes` fixture; the deterministic `GH_ROTATE_STATE` fake gh serves pick N as issue #200+N): 3 consecutive `ok` rows with goal artifacts under `.selfbuild/`, the 4th re-pick rejected as `skipped` by the already-shipped guard (no 4th task dispatch, guard-side issue close), and the repo-gate failure pin (`TestCmd=false` → `failed-tests` row, tracker issue left open). Runs in CI via the existing `go test ./...` job — mutation-checked: breaking the ledger row writer or the issue pick order turns it red | M | [#289](https://github.com/FreePeak/devagent/issues/289) |
 | FR-VAL-02 ✅ | `devagent doctor`: one-command machine validation (version stamp, config, DEVAGENT_HOME, git remote, gh auth incl. invalid-env-token detection, herdr session, daemon /status, provider preflight, stale artifacts) with human + `--json` output for the TUI/Tauri app | M | ✅ [#290](https://github.com/FreePeak/devagent/issues/290) — shipped as PR [#298](https://github.com/FreePeak/devagent/pull/298) (`internal/commands/doctor.go` + `internal/cli/actions_doctor.go`, merged 2026-09-10T16:37Z); status row corrected by issue #301's work, which measured the row still open after the merge |
-| FR-VAL-03 ✅ | Driver observability parity: truthful `runs.active` (closes #287), visible worker panes via wired `HerdrPaneRunner` (closes #288), periodic watchdog-health rows + enforced no-progress kill on ALL spawn paths, and a loopdriver heartbeat (`{iteration, phase, pid}`) surfaced on `GET /status` | M | ✅ [#291](https://github.com/FreePeak/devagent/issues/291) — shipped 2026-09-11: run lock acquired in `taskCommand` before `RunTask` (live-smoked: second concurrent `task --id` exits 1 "already active" and the lock is visible under `DEVAGENT_HOME/locks` while the first runs); `workers.WireHerdrPaneRunner` installed from `cli.Execute` (nil seam kept for tests); 30s periodic `watchdog-health` rows on the direct path (`emitWatchdogRow` in `spawnCliStreaming`'s poll loop) and the pane path (`emitPaneWatchdogRow` in `RunCommandInHerdrPane`'s poll loop) with the no-progress kill enforced on both; driver `writeHeartbeat` at every `phase()` boundary → `.selfbuild/heartbeat.json` → `GET /status` `loop:{iteration,phase,pid,updatedAt}` |
+| FR-VAL-03 ✅ | Driver observability parity: truthful `runs.active` (closes #287), visible worker panes via wired `HerdrPaneRunner` (closes #288), periodic watchdog-health rows + enforced no-progress kill on ALL spawn paths, and a loopdriver heartbeat (`{iteration, phase, pid}`) surfaced on `GET /status` | M | ✅ [#291](https://github.com/FreePeak/devagent/issues/291) — shipped 2026-09-11: run lock acquired in `taskCommand` before `RunTask` (live-smoked: second concurrent `task --id` exits 1 "already active" and the lock is visible under `DEVAGENT_HOME/locks` while the first runs); `workers.WireHerdrPaneRunner` installed from `cli.Execute` (nil seam kept for tests); 30s periodic `watchdog-health` rows on the direct path (`emitWatchdogRow` in `spawnCliStreaming`'s poll loop) and the pane path (`emitPaneWatchdogRow` in `RunCommandInHerdrPane`'s poll loop) with the no-progress kill enforced on both; driver `writeHeartbeat` at every `phase()` boundary → `.selfbuild/heartbeat.json` → `GET /status` `loop:{iteration,phase,pid,updatedAt}`. Hardened 2026-09-11 by [#316](https://github.com/FreePeak/devagent/issues/316): the lock is keyed per run (`taskRunID`), `Release` is ownership-checked, dispatches thread `--id`, and a detached child's output lands in `runs/dispatch-<id>.log` |
 | FR-VAL-04 | Chaos soak: nightly fault-injection scenarios — SIGKILL driver mid-iteration (stale-lock break), SIGKILL worker mid-run (attempt 2/3 retry), fake provider hang (watchdog kill), network blackhole during state push (deferred push), repeated failure (circuit breaker) — each asserting recovery + correct ledger classification | S | [#292](https://github.com/FreePeak/devagent/issues/292) |
 | FR-VAL-05 | Quality-drift ratchet: LLM-judge rubric scoring of shipped PRs recorded as `eval-score` ledger rows, trailing-window regression warning in `ledger --clusters` + research prompts, nightly CI drift job; rubric version recorded per score | S | [#293](https://github.com/FreePeak/devagent/issues/293) |
 
@@ -1589,7 +1589,39 @@ existing driver with validation surfaces (test, command, telemetry, chaos
 schedule) so "the driver works perfectly" is a checkable claim, not a hope.
 
 ---
-*Last updated: 2026-09-11 (selfbuild-loop liveness: preflight, run lock, status, TUI input) — the loop
+*Last updated: 2026-09-11 (issue #316: the run lock is per-run, releases are
+ownership-checked, and a refused dispatch is observable) — the run lock was
+keyed by the shared literal "TASK" for every `devagent task` invocation without
+`--id`/`DEVAGENT_TASK_ID` (internal/cli/actions_pipeline.go `synthID = "TASK"`),
+so two overlapping runs fought over one lock: the newcomer's `TryAcquireRun`
+broke the holder's lock as stale once it passed the 1h TTL (latest-wins), the
+older process's `defer lock.Release()` then UNLINKED the newcomer's live lock
+(Release never verified ownership), `/status` `runs.active` counted 0 then 1 while
+two task runs were live, and any further daemon dispatch died rc=1 with "Run for
+TASK already active" into a /dev/null stderr while the TUI still reported "goal
+dispatched". Fixed on all four legs: (1) `taskRunID` resolves a per-invocation
+`DefaultTaskID` (existing unique-id helper — the same scheme the worktree/branch
+already used post-loop-66) instead of the literal, so locks, worktrees, branches
+and cleanup rows all name the real run; (2) `RunLock.Release` only unlinks when
+the on-disk payload still carries this acquisition's pid+startedAt, so a
+stale-broken holder can never delete a live successor's lock; (3) the daemon
+dispatch threads the queue row's task id as `--id` into the spawned child, and
+the loopdriver dispatch passes a per-run `TASK-loop<N>-<rand>` id (per-run, not
+per-iteration: a fixed id would let a crashed iteration's leftover
+branch/worktree pin the next run onto stale commits; and its claimed queue
+row's id is deliberately NOT forwarded: a daemon-dispatched run leaves
+that row pending while its child still holds the run lock, so re-dispatching
+the same id would take the CLI's "already active" refusal and book a live run
+as a failed iteration + breaker bump); (4) `DefaultDispatchRunner` sinks the
+detached child's stdout+stderr to `DEVAGENT_HOME/runs/dispatch-<id>.log` next
+to the follower's SSE directory, so
+a refused spawn is greppable instead of invisible. Pinned by
+`TestReleaseOnlyRemovesOwnLock`, `TestTaskRunIDIsNeverTheSharedConstant`,
+`TestTaskDispatchThreadsRunID`, `TestRunTaskIDIsUniquePerRun`,
+`TestDispatchLogPath`, and the acceptance-window pin
+`TestRunsActiveTracksConcurrentTaskRuns` (two concurrent runs → distinct lock
+files, foreign release survives, `countActiveRuns` equals live runs at every
+point). Prior: 2026-09-11 (selfbuild-loop liveness: preflight, run lock, status, TUI input) — the loop
 had stopped shipping entirely (breaker cycling: provider-degraded rows, zero dispatches, three
 consecutive failed iterations, then the starvation halt). Root causes fixed, each mutation-checked:
 (1) `RunPreflightProbe` completes on the STREAMED `"text":"OK"` marker via `spawn.RunCliUntil` instead

@@ -18,16 +18,45 @@ import (
 type RunLock struct {
 	TicketID string
 	Path     string
-	released bool
+	// pid/startedAt are this acquisition's identity as written to the lock
+	// payload: Release only unlinks a lock that still carries them.
+	pid       int
+	startedAt int64
+	released  bool
 }
 
-// Release removes the lock file (idempotent, like the TS closure).
+// Release removes the lock file, but only while this acquisition still owns
+// it (issue #316): a lock broken as stale and re-acquired by another run
+// (latest-wins) must survive this process's Release — the old unconditional
+// unlink deleted a LIVE newcomer's lock at 09:51:16 and left two running
+// tasks invisible to countActiveRuns. Idempotent, like the TS closure.
 func (l *RunLock) Release() {
 	if l.released {
 		return
 	}
 	l.released = true
+	if !l.owns() {
+		return
+	}
 	_ = os.Remove(l.Path) // rmSync(path, { force: true })
+}
+
+// owns reports whether the on-disk payload is still this acquisition's
+// (same pid AND startedAt). An unreadable, corrupt or replaced lock is not
+// ours to delete.
+func (l *RunLock) owns() bool {
+	data, err := os.ReadFile(l.Path)
+	if err != nil {
+		return false
+	}
+	var holder struct {
+		Pid       *int64 `json:"pid"`
+		StartedAt *int64 `json:"startedAt"`
+	}
+	if json.Unmarshal(data, &holder) != nil || holder.Pid == nil || holder.StartedAt == nil {
+		return false
+	}
+	return int(*holder.Pid) == l.pid && *holder.StartedAt == l.startedAt
 }
 
 // nowMillis is the wall clock in milliseconds (TS Date.now()).
@@ -88,5 +117,5 @@ func TryAcquireRun(homeDir, ticketID string, ttlMs int64) *RunLock {
 	if err := os.WriteFile(path, []byte(payload), 0o644); err != nil {
 		return nil
 	}
-	return &RunLock{TicketID: ticketID, Path: path}
+	return &RunLock{TicketID: ticketID, Path: path, pid: os.Getpid(), startedAt: now}
 }

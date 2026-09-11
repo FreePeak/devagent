@@ -4741,7 +4741,12 @@ loop) and the pane path (<code>emitPaneWatchdogRow</code> in
 kill enforced on both; driver <code>writeHeartbeat</code> at every
 <code>phase()</code> boundary → <code>.selfbuild/heartbeat.json</code> →
 <code>GET /status</code>
-<code>loop:{iteration,phase,pid,updatedAt}</code></td>
+<code>loop:{iteration,phase,pid,updatedAt}</code>. Hardened 2026-09-11
+by <a href="https://github.com/FreePeak/devagent/issues/316">#316</a>:
+the lock is keyed per run (<code>taskRunID</code>), <code>Release</code>
+is ownership-checked, dispatches thread <code>--id</code>, and a
+detached child's output lands in
+<code>runs/dispatch-&lt;id&gt;.log</code></td>
 </tr>
 <tr>
 <td>FR-VAL-04</td>
@@ -4771,12 +4776,54 @@ existing driver with validation surfaces (test, command, telemetry,
 chaos schedule) so "the driver works perfectly" is a checkable claim,
 not a hope.</p>
 <hr />
-<p>*Last updated: 2026-09-11 (selfbuild-loop liveness: preflight, run
-lock, status, TUI input) — the loop had stopped shipping entirely
-(breaker cycling: provider-degraded rows, zero dispatches, three
-consecutive failed iterations, then the starvation halt). Root causes
-fixed, each mutation-checked: (1) <code>RunPreflightProbe</code>
-completes on the STREAMED <code>"text":"OK"</code> marker via
+<p>*Last updated: 2026-09-11 (issue #316: the run lock is per-run,
+releases are ownership-checked, and a refused dispatch is observable) —
+the run lock was keyed by the shared literal "TASK" for every
+<code>devagent task</code> invocation without
+<code>--id</code>/<code>DEVAGENT_TASK_ID</code>
+(internal/cli/actions_pipeline.go <code>synthID = "TASK"</code>), so two
+overlapping runs fought over one lock: the newcomer's
+<code>TryAcquireRun</code> broke the holder's lock as stale once it
+passed the 1h TTL (latest-wins), the older process's
+<code>defer lock.Release()</code> then UNLINKED the newcomer's live lock
+(Release never verified ownership), <code>/status</code>
+<code>runs.active</code> counted 0 then 1 while two task runs were live,
+and any further daemon dispatch died rc=1 with "Run for TASK already
+active" into a /dev/null stderr while the TUI still reported "goal
+dispatched". Fixed on all four legs: (1) <code>taskRunID</code> resolves
+a per-invocation <code>DefaultTaskID</code> (existing unique-id helper —
+the same scheme the worktree/branch already used post-loop-66) instead
+of the literal, so locks, worktrees, branches and cleanup rows all name
+the real run; (2) <code>RunLock.Release</code> only unlinks when the
+on-disk payload still carries this acquisition's pid+startedAt, so a
+stale-broken holder can never delete a live successor's lock; (3) the
+daemon dispatch threads the queue row's task id as <code>--id</code>
+into the spawned child, and the loopdriver dispatch passes a per-run
+<code>TASK-loop&lt;N&gt;-&lt;rand&gt;</code> id (per-run, not
+per-iteration: a fixed id would let a crashed iteration's leftover
+branch/worktree pin the next run onto stale commits; and its claimed
+queue row's id is deliberately NOT forwarded: a daemon-dispatched run
+leaves that row pending while its child still holds the run lock, so
+re-dispatching the same id would take the CLI's "already active" refusal
+and book a live run as a failed iteration + breaker bump); (4)
+<code>DefaultDispatchRunner</code> sinks the detached child's
+stdout+stderr to <code>DEVAGENT_HOME/runs/dispatch-&lt;id&gt;.log</code>
+next to the follower's SSE directory, so a refused spawn is greppable
+instead of invisible. Pinned by
+<code>TestReleaseOnlyRemovesOwnLock</code>,
+<code>TestTaskRunIDIsNeverTheSharedConstant</code>,
+<code>TestTaskDispatchThreadsRunID</code>,
+<code>TestRunTaskIDIsUniquePerRun</code>,
+<code>TestDispatchLogPath</code>, and the acceptance-window pin
+<code>TestRunsActiveTracksConcurrentTaskRuns</code> (two concurrent runs
+→ distinct lock files, foreign release survives,
+<code>countActiveRuns</code> equals live runs at every point). Prior:
+2026-09-11 (selfbuild-loop liveness: preflight, run lock, status, TUI
+input) — the loop had stopped shipping entirely (breaker cycling:
+provider-degraded rows, zero dispatches, three consecutive failed
+iterations, then the starvation halt). Root causes fixed, each
+mutation-checked: (1) <code>RunPreflightProbe</code> completes on the
+STREAMED <code>"text":"OK"</code> marker via
 <code>spawn.RunCliUntil</code> instead of waiting for process exit —
 measured live: the answer arrived at ~24s
 (<code>stopReason:"stop"</code>, ttft 8.1s) with the marker present 3x

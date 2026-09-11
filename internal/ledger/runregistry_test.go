@@ -63,3 +63,44 @@ func TestTryAcquireRunRefusesFreshLiveHolder(t *testing.T) {
 		t.Fatal("fresh lock with live holder must NOT be broken")
 	}
 }
+
+// TestReleaseOnlyRemovesOwnLock pins the second half of the #316 live
+// failure: run A's lock was broken as stale and re-acquired by run B, then
+// A's `defer lock.Release()` unlinked B's LIVE lock (09:51:16), so
+// countActiveRuns saw 0 while two tasks ran. Release must leave a lock whose
+// payload is no longer this acquisition's.
+func TestReleaseOnlyRemovesOwnLock(t *testing.T) {
+	home := t.TempDir()
+	path := filepath.Join(home, "locks", "TASK-abc.lock")
+
+	mine := TryAcquireRun(home, "TASK-abc", 0)
+	if mine == nil {
+		t.Fatal("fresh acquire must succeed")
+	}
+
+	// The latest-wins break + re-acquire another run would do: a different
+	// holder identity in the same file.
+	other := `{"pid":` + strconv.Itoa(deadPid(t)) + `,"startedAt":` + strconv.FormatInt(NowFunc(), 10) + `}`
+	if err := os.WriteFile(path, []byte(other), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	mine.Release()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("release deleted a lock it no longer owned: %v", err)
+	}
+	if string(data) != other {
+		t.Fatalf("release rewrote the foreign lock: %q", data)
+	}
+
+	// Its own lock is still removed on release.
+	own := TryAcquireRun(home, "TASK-abc", 0)
+	if own == nil {
+		t.Fatal("dead foreign holder must be re-acquirable")
+	}
+	own.Release()
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("own lock must be removed on release, stat err = %v", err)
+	}
+}

@@ -167,6 +167,7 @@ func (d *daemon) dispatchEndpoint(res *response, req *http.Request) error {
 		res.sendJSON(errBody.Status, errBody.Body)
 		return nil
 	}
+	spec.TaskID = taskID
 	queued, err := enqueueFromSpec(d.ctx.repoPath, taskID, spec)
 	if err != nil {
 		res.sendJSON(http.StatusConflict, errorBody{OK: false, Note: err.Error()})
@@ -730,10 +731,16 @@ func herdrSessionNameFromCwd() (string, error) {
 
 // dispatchArgv mirrors the TS dispatchArgv: the spawned `devagent task`
 // arguments for one dispatched run, pure so tests can pin flag threading.
+// --id carries the queue row's task id into the child (issue #316): without
+// it every dispatch locked the shared key "TASK", so a second one broke the
+// first's lock as stale and /status runs.active lied.
 func dispatchArgv(spec DispatchSpec) []string {
 	argv := []string{"task",
 		"--prompt", spec.Prompt,
 		"--repo", spec.RepoPath}
+	if spec.TaskID != "" {
+		argv = append(argv, "--id", spec.TaskID)
+	}
 	if spec.Worker != "" {
 		argv = append(argv, "--worker", spec.Worker)
 	}
@@ -765,12 +772,33 @@ func DefaultDispatchRunner(spec DispatchSpec) DispatchResult {
 	cmd := exec.Command(exe, argv...)
 	cmd.Dir = cwd
 	cmd.Env = append(os.Environ(), "DEVAGENT_VISIBILITY="+visibilityEnv())
+	// The child is detached and inherits no terminal: without a sink its
+	// stdout/stderr vanish into /dev/null and a refused spawn ("Run for
+	// <id> already active", rc=1) is a dead goal the operator never sees
+	// while the TUI still reports "goal dispatched" (issue #316).
+	if f, ferr := os.OpenFile(dispatchLogPath(spec.TaskID),
+		os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); ferr == nil {
+		defer func() { _ = f.Close() }()
+		cmd.Stdout, cmd.Stderr = f, f
+	}
 	setDetach(cmd)
 	if err := cmd.Start(); err != nil {
 		return DispatchResult{PID: nil}
 	}
 	pid := cmd.Process.Pid
 	return DispatchResult{PID: &pid}
+}
+
+// dispatchLogPath is where a dispatched child's own output lands:
+// DEVAGENT_HOME/runs/dispatch-<task-id>.log (the follower's SSE directory,
+// so an operator already watching it finds the child's verdict next to the
+// run's events). Sanitized like the lock key: a task id is not a filename.
+func dispatchLogPath(taskID string) string {
+	dir := filepath.Join(devagentHome(), "runs")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return os.DevNull
+	}
+	return filepath.Join(dir, "dispatch-"+ledger.SanitizeKey(taskID)+".log")
 }
 
 // visibilityEnv mirrors `process.env.DEVAGENT_VISIBILITY ?? "visible"`: an

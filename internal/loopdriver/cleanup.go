@@ -23,13 +23,14 @@ func (d *driver) pendingPath() string { return d.stateDir + "/cleanup-pending.js
 
 // scheduleCleanup ports schedule_cleanup(): record an auto-pr leftover pair
 // for deferred sweep after the CLEANUP_DELAY grace period. Crash-safe: rows
-// survive driver restarts.
-func (d *driver) scheduleCleanup(loopNum int) {
+// survive driver restarts. The pair names the run's real identity (issue
+// #316): the old constant "TASK" swept a worktree and branch no run creates.
+func (d *driver) scheduleCleanup(loopNum int, taskID string) {
 	row := cleanupRow{
 		Loop:     strconv.Itoa(loopNum),
 		TS:       d.cfg.Now().Unix(),
-		Branch:   "devagent/TASK",
-		Worktree: d.cfg.Repo + "/.devagent-worktrees/TASK",
+		Branch:   "devagent/" + taskID,
+		Worktree: d.cfg.Repo + "/.devagent-worktrees/" + taskID,
 	}
 	data, err := json.Marshal(row)
 	if err != nil {

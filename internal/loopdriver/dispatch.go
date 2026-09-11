@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/FreePeak/devagent/internal/pipeline"
 	"github.com/FreePeak/devagent/internal/scout"
 	"github.com/FreePeak/devagent/internal/spawn"
 )
@@ -290,14 +291,36 @@ func (d *driver) runRepoTests() int {
 	return 0
 }
 
+// runTaskID is the identity of one iteration's `devagent task` dispatch: a
+// per-iteration id with a random suffix, threaded as --id so the CLI's run
+// lock, worktree, branch and the deferred cleanup row all name the same run
+// (issue #316 — without it the lock key was the shared literal "TASK" and the
+// cleanup row swept a path no run ever creates).
+//
+// The suffix is load-bearing, not decoration: `git worktree add -b
+// devagent/<id>` cannot reuse a branch/worktree an earlier crashed run of the
+// same iteration number left behind (the worktree helper attaches to the
+// existing branch, and the worker would ship stale commits), so each dispatch
+// gets a fresh identity. The claimed queue task's id is deliberately NOT
+// forwarded either: a daemon-dispatched run leaves its queue row pending while
+// its child holds the run lock, so a loop claiming that row and re-dispatching
+// the same id would take the CLI's "already active" refusal and book a live
+// run as a failed iteration + breaker bump. TASK-loop<N>-<rand> cannot collide
+// with the daemon's TASK-<hex> ids; the CLI's DefaultTaskID fallback covers any
+// dispatch that still arrives without --id.
+func runTaskID(n int) string {
+	return fmt.Sprintf("TASK-loop%d-%s", n, pipeline.TaskRandFunc())
+}
+
 // taskDispatch runs the phase-4 implementation dispatch
-// (`devagent task --prompt GOAL --repo REPO --worker W [--model M]
+// (`devagent task --prompt GOAL --repo REPO --id ID --worker W [--model M]
 // [--auto-pr]`) under the outer wall-clock cap; returns (combined output, rc).
 // The output matters in pr push mode: a shipped iteration must carry a
 // "PR opened: <url>" line before the driver may close the tracker issue
 // (issue #238: soak-169 closed an issue with no PR behind it).
-func (d *driver) taskDispatch(goal string) (string, int) {
-	args := []string{"task", "--prompt", goal + "\n\n" + prdPolicy, "--repo", d.cfg.Repo, "--worker", d.cfg.Worker}
+func (d *driver) taskDispatch(goal, taskID string) (string, int) {
+	args := []string{"task", "--prompt", goal + "\n\n" + prdPolicy, "--repo", d.cfg.Repo,
+		"--id", taskID, "--worker", d.cfg.Worker}
 	if d.cfg.Model != "" {
 		args = append(args, "--model", d.cfg.Model)
 	}

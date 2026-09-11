@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -111,12 +112,48 @@ func TestTaskDispatchFastPathReturnsChildRc(t *testing.T) {
 	taskWallShim(t, "exit 0\n")
 	d := taskWallDriver(t, repo)
 	start := time.Now()
-	out, rc := d.taskDispatch("goal")
+	out, rc := d.taskDispatch("goal", "TASK-loop1")
 	if rc != 0 {
 		t.Fatalf("rc = %d (out %q), want 0", rc, out)
 	}
 	if elapsed := time.Since(start); elapsed > 30*time.Second {
 		t.Fatalf("fast-path dispatch took %s, want immediate return", elapsed)
+	}
+}
+
+// TestTaskDispatchThreadsRunID pins issue #316 for the loopdriver: the
+// dispatch must hand the iteration's run identity to `devagent task --id`,
+// so the CLI's run lock, worktree, branch and deferred cleanup row all name
+// this run instead of every run sharing the literal "TASK" key.
+func TestTaskDispatchThreadsRunID(t *testing.T) {
+	repo := initFixtureRepo(t)
+	callsPath := filepath.Join(t.TempDir(), "calls.log")
+	taskWallShim(t, "echo \"devagent $*\" >> \""+callsPath+"\"\nexit 0\n")
+	d := taskWallDriver(t, repo)
+	if _, rc := d.taskDispatch("goal", "TASK-loop3"); rc != 0 {
+		t.Fatalf("dispatch rc = %d, want 0", rc)
+	}
+	calls, err := os.ReadFile(callsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(calls), "--id TASK-loop3") {
+		t.Fatalf("dispatch must carry the run id, calls:\n%s", calls)
+	}
+}
+
+// TestRunTaskIDIsUniquePerRun pins the identity choice (issue #316): a
+// per-iteration id with a random suffix — never the claimed queue task's id,
+// which a live daemon-dispatched run may still hold the lock for, and never a
+// fixed id, which a crashed iteration's leftover branch/worktree would pin.
+func TestRunTaskIDIsUniquePerRun(t *testing.T) {
+	re := regexp.MustCompile(`^TASK-loop5-[a-z0-9]+$`)
+	first, second := runTaskID(5), runTaskID(5)
+	if !re.MatchString(first) || !re.MatchString(second) {
+		t.Fatalf("runTaskID = %q / %q, want TASK-loop5-<rand> shape", first, second)
+	}
+	if first == second {
+		t.Fatalf("two dispatches of the same iteration share id %q", first)
 	}
 }
 
@@ -130,7 +167,7 @@ func TestTaskDispatchBoundedDrainKeepsChildRc(t *testing.T) {
 	killPidfileAtCleanup(t)
 	d := taskWallDriver(t, repo)
 	start := time.Now()
-	out, rc := d.taskDispatch("goal")
+	out, rc := d.taskDispatch("goal", "TASK-loop1")
 	if rc != 0 {
 		t.Fatalf("rc = %d (out %q), want the child's own 0", rc, out)
 	}
@@ -152,7 +189,7 @@ func TestTaskDispatchWallKillsWedgedWorkerTree(t *testing.T) {
 
 	resultCh := make(chan int, 1)
 	go func() {
-		_, rc := d.taskDispatch("goal")
+		_, rc := d.taskDispatch("goal", "TASK-loop1")
 		resultCh <- rc
 	}()
 

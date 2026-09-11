@@ -125,12 +125,17 @@ func TestTryAcquireRunDedupAndStaleBreak(t *testing.T) {
 	if l5 == nil {
 		t.Fatal("stale lock must be broken")
 	}
+	// The broken holder's release must NOT delete the newcomer's lock
+	// (issue #316: it did, leaving two live runs invisible to /status).
 	l1.Release()
-	if _, err := os.Stat(l1.Path); !os.IsNotExist(err) {
-		t.Fatal("release must remove the lock file")
+	if _, err := os.Stat(l5.Path); err != nil {
+		t.Fatal("release of a stale-broken holder deleted the live newcomer's lock")
 	}
-	l5.Release() // idempotent second release below
 	l5.Release()
+	if _, err := os.Stat(l5.Path); !os.IsNotExist(err) {
+		t.Fatal("release must remove the lock it still owns")
+	}
+	l5.Release() // idempotent second release
 	if l6 := TryAcquireRun(home, "ticket/one", 0); l6 == nil {
 		t.Fatal("released lock must be re-acquirable")
 	}

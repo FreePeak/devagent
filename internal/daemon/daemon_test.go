@@ -18,6 +18,7 @@ import (
 	"github.com/FreePeak/devagent/internal/herdr"
 	"github.com/FreePeak/devagent/internal/ledger"
 	"github.com/FreePeak/devagent/internal/orchestrator"
+	"github.com/FreePeak/devagent/internal/pipeline"
 	"github.com/FreePeak/devagent/internal/platform"
 	"github.com/FreePeak/devagent/internal/queue"
 )
@@ -475,6 +476,12 @@ func TestDispatchHappyPath(t *testing.T) {
 	}
 	if captured.RepoPath != repo {
 		t.Fatalf("spec.repoPath = %q", captured.RepoPath)
+	}
+	if captured.TaskID != taskID {
+		t.Fatalf("spec.taskID = %q, want the queue row's %q", captured.TaskID, taskID)
+	}
+	if got := dispatchArgv(captured); !slices.Contains(got, "--id") || !slices.Contains(got, taskID) {
+		t.Fatalf("dispatch argv must thread the run id (%q): %v", taskID, got)
 	}
 	if captured.Worker != "omp" {
 		t.Fatalf("spec.worker = %q", captured.Worker)
@@ -1142,6 +1149,20 @@ func TestDispatchArgvAutoPr(t *testing.T) {
 	}
 }
 
+// TestDispatchLogPath pins where a dispatched child's own output lands
+// (issue #316): a refused spawn used to die into /dev/null with the TUI
+// still reporting "goal dispatched". The file must live under the home's
+// runs dir, name the task id sanitized like the lock key.
+func TestDispatchLogPath(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("DEVAGENT_HOME", home)
+	got := dispatchLogPath("TASK-abc/1")
+	want := filepath.Join(home, "runs", "dispatch-TASK-abc_1.log")
+	if got != want {
+		t.Fatalf("dispatchLogPath = %q, want %q", got, want)
+	}
+}
+
 func TestJsNumberEdges(t *testing.T) {
 	cases := []struct {
 		in     any
@@ -1201,5 +1222,50 @@ func TestCountActiveRuns(t *testing.T) {
 	}
 	if got := countActiveRuns(home); got != 1 {
 		t.Fatalf("active = %d, want 1 (fresh lock only; stale/corrupt/non-lock skipped)", got)
+	}
+}
+
+// TestRunsActiveTracksConcurrentTaskRuns pins the acceptance window of
+// issue #316 end to end: two concurrent `devagent task` runs (per-invocation
+// ids, the taskRunID fallback) hold distinct lock files; a holder whose lock
+// was broken and re-acquired cannot delete the survivor's lock on Release;
+// and /status runs.active (countActiveRuns) equals the number of live task
+// runs at every point in the window. Pre-fix both runs locked the shared
+// literal "TASK" key and Release unlinked unconditionally, so the count lied.
+func TestRunsActiveTracksConcurrentTaskRuns(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("DEVAGENT_HOME", home)
+
+	// The CLI's per-invocation fallback identity.
+	idA, idB := pipeline.DefaultTaskID(nil), pipeline.DefaultTaskID(nil)
+	if idA == idB || idA == "TASK" {
+		t.Fatalf("per-invocation ids must be distinct and never %q: %q / %q", "TASK", idA, idB)
+	}
+	lockA := ledger.TryAcquireRun(home, idA, 0)
+	lockB := ledger.TryAcquireRun(home, idB, 0)
+	if lockA == nil || lockB == nil {
+		t.Fatalf("both runs must hold their own lock: %v / %v", lockA, lockB)
+	}
+	if lockA.Path == lockB.Path {
+		t.Fatalf("concurrent runs share one lock file %q", lockA.Path)
+	}
+	if got := countActiveRuns(home); got != 2 {
+		t.Fatalf("runs.active = %d, want 2 (two live task runs)", got)
+	}
+
+	// Run A's lock is broken as stale and re-acquired by another holder
+	// (latest-wins): A's deferred Release must leave the survivor.
+	if err := os.WriteFile(lockA.Path,
+		[]byte(fmt.Sprintf(`{"pid":%d,"startedAt":%d}`, os.Getpid(), ledger.NowFunc()+1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	lockA.Release()
+	if got := countActiveRuns(home); got != 2 {
+		t.Fatalf("runs.active = %d after a foreign release, want 2", got)
+	}
+
+	lockB.Release()
+	if got := countActiveRuns(home); got != 1 {
+		t.Fatalf("runs.active = %d after B released, want 1 (A's re-acquired lock)", got)
 	}
 }

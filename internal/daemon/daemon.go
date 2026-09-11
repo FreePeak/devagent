@@ -86,8 +86,10 @@ type Options struct {
 }
 
 // DispatchSpec mirrors the TS DispatchSpec: the arguments for one dispatched
-// run (mirrors `devagent task` flags).
+// run (mirrors `devagent task` flags). TaskID is the run identity the queue
+// row, the child's run lock and its dispatch log carry (issue #316).
 type DispatchSpec struct {
+	TaskID         string
 	RepoPath       string
 	Prompt         string
 	Role           string

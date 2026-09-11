@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/FreePeak/devagent/internal/ledger"
 	"github.com/FreePeak/devagent/internal/orchestrator"
 	"github.com/FreePeak/devagent/internal/pipeline"
 )
@@ -82,6 +83,31 @@ func TestBacklogCheckStrikeWritesPRD(t *testing.T) {
 	}
 	if strings.Contains(string(prd), "~~- **Keep me open**") {
 		t.Fatalf("Q40 must stay open:\n%s", prd)
+	}
+}
+
+// TestTaskRunIDIsNeverTheSharedConstant pins issue #316: two concurrent
+// `devagent task` runs without --id must lock distinct keys. Pre-fix both
+// resolved to the literal "TASK", so the newcomer broke the holder's lock as
+// stale (or was silently refused) and /status runs.active lied.
+func TestTaskRunIDIsNeverTheSharedConstant(t *testing.T) {
+	t.Setenv("DEVAGENT_TASK_ID", "")
+	first, second := taskRunID(""), taskRunID("")
+	if first == "TASK" || second == "TASK" {
+		t.Fatalf("fallback id must be per-invocation, got %q / %q", first, second)
+	}
+	if first == second {
+		t.Fatalf("two invocations share the id %q", first)
+	}
+	if ledger.SanitizeKey(first) != first || strings.ContainsAny(first, "/ ") {
+		t.Fatalf("id %q must stay lock-file safe", first)
+	}
+	if got := taskRunID("TASK-explicit"); got != "TASK-explicit" {
+		t.Fatalf("--id must win, got %q", got)
+	}
+	t.Setenv("DEVAGENT_TASK_ID", "TASK-from-env")
+	if got := taskRunID(""); got != "TASK-from-env" {
+		t.Fatalf("DEVAGENT_TASK_ID must beat the synthesized id, got %q", got)
 	}
 }
 
