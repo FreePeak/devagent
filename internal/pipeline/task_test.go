@@ -13,9 +13,11 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/FreePeak/devagent/internal/git"
 	"github.com/FreePeak/devagent/internal/ledger"
+	"github.com/FreePeak/devagent/internal/queue"
 )
 
 // tblCapturingLog records Info/Warn messages for byte-parity pins.
@@ -542,4 +544,72 @@ func TestTaskTryAcquireRun(t *testing.T) {
 	if l3 := TryAcquireRun(home, "TASK-abc-123"); l3 == nil {
 		t.Fatal("released lock must be re-acquirable")
 	}
+}
+
+func TestFinishDispatchClaim(t *testing.T) {
+	repo := t.TempDir()
+	enqueue := func(id string) {
+		t.Helper()
+		if _, err := queue.EnqueueTask(repo, queue.EnqueueInput{
+			ID: id, Title: "t", Goal: "g", Source: DispatchClaimOwner,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Clean run: the control API's claim resolves to done.
+	enqueue("TASK-ok")
+	if queue.ClaimTask(repo, "TASK-ok", DispatchClaimOwner, nil) == nil {
+		t.Fatal("claim TASK-ok failed")
+	}
+	FinishDispatchClaim(repo, "TASK-ok", true, "")
+	if row := queue.ReadTask(repo, "TASK-ok"); row == nil || row.Status != queue.StatusDone {
+		t.Fatalf("TASK-ok = %+v, want done", row)
+	}
+
+	// Failed run: failed, with the detail kept for retry visibility.
+	enqueue("TASK-bad")
+	if queue.ClaimTask(repo, "TASK-bad", DispatchClaimOwner, nil) == nil {
+		t.Fatal("claim TASK-bad failed")
+	}
+	FinishDispatchClaim(repo, "TASK-bad", false, "implementation failed validation")
+	row := queue.ReadTask(repo, "TASK-bad")
+	if row.Status != queue.StatusFailed || row.LastError == nil ||
+		!strings.Contains(*row.LastError, "failed validation") {
+		t.Fatalf("TASK-bad = %+v, want failed with detail", row)
+	}
+
+	// A row another worker owns is never touched: `devagent task --id` also
+	// runs for the CI fixer and remote forwarding, whose ids have no daemon
+	// row (or a row claimed by someone else).
+	enqueue("TASK-other")
+	if queue.ClaimTask(repo, "TASK-other", "selfbuild-loop-9", nil) == nil {
+		t.Fatal("claim TASK-other failed")
+	}
+	FinishDispatchClaim(repo, "TASK-other", true, "")
+	if got := queue.ReadTask(repo, "TASK-other"); got.Status != queue.StatusClaimed {
+		t.Fatalf("foreign claim overwritten: %q", got.Status)
+	}
+
+	// A lease reclaimed while the run was in flight bumps the generation; the
+	// stale release must be refused, not resurrect the row.
+	enqueue("TASK-stale")
+	t0 := time.Now().UnixMilli()
+	short := &queue.ClaimOptions{LeaseMs: 1000, Now: func() int64 { return t0 }}
+	if queue.ClaimTask(repo, "TASK-stale", DispatchClaimOwner, short) == nil {
+		t.Fatal("claim TASK-stale failed")
+	}
+	later := &queue.ClaimOptions{Now: func() int64 { return t0 + 2000 }}
+	if queue.ClaimTask(repo, "TASK-stale", "selfbuild-loop-9", later) == nil {
+		t.Fatal("reclaim TASK-stale failed")
+	}
+	FinishDispatchClaim(repo, "TASK-stale", true, "")
+	if got := queue.ReadTask(repo, "TASK-stale"); got.Status != queue.StatusClaimed ||
+		*got.ClaimedBy != "selfbuild-loop-9" {
+		t.Fatalf("reclaimed row overwritten: %+v", got)
+	}
+
+	// No id, no row: no-op.
+	FinishDispatchClaim(repo, "", true, "")
+	FinishDispatchClaim(repo, "TASK-absent", true, "")
 }

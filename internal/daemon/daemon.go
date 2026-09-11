@@ -95,6 +95,11 @@ type DispatchSpec struct {
 	MaxLoops       *float64
 	TimeoutMinutes *float64
 	AutoPr         bool
+	// TaskID is the queue row this dispatch was enqueued as (issue #315):
+	// it is threaded to the child as `--id`, so the worker's run lock,
+	// worktree (`.devagent-worktrees/<id>`) and branch (`devagent/<id>`)
+	// all name the same id the queue row and dashboard card carry.
+	TaskID string
 }
 
 // DispatchResult mirrors the TS `{ pid: number | null }` runner result.

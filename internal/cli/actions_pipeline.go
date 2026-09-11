@@ -430,6 +430,19 @@ func taskCommand() *cobra.Command {
 			if repo == "" {
 				repo, _ = os.Getwd()
 			}
+			taskID := id
+			if taskID == "" {
+				taskID = os.Getenv("DEVAGENT_TASK_ID")
+			}
+			// Issue #315: the control API enqueued this id as a queue row and
+			// claimed it (owner daemon) before spawning this child. Release the
+			// claim at every exit of this run, HERE rather than in the daemon:
+			// the detached child outlives a daemon restart (setDetach), so a
+			// daemon-side release would drop the completion and leave the row
+			// claimed until its lease lapses — the selfbuild loop would then
+			// re-run a finished goal. No-op for ids with no daemon-claimed row.
+			claimOK, claimNote := false, ""
+			defer func() { pipeline.FinishDispatchClaim(repo, taskID, claimOK, claimNote) }()
 
 			cfg, err := config.Load(repo)
 			if err != nil {
@@ -527,11 +540,6 @@ func taskCommand() *cobra.Command {
 			if cerr != nil {
 				return cerr
 			}
-			taskID := id
-			if taskID == "" {
-				taskID = os.Getenv("DEVAGENT_TASK_ID")
-			}
-
 			logger.Info(ledger.StageTask, fmt.Sprintf("Task run %s starting", logger.RunID()), []ledger.KV{
 				{Key: "repo", Value: repo}, {Key: "autoPr", Value: autoPr},
 			})
@@ -553,6 +561,7 @@ func taskCommand() *cobra.Command {
 			// /status — and one active run per ticket holds across processes.
 			lock := pipeline.TryAcquireRun(devagentHome(), synthID)
 			if lock == nil {
+				claimNote = "run for " + synthID + " already active"
 				fmt.Fprintf(os.Stderr, "Run for %s already active\n", synthID)
 				setExitCode(1)
 				return nil
@@ -602,19 +611,24 @@ func taskCommand() *cobra.Command {
 				Cleanup: cleanup, DropOrcaWorkspace: dropOrca, Log: logger, TaskID: taskID,
 			}, deps)
 			if implErr != nil {
+				claimNote = implErr.Error()
 				fmt.Fprintln(os.Stderr, implErr.Error())
 				setExitCode(1)
 				return nil
 			}
 			if pubErr != nil {
+				claimNote = pubErr.Error()
 				fmt.Fprintln(os.Stderr, pubErr.Error())
 				setExitCode(1)
 				return nil
 			}
 			fmt.Println(result.Note)
 			if !result.OK {
+				claimNote = result.Note
 				setExitCode(1)
+				return nil
 			}
+			claimOK = true
 			fmt.Printf("Run log: %s\n", logger.Path())
 			return nil
 		},

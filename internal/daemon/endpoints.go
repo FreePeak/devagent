@@ -18,6 +18,7 @@ import (
 	"github.com/FreePeak/devagent/internal/config"
 	"github.com/FreePeak/devagent/internal/herdr"
 	"github.com/FreePeak/devagent/internal/ledger"
+	"github.com/FreePeak/devagent/internal/pipeline"
 	"github.com/FreePeak/devagent/internal/queue"
 	"github.com/FreePeak/devagent/internal/resilience"
 )
@@ -97,7 +98,7 @@ func (d *daemon) statusEndpoint(res *response) error {
 		UptimeS: int64(time.Since(d.ctx.startedAt).Seconds()),
 		Runs: statusRuns{
 			Active:       countActiveRuns(devagentHome()),
-			FailedRecent: counts.Failed,
+			FailedRecent: countRecentFailed(d.ctx.repoPath, time.Now().UnixMilli()),
 		},
 		Queue:   statusQueue{Pending: counts.Pending, Claimed: counts.Claimed, Done: counts.Done},
 		Circuit: circuit,
@@ -110,6 +111,32 @@ func (d *daemon) statusEndpoint(res *response) error {
 		Capabilities: devagentCapabilities,
 	})
 	return nil
+}
+
+// failedRecentWindowMs bounds runs.failed_recent to failures that actually
+// happened recently (issue #315): the all-time queue-failed count made a
+// 17-day-old row render as "1f recent" in the TUI banner and pinned the
+// desktop tray at failed. One day: long enough to cover an operator's
+// overnight absence, short enough that the chip decays.
+// ponytail: fixed window, no config knob — a second window length has no
+// consumer yet.
+const failedRecentWindowMs = 24 * 60 * 60 * 1000
+
+// countRecentFailed counts failed rows whose last write — the terminal
+// failure — falls inside the window ending at nowMs. A row with an
+// unparseable timestamp is not provably recent and is not counted.
+func countRecentFailed(repoPath string, nowMs int64) int {
+	recent := 0
+	for _, t := range queue.ListTasks(repoPath, queue.StatusFailed) {
+		at, err := queue.ParseISO(t.UpdatedAt)
+		if err != nil {
+			continue
+		}
+		if nowMs-at <= failedRecentWindowMs {
+			recent++
+		}
+	}
+	return recent
 }
 
 // agentsBody mirrors the /agents response.
@@ -156,7 +183,8 @@ type dispatchBody struct {
 }
 
 // dispatchEndpoint mirrors dispatchEndpoint: read body, parse the spec,
-// enqueue (conflict → 409), run the dispatch runner, respond 202.
+// enqueue (conflict → 409), claim the row, run the dispatch runner, respond
+// 202.
 func (d *daemon) dispatchEndpoint(res *response, req *http.Request) error {
 	raw, err := readBody(req)
 	if err != nil {
@@ -170,6 +198,15 @@ func (d *daemon) dispatchEndpoint(res *response, req *http.Request) error {
 	queued, err := enqueueFromSpec(d.ctx.repoPath, taskID, spec)
 	if err != nil {
 		res.sendJSON(http.StatusConflict, errorBody{OK: false, Note: err.Error()})
+		return nil
+	}
+	// Issue #315: claim the row BEFORE spawning. A row left pending while its
+	// worker runs is claimable by the selfbuild loop, which re-runs the same
+	// goal in a second worktree. A refused claim means another consumer already
+	// owns the row — spawn nothing rather than run the goal twice. The child
+	// releases the claim when it exits (pipeline.FinishDispatchClaim).
+	if queue.ClaimTask(d.ctx.repoPath, queued.ID, pipeline.DispatchClaimOwner, nil) == nil {
+		res.sendJSON(http.StatusConflict, errorBody{OK: false, Note: "Task " + queued.ID + " already claimed"})
 		return nil
 	}
 	result := d.ctx.dispatchRunner(spec)
@@ -242,6 +279,7 @@ func parseDispatch(raw string, defaultRepoPath string) (DispatchSpec, string, *e
 	for queue.ReadTask(defaultRepoPath, taskID) != nil {
 		taskID = "TASK-" + randHex(4)
 	}
+	spec.TaskID = taskID
 	return spec, taskID, nil
 }
 
@@ -734,6 +772,11 @@ func dispatchArgv(spec DispatchSpec) []string {
 	argv := []string{"task",
 		"--prompt", spec.Prompt,
 		"--repo", spec.RepoPath}
+	// --id is the queue row's id: the child names its run lock, worktree
+	// and branch after it, so the dashboard card and the row agree (#315).
+	if spec.TaskID != "" {
+		argv = append(argv, "--id", spec.TaskID)
+	}
 	if spec.Worker != "" {
 		argv = append(argv, "--worker", spec.Worker)
 	}
@@ -752,14 +795,24 @@ func dispatchArgv(spec DispatchSpec) []string {
 // DefaultDispatchRunner mirrors defaultDispatchRunner: a detached spawn of
 // the real `devagent task` pipeline (FR-CTRL-03). In a compiled binary the
 // executable itself is the CLI.
+//
+// The claim the caller took on the row is released by the CHILD
+// (pipeline.FinishDispatchClaim at the end of `devagent task`), not here: the
+// detached child outlives a daemon restart, so a settlement goroutine in this
+// process would silently drop the completion (issue #315). Only a spawn that
+// never produced a child is settled here.
 func DefaultDispatchRunner(spec DispatchSpec) DispatchResult {
+	spawnFailed := func(detail string) DispatchResult {
+		pipeline.FinishDispatchClaim(spec.RepoPath, spec.TaskID, false, detail)
+		return DispatchResult{PID: nil}
+	}
 	cwd, err := os.Getwd()
 	if err != nil {
-		return DispatchResult{PID: nil}
+		return spawnFailed("dispatch cwd unavailable: " + err.Error())
 	}
 	exe, err := os.Executable()
 	if err != nil {
-		return DispatchResult{PID: nil}
+		return spawnFailed("dispatch executable unavailable: " + err.Error())
 	}
 	argv := dispatchArgv(spec)
 	cmd := exec.Command(exe, argv...)
@@ -767,9 +820,14 @@ func DefaultDispatchRunner(spec DispatchSpec) DispatchResult {
 	cmd.Env = append(os.Environ(), "DEVAGENT_VISIBILITY="+visibilityEnv())
 	setDetach(cmd)
 	if err := cmd.Start(); err != nil {
-		return DispatchResult{PID: nil}
+		return spawnFailed("dispatch spawn failed: " + err.Error())
 	}
 	pid := cmd.Process.Pid
+	// Reap-only, never a settlement hook: the row is settled by the child
+	// itself. Go reaps a child only through Wait, and this daemon outlives
+	// every run it starts, so reap here — detaching does not reparent the child
+	// (setsid keeps this process as its parent), so nothing else will.
+	go func() { _ = cmd.Wait() }()
 	return DispatchResult{PID: &pid}
 }
 
