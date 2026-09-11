@@ -226,3 +226,4 @@
 {"loop":265,"ts":"2026-09-11T20:28:03Z","status":"ok","goal":"Goal: Land GitHub issue #321 by verifying and merging the existing open PR #333 — do NOT re-implement it. Check the pull request's CI (`gh pr checks 333`) and r"}
 {"loop":266,"ts":"2026-09-11T20:37:21Z","status":"failed","goal":"Goal: Maintenance pass closing stale tracker state; verify with evidence before every close. (1) Run `go test ./internal/config/ -count=1`; on pass close #278 c"}
 {"loop":267,"ts":"2026-09-11T20:49:16Z","status":"failed","goal":"Goal: Implement lease-generation fencing for selfbuild task locks. When `ledger.TryAcquireRun` (or the daemon task-claim path) breaks a stale lock and re-issues"}
+{"loop":268,"ts":"2026-09-11T21:09:08Z","status":"pr-open","goal":"Goal: Make selfbuild run-lock acquisition atomic and fenced in internal/ledger/runregistry.go (TryAcquireRun). Today stale-break is Stat → ReadFile → Remove → W"}
