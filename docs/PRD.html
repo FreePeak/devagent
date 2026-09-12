@@ -2273,6 +2273,47 @@ also retires its queue claim (<code>failed</code> + the
 <code>no-pr</code> detail, the shape gate's lease-recycling precedent)
 instead of leaving it to re-claim and re-burn the row every lease — a
 tracker-path no-op, where <code>queued == nil</code>.</p>
+<p>2026-09-12 (landing certification: the merge stamp is the evidence):
+the artifact gate above recognizes a merge only through a subject the
+OPEN guard admitted <em>before</em> dispatch, so an iteration whose pull
+request merged mid-run after a reopen — loop 282: #345 merged 04:39:14Z
+inside its own window while gh still read it CLOSED at dispatch —
+recorded non-productive with nothing to certify. <code>prState</code>
+now decodes <code>state,mergedAt</code> from one <code>gh pr view</code>
+(<code>prView</code>; all five OPEN gates read the state half
+unchanged), and the iteration window is what qualifies the stamp: a pull
+request the goal names whose merge falls inside
+<code>[iterStart, now]</code> certifies the ship (<code>ok</code>, the
+artifact gate still included) with no <code>PR opened:</code> line and
+on the failed-dispatch path too, while a merge before
+<code>iterStart</code> certifies nothing. The same read refuses a
+dispatch outright when the goal IS a <code>Land PR #N</code> directive
+naming a pull request that had already merged before the iteration began
+(loop 280's stale goal re-landing a merged pull request): non-productive
+<code>skipped</code> row, queue claim retired, no worker burned. The
+refusal binds to the directive's <em>position</em> — the statement must
+open with it — because a goal that merely mentions a pull request is not
+asking the loop to land it: a mid-prose quote (loop 281) must still
+dispatch, and the tracker's implement template embeds the issue TITLE in
+its leading clause, so a title that reads like a merge directive ("… gap
+in PR #345 handling") would otherwise refuse an issue that is re-picked
+and re-refused every iteration — five non-productive rows, the
+starvation halt, and no queue claim to retire. Pinned by
+<code>TestRunLoopGoalNamedMergedInWindowRecordsShip</code> (loop 282's
+window → <code>ok</code>),
+<code>TestRunLoopGoalNamedMergedAfterNoPRRunRecordsShip</code> (the rc-0
+no-pr path), <code>TestRunLoopStaleGoalHeadMergedPRSkipsDispatch</code>
+(the directive refusal),
+<code>TestRunLoopGoalNamedOutOfWindowPRRecordsNoPR</code> (out-of-window
+→ the unchanged <code>no-pr</code>),
+<code>TestRunLoopTrackerTitleReadingLikeMergeDirectiveStillDispatches</code>
+(the tracker title) and
+<code>TestRunLoopGoalQuotingMergeDirectiveMidProseStillDispatches</code>
+(the mid-prose quote). Named ceiling, not fixed: the record-time scan is
+mention-level (any <code>PR #N</code> in the goal), so a goal that only
+quotes a pull request which happens to merge inside the window certifies
+on that merge; the window and the artifact gate are the bounds
+(<code>internal/loopdriver/run.go</code>, <code>issues.go</code>).</p>
 </blockquote>
 <p><del>- <strong>Cross-board retry memory beyond the SHA guard</strong>
 — commit 60638d3 stops re-issuing shipped goals, but re-queued failures
@@ -4844,20 +4885,48 @@ existing driver with validation surfaces (test, command, telemetry,
 chaos schedule) so "the driver works perfectly" is a checkable claim,
 not a hope.</p>
 <hr />
-<p><em>Last updated: 2026-09-12 (fallback-route landing evidence: the
-ship verdict off the tracker path) — <code>pick.mergePR</code> is only
-ever set by a tracker pick, so a queue- or PO-delivered goal
-(<code>Goal: Land PR #N</code>) had no evidence subject at all: loops
-270/271/274/280 each logged <code>falling back to LLM selection</code>,
-each dispatched a goal naming the pull request to land, each of those
-pull requests merged inside its own iteration window, and each recorded
-the non-productive <code>no-pr</code> row — four false negatives in
-eleven passes against a starvation limit of five, with the Q27
-already-shipped guard equally blind. <code>runIteration</code> now
-derives the merge target from the goal text (<code>goalMergePR</code>,
-the <code>mergePickRe</code> researchPick already parses) before the
-task dispatch, under the pick-time <code>prState == OPEN</code> guard,
-so the derived pull request rides the existing <code>prMerged</code> →
+<p><em>Last updated: 2026-09-12 (landing certification: the window, not
+the pre-dispatch stamp, is what certifies a ship) — the ship gate could
+only certify a pull request the OPEN guard had admitted before dispatch,
+so loop 282's reopen-and-merge (#345 merged 04:39:14Z inside its window)
+recorded non-productive: <code>gh pr view --json state</code> never said
+<em>when</em> a merge happened. <code>prView</code> now reads
+<code>state,mergedAt</code> in that one call (all five OPEN gates
+unchanged, <code>prState</code> a thin wrapper), a goal-named pull
+request whose merge stamp falls inside <code>[iterStart, now]</code>
+certifies <code>ok</code> (artifact gate included) on both the
+failed-dispatch and the rc-0 no-pr paths, an out-of-window stamp
+certifies nothing (loop 281), and a goal that IS a
+<code>Land PR #N</code> directive whose target had already merged before
+the iteration is refused pre-dispatch — <code>skipped</code> row, claim
+retired, no worker burned (loop 280). The refusal binds to the
+directive's position (the statement must open with it), so a tracker
+implement goal carrying an issue title that reads like a merge directive
+still dispatches instead of halting the loop through re-pick/refuse
+cycles. Pinned by
+<code>TestRunLoopGoalNamedMergedInWindowRecordsShip</code>,
+<code>TestRunLoopGoalNamedMergedAfterNoPRRunRecordsShip</code>,
+<code>TestRunLoopStaleGoalHeadMergedPRSkipsDispatch</code>,
+<code>TestRunLoopGoalNamedOutOfWindowPRRecordsNoPR</code>,
+<code>TestRunLoopTrackerTitleReadingLikeMergeDirectiveStillDispatches</code>
+and
+<code>TestRunLoopGoalQuotingMergeDirectiveMidProseStillDispatches</code>;
+ceiling — the record-time scan is mention-level, so the window and the
+artifact gate are what qualify a mention.</em> <em>Last updated:
+2026-09-12 (fallback-route landing evidence: the ship verdict off the
+tracker path) — <code>pick.mergePR</code> is only ever set by a tracker
+pick, so a queue- or PO-delivered goal (<code>Goal: Land PR #N</code>)
+had no evidence subject at all: loops 270/271/274/280 each logged
+<code>falling back to LLM selection</code>, each dispatched a goal
+naming the pull request to land, each of those pull requests merged
+inside its own iteration window, and each recorded the non-productive
+<code>no-pr</code> row — four false negatives in eleven passes against a
+starvation limit of five, with the Q27 already-shipped guard equally
+blind. <code>runIteration</code> now derives the merge target from the
+goal text (<code>goalMergePR</code>, the <code>mergePickRe</code>
+researchPick already parses) before the task dispatch, under the
+pick-time <code>prState == OPEN</code> guard, so the derived pull
+request rides the existing <code>prMerged</code> →
 <code>evidencePR</code> → <code>landedArtifactsVerified</code> wiring
 and records <code>ok</code> with its artifacts verified — never
 <code>no-pr</code>, while a stale mention self-disqualifies and a
@@ -5359,7 +5428,8 @@ match would record a productive row and close an issue nobody worked.
 Because such a dispatch lands an <strong>existing</strong> pull request
 it can never print <code>PR opened:</code>, so its #238 ship evidence is
 that pull request's merged state (<code>prMerged</code>, decoded
-<code>gh pr view --json state</code> — the file's own
+<code>gh pr view --json state,mergedAt</code> — <code>prView</code>,
+with <code>prState</code> the thin state reader; the file's own
 <code>pickIssue</code> convention, and it drops a whitespace assumption
 the fixtures cannot police); an unmerged one still records the
 non-productive <code>no-pr</code> row and leaves the issue open. A
