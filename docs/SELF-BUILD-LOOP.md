@@ -84,6 +84,16 @@ the Node tree (FR-GO-16, #205).
    precedent) rather than leaving it to re-claim and re-burn the row every
    lease; tracker-path iterations are unaffected (`queued == nil`).
 
+   **CLOSED-but-unmerged rescue (2026-09-12).** The derivation's OPEN guard and
+   the rescue's own OPEN guard made a falsely closed pull request unreachable
+   for exactly the class the route exists for — PR #346/#347, auto-closed by the
+   sweep's transport-noise bug minutes after they opened, green and mergeable. A
+   goal-named pull request that is CLOSED, unmerged, based on `main`, with its
+   head ref still on origin is now taken as the subject, and the rescue reopens
+   it (`gh pr reopen`, repo-scoped, bounded), re-reads the state — verified,
+   never believed — and merges through the ordinary pipeline. Any other close
+   (superseded base, head ref gone, merge stamp, reopen refused) lands nothing.
+
    **Landing certification (2026-09-12).** The one `gh pr view` now carries
    `state,mergedAt`, so a merge is *dated* rather than only observed: a pull
    request the goal names whose merge falls inside this iteration's window

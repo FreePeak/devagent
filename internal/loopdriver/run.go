@@ -9,9 +9,11 @@
 package loopdriver
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -393,8 +395,13 @@ func (d *driver) runIteration(n int, logF io.Writer, gradient, clusters string) 
 	// passes against a starvation limit of five. Derive the subject from the
 	// goal text with the matcher researchPick parses, under the pick-time OPEN
 	// guard above: a stale or incidental PR mention self-disqualifies, so
-	// nothing here can certify a do-nothing iteration. The derived PR then
-	// flows through the prMerged/evidencePR/landedArtifactsVerified wiring.
+	// nothing here can certify a do-nothing iteration. A closed-and-unmerged
+	// reference is the same subject one step earlier — the branch never
+	// landed, so the goal is still unfulfilled — and is taken only while the
+	// reopen gate (reopenSubject: main base, head ref on origin, unmerged)
+	// says the close is the only obstruction; the derivation then hands the
+	// rescue a subject it reopens before merging. The derived PR flows
+	// through the prMerged/evidencePR/landedArtifactsVerified wiring.
 	//
 	// The same read carries the pre-dispatch half of the certification: a
 	// goal that IS a "Land PR #N" directive naming a pull request that had
@@ -411,14 +418,23 @@ func (d *driver) runIteration(n int, logF io.Writer, gradient, clusters string) 
 	// loop into the starvation halt with nothing to retire.
 	if pick.mergePR == 0 {
 		if pr := goalMergePR(goal); pr != 0 {
-			state, mergedAt := d.prView(pr)
-			at, merged := mergedAtTime(mergedAt)
+			view := d.prView(pr)
+			at, merged := mergedAtTime(view.MergedAt)
 			switch {
-			case state == "OPEN":
+			case view.State == "OPEN":
 				pick.mergePR = pr
 				_, _ = fmt.Fprintf(logF, "[verify] goal names open PR #%d — deriving the merge-evidence subject from the goal text\n", pr)
+			case d.reopenSubject(view):
+				// The CLOSED half of the same route: a pull request closed
+				// unmerged (the false zombie-sweep verdict of #346/#347, a
+				// superseded close, a stale close) still carries the branch
+				// the goal names, so it becomes the rescue's subject — which
+				// reopens it (reopenClosedPR) before merging. Only a
+				// reopenable close qualifies: main base, head ref on origin.
+				pick.mergePR = pr
+				_, _ = fmt.Fprintf(logF, "[verify] goal names closed-unmerged PR #%d based on %s with its head ref on origin — deriving the reopen-and-merge subject from the goal text\n", pr, mainBranch)
 			case merged && at.Before(iterStart) && goalHeadMergePR(goal) == pr:
-				_, _ = fmt.Fprintf(logF, "[verify] goal-head PR #%d merged %s, before this iteration started — skipping dispatch\n", pr, mergedAt)
+				_, _ = fmt.Fprintf(logF, "[verify] goal-head PR #%d merged %s, before this iteration started — skipping dispatch\n", pr, view.MergedAt)
 				d.record(logF, n, "skipped", goal)
 				// The claim is retired for the same reason the shape gate
 				// retires one: left live it re-claims after its lease and
@@ -797,14 +813,20 @@ func (d *driver) mergePRBounded(n int, logF io.Writer, pr int) bool {
 
 // verifyAndMergeRescue closes the verify-and-merge loop for an iteration
 // whose run ended without shipping evidence: when the picked issue still has
-// an OPEN pull request — research's pick (OPEN-guarded at pick time), a
-// cross-referenced one, or one the run itself opened — the driver lands it
-// through mergePRBounded and reports its number (0 = nothing landed).
+// a pull request to land — research's pick (OPEN-guarded at pick time), a
+// cross-referenced one, one the run itself opened, or the goal-named
+// CLOSED-but-unmerged subject the derivation above took — the driver lands it
+// through mergePRBounded and reports its number (0 = nothing landed). A
+// closed subject is reopened first (reopenClosedPR) and only when the merge
+// could not have happened without it; a refusal lands nothing.
 func (d *driver) verifyAndMergeRescue(n int, logF io.Writer, pr, issueNum int) int {
 	if pr == 0 && issueNum != 0 {
 		pr = d.openPROfIssue(issueNum)
 	}
-	if pr == 0 || d.prState(pr) != "OPEN" {
+	if pr == 0 {
+		return 0
+	}
+	if d.prState(pr) != "OPEN" && !d.reopenClosedPR(logF, pr) {
 		return 0
 	}
 	_, _ = fmt.Fprintf(logF, "[verify] run ended without shipping evidence — driver-side verify-and-merge of open PR #%d\n", pr)
@@ -812,6 +834,69 @@ func (d *driver) verifyAndMergeRescue(n int, logF io.Writer, pr, issueNum int) i
 		return pr
 	}
 	return 0
+}
+
+// mainBranch is the base branch a reopen-and-merge subject must target: the
+// loop's own landing branch, hardcoded the way mainTreePaths' git/trees/main
+// is. A pull request closed against anything else (a superseded base, a
+// stacked branch) carries a branch the driver cannot land.
+const mainBranch = "main"
+
+// reopenSubject reports whether a pull request the goal text names is a
+// CLOSED-but-unmerged merge subject: closed (not merged), based on main, and
+// its head ref still on origin. The class it serves is the false close —
+// #346/#347 were auto-closed by the zombie sweep's BaseBranchGone
+// transport-noise bug minutes after they opened, with green, mergeable
+// branches — where the goal asks for the pull request to be landed and the
+// only obstruction is the close itself.
+//
+// Read-only: the goal-text derivation asks it before deciding to dispatch,
+// and reopenClosedPR asks it again before mutating anything. Every miss is
+// the conservative direction (no subject, no reopen): a merged stamp, a base
+// the driver does not land on, a deleted head ref, and a gh that cannot
+// answer the ref probe all read as not reopenable, so a stale or incidental
+// PR mention can never fabricate a ship.
+func (d *driver) reopenSubject(view prViewResult) bool {
+	if view.State != "CLOSED" || view.HeadRefName == "" || view.BaseRefName != mainBranch {
+		return false
+	}
+	if _, merged := mergedAtTime(view.MergedAt); merged {
+		return false
+	}
+	return d.ghAPIDecode(fmt.Sprintf("repos/%s/branches/%s", d.cfg.GHRepo, view.HeadRefName), &struct{}{})
+}
+
+// reopenClosedPR reopens pull request pr and reports whether it is OPEN
+// afterwards — the closed half of the rescue. gh's reopen is repo-scoped and
+// bounded like every other driver gh call (60s wall, drain-tolerant teardown
+// per #286), and its verdict is not believed: the state is re-read after the
+// call, so "reopened" means gh says OPEN, never that the command exited 0.
+// Anything else returns false and the rescue lands nothing — the
+// base-superseded and reopen-refused classes.
+func (d *driver) reopenClosedPR(logF io.Writer, pr int) bool {
+	if view := d.prView(pr); !d.reopenSubject(view) {
+		_, _ = fmt.Fprintf(logF, "[verify] PR #%d is %s (base %s, head %q) — not a reopen-and-merge subject\n",
+			pr, view.State, view.BaseRefName, view.HeadRefName)
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, d.cfg.GhBin, "pr", "reopen", strconv.Itoa(pr), "--repo", d.cfg.GHRepo)
+	cmd.Dir = d.cfg.Repo
+	cmd.WaitDelay = pipeDrainDelay
+	out, err := cmd.CombinedOutput()
+	// Same drain tolerance as prView: a cutoff that crossed gh's own rc 0 is
+	// not a refusal.
+	if err != nil && (cmd.ProcessState == nil || !cmd.ProcessState.Success()) {
+		_, _ = fmt.Fprintf(logF, "[verify] gh pr reopen %d refused: %s\n", pr, strings.TrimSpace(string(out)))
+		return false
+	}
+	if state := d.prState(pr); state != "OPEN" {
+		_, _ = fmt.Fprintf(logF, "[verify] PR #%d did not reopen (state %s)\n", pr, state)
+		return false
+	}
+	_, _ = fmt.Fprintf(logF, "[verify] reopening closed-unmerged PR #%d to land it\n", pr)
+	return true
 }
 
 // applyPrHygieneTriage runs the shipped pr-hygiene sweep in apply mode after
@@ -914,7 +999,8 @@ var researchPickHeadingRe = regexp.MustCompile(`(?im)^\s*#+\s*pick\b`)
 // direction: the merge route prints no "PR opened:", so shipping rests on
 // prMerged, which is true for a PR that merged weeks ago, and the iteration
 // would record a productive row AND close an issue nobody worked. runIteration
-// caps that: the route requires prState == OPEN at pick time, so every stale or
+// caps that: the route requires a subject — OPEN at pick time, or (goal-text
+// derivation) CLOSED-but-unmerged past the reopen gate — so every stale or
 // incidental PR reference self-disqualifies and a miss degrades to today's
 // implement dispatch. Upgrade path if phrasing ever defeats the parse: have the
 // research prompt emit `PICK: issue=#N action=merge-pr pr=#N
@@ -989,11 +1075,11 @@ func (d *driver) goalMergedWithin(goal string, start, now time.Time) int {
 		if err != nil || pr <= 0 {
 			continue
 		}
-		state, mergedAt := d.prView(pr)
-		if state != "MERGED" {
+		view := d.prView(pr)
+		if view.State != "MERGED" {
 			continue
 		}
-		at, ok := mergedAtTime(mergedAt)
+		at, ok := mergedAtTime(view.MergedAt)
 		if !ok || at.Before(start) || at.After(now) {
 			continue
 		}
