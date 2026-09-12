@@ -245,3 +245,4 @@
 {"loop":284,"ts":"2026-09-12T06:09:56Z","status":"pr-open","goal":"Goal: Make both zombie-PR hygiene probes three-valued so transport noise can never close a live PR. `BaseBranchGone` (internal/orchestrator/autopr.go:573) retur"}
 {"loop":285,"ts":"2026-09-12T06:33:30Z","status":"failed","goal":"Goal: Land both existing green heads straight onto main — no PR, no re-implementation (the still-armed zombie sweep closes fresh PRs; #347/#346 were auto-closed"}
 {"loop":286,"ts":"2026-09-12T07:06:20Z","status":"failed","goal":"Goal: Make the driver-side rescue reachable for CLOSED-but-unmerged PRs. The goal-text derivation (internal/loopdriver/run.go:413-431) assigns `pick.mergePR` on"}
+{"loop":287,"ts":"2026-09-12T07:24:27Z","status":"failed","goal":"Goal: Land the live green head stranded by loop 286 — merge PR #348 (branch `devagent/TASK-mty0vgkg-oerc`, head `3591adf`, base main, mergeStateStatus CLEAN, al"}
