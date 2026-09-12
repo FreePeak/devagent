@@ -344,3 +344,84 @@ title that would have halted the loop) and
 quote).
 
 (Recorded 2026-09-12; TASK-mtxwr39q-nva6.)
+
+## DECISION: the rescue reaches CLOSED-but-unmerged pull requests (2026-09-12, TASK-mty0vgkg-oerc)
+
+Every mechanism above reads a pull request's state *before* the dispatch, and
+`verifyAndMergeRescue` carried the same OPEN guard — so a pull request closed
+unmerged was unreachable for all of them. That is exactly the class the route
+exists for: #346 and #347 were auto-closed by the zombie sweep's
+`BaseBranchGone(main)` transport-noise bug minutes after they opened (green,
+mergeable, `origin/main` already contained), and loop 282's #345 was CLOSED at
+dispatch with the worker's job being to reopen it. Each time the goal asked for
+the pull request to be landed, the branch was landable, and the iteration
+recorded `no-pr`. Three pieces, all read-only until the reopen:
+
+1. **`prView` widens.** One `gh pr view` now decodes
+   `state,mergedAt,baseRefName,headRefName`. The state and merge-stamp halves
+   are unchanged for every existing reader (all five OPEN gates, the window
+   certification); the two ref names are what the reopen gate judges.
+2. **The goal-text derivation takes a closed subject.** When `pick.mergePR ==
+   0` and the goal names a merge target (`goalMergePR`), a CLOSED reference is
+   taken as the evidence subject while `reopenSubject` holds: no merge stamp,
+   `baseRefName == main`, and the head ref still resolving on origin
+   (`gh api repos/<repo>/branches/<ref>` through `ghAPIDecode`, the driver's own
+   repo-scoped read). The OPEN case is untouched and takes precedence, and a
+   merged reference still falls through to the pre-dispatch refusal.
+3. **The rescue reopens before merging.** `verifyAndMergeRescue` no longer
+   bails on a non-OPEN state: it re-checks the gate — the derivation vetted the
+   subject before the dispatch, and an iteration is long enough for a close to
+   land mid-flight — runs `gh pr reopen <n> --repo <tracker>` (repo-scoped,
+   60s wall, `pipeDrainDelay` teardown, the `prView` contract), and re-reads the
+   state. The reopen is verified, never believed: `gh pr reopen` exiting 0
+   without gh reporting OPEN is a refusal. Only then does the ordinary
+   `mergePRBounded` → `AutoReviewAndMergeOne` path run — that pipeline skips any
+   non-OPEN pull request itself, which is why the reopen has to happen here
+   rather than inside it.
+
+Ceiling (named, not fixed): "reopenable" is judged from the pull request's own
+refs, not from the reason it was closed — gh does not return that in the same
+read, and inferring it from the sweep's close comment would couple the rescue to
+prose. A closed-unmerged pull request on main with a live head that a human
+closed on purpose (superseded by newer work, abandoned) is therefore reopened
+and merged when the goal names it as its merge target and the run ships nothing.
+What bounds it: the goal must carry a present-tense merge directive naming that
+pull request (`mergePickRe`, the verb-proximity parse this whole route rests
+on), the reopen must actually take, `AutoReviewAndMergeOne` must still pass it
+(checks, hazard scan, review, base probe), and the artifact gate must find its
+touched implementation files on main. The residual exposure is
+`mergePickRe`'s, not this change's: the scan is the whole goal text, so an
+*incidental* directive-shaped mention — a goal quoting `Goal: Land PR #N`, or a
+tracker issue whose TITLE reads like one ("reopen and merge PR #N") — becomes a
+subject too, where the OPEN case could only certify a merge that happened anyway
+and this one can reopen. Two upgrade paths, in cost order: bind the closed case
+to the directive's position (`goalHeadMergePR`, the pre-dispatch refusal's
+bound — rejected here because loop 282's goal carries its directive in the
+second sentence), or make the parse structural (`PICK: action=merge-pr pr=#N`
+from the research prompt) and key both routes on it. For a deliberate close: the
+sweep records its verdict (reason plus evidence) in the ledger and
+`reopenSubject` refuses a close the driver itself made.
+
+Pinned by `TestRunLoopClosedUnmergedGoalPRReopenedAndMerged` (derivation →
+reopen → merge → `ok`, with `gh pr reopen 344` ordered before `gh pr merge
+344`), `TestRunLoopClosedGoalPRLandsNothingWhenNotReopenable` (a base-superseded
+close and a head ref gone from origin never become subjects, and a reopen gh
+refuses ends the rescue — all three keep the `no-pr` row with no merge) and
+`TestVerifyAndMergeRescueRefusesNonReopenablePR` (the rescue's own re-check
+refuses an ineligible subject before any mutation). The fake gh harness gained
+the reopen/merge markers these need: a `pr reopen` decides whether later
+`pr view` reads say OPEN, a `pr merge` decides whether they say MERGED.
+
+Live decode note (the fixtures' counterpart, per this file's precedent): the
+widened read and the ref probe were checked against the real repository before
+the fakes were trusted. `gh pr view 347 --repo FreePeak/devagent --json
+state,mergedAt,baseRefName,headRefName` answers `{"baseRefName":"main",
+"headRefName":"devagent/TASK-mtxyflr1-fq6y","mergedAt":null,"state":"CLOSED"}` —
+an unmerged close carries a JSON `null` stamp, which decodes to the empty string
+`mergedAtTime` already treats as no evidence — and `gh api
+repos/FreePeak/devagent/branches/devagent/TASK-mtxyflr1-fq6y` resolves the
+slash-containing ref, while a missing one answers exit 1 with "Branch not found
+(HTTP 404)": the shape `GH_BRANCHES_GONE` reproduces. #347 is itself that class —
+closed unmerged on main, its head ref still on origin.
+
+(Recorded 2026-09-12; TASK-mty0vgkg-oerc.)

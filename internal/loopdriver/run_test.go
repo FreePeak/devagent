@@ -76,7 +76,25 @@ case "$1 $2" in
   # gate's skip branch). Every other api call still answers the timeline.
   "api repos/"*"/pulls/"*"/files"*) printf '%s' "$GH_PR_FILES_JSON" ;;
   "api repos/"*"/git/trees/"*) printf '%s' "$GH_TREE_JSON" ;;
+  # The reopen gate's head-ref probe (repos/<repo>/branches/<ref>): a
+  # decodable body means the ref resolves on origin, GH_BRANCHES_GONE answers
+  # the definitive 404 (the not-reopenable direction) instead.
+  "api repos/"*"/branches/"*)
+    if [ -n "${GH_BRANCHES_GONE:-}" ]; then echo "Branch not found (HTTP 404)" >&2; exit 1; fi
+    printf '{"name":"branch"}\n' ;;
   api\ *) printf '%s' "$GH_TIMELINE_JSON" ;;
+  # The rescue's reopen, modelled as the state change it is: a nonzero
+  # GH_PR_REOPEN_RC is the refusal; on success GH_PR_REOPEN_FILE appears and
+  # every later pr view reads OPEN. A pr merge marks GH_PR_MERGE_FILE the
+  # same way, so a merged state follows the action instead of a call count.
+  "pr reopen")
+    rc="${GH_PR_REOPEN_RC:-0}"
+    if [ "$rc" != "0" ]; then echo "could not reopen pull request" >&2; exit "$rc"; fi
+    [ -n "${GH_PR_REOPEN_FILE:-}" ] && : > "$GH_PR_REOPEN_FILE"
+    exit 0 ;;
+  "pr merge")
+    [ -n "${GH_PR_MERGE_FILE:-}" ] && : > "$GH_PR_MERGE_FILE"
+    exit 0 ;;
   # gh 2.98 pipes --json output (compact); prState decodes, so the shape is
   # the real one and the driver must not care. GH_PR_STATE answers every call;
   # GH_PR_STATE_FIRST + GH_PR_STATE_FILE sequence the first one differently
@@ -95,14 +113,16 @@ case "$1 $2" in
       c=$((c + 1)); echo "$c" > "${GH_PR_STATE_OPEN_CALLS_FILE}"
       [ "$c" -le "$GH_PR_STATE_OPEN_CALLS" ] && s="OPEN" || s="${GH_PR_STATE:-OPEN}"
     fi
+    [ -n "${GH_PR_REOPEN_FILE:-}" ] && [ -f "$GH_PR_REOPEN_FILE" ] && s="OPEN"
+    [ -n "${GH_PR_MERGE_FILE:-}" ] && [ -f "$GH_PR_MERGE_FILE" ] && s="MERGED"
     # mergedAt rides the same --json read (gh omits the key when unset):
     # GH_PR_MERGED_AT answers the record-time landing certification, so a
     # MERGED stamp without it is gh-cannot-say, never a certified ship.
-    if [ -n "${GH_PR_MERGED_AT:-}" ]; then
-      printf '{"state":"%s","mergedAt":"%s"}\n' "$s" "$GH_PR_MERGED_AT"
-    else
-      printf '{"state":"%s"}\n' "$s"
-    fi ;;
+    # baseRefName/headRefName ride it too — the reopen gate reads them, and
+    # main + a TASK branch is the shape the live repo has.
+    printf '{"state":"%s","baseRefName":"%s","headRefName":"%s"' "$s" "${GH_PR_BASE_REF:-main}" "${GH_PR_HEAD_REF:-devagent/TASK-fixture}"
+    if [ -n "${GH_PR_MERGED_AT:-}" ]; then printf ',"mergedAt":"%s"' "$GH_PR_MERGED_AT"; fi
+    printf '}\n' ;;
 esac
 exit 0
 `,
@@ -1093,6 +1113,197 @@ func TestRunLoopGoalNamedOutOfWindowPRRecordsNoPR(t *testing.T) {
 	}
 	if task.Status != "failed" || task.LastError != noPRDetail {
 		t.Fatalf("queue claim not retired with the no-pr detail: status %q, lastError %q", task.Status, task.LastError)
+	}
+}
+
+// The CLOSED-but-unmerged half of the goal-derived subject. #346/#347 were
+// auto-closed by the zombie sweep's BaseBranchGone transport-noise bug minutes
+// after they opened, with green, mergeable branches, so a goal that asks for
+// the pull request to be landed named a subject the derivation's OPEN guard
+// refused — and verifyAndMergeRescue's own OPEN guard refused it a second
+// time. The rescue was unreachable for exactly the class it exists for. A
+// closed-unmerged pull request is now a subject when the close is the only
+// obstruction (main base, head ref on origin, no merge stamp), and the rescue
+// reopens it before merging: gh's reopen is not believed, the state is
+// re-read, and only then does the ordinary merge path run.
+func TestRunLoopClosedUnmergedGoalPRReopenedAndMerged(t *testing.T) {
+	repo := initFixtureRepo(t)
+	installFakes(t, repo)
+	if _, err := queue.EnqueueTask(repo, queue.EnqueueInput{
+		ID:    "TASK-1",
+		Title: "Land PR 344",
+		Goal:  "Goal: Land PR #344 (branch `devagent/TASK-mtxqd5xx-23cu`) — verify it and merge it; do not re-implement it.",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DEVAGENT_FAKE_TASK_NO_PR", "1")
+	// Closed unmerged on main with its head ref still on origin — the false
+	// close the goal asks the loop to undo. The reopen/merge markers are the
+	// fake's state changes: OPEN after the reopen, MERGED after the merge.
+	t.Setenv("GH_PR_STATE", "CLOSED")
+	t.Setenv("GH_PR_HEAD_REF", "devagent/TASK-mtxqd5xx-23cu")
+	t.Setenv("GH_PR_REOPEN_FILE", filepath.Join(t.TempDir(), "reopened"))
+	t.Setenv("GH_PR_MERGE_FILE", filepath.Join(t.TempDir(), "merged"))
+	t.Setenv("GH_PR_FILES_JSON", `[{"filename":"internal/loopdriver/run.go"}]`)
+	t.Setenv("GH_TREE_JSON", `{"tree":[{"path":"internal/loopdriver/run.go","type":"blob"}],"truncated":false}`)
+	cfg := loopConfigFor(t, repo, func(c *LoopConfig) {
+		c.Now = func() time.Time { return certWindowNow() }
+		c.GHRepo = "FreePeak/devagent"
+		c.GhRun = execFakeGh
+	})
+	cfg.DryRun = false
+	if rc := RunLoop(cfg); rc != 0 {
+		logData, _ := os.ReadFile(filepath.Join(repo, ".selfbuild", "logs", "loop-1.log"))
+		t.Fatalf("rc = %d, want 0\nlog:\n%s", rc, logData)
+	}
+	rows := readLedger(t, repo)
+	if len(rows) != 1 || rows[0]["status"] != "ok" {
+		t.Fatalf("rows: %v, want the ok row for a reopened-and-merged PR (never no-pr)", rows)
+	}
+	logData, err := os.ReadFile(filepath.Join(repo, ".selfbuild", "logs", "loop-1.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	log := string(logData)
+	// Both ends of the route: the derivation took the closed subject, the
+	// rescue reopened it and only then merged.
+	if !strings.Contains(log, "[verify] goal names closed-unmerged PR #344 based on main with its head ref on origin — deriving the reopen-and-merge subject from the goal text") {
+		t.Fatalf("the closed subject was not derived:\n%s", log)
+	}
+	if !strings.Contains(log, "[verify] reopening closed-unmerged PR #344 to land it") {
+		t.Fatalf("the rescue did not reopen the closed PR:\n%s", log)
+	}
+	// gh's own actions, in order: reopen before merge.
+	calls, err := os.ReadFile(filepath.Join(repo, "devagent-calls.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reopenAt := strings.Index(string(calls), "gh pr reopen 344")
+	mergeAt := strings.Index(string(calls), "gh pr merge 344")
+	if reopenAt < 0 || mergeAt < 0 {
+		t.Fatalf("want both gh pr reopen 344 and gh pr merge 344, calls:\n%s", calls)
+	}
+	if reopenAt > mergeAt {
+		t.Fatalf("the merge ran before the reopen, calls:\n%s", calls)
+	}
+	// The ship is artifact-backed like every other merge verdict.
+	if !strings.Contains(log, "[verify] PR #344's implementation files verified on main") {
+		t.Fatalf("artifact verification not logged:\n%s", log)
+	}
+	assertFileContains(t, filepath.Join(repo, ".devagent", "queue", "TASK-1.json"), `"status": "done"`)
+}
+
+// The reopen gate's misses land NOTHING: a close the driver may not undo (a
+// base it does not land on, a head ref gone from origin) never becomes a
+// subject, and a reopen gh refuses ends the rescue without a merge. All three
+// keep the ordinary no-pr verdict with its claim retired — a fabricated ship
+// is the failure mode this route exists to avoid.
+func TestRunLoopClosedGoalPRLandsNothingWhenNotReopenable(t *testing.T) {
+	cases := []struct {
+		name string
+		env  map[string]string
+		// wantReopenCall is false when the gate refuses the subject before any
+		// mutation, true when gh's reopen was attempted and refused.
+		wantReopenCall bool
+		wantLog        string
+	}{
+		{
+			name: "base-superseded: closed against another base",
+			env:  map[string]string{"GH_PR_BASE_REF": "release/0.3"},
+		},
+		{
+			name: "head ref gone from origin",
+			env:  map[string]string{"GH_BRANCHES_GONE": "1"},
+		},
+		{
+			name:           "reopen refused by gh",
+			env:            map[string]string{"GH_PR_REOPEN_RC": "1"},
+			wantReopenCall: true,
+			wantLog:        "[verify] gh pr reopen 344 refused: could not reopen pull request",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := initFixtureRepo(t)
+			installFakes(t, repo)
+			if _, err := queue.EnqueueTask(repo, queue.EnqueueInput{
+				ID:    "TASK-1",
+				Title: "Land PR 344",
+				Goal:  "Goal: Land PR #344 (branch `devagent/TASK-mtxqd5xx-23cu`) — verify it and merge it; do not re-implement it.",
+			}); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("DEVAGENT_FAKE_TASK_NO_PR", "1")
+			t.Setenv("GH_PR_STATE", "CLOSED")
+			t.Setenv("GH_PR_HEAD_REF", "devagent/TASK-mtxqd5xx-23cu")
+			t.Setenv("GH_PR_REOPEN_FILE", filepath.Join(t.TempDir(), "reopened"))
+			t.Setenv("GH_PR_MERGE_FILE", filepath.Join(t.TempDir(), "merged"))
+			for k, v := range tc.env {
+				t.Setenv(k, v)
+			}
+			cfg := loopConfigFor(t, repo, func(c *LoopConfig) {
+				c.Now = func() time.Time { return certWindowNow() }
+				c.GHRepo = "FreePeak/devagent"
+				c.GhRun = execFakeGh
+			})
+			cfg.DryRun = false
+			if rc := RunLoop(cfg); rc != 0 {
+				logData, _ := os.ReadFile(filepath.Join(repo, ".selfbuild", "logs", "loop-1.log"))
+				t.Fatalf("rc = %d, want 0\nlog:\n%s", rc, logData)
+			}
+			rows := readLedger(t, repo)
+			if len(rows) != 1 || rows[0]["status"] != "no-pr" {
+				t.Fatalf("rows: %v, want the no-pr row (nothing was landable)", rows)
+			}
+			calls, err := os.ReadFile(filepath.Join(repo, "devagent-calls.log"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(calls), "gh pr merge 344") {
+				t.Fatalf("a merge ran for a PR that was never reopened, calls:\n%s", calls)
+			}
+			if got := strings.Contains(string(calls), "gh pr reopen 344"); got != tc.wantReopenCall {
+				t.Fatalf("gh pr reopen 344 attempted = %v, want %v, calls:\n%s", got, tc.wantReopenCall, calls)
+			}
+			logData, err := os.ReadFile(filepath.Join(repo, ".selfbuild", "logs", "loop-1.log"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(logData), "[publish] task succeeded without opening a PR") {
+				t.Fatalf("the no-pr verdict was not recorded:\n%s", logData)
+			}
+			if tc.wantLog != "" && !strings.Contains(string(logData), tc.wantLog) {
+				t.Fatalf("want log %q:\n%s", tc.wantLog, logData)
+			}
+		})
+	}
+}
+
+// The rescue's own guard, unit-level: the derivation vetted the subject before
+// dispatch, but the close can land while the run is in flight (the zombie
+// sweep, a human, a base change), so verifyAndMergeRescue re-checks before
+// mutating anything. A subject that no longer passes the gate is refused and
+// nothing merges — the reachability the ticket adds must not become "reopen
+// anything the goal names".
+func TestVerifyAndMergeRescueRefusesNonReopenablePR(t *testing.T) {
+	repo := initFixtureRepo(t)
+	installFakes(t, repo)
+	t.Setenv("GH_PR_STATE", "CLOSED")
+	t.Setenv("GH_PR_BASE_REF", "release/0.3")
+	d := &driver{cfg: loopConfigFor(t, repo, func(c *LoopConfig) { c.GHRepo = "FreePeak/devagent" })}
+	var log bytes.Buffer
+	if pr := d.verifyAndMergeRescue(1, &log, 344, 0); pr != 0 {
+		t.Fatalf("verifyAndMergeRescue = %d, want 0 for a base-superseded close", pr)
+	}
+	if !strings.Contains(log.String(), "[verify] PR #344 is CLOSED (base release/0.3, head \"devagent/TASK-fixture\") — not a reopen-and-merge subject") {
+		t.Fatalf("the refusal was not logged:\n%s", log.String())
+	}
+	calls, err := os.ReadFile(filepath.Join(repo, "devagent-calls.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(calls), "gh pr reopen") || strings.Contains(string(calls), "gh pr merge") {
+		t.Fatalf("an ineligible subject was mutated, calls:\n%s", calls)
 	}
 }
 

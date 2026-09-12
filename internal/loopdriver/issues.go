@@ -103,34 +103,44 @@ func (d *driver) closeIssue(num int, comment string) {
 	_ = cmd.Run()
 }
 
+// prViewResult is one `gh pr view --json state,mergedAt,baseRefName,headRefName`
+// read. The state half answers the OPEN gates, the merge stamp answers the
+// landing-evidence window, and the two ref names answer the CLOSED-but-unmerged
+// reopen gate (run.go): a closed pull request is only reopenable while it still
+// targets main and its head ref is still on origin.
+type prViewResult struct {
+	State       string `json:"state"`
+	MergedAt    string `json:"mergedAt"`
+	BaseRefName string `json:"baseRefName"`
+	HeadRefName string `json:"headRefName"`
+}
+
 // prView reads gh's view of pull request num: its state (OPEN | MERGED |
-// CLOSED, "" when gh cannot say) and its merge stamp mergedAt (second-
-// precision RFC3339, empty when it has not merged). One
-// `gh pr view --json state,mergedAt` per call, so the landing-evidence
-// readers share a read instead of one gh call per field. Decoded rather than
-// substring-matched: the verdicts gate a merge, gh's JSON shape is not
-// contractual, and decoding is this file's own convention (pickIssue).
-func (d *driver) prView(num int) (state, mergedAt string) {
+// CLOSED, "" when gh cannot say), its merge stamp mergedAt (second-precision
+// RFC3339, empty when it has not merged), and the base/head ref names the
+// reopen gate needs. One `gh pr view --json …` per call, so the
+// landing-evidence readers share a read instead of one gh call per field.
+// Decoded rather than substring-matched: the verdicts gate a merge, gh's JSON
+// shape is not contractual, and decoding is this file's own convention
+// (pickIssue).
+func (d *driver) prView(num int) prViewResult {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, d.cfg.GhBin, "pr", "view", strconv.Itoa(num),
-		"--repo", d.cfg.GHRepo, "--json", "state,mergedAt")
+		"--repo", d.cfg.GHRepo, "--json", "state,mergedAt,baseRefName,headRefName")
 	cmd.Dir = d.cfg.Repo
 	cmd.WaitDelay = pipeDrainDelay
 	out, err := cmd.Output()
 	// A drain cutoff (ErrWaitDelay) must not read the view as failed when
 	// gh itself exited 0 (#286).
 	if err != nil && (cmd.ProcessState == nil || !cmd.ProcessState.Success()) {
-		return "", ""
+		return prViewResult{}
 	}
-	var view struct {
-		State    string `json:"state"`
-		MergedAt string `json:"mergedAt"`
-	}
+	var view prViewResult
 	if err := json.Unmarshal(out, &view); err != nil {
-		return "", ""
+		return prViewResult{}
 	}
-	return view.State, view.MergedAt
+	return view
 }
 
 // prState is the state-only half of prView — the reader the OPEN gates use.
@@ -138,8 +148,7 @@ func (d *driver) prView(num int) (state, mergedAt string) {
 // inside it" reads prView instead (the landing-evidence certification in
 // run.go).
 func (d *driver) prState(num int) string {
-	state, _ := d.prView(num)
-	return state
+	return d.prView(num).State
 }
 
 // prMerged reports whether pull request num has merged — the publish evidence
