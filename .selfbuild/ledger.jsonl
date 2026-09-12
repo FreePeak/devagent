@@ -264,6 +264,6 @@
 {"loop":303,"ts":"2026-09-12T23:07:19Z","status":"operator-degraded","goal":"doc-sync deferred: PRD locally modified"}
 {"loop":304,"ts":"2026-09-12T23:08:32Z","status":"operator-degraded","goal":"doc-sync deferred: PRD locally modified"}
 {"loop":305,"ts":"2026-09-12T23:09:45Z","status":"operator-degraded","goal":"doc-sync deferred: PRD locally modified"}
-{"loop":306,"ts":"2026-09-12T23:10:31Z","status":"invalid","goal":""}
+{"loop":306,"ts":"2026-09-12T23:10:57Z","status":"operator-degraded","goal":"doc-sync deferred: PRD locally modified"}
 {"loop":307,"ts":"2026-09-12T23:10:43Z","status":"invalid","goal":""}
 {"loop":308,"ts":"2026-09-12T23:10:55Z","status":"invalid","goal":""}
