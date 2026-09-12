@@ -21,3 +21,25 @@ func TestVersionIsSemver(t *testing.T) {
 		t.Fatalf("Version = %q, want MAJOR.MINOR.PATCH", Version)
 	}
 }
+
+// TestRevision pins the stale-binary sentinel contract: under go test the
+// binary carries no vcs.revision build setting (probed 2026-09-12), so the
+// unstamped path returns RevisionUnknown, repeat calls agree (memoized),
+// and an override — the test-only injection surface — wins over whatever
+// was memoized.
+func TestRevision(t *testing.T) {
+	old := RevisionOverride
+	t.Cleanup(func() { RevisionOverride = old })
+
+	RevisionOverride = ""
+	if got := Revision(); got != RevisionUnknown {
+		t.Fatalf("Revision() = %q under go test, want %q", got, RevisionUnknown)
+	}
+	if a, b := Revision(), Revision(); a != b {
+		t.Fatalf("Revision not memoized: %q vs %q", a, b)
+	}
+	RevisionOverride = "deadbeef"
+	if got := Revision(); got != "deadbeef" {
+		t.Fatalf("Revision() = %q, want the override deadbeef", got)
+	}
+}
