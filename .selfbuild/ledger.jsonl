@@ -294,3 +294,4 @@
 {"loop":333,"ts":"2026-09-12T23:29:11Z","status":"operator-degraded","goal":"doc-sync deferred: PRD locally modified"}
 {"loop":334,"ts":"2026-09-12T23:30:24Z","status":"operator-degraded","goal":"doc-sync deferred: PRD locally modified"}
 {"loop":335,"ts":"2026-09-12T23:31:37Z","status":"operator-degraded","goal":"doc-sync deferred: PRD locally modified"}
+{"loop":336,"ts":"2026-09-12T23:32:50Z","status":"operator-degraded","goal":"doc-sync deferred: PRD locally modified"}
