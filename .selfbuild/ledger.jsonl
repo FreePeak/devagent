@@ -277,6 +277,6 @@
 {"loop":316,"ts":"2026-09-12T23:12:53Z","status":"invalid","goal":""}
 {"loop":317,"ts":"2026-09-12T23:13:05Z","status":"invalid","goal":""}
 {"loop":318,"ts":"2026-09-12T23:13:17Z","status":"invalid","goal":""}
-{"loop":319,"ts":"2026-09-12T23:13:31Z","status":"invalid","goal":""}
+{"loop":319,"ts":"2026-09-12T23:14:41Z","status":"operator-degraded","goal":"doc-sync deferred: PRD locally modified"}
 {"loop":320,"ts":"2026-09-12T23:13:51Z","status":"invalid","goal":""}
 {"loop":321,"ts":"2026-09-12T23:14:04Z","status":"invalid","goal":""}
