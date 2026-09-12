@@ -66,11 +66,11 @@ the Node tree (FR-GO-16, #205).
    `no-pr` ledger row and leaves the issue open for re-pick (#238) — except
    for a verify-and-merge dispatch (#301), which lands an existing pull
    request and so proves itself with that pull request's merged state
-   (`gh pr view --json state`), after fast-forwarding the repo test gate onto
-   the merged tree. Its status row is still `ok` — `internal/lessons` scores
-   any non-`ok` loop-result row as a failed loop — and the land is recorded in
-   the iteration log, the `loop-phase` detail and the goal text; push mode
-   `main` closes on the merge-to-main commit.
+   (`gh pr view --json state,mergedAt`), after fast-forwarding the repo test
+   gate onto the merged tree. Its status row is still `ok` —
+   `internal/lessons` scores any non-`ok` loop-result row as a failed loop —
+   and the land is recorded in the iteration log, the `loop-phase` detail and
+   the goal text; push mode `main` closes on the merge-to-main commit.
 
    **Landing evidence off the tracker path (2026-09-12).** A queue-delivered
    or PO/LLM goal never came through a tracker pick, so a goal that names the
@@ -83,6 +83,19 @@ the Node tree (FR-GO-16, #205).
    `failed` with the `no-pr` detail (the shape gate's lease-recycling
    precedent) rather than leaving it to re-claim and re-burn the row every
    lease; tracker-path iterations are unaffected (`queued == nil`).
+
+   **Landing certification (2026-09-12).** The one `gh pr view` now carries
+   `state,mergedAt`, so a merge is *dated* rather than only observed: a pull
+   request the goal names whose merge falls inside this iteration's window
+   certifies the ship (`ok`, artifacts verified on main) even when gh read it
+   CLOSED at dispatch and the run printed no publish line — loop 282's
+   reopen-and-merge, certified at record time on both the failed-dispatch and
+   the rc-0 `no-pr` paths. An out-of-window merge certifies nothing, and a
+   goal that IS a `Land PR #N` directive whose target had already merged is
+   refused before dispatch (`skipped` row, claim retired, no worker burned).
+   The refusal binds to the directive's position — the statement must open
+   with it — so a title or a mid-prose quote that merely looks like one still
+   dispatches.
 
 ## Running
 

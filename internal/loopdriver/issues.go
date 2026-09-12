@@ -103,30 +103,43 @@ func (d *driver) closeIssue(num int, comment string) {
 	_ = cmd.Run()
 }
 
-// prState returns gh's state for pull request num — OPEN | MERGED | CLOSED —
-// or "" when gh cannot say. Decoded rather than substring-matched: the verdict
-// gates a merge, gh's JSON shape is not contractual, and decoding is this
-// file's own convention (pickIssue).
-func (d *driver) prState(num int) string {
+// prView reads gh's view of pull request num: its state (OPEN | MERGED |
+// CLOSED, "" when gh cannot say) and its merge stamp mergedAt (second-
+// precision RFC3339, empty when it has not merged). One
+// `gh pr view --json state,mergedAt` per call, so the landing-evidence
+// readers share a read instead of one gh call per field. Decoded rather than
+// substring-matched: the verdicts gate a merge, gh's JSON shape is not
+// contractual, and decoding is this file's own convention (pickIssue).
+func (d *driver) prView(num int) (state, mergedAt string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, d.cfg.GhBin, "pr", "view", strconv.Itoa(num),
-		"--repo", d.cfg.GHRepo, "--json", "state")
+		"--repo", d.cfg.GHRepo, "--json", "state,mergedAt")
 	cmd.Dir = d.cfg.Repo
 	cmd.WaitDelay = pipeDrainDelay
 	out, err := cmd.Output()
 	// A drain cutoff (ErrWaitDelay) must not read the view as failed when
 	// gh itself exited 0 (#286).
 	if err != nil && (cmd.ProcessState == nil || !cmd.ProcessState.Success()) {
-		return ""
+		return "", ""
 	}
 	var view struct {
-		State string `json:"state"`
+		State    string `json:"state"`
+		MergedAt string `json:"mergedAt"`
 	}
 	if err := json.Unmarshal(out, &view); err != nil {
-		return ""
+		return "", ""
 	}
-	return view.State
+	return view.State, view.MergedAt
+}
+
+// prState is the state-only half of prView — the reader the OPEN gates use.
+// A verdict that has to tell "merged before this iteration" from "merged
+// inside it" reads prView instead (the landing-evidence certification in
+// run.go).
+func (d *driver) prState(num int) string {
+	state, _ := d.prView(num)
+	return state
 }
 
 // prMerged reports whether pull request num has merged — the publish evidence
@@ -134,6 +147,20 @@ func (d *driver) prState(num int) string {
 // so never prints a "PR opened:" line. Anything else reads as not shipped: the
 // issue stays open for re-pick (#238 semantics).
 func (d *driver) prMerged(num int) bool { return d.prState(num) == "MERGED" }
+
+// mergedAtTime parses gh's mergedAt stamp; ok=false is the cannot-say branch
+// (empty string, JSON null, an unparseable stamp) and every caller treats it
+// as no evidence: a stamp the driver cannot read must never certify a ship.
+func mergedAtTime(mergedAt string) (time.Time, bool) {
+	if mergedAt == "" {
+		return time.Time{}, false
+	}
+	at, err := time.Parse(time.RFC3339, mergedAt)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return at, true
+}
 
 // ghTimelineEvent mirrors the cross-referenced entries of the issue timeline
 // REST response (GET /repos/{owner}/{repo}/issues/{n}/timeline).

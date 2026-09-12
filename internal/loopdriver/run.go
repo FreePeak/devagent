@@ -179,6 +179,13 @@ func RunLoop(cfg LoopConfig) int {
 // landing-evidence preflight both retire against (DECISION.md).
 const noPRDetail = "task ended without a pull request (no-pr)"
 
+// mergedBeforeStartDetail is the failure detail stamped on a queue claim the
+// pre-dispatch certification retired: its goal-head merge target had already
+// merged before the iteration started, so no dispatch can land it. The
+// shape-gate lease-recycling precedent (DECISION.md): an unretired claim
+// re-claims after its 2h lease and re-burns the same stale skip every cycle.
+const mergedBeforeStartDetail = "goal names a pull request already merged before the iteration started"
+
 // runIteration executes one iteration body (bash lines 241-596).
 func (d *driver) runIteration(n int, logF io.Writer, gradient, clusters string) outcome {
 	cfg := d.cfg
@@ -372,6 +379,12 @@ func (d *driver) runIteration(n int, logF io.Writer, gradient, clusters string) 
 	// it itself instead of stopping one step short (loops 270-272 recorded
 	// failed/no-pr while green mergeable PRs sat open).
 
+	// Iteration-start stamp: the landing-evidence window's lower bound. A
+	// merge that happened before it belongs to an earlier iteration (or to
+	// someone else) and can never certify this one; a merge inside
+	// [iterStart, now] is this iteration's landing evidence.
+	iterStart := cfg.Now()
+
 	// Fallback-route landing evidence (loops 270/271/274/280): off the tracker
 	// path pick.mergePR is 0 — queued and PO goals never came through a pick —
 	// so a goal that names the pull request to land ("Goal: Land PR #344") had
@@ -382,17 +395,64 @@ func (d *driver) runIteration(n int, logF io.Writer, gradient, clusters string) 
 	// guard above: a stale or incidental PR mention self-disqualifies, so
 	// nothing here can certify a do-nothing iteration. The derived PR then
 	// flows through the prMerged/evidencePR/landedArtifactsVerified wiring.
+	//
+	// The same read carries the pre-dispatch half of the certification: a
+	// goal that IS a "Land PR #N" directive naming a pull request that had
+	// already merged before iterStart cannot be landed by any dispatch — loop
+	// 280's stale `Goal: Land PR #344` burned a worker re-landing a merged
+	// pull request — so the iteration refuses the run and retires its claim
+	// instead. Only a goal whose statement OPENS with the directive may
+	// refuse (goalHeadMergePR): loop 281's goal quotes `Goal: Land PR #344`
+	// mid-prose while its own work is the fallback-route fix, and the
+	// tracker's implement template embeds the issue TITLE in its leading
+	// clause — a title that reads like a merge directive ("… gap in PR #345
+	// handling") must not refuse the issue, because a tracker goal is
+	// regenerated identically every iteration and its refusals would walk the
+	// loop into the starvation halt with nothing to retire.
 	if pick.mergePR == 0 {
-		if pr := goalMergePR(goal); pr != 0 && d.prState(pr) == "OPEN" {
-			pick.mergePR = pr
-			_, _ = fmt.Fprintf(logF, "[verify] goal names open PR #%d — deriving the merge-evidence subject from the goal text\n", pr)
+		if pr := goalMergePR(goal); pr != 0 {
+			state, mergedAt := d.prView(pr)
+			at, merged := mergedAtTime(mergedAt)
+			switch {
+			case state == "OPEN":
+				pick.mergePR = pr
+				_, _ = fmt.Fprintf(logF, "[verify] goal names open PR #%d — deriving the merge-evidence subject from the goal text\n", pr)
+			case merged && at.Before(iterStart) && goalHeadMergePR(goal) == pr:
+				_, _ = fmt.Fprintf(logF, "[verify] goal-head PR #%d merged %s, before this iteration started — skipping dispatch\n", pr, mergedAt)
+				d.record(logF, n, "skipped", goal)
+				// The claim is retired for the same reason the shape gate
+				// retires one: left live it re-claims after its lease and
+				// re-records the same stale skip every cycle.
+				if queued != nil {
+					_ = markQueueTaskDone(cfg.Repo, queued.ID, "failed", mergedBeforeStartDetail, queued)
+				}
+				return outcomeSkip // bash: continue
+			}
 		}
 	}
 
-	var rescuedPR int
+	var rescuedPR, certifiedPR int
+	// certify is the record-time landing certification: a pull request the
+	// goal text names whose merge landed inside this iteration's window is
+	// this iteration's ship, whatever gh read at dispatch time. Loop 282's
+	// class: the goal named PR #345 (CLOSED then, so the OPEN-guarded
+	// derivation above could not take it as a subject), the worker reopened
+	// and merged it at 04:39:14Z — inside the window — and the iteration
+	// recorded the non-productive row anyway. Memoized: the failed-dispatch
+	// rescue and the post-run evidence block below both ask, and the window
+	// does not move between them.
+	certify := func() int {
+		if certifiedPR == 0 {
+			certifiedPR = d.goalMergedWithin(goal, iterStart, cfg.Now())
+			if certifiedPR != 0 {
+				_, _ = fmt.Fprintf(logF, "[verify] goal names PR #%d merged inside this iteration's window — certifying the ship\n", certifiedPR)
+			}
+		}
+		return certifiedPR
+	}
 	rescue := func() bool {
 		rescuedPR = d.verifyAndMergeRescue(n, logF, pick.mergePR, issueNum)
-		return rescuedPR != 0
+		return rescuedPR != 0 || certify() != 0
 	}
 	out, prURL := d.runTaskPhase(n, logF, goal, queued, rescue)
 	if out != outcomeNext {
@@ -411,17 +471,28 @@ func (d *driver) runIteration(n int, logF io.Writer, gradient, clusters string) 
 	//
 	// evidencePR is the pull request whose merged state carries this
 	// iteration's ship evidence — the landing-evidence gate's subject below.
+	// certifiedPR is the same subject from the record-time certification: the
+	// failed-dispatch path above proves a ship with it (the dispatch failed
+	// but the pull request it was sent to land merged inside the window).
 	landed := false
 	evidencePR := 0
 	if pick.mergePR != 0 && d.prMerged(pick.mergePR) {
 		landed, evidencePR = true, pick.mergePR
 	} else if rescuedPR != 0 && d.prMerged(rescuedPR) {
 		landed, evidencePR = true, rescuedPR
+	} else if certifiedPR != 0 {
+		landed, evidencePR = true, certifiedPR
 	}
 	shipped := prURL != "" || landed
 	if cfg.PushMode == "pr" && !shipped {
 		if pr := d.verifyAndMergeRescue(n, logF, pick.mergePR, issueNum); pr != 0 {
 			rescuedPR, evidencePR = pr, pr
+			landed = true
+		} else if pr := certify(); pr != 0 {
+			// Last resort ahead of the non-productive row: the run ended
+			// without publish evidence, but the pull request the goal named
+			// merged inside this window — the merge is the evidence.
+			evidencePR = pr
 			landed = true
 		} else {
 			_, _ = fmt.Fprintln(logF, "[publish] task succeeded without opening a PR — leaving the issue open for re-pick")
@@ -864,6 +935,71 @@ func goalMergePR(goal string) int {
 		return 0
 	}
 	return pr
+}
+
+// goalHeadMergePR returns the pull request a goal whose statement OPENS with
+// a merge directive names ("Goal: Land PR #344 (…) — verify it and merge it")
+// — the only shape the pre-dispatch refusal may bind to — and 0 otherwise.
+// The position requirement is what keeps that refusal away from goals that
+// merely contain a directive-shaped string: the tracker's implement template
+// embeds the issue TITLE in its leading clause ("Goal: Implement GitHub issue
+// #290 (Landing-evidence gap in PR #345) in full and verifiably"), a
+// quote/example can sit mid-prose (loop 281), and a mixed directive ("Goal:
+// fix X; then land PR #344") carries work the refusal would silently drop.
+// mergePickRe's verb bounds apply unchanged; only the match's position is
+// added.
+func goalHeadMergePR(goal string) int {
+	stmt, ok := strings.CutPrefix(strings.TrimSpace(goal), "Goal: ")
+	if !ok {
+		return 0
+	}
+	m := mergePickRe.FindStringSubmatchIndex(stmt)
+	// Nothing but whitespace may precede the directive: "Goal: `Land PR
+	// #344`" still reads as a quoted reference, not as the statement's own
+	// directive.
+	if m == nil || strings.TrimSpace(stmt[:m[0]]) != "" {
+		return 0
+	}
+	pr, err := strconv.Atoi(stmt[m[2]:m[3]])
+	if err != nil || pr <= 0 {
+		return 0
+	}
+	return pr
+}
+
+// goalPRRefRe matches a `PR #N` mention anywhere in a goal text — the
+// record-time certification's scan. mergePickRe above parses a DIRECTIVE (a
+// present-tense merge verb beside the reference); this one is deliberately
+// mention-level, because the certification does not have to know why the
+// goal names the pull request: the iteration window is what qualifies it.
+var goalPRRefRe = regexp.MustCompile(`(?i)\bPR\s*#(\d+)`)
+
+// goalMergedWithin is the record-time landing certification: the first pull
+// request the goal text mentions that is MERGED with its merge stamp inside
+// [start, now] — this iteration's own window. Loop 282's class: the goal
+// named PR #345 mid-prose (CLOSED at dispatch, so the OPEN-guarded
+// derivation above could not take it as a subject), the worker reopened and
+// merged it at 04:39:14Z inside the window, and the iteration recorded a
+// non-productive row for it. 0 when nothing certifies: a merge before start
+// belongs to an earlier iteration, a stamp after now does not exist, and a
+// stamp gh cannot give (absent, null, unparseable) is no evidence at all.
+func (d *driver) goalMergedWithin(goal string, start, now time.Time) int {
+	for _, m := range goalPRRefRe.FindAllStringSubmatch(goal, -1) {
+		pr, err := strconv.Atoi(m[1])
+		if err != nil || pr <= 0 {
+			continue
+		}
+		state, mergedAt := d.prView(pr)
+		if state != "MERGED" {
+			continue
+		}
+		at, ok := mergedAtTime(mergedAt)
+		if !ok || at.Before(start) || at.After(now) {
+			continue
+		}
+		return pr
+	}
+	return 0
 }
 
 // researchPickText returns the pick rationale from a phase-1 research

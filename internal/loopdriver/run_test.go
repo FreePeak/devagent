@@ -92,10 +92,17 @@ case "$1 $2" in
     fi
     if [ -n "${GH_PR_STATE_OPEN_CALLS:-}" ]; then
       c=$(cat "${GH_PR_STATE_OPEN_CALLS_FILE:?}" 2>/dev/null || echo 0)
-      c=$((c + 1)); echo "$c" > "$GH_PR_STATE_OPEN_CALLS_FILE"
+      c=$((c + 1)); echo "$c" > "${GH_PR_STATE_OPEN_CALLS_FILE}"
       [ "$c" -le "$GH_PR_STATE_OPEN_CALLS" ] && s="OPEN" || s="${GH_PR_STATE:-OPEN}"
     fi
-    printf '{"state":"%s"}\n' "$s" ;;
+    # mergedAt rides the same --json read (gh omits the key when unset):
+    # GH_PR_MERGED_AT answers the record-time landing certification, so a
+    # MERGED stamp without it is gh-cannot-say, never a certified ship.
+    if [ -n "${GH_PR_MERGED_AT:-}" ]; then
+      printf '{"state":"%s","mergedAt":"%s"}\n' "$s" "$GH_PR_MERGED_AT"
+    else
+      printf '{"state":"%s"}\n' "$s"
+    fi ;;
 esac
 exit 0
 `,
@@ -848,6 +855,336 @@ func TestRunLoopGoalNamedMergedPRRecordsNoPR(t *testing.T) {
 	}
 	if task.Status != "failed" || task.LastError != noPRDetail {
 		t.Fatalf("queue claim not retired with the no-pr detail: status %q, lastError %q", task.Status, task.LastError)
+	}
+}
+
+// The record-time landing certification compares gh's mergedAt stamp against
+// the iteration window, so these tests pin Now to one instant: a ticking
+// clock would leave a stamp's side of the boundary to whichever Now() call
+// count the code path happens to have. certWindowNow IS the window's lower
+// bound, so inWindowMergedAt sits on the inclusive bound and
+// beforeWindowMergedAt outside it.
+func certWindowNow() time.Time { return time.Date(2026, 9, 8, 1, 0, 0, 0, time.UTC) }
+
+const (
+	inWindowMergedAt     = "2026-09-08T01:00:00Z"
+	beforeWindowMergedAt = "2026-09-08T00:00:00Z"
+)
+
+// Loop 282's class, the reason for the record-time certification: the goal
+// named PR #345 mid-prose and gh read it CLOSED when the dispatch began — so
+// the OPEN-guarded derivation could not take it as an evidence subject — yet
+// the worker reopened and merged it at 04:39:14Z, inside the iteration
+// window, and the iteration recorded a non-productive row anyway. A merge
+// stamp inside [start, now] is the ship: `ok` with the artifact gate, across
+// the failed-dispatch path (that run exited nonzero).
+func TestRunLoopGoalNamedMergedInWindowRecordsShip(t *testing.T) {
+	repo := initFixtureRepo(t)
+	installFakes(t, repo)
+	if _, err := queue.EnqueueTask(repo, queue.EnqueueInput{
+		ID:    "TASK-1",
+		Title: "Land the fallback-route fix",
+		Goal:  "Goal: Land the already-complete fallback-route landing-evidence fix; do not re-implement it. Branch `devagent/TASK-mtxu01sd-1ted` sits 1 ahead of `main` with zero conflicts. PR #345 is CLOSED unmerged — that close was a false verdict — so `gh pr reopen 345` and merge it.",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// The reopen-and-merge run: nonzero rc, and the pull request MERGED with
+	// its stamp inside the window.
+	t.Setenv("DEVAGENT_FAKE_TASK_RC", "1")
+	t.Setenv("GH_PR_STATE", "MERGED")
+	t.Setenv("GH_PR_MERGED_AT", inWindowMergedAt)
+	t.Setenv("GH_PR_FILES_JSON", `[{"filename":"internal/loopdriver/artifacts.go"}]`)
+	t.Setenv("GH_TREE_JSON", `{"tree":[{"path":"internal/loopdriver/artifacts.go","type":"blob"}],"truncated":false}`)
+	cfg := loopConfigFor(t, repo, func(c *LoopConfig) {
+		c.Now = func() time.Time { return certWindowNow() }
+		c.GHRepo = "FreePeak/devagent"
+		c.GhRun = execFakeGh
+	})
+	cfg.DryRun = false
+	if rc := RunLoop(cfg); rc != 0 {
+		logData, _ := os.ReadFile(filepath.Join(repo, ".selfbuild", "logs", "loop-1.log"))
+		t.Fatalf("rc = %d, want 0\nlog:\n%s", rc, logData)
+	}
+	rows := readLedger(t, repo)
+	if len(rows) != 1 || rows[0]["status"] != "ok" {
+		t.Fatalf("rows: %v, want the certified ok row (never failed/no-pr)", rows)
+	}
+	// The dispatch ran: this is a record-time verdict, not the pre-dispatch
+	// refusal (the goal names no leading-clause merge target).
+	assertFileContains(t, filepath.Join(repo, "devagent-calls.log"), "devagent task --prompt Goal: Land the already-complete")
+	logData, err := os.ReadFile(filepath.Join(repo, ".selfbuild", "logs", "loop-1.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(logData), "[verify] goal names PR #345 merged inside this iteration's window — certifying the ship") {
+		t.Fatalf("certification not logged:\n%s", logData)
+	}
+	if strings.Contains(string(logData), "[implement] task failed") {
+		t.Fatalf("the failed-dispatch path recorded a failure:\n%s", logData)
+	}
+	// Artifact-backed like every other ship: the gate read #345's files and
+	// main's tree before the row was recorded.
+	assertFileContains(t, filepath.Join(repo, "devagent-calls.log"), "gh api repos/FreePeak/devagent/pulls/345/files")
+	if !strings.Contains(string(logData), "[verify] PR #345's implementation files verified on main") {
+		t.Fatalf("artifact verification not logged:\n%s", logData)
+	}
+	assertFileContains(t, filepath.Join(repo, ".devagent", "queue", "TASK-1.json"), `"status": "done"`)
+}
+
+// The certification's other entry: the run ends rc 0 without a "PR opened:"
+// line (the no-pr class of loops 270/271/274/280), but the pull request the
+// goal's leading clause named merged inside the window. CLOSED when the
+// dispatch reads it — the state that keeps the OPEN-guarded derivation from
+// taking it as a subject — MERGED with an in-window stamp by record time.
+func TestRunLoopGoalNamedMergedAfterNoPRRunRecordsShip(t *testing.T) {
+	repo := initFixtureRepo(t)
+	installFakes(t, repo)
+	if _, err := queue.EnqueueTask(repo, queue.EnqueueInput{
+		ID:    "TASK-1",
+		Title: "Land PR 344",
+		Goal:  "Goal: Land PR #344 (branch `devagent/TASK-mtxqd5xx-23cu`) — verify it and merge it; do not re-implement it.",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DEVAGENT_FAKE_TASK_NO_PR", "1")
+	t.Setenv("GH_PR_STATE_FIRST", "CLOSED")
+	t.Setenv("GH_PR_STATE_FILE", filepath.Join(t.TempDir(), "pr-view-count"))
+	t.Setenv("GH_PR_STATE", "MERGED")
+	t.Setenv("GH_PR_MERGED_AT", inWindowMergedAt)
+	t.Setenv("GH_PR_FILES_JSON", `[{"filename":"internal/loopdriver/run.go"}]`)
+	t.Setenv("GH_TREE_JSON", `{"tree":[{"path":"internal/loopdriver/run.go","type":"blob"}],"truncated":false}`)
+	cfg := loopConfigFor(t, repo, func(c *LoopConfig) {
+		c.Now = func() time.Time { return certWindowNow() }
+		c.GHRepo = "FreePeak/devagent"
+		c.GhRun = execFakeGh
+	})
+	cfg.DryRun = false
+	if rc := RunLoop(cfg); rc != 0 {
+		logData, _ := os.ReadFile(filepath.Join(repo, ".selfbuild", "logs", "loop-1.log"))
+		t.Fatalf("rc = %d, want 0\nlog:\n%s", rc, logData)
+	}
+	rows := readLedger(t, repo)
+	if len(rows) != 1 || rows[0]["status"] != "ok" {
+		t.Fatalf("rows: %v, want the certified ok row (never no-pr)", rows)
+	}
+	logData, err := os.ReadFile(filepath.Join(repo, ".selfbuild", "logs", "loop-1.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(logData), "[verify] goal names PR #344 merged inside this iteration's window — certifying the ship") {
+		t.Fatalf("certification not logged:\n%s", logData)
+	}
+	if strings.Contains(string(logData), "[publish] task succeeded without opening a PR") {
+		t.Fatalf("the no-pr early return fired on a certified merge:\n%s", logData)
+	}
+	if !strings.Contains(string(logData), "[verify] PR #344's implementation files verified on main") {
+		t.Fatalf("artifact verification not logged:\n%s", logData)
+	}
+	assertFileContains(t, filepath.Join(repo, ".devagent", "queue", "TASK-1.json"), `"status": "done"`)
+}
+
+// The pre-dispatch half of the certification: a goal whose LEADING clause
+// names a pull request that had already merged before the iteration began
+// cannot be landed by any dispatch (loop 280's stale `Goal: Land PR #344`
+// burned a worker re-landing a merged pull request). The iteration refuses
+// the run, records the non-productive `skipped` row, and retires the claim —
+// left live it re-claims after its lease and re-records the same stale skip.
+func TestRunLoopStaleGoalHeadMergedPRSkipsDispatch(t *testing.T) {
+	repo := initFixtureRepo(t)
+	installFakes(t, repo)
+	if _, err := queue.EnqueueTask(repo, queue.EnqueueInput{
+		ID:    "TASK-1",
+		Title: "Land PR 344",
+		Goal:  "Goal: Land PR #344 (branch `devagent/TASK-mtxqd5xx-23cu`) — verify it and merge it; do not re-implement it.",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GH_PR_STATE", "MERGED")
+	t.Setenv("GH_PR_MERGED_AT", beforeWindowMergedAt)
+	cfg := loopConfigFor(t, repo, func(c *LoopConfig) {
+		c.Now = func() time.Time { return certWindowNow() }
+		c.GHRepo = "FreePeak/devagent"
+	})
+	cfg.DryRun = false
+	if rc := RunLoop(cfg); rc != 0 {
+		logData, _ := os.ReadFile(filepath.Join(repo, ".selfbuild", "logs", "loop-1.log"))
+		t.Fatalf("rc = %d, want 0\nlog:\n%s", rc, logData)
+	}
+	rows := readLedger(t, repo)
+	if len(rows) != 1 || rows[0]["status"] != "skipped" {
+		t.Fatalf("rows: %v, want the pre-dispatch skip row", rows)
+	}
+	calls, err := os.ReadFile(filepath.Join(repo, "devagent-calls.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(calls), "devagent task") {
+		t.Fatalf("a stale merged goal dispatched a worker anyway, calls:\n%s", calls)
+	}
+	assertFileContains(t, filepath.Join(repo, ".selfbuild", "logs", "loop-1.log"),
+		"[verify] goal-head PR #344 merged "+beforeWindowMergedAt+", before this iteration started — skipping dispatch")
+	taskData, err := os.ReadFile(filepath.Join(repo, ".devagent", "queue", "TASK-1.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var task struct {
+		Status    string `json:"status"`
+		LastError string `json:"lastError"`
+	}
+	if err := json.Unmarshal(taskData, &task); err != nil {
+		t.Fatal(err)
+	}
+	if task.Status != "failed" || task.LastError != mergedBeforeStartDetail {
+		t.Fatalf("queue claim not retired with the stale-goal detail: status %q, lastError %q", task.Status, task.LastError)
+	}
+}
+
+// The window is what qualifies a mention: a goal naming a pull request that
+// merged OUTSIDE this iteration (loop 281's mid-prose #344, merged before its
+// own window) certifies nothing, so the iteration keeps the non-productive
+// no-pr verdict with its claim retired — the pre-certification behavior,
+// untouched.
+func TestRunLoopGoalNamedOutOfWindowPRRecordsNoPR(t *testing.T) {
+	repo := initFixtureRepo(t)
+	installFakes(t, repo)
+	if _, err := queue.EnqueueTask(repo, queue.EnqueueInput{
+		ID:    "TASK-1",
+		Title: "Close the landing-evidence gap",
+		Goal:  "Goal: Close the remaining landing-evidence gap in `internal/loopdriver`; the fix rides PR #344 — merge it once it is green.",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DEVAGENT_FAKE_TASK_NO_PR", "1")
+	t.Setenv("GH_PR_STATE", "MERGED")
+	t.Setenv("GH_PR_MERGED_AT", beforeWindowMergedAt)
+	cfg := loopConfigFor(t, repo, func(c *LoopConfig) {
+		c.Now = func() time.Time { return certWindowNow() }
+		c.GHRepo = "FreePeak/devagent"
+	})
+	cfg.DryRun = false
+	if rc := RunLoop(cfg); rc != 0 {
+		logData, _ := os.ReadFile(filepath.Join(repo, ".selfbuild", "logs", "loop-1.log"))
+		t.Fatalf("rc = %d, want 0\nlog:\n%s", rc, logData)
+	}
+	rows := readLedger(t, repo)
+	if len(rows) != 1 || rows[0]["status"] != "no-pr" {
+		t.Fatalf("rows: %v, want the no-pr row (an out-of-window merge cannot certify)", rows)
+	}
+	// The dispatch was not refused: only a LEADING-clause merge target may
+	// skip a run, and this goal merely mentions the pull request.
+	assertFileContains(t, filepath.Join(repo, "devagent-calls.log"), "devagent task --prompt Goal: Close the remaining")
+	logData, err := os.ReadFile(filepath.Join(repo, ".selfbuild", "logs", "loop-1.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(logData), "certifying the ship") {
+		t.Fatalf("an out-of-window merge certified the ship:\n%s", logData)
+	}
+	taskData, err := os.ReadFile(filepath.Join(repo, ".devagent", "queue", "TASK-1.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var task struct {
+		Status    string `json:"status"`
+		LastError string `json:"lastError"`
+	}
+	if err := json.Unmarshal(taskData, &task); err != nil {
+		t.Fatal(err)
+	}
+	if task.Status != "failed" || task.LastError != noPRDetail {
+		t.Fatalf("queue claim not retired with the no-pr detail: status %q, lastError %q", task.Status, task.LastError)
+	}
+}
+
+// The position bound on the pre-dispatch refusal, loop 281's shape: the goal
+// QUOTES a merge directive ("PO goals like `Goal: Land PR #344`…") mid-prose
+// while its own work is something else, and that quoted pull request had
+// already merged. Only a statement that OPENS with the directive may refuse,
+// so the iteration still dispatches — and the record-time certification,
+// whose scan is mention-level, then refuses to certify the out-of-window
+// merge.
+func TestRunLoopGoalQuotingMergeDirectiveMidProseStillDispatches(t *testing.T) {
+	repo := initFixtureRepo(t)
+	installFakes(t, repo)
+	if _, err := queue.EnqueueTask(repo, queue.EnqueueInput{
+		ID:    "TASK-1",
+		Title: "Close the fallback-route gap",
+		Goal:  "Goal: Close the fallback-route landing-evidence gap in `internal/loopdriver`. Off the tracker path a PO goal like `Goal: Land PR #344` records `no-pr` even though its worker merged the pull request mid-run.",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DEVAGENT_FAKE_TASK_NO_PR", "1")
+	t.Setenv("GH_PR_STATE", "MERGED")
+	t.Setenv("GH_PR_MERGED_AT", beforeWindowMergedAt)
+	cfg := loopConfigFor(t, repo, func(c *LoopConfig) {
+		c.Now = func() time.Time { return certWindowNow() }
+		c.GHRepo = "FreePeak/devagent"
+	})
+	cfg.DryRun = false
+	if rc := RunLoop(cfg); rc != 0 {
+		logData, _ := os.ReadFile(filepath.Join(repo, ".selfbuild", "logs", "loop-1.log"))
+		t.Fatalf("rc = %d, want 0\nlog:\n%s", rc, logData)
+	}
+	// Dispatched, not refused: the merge target sits in a later clause.
+	assertFileContains(t, filepath.Join(repo, "devagent-calls.log"), "devagent task --prompt Goal: Close the fallback-route")
+	rows := readLedger(t, repo)
+	if len(rows) != 1 || rows[0]["status"] != "no-pr" {
+		t.Fatalf("rows: %v, want the no-pr row (a quoted, out-of-window mention ships nothing)", rows)
+	}
+	logData, err := os.ReadFile(filepath.Join(repo, ".selfbuild", "logs", "loop-1.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(logData), "skipping dispatch") {
+		t.Fatalf("a later-clause merge directive refused the run:\n%s", logData)
+	}
+}
+
+// The refusal's other exclusion, and the one that would halt a live loop: the
+// tracker's implement template embeds the issue TITLE in its leading clause,
+// so a title that reads like a merge directive ("Landing-evidence gap in PR
+// #345 handling" — "Landing" … "PR #345" is inside mergePickRe's verb
+// window) names a merged pull request in the goal. Refusing that dispatch
+// would be unrecoverable: the tracker goal is regenerated identically every
+// iteration, `queued == nil` leaves nothing to retire, and five non-productive
+// rows trip the starvation halt. The refusal therefore binds to the directive
+// position only, and this iteration dispatches.
+func TestRunLoopTrackerTitleReadingLikeMergeDirectiveStillDispatches(t *testing.T) {
+	repo := initFixtureRepo(t)
+	installFakes(t, repo)
+	t.Setenv("GH_ISSUES_JSON", `[{"number":290,"title":"Landing-evidence gap in PR #345 handling","labels":[{"name":"priority:P0"}]}]`)
+	t.Setenv("DEVAGENT_FAKE_TASK_NO_PR", "1")
+	t.Setenv("GH_PR_STATE", "MERGED")
+	t.Setenv("GH_PR_MERGED_AT", beforeWindowMergedAt)
+	cfg := loopConfigFor(t, repo, func(c *LoopConfig) {
+		c.Now = func() time.Time { return certWindowNow() }
+		c.GHRepo = "FreePeak/devagent"
+	})
+	cfg.DryRun = false
+	if rc := RunLoop(cfg); rc != 0 {
+		logData, _ := os.ReadFile(filepath.Join(repo, ".selfbuild", "logs", "loop-1.log"))
+		t.Fatalf("rc = %d, want 0\nlog:\n%s", rc, logData)
+	}
+	assertFileContains(t, filepath.Join(repo, "devagent-calls.log"), "devagent task --prompt Goal: Implement GitHub issue #290")
+	rows := readLedger(t, repo)
+	if len(rows) != 1 || rows[0]["status"] != "no-pr" {
+		t.Fatalf("rows: %v, want the dispatched no-pr row (a title is not a directive)", rows)
+	}
+	logData, err := os.ReadFile(filepath.Join(repo, ".selfbuild", "logs", "loop-1.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(logData), "skipping dispatch") {
+		t.Fatalf("an issue title refused the run (the re-pick loop would halt the driver):\n%s", logData)
+	}
+	// The issue stays open for a re-pick, and no close may have fired for a
+	// run that shipped nothing.
+	calls, err := os.ReadFile(filepath.Join(repo, "devagent-calls.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(calls), "gh issue close") {
+		t.Fatalf("issue closed without a ship, calls:\n%s", calls)
 	}
 }
 

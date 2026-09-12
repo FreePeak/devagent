@@ -270,3 +270,77 @@ nothing, records `no-pr`, retires the claim) and `TestGoalMergePR` (the
 parse's present-tense contract).
 
 (Recorded 2026-09-12; TASK-mtxu01sd-1ted.)
+
+## DECISION: the merge window certifies, not the pre-dispatch stamp (2026-09-12, TASK-mtxwr39q-nva6)
+
+Every landing verdict above reads a pull request's *state*, and a state says
+nothing about **when** a merge happened — so a subject had to have read `OPEN`
+*before* the dispatch (the fallback route's derivation above), and an
+iteration whose pull request merged mid-run after a reopen had no evidence
+subject at all. Loop 282 is the proof: its goal named `PR #345` mid-prose, gh
+read that pull request `CLOSED` when the dispatch started (the worker's job
+was to reopen it), the worker merged it at 04:39:14Z — inside the iteration's
+own window — and the ledger recorded the non-productive row. `prState`
+(issues.go) now decodes `state,mergedAt` through `prView`; all five OPEN gates
+read the state half exactly as before, and the merge stamp answers the
+question the state could not.
+
+Two mechanisms use it, and both bind a merge to `[iterStart, now]`: the stamp
+is captured immediately before the dispatch, so the window is the dispatch
+window and not the (much longer) research window.
+
+1. **Record-time certification.** `goalMergedWithin` scans the goal text for
+   `PR #N` mentions and returns the first that is `MERGED` with an in-window
+   stamp; a hit sets `landed`/`evidencePR` and the iteration ships `ok`
+   through the existing artifact gate. It is asked on both paths that can end
+   without publish evidence: inside the failed-dispatch rescue (loop 282
+   exited nonzero) and as the last step before the `no-pr` row (the rc-0
+   class of loops 270/271/274/280). The scan is mention-level on purpose: the
+   certification does not need to know *why* the goal names the pull request,
+   because the window is what qualifies it — a stamp before `iterStart`
+   belongs to an earlier iteration (loop 281's mid-prose `#344`) and
+   certifies nothing.
+2. **Pre-dispatch refusal.** When the goal IS a `Land PR #N` directive whose
+   target had already merged before `iterStart`, no dispatch can land it and
+   a worker would only spend a run rediscovering that (loop 280's stale
+   `Goal: Land PR #344`). The iteration records the non-productive `skipped`
+   row and retires the queue claim `failed` with `mergedBeforeStartDetail` —
+   the shape gate's lease-recycling precedent. The refusal binds to the
+   directive's *position* (`goalHeadMergePR`: the statement must OPEN with
+   the directive, nothing but whitespace before the match), because "a goal
+   that mentions a pull request" is not "a goal that asks the loop to land
+   it". Two shapes stay dispatching: loop 281's goal quoted `Goal: Land PR
+   #344` mid-prose while its own work was the fallback-route fix, and — the
+   reason the bound is not merely tidiness — the tracker's implement template
+   embeds the issue TITLE in its leading clause, so a title like
+   "Landing-evidence gap in PR #345 handling" matches `mergePickRe` inside
+   the goal. A refusal there is unrecoverable: the tracker goal is
+   regenerated identically every iteration, `queued == nil` leaves nothing to
+   retire, and five non-productive rows trip the starvation halt — the whole
+   loop stops over an issue title.
+
+Ceiling (named, not fixed): the record-time scan is mention-level, so a goal
+that merely quotes a pull request — an example, a "see also" — certifies on
+that pull request when it happens to merge inside the window. The window and
+the artifact gate are the caps: a merge that predates the iteration cannot
+certify, and the pull request's touched implementation files must be on main.
+Tightening takes the structural route this file already names for
+`mergePickRe`: have the research prompt emit `PICK: action=merge-pr pr=#N`
+and key the certification on that key=value instead of on prose. One residue
+on the refusal side: a goal that OPENS with the stale directive but carries
+unrelated work after it ("Goal: Land PR #344; also fix X") is refused on the
+merge target alone, so a goal mixing the two directives belongs after the
+first sentence break.
+
+Pinned by `TestRunLoopGoalNamedMergedInWindowRecordsShip` (loop 282's window,
+failed-dispatch path → `ok` plus the artifact gate reading #345),
+`TestRunLoopGoalNamedMergedAfterNoPRRunRecordsShip` (the rc-0 no-pr path),
+`TestRunLoopStaleGoalHeadMergedPRSkipsDispatch` (directive refusal, claim
+retired, no worker), `TestRunLoopGoalNamedOutOfWindowPRRecordsNoPR` (an
+out-of-window mention keeps the unchanged `no-pr`),
+`TestRunLoopTrackerTitleReadingLikeMergeDirectiveStillDispatches` (the issue
+title that would have halted the loop) and
+`TestRunLoopGoalQuotingMergeDirectiveMidProseStillDispatches` (the mid-prose
+quote).
+
+(Recorded 2026-09-12; TASK-mtxwr39q-nva6.)
