@@ -4945,8 +4945,20 @@ existing driver with validation surfaces (test, command, telemetry,
 chaos schedule) so "the driver works perfectly" is a checkable claim,
 not a hope.</p>
 <hr />
-<p>*Last updated: 2026-09-13 (herdr orphan-pane reaping: both probes
-were dead, repaired as one change) —
+<p>*Last updated: 2026-09-13 (release-created rows carry
+<code>tag</code>/<code>sha</code> again: PR #349's Revision stamp landed
+as a silent data-loss regression) — #349 added a <code>Revision</code>
+field to the Go <code>ReleaseRecord</code> but dropped
+<code>Tag</code>/<code>SHA</code> from the <code>record release</code>
+literal while still printing <code>(tag @ sha)</code> to stdout, so
+every Go-written release row persisted <code>"tag":""</code>
+<code>"sha":""</code> (the Q24 fields the record exists to carry) and no
+test covered the write site, so it shipped green. Restored both fields;
+<code>internal/cli/actions_release_test.go</code> now pins the CLI row
+shape (proven red on the regressed literal, green after); regenerated
+<code>docs/PRD.html</code> so the styled mirror matches
+<code>PRD.md</code>. *Last updated: 2026-09-13 (herdr orphan-pane
+reaping: both probes were dead, repaired as one change) —
 <code>devagent herdr-sweep --orphans</code> had never reaped a live
 orphan: <code>pane process-info</code> went out without
 <code>--session</code>, so herdr answered for its own default session
@@ -4995,15 +5007,37 @@ spare-on-no-answer direction at the matrix level.
 split against real <code>pgrep</code> exit codes: 1 means no collector
 (reap), 2 means the probe could not run (spare). Docs corrected:
 FR-VIS-02/07/10, §18 Q23, <code>docs/HERDR.md</code> sweep safety. *Last
-updated: 2026-09-12 (the rescue reaches CLOSED-but-unmerged pull
-requests: a goal-named closed PR is reopened and merged, or lands
-nothing) — the driver-side verify-and-merge rescue, and the goal-text
-derivation feeding it, only accepted subjects that read
-<code>OPEN</code> before the dispatch, so the false closes were
-unreachable: PR #346/#347 (auto-closed by the zombie sweep's
-<code>BaseBranchGone(main)</code> transport-noise bug minutes after they
-opened, green and mergeable) and loop 282's #345 each recorded
-<code>no-pr</code> with a landable branch left closed.
+updated: 2026-09-12 (build-revision self-identification: a stale driver
+binary is loud, and Go-written release rows name their writer) — loops
+290/291 burned implement-and-gate cycles while the driver seat ran a
+binary built from an older commit, and nothing announced the mismatch.
+<code>internal/version.Revision()</code> (new, memoized) reads
+<code>debug.ReadBuildInfo</code>'s <code>vcs.revision</code> and returns
+<code>version.RevisionUnknown</code> (<code>"unknown"</code>) when the
+build carries no stamp — go-test binaries carry none (probed
+2026-09-12), so <code>version.RevisionOverride</code> is the injection
+seam. <code>RunLoop</code> compares <code>Revision()</code> against
+<code>git rev-parse HEAD</code> before the first iteration and warns
+<code>[loop] WARN: stale binary</code> when the revision is unknown or
+differs, naming both SHAs (advisory only: the loop still runs).
+<code>ledger.ReleaseRecord</code> gains <code>revision</code> (stamped
+at the <code>record release</code> write site; <code>omitempty</code>
+keeps unstamped Go rows byte-compatible with the TS writer — Node
+readers tolerate the extra key, pinned by
+<code>TestSchemaDriftUnknownFieldsTolerated</code>), and
+<code>devagent --version</code> prints
+<code>0.1.0 (rev &lt;sha&gt;)</code>. Pinned by
+<code>TestRevision</code> (sentinel, memoization, override) and
+<code>TestRunLoopStaleBinaryWarns</code> (unknown warn, mismatch warn,
+matching-revision silence, rc 0 on every arm). *Last updated: 2026-09-12
+(the rescue reaches CLOSED-but-unmerged pull requests: a goal-named
+closed PR is reopened and merged, or lands nothing) — the driver-side
+verify-and-merge rescue, and the goal-text derivation feeding it, only
+accepted subjects that read <code>OPEN</code> before the dispatch, so
+the false closes were unreachable: PR #346/#347 (auto-closed by the
+zombie sweep's <code>BaseBranchGone(main)</code> transport-noise bug
+minutes after they opened, green and mergeable) and loop 282's #345 each
+recorded <code>no-pr</code> with a landable branch left closed.
 <code>prView</code> now decodes
 <code>baseRefName</code>/<code>headRefName</code>, and a goal-named pull
 request that is CLOSED, unmerged, based on <code>main</code> with its
