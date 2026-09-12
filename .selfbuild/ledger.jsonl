@@ -247,3 +247,4 @@
 {"loop":286,"ts":"2026-09-12T07:06:20Z","status":"failed","goal":"Goal: Make the driver-side rescue reachable for CLOSED-but-unmerged PRs. The goal-text derivation (internal/loopdriver/run.go:413-431) assigns `pick.mergePR` on"}
 {"loop":287,"ts":"2026-09-12T07:24:27Z","status":"failed","goal":"Goal: Land the live green head stranded by loop 286 — merge PR #348 (branch `devagent/TASK-mty0vgkg-oerc`, head `3591adf`, base main, mergeStateStatus CLEAN, al"}
 {"loop":288,"ts":"2026-09-12T09:44:40Z","status":"failed","goal":"**Validation performed:** - Research doc's pick is truncated inline (`[+191b]` markers literally in the file), but the full mechanism is clear and verified agai"}
+{"loop":289,"ts":"2026-09-12T10:05:15Z","status":"invalid","goal":"**Goal:** Make the Go driver self-identify its build revision so a stale binary is loud, not silent — loops 285–288 all ran a binary that predated their own fix"}
