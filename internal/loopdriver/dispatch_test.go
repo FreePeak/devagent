@@ -189,7 +189,7 @@ func TestTaskDispatchFastPathReturnsChildRc(t *testing.T) {
 	taskWallShim(t, "exit 0\n")
 	d := taskWallDriver(t, repo)
 	start := time.Now()
-	out, rc := d.taskDispatch("goal")
+	out, rc := d.taskDispatch("Goal: fix the thing")
 	if rc != 0 {
 		t.Fatalf("rc = %d (out %q), want 0", rc, out)
 	}
@@ -208,7 +208,7 @@ func TestTaskDispatchBoundedDrainKeepsChildRc(t *testing.T) {
 	killPidfileAtCleanup(t)
 	d := taskWallDriver(t, repo)
 	start := time.Now()
-	out, rc := d.taskDispatch("goal")
+	out, rc := d.taskDispatch("Goal: fix the thing")
 	if rc != 0 {
 		t.Fatalf("rc = %d (out %q), want the child's own 0", rc, out)
 	}
@@ -230,7 +230,7 @@ func TestTaskDispatchWallKillsWedgedWorkerTree(t *testing.T) {
 
 	resultCh := make(chan int, 1)
 	go func() {
-		_, rc := d.taskDispatch("goal")
+		_, rc := d.taskDispatch("Goal: fix the thing")
 		resultCh <- rc
 	}()
 
@@ -253,6 +253,63 @@ func TestTaskDispatchWallKillsWedgedWorkerTree(t *testing.T) {
 			t.Fatalf("grandchild %d still alive after the wall — orphaned worker session (issue #273)", grand)
 		}
 		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// TestTaskDispatchValidatesGoalShape pins the dispatch-boundary goal
+// contract: an off-contract goal is refused with taskGoalInvalidRC before
+// the child spawns — provable because the shim exits 3, so any nonzero rc
+// other than the sentinel means the child actually ran.
+func TestTaskDispatchValidatesGoalShape(t *testing.T) {
+	long := strings.TrimPrefix(strings.Repeat("word ", goalWordCap+1), " ")
+	repo := initFixtureRepo(t)
+	// The shim logs its invocation; a rejected goal must leave no line.
+	logPath := filepath.Join(repo, "dispatch-ran.log")
+	taskWallShim(t, "echo ran >> \""+logPath+"\"\nexit 3\n")
+	d := taskWallDriver(t, repo)
+
+	cases := []struct {
+		name string
+		goal string
+		ok   bool
+	}{
+		{"template goal", "Goal: Implement GitHub issue #202 in full and verifiably.", true},
+		{"issue goal with pick rationale", "Goal: Land GitHub issue #290.\nPick rationale from phase 1: merge PR #298, not a rewrite", true},
+		{"no prefix", "fix the thing", false},
+		{"empty", "", false},
+		{"whitespace", "   \n\t ", false},
+		{"prefix only", "Goal:", false},
+		{"marker buried mid-blob", "extract failed: partial stream\nGoal: buried marker", false},
+		{"over word cap", "Goal: " + long, false},
+		{
+			"rationale never rescues an off-cap statement",
+			"Goal: " + long + "\nPick rationale from phase 1: carries no cap",
+			false,
+		},
+	}
+	for _, tc := range cases {
+		out, rc := d.taskDispatch(tc.goal)
+		if tc.ok {
+			if rc == taskGoalInvalidRC {
+				t.Errorf("%s: valid goal rejected: %q", tc.name, out)
+			}
+			continue
+		}
+		if rc != taskGoalInvalidRC {
+			t.Errorf("%s: rc = %d (out %q), want the %d boundary rejection", tc.name, rc, out, taskGoalInvalidRC)
+		}
+		if !strings.Contains(out, "rejected at the dispatch boundary") {
+			t.Errorf("%s: rejection reason missing from output: %q", tc.name, out)
+		}
+	}
+	// Only the valid cases may reach the child: the shim logs one line
+	// per spawn, so exactly the two ok cases must appear.
+	ran, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(string(ran), "ran"); n != 2 {
+		t.Fatalf("child spawned %d times, want 2 (only the valid cases):\n%s", n, ran)
 	}
 }
 

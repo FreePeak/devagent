@@ -971,6 +971,51 @@ func TestRunLoopTaskFailureRecordsQueueFailed(t *testing.T) {
 	}
 }
 
+// TestRunLoopInvalidQueuedGoalRetiresTheClaim pins the queue-retirement half
+// of the shape gate: an off-contract queued goal (e.g. a human POST /dispatch
+// prompt over the word cap) records its invalid row AND fails the queue task
+// with the rejection detail. Pre-fix the claim sat claimed until its lease
+// lapsed, was re-claimed, and re-burned an invalid row every two hours — the
+// starvation halt with the row never retired.
+func TestRunLoopInvalidQueuedGoalRetiresTheClaim(t *testing.T) {
+	repo := initFixtureRepo(t)
+	installFakes(t, repo)
+	overCap := "Goal: " + strings.TrimPrefix(strings.Repeat("word ", goalWordCap+1), " ")
+	if _, err := queue.EnqueueTask(repo, queue.EnqueueInput{
+		ID:    "TASK-1",
+		Title: "Fix the loop ledger numbering",
+		Goal:  overCap,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	now, _ := frozenClock()
+	cfg := loopConfigFor(t, repo, func(c *LoopConfig) { c.Now = now })
+	if rc := RunLoop(cfg); rc != 0 {
+		logData, _ := os.ReadFile(filepath.Join(repo, ".selfbuild", "logs", "loop-1.log"))
+		t.Fatalf("rc = %d, want 0 (invalid iteration falls through)\nlog:\n%s", rc, logData)
+	}
+	rows := readLedger(t, repo)
+	if rows[0]["status"] != "invalid" {
+		t.Fatalf("row: %v, want the invalid row", rows[0])
+	}
+	// The retired claim: status failed, LastError naming the missed contract
+	// — the operator's observability surface for why their dispatch died.
+	taskData, err := os.ReadFile(filepath.Join(repo, ".devagent", "queue", "TASK-1.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var task struct {
+		Status    string `json:"status"`
+		LastError string `json:"lastError"`
+	}
+	if err := json.Unmarshal(taskData, &task); err != nil {
+		t.Fatal(err)
+	}
+	if task.Status != "failed" || task.LastError != goalRejectedDetail {
+		t.Fatalf("queue task not retired with the rejection detail: status %q, lastError %q", task.Status, task.LastError)
+	}
+}
+
 func TestRunLoopQueueFirstDone(t *testing.T) {
 	repo := initFixtureRepo(t)
 	installFakes(t, repo)
@@ -1191,5 +1236,73 @@ func TestPhaseWritesHeartbeatFile(t *testing.T) {
 	}
 	if hb.UpdatedAt == "" {
 		t.Fatalf("updatedAt empty: %+v", hb)
+	}
+}
+
+// TestValidateGoalShape pins the goal contract the dispatch boundary
+// enforces: the text must lead with the "Goal: " prefix and carry a
+// non-empty statement of at most goalWordCap words. A "Goal:" marker buried
+// mid-blob (the crashed-capture class) is not a goal statement, and the
+// phase-1 pick rationale appended after the statement is not part of the
+// word budget.
+func TestValidateGoalShape(t *testing.T) {
+	long := strings.TrimPrefix(strings.Repeat("word ", goalWordCap+1), " ")
+	cases := []struct {
+		name string
+		goal string
+		want bool
+	}{
+		{"plain statement", "Goal: Fix the ledger numbering", true},
+		{"statement at the cap", "Goal: " + strings.TrimPrefix(strings.Repeat("word ", goalWordCap), " "), true},
+		{"multi-line with rationale", "Goal: Fix the ledger numbering\nPick rationale from phase 1: rank 1", true},
+		{"prefix only", "Goal:", false},
+		{"prefix with blank body", "Goal:   \n", false},
+		{"marker buried mid-blob", "extract failed: partial stream\nGoal: buried\n", false},
+		{"no prefix at all", "fix the ledger numbering", false},
+		{"lowercase prefix", "goal: fix the ledger numbering", false},
+		{"empty", "", false},
+		{"statement over the word cap", "Goal: " + long, false},
+		{
+			"rationale never rescues an over-cap statement",
+			"Goal: " + long + "\nPick rationale from phase 1: rank 1",
+			false,
+		},
+	}
+	for _, tc := range cases {
+		if got := validateGoalShape(tc.goal); got != tc.want {
+			t.Errorf("%s: validateGoalShape(%q) = %v, want %v", tc.name, tc.goal, got, tc.want)
+		}
+	}
+}
+
+// TestRunLoopRejectsMalformedGoalShape proves the gate end to end: a goal
+// file whose "Goal:" marker is buried mid-blob records one invalid row and
+// never reaches the task dispatch.
+func TestRunLoopRejectsMalformedGoalShape(t *testing.T) {
+	repo := initFixtureRepo(t)
+	installFakes(t, repo)
+	bad := "extract failed: partial stream\nGoal: buried marker\n"
+	writeRepoFile(t, repo, ".selfbuild/goals/loop-1.md", bad)
+	now, _ := frozenClock()
+	// Default MaxIterations (2): the capped loop records the invalid row for
+	// loop 1, then loop 2 (no goal file) records another — rows[0] is the one
+	// under test.
+	cfg := loopConfigFor(t, repo, func(c *LoopConfig) { c.Now = now })
+	if rc := RunLoop(cfg); rc != 0 {
+		t.Fatalf("rc = %d, want 0 (invalid iteration falls through, never trips the breaker)", rc)
+	}
+	rows := readLedger(t, repo)
+	if len(rows) != 1 || rows[0]["status"] != "invalid" {
+		t.Fatalf("rows: %v, want one invalid row", rows)
+	}
+	if !strings.HasPrefix(rows[0]["goal"].(string), "extract failed") {
+		t.Fatalf("row goal: %v", rows[0]["goal"])
+	}
+	assertFileContains(t, filepath.Join(repo, ".selfbuild", "logs", "loop-1.log"),
+		"[validate] goal file is not a Goal: statement")
+	// The dry-run ok path records "(dry-run) <goal>"; its absence plus an
+	// empty devagent call log proves nothing was dispatched.
+	if calls, err := os.ReadFile(filepath.Join(repo, "devagent-calls.log")); err == nil && strings.Contains(string(calls), "task") {
+		t.Fatalf("malformed goal reached the task dispatch: %s", calls)
 	}
 }
