@@ -237,6 +237,8 @@ func recordCommand() *cobra.Command {
 				TaskID:   "release/" + version,
 				Attempt:  1,
 				Event:    "release-created",
+				Tag:      tag,
+				SHA:      sha,
 				Version:  version,
 				Revision: versionpkg.Revision(),
 				Source:   source,
