@@ -2257,6 +2257,22 @@ Motivation: loop 276 recorded <code>ok</code> for PR #342 (its
 auto-cleanup-snapshot merge never carried the new test file to main) and
 loop 277 burned a full iteration re-running that already-"landed"
 goal.</p>
+<p>2026-09-12 (fallback-route landing evidence): the evidence subject
+above exists only where a tracker pick produced it. A queue-delivered or
+PO/LLM goal never came through a pick, so a goal that named the pull
+request to land (<code>Goal: Land PR #344</code>) recorded
+<code>no-pr</code> even though its worker merged that pull request
+mid-run — loops 270/271/274/280, four false non-productive rows in
+eleven passes against a starvation limit of five. The driver now derives
+the subject from the goal text with the same merge-verb-near-PR matcher
+the pick path parses, under the same pick-time OPEN guard, so the
+derived pull request rides the identical <code>evidencePR</code> /
+<code>landedArtifactsVerified</code> wiring and a stale or incidental
+mention still self-disqualifies. The <code>no-pr</code> early return
+also retires its queue claim (<code>failed</code> + the
+<code>no-pr</code> detail, the shape gate's lease-recycling precedent)
+instead of leaving it to re-claim and re-burn the row every lease — a
+tracker-path no-op, where <code>queued == nil</code>.</p>
 </blockquote>
 <p><del>- <strong>Cross-board retry memory beyond the SHA guard</strong>
 — commit 60638d3 stops re-issuing shipped goals, but re-queued failures
@@ -4828,10 +4844,37 @@ existing driver with validation surfaces (test, command, telemetry,
 chaos schedule) so "the driver works perfectly" is a checkable claim,
 not a hope.</p>
 <hr />
-<p><em>Last updated: 2026-09-12 (landing evidence: a ship needs
-artifacts on main) — <code>merged = shipped</code> trusted gh's status
-stamp alone, and three consecutive iterations (276–278) proved the stamp
-lies: loop 276 recorded <code>ok</code> for PR #342 (merged only as an
+<p><em>Last updated: 2026-09-12 (fallback-route landing evidence: the
+ship verdict off the tracker path) — <code>pick.mergePR</code> is only
+ever set by a tracker pick, so a queue- or PO-delivered goal
+(<code>Goal: Land PR #N</code>) had no evidence subject at all: loops
+270/271/274/280 each logged <code>falling back to LLM selection</code>,
+each dispatched a goal naming the pull request to land, each of those
+pull requests merged inside its own iteration window, and each recorded
+the non-productive <code>no-pr</code> row — four false negatives in
+eleven passes against a starvation limit of five, with the Q27
+already-shipped guard equally blind. <code>runIteration</code> now
+derives the merge target from the goal text (<code>goalMergePR</code>,
+the <code>mergePickRe</code> researchPick already parses) before the
+task dispatch, under the pick-time <code>prState == OPEN</code> guard,
+so the derived pull request rides the existing <code>prMerged</code> →
+<code>evidencePR</code> → <code>landedArtifactsVerified</code> wiring
+and records <code>ok</code> with its artifacts verified — never
+<code>no-pr</code>, while a stale mention self-disqualifies and a
+derived PR still open at record time is the driver-side verify-and-merge
+rescue's subject. The <code>no-pr</code> early return now also retires
+its queue claim <code>failed</code> with the <code>no-pr</code> detail
+(the shape gate's lease-recycling precedent) instead of leaving it to
+re-claim and re-burn the row every lease; tracker iterations are
+untouched (<code>queued == nil</code>). Pinned by
+<code>TestRunLoopGoalNamedOpenPRMergedRecordsShip</code>,
+<code>TestRunLoopGoalNamedMergedPRRecordsNoPR</code> and
+<code>TestGoalMergePR</code>;
+<code>internal/loopdriver/DECISION.md</code> records the decision.</em>
+<em>Last updated: 2026-09-12 (landing evidence: a ship needs artifacts
+on main) — <code>merged = shipped</code> trusted gh's status stamp
+alone, and three consecutive iterations (276–278) proved the stamp lies:
+loop 276 recorded <code>ok</code> for PR #342 (merged only as an
 auto-cleanup snapshot — the test file it was meant to add never reached
 main) and loop 277 burned a full iteration re-running that
 already-"landed" goal. The driver's verify-and-merge path now verifies

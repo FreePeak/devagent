@@ -213,3 +213,60 @@ the lowercase `status` (`added`/`modified`/`removed`/`renamed`), and
 cannot-say while every test stayed green.
 
 (Recorded 2026-09-12; TASK-mtxqd5xx-23cu.)
+
+## DECISION: landing evidence on the fallback route (2026-09-12, TASK-mtxu01sd-1ted)
+
+The artifact gate above reads `pick.mergePR`, which only the tracker path ever
+sets — so a goal that arrived through the queue or the PO/LLM fallback (`pick`
+stays zero there) had no evidence subject at all. Loops 270/271/274/280 each
+logged `falling back to LLM selection` (0 `claimed #`), each dispatched a goal
+naming the pull request to land (`Goal: Land PR #335/#336/#339/#344`), each of
+those pull requests merged inside its own iteration window, and each recorded
+the non-productive `no-pr` row: four false negatives in eleven passes against a
+starvation limit of five, with Q27 equally blind. Two changes close the route:
+
+1. **Goal-derived evidence subject.** Before the task dispatch, when
+   `pick.mergePR == 0`, the merge target is parsed out of the goal text by
+   `goalMergePR` — the same `mergePickRe` researchPick parses — and accepted
+   only while `prState == "OPEN"`, the pick-time guard's semantics: a stale or
+   incidental PR mention self-disqualifies, so nothing here can certify a
+   do-nothing iteration. The derived PR then rides the existing wiring
+   (`prMerged` → `evidencePR` → `landedArtifactsVerified`): a worker-performed
+   merge records `ok` with its artifacts checked, never `no-pr`, and the Q27
+   guard sees the ship on the next pass. Derived and still open at record time,
+   it is the driver-side verify-and-merge rescue's subject, as on the tracker
+   path. The dispatch decision gate above is untouched — the goal file itself
+   is never rewritten off the pick path.
+2. **The `no-pr` early return retires its queue claim**
+   (`markQueueTaskDone(failed, noPRDetail)`), the shape gate's lease-recycling
+   precedent: left live the claim re-claimed after its 2h lease and re-burned
+   the same no-pr row every cycle, walking the loop into the starvation halt
+   instead of ever reaching a verdict. Unreachable for tracker-path iterations
+   (`queued == nil`), so the leave-open-for-re-pick semantics there are
+   untouched.
+
+Ceiling (named, not fixed): the derivation reads the whole goal text, so a
+present-tense merge mention that is *incidental* to the directive — a quoted
+example ("…goals like `Goal: Land PR #344`…") or a negated "do not merge PR
+#298" — still parses; that is `mergePickRe`'s documented verb-proximity
+ceiling, shared with the tracker path's research pick. The OPEN guard is the
+cap: an incidental mention can only certify if that pull request happens to
+merge inside the same iteration window, and the artifact gate still requires
+its touched implementation files on main. Restricting the scan to the goal's
+leading directive was considered and rejected: it narrows legitimate coverage
+(a directive in a later clause, "Goal: fix X; then land PR #N") and it does
+not close the cited class either — that goal is a single line, so its quoted
+mention is a leading-clause match, not a later one. A tightening would have to
+key on the directive's *position* in the text (the leading clause, before the
+first sentence break), not on line boundaries. The upgrade path, if incidental
+mentions ever bite, is structural rather than prose-based: the research
+prompt's `PICK: action=merge-pr pr=#N` key=value shape (mergePickRe's upgrade
+note), with the position-keyed scan as the cheaper intermediate step.
+
+Pinned by `TestRunLoopGoalNamedOpenPRMergedRecordsShip` (OPEN at dispatch,
+worker merges mid-run → `ok` plus the artifact gate reading the derived PR),
+`TestRunLoopGoalNamedMergedPRRecordsNoPR` (an already-merged mention derives
+nothing, records `no-pr`, retires the claim) and `TestGoalMergePR` (the
+parse's present-tense contract).
+
+(Recorded 2026-09-12; TASK-mtxu01sd-1ted.)

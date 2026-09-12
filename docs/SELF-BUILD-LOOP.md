@@ -72,6 +72,18 @@ the Node tree (FR-GO-16, #205).
    the iteration log, the `loop-phase` detail and the goal text; push mode
    `main` closes on the merge-to-main commit.
 
+   **Landing evidence off the tracker path (2026-09-12).** A queue-delivered
+   or PO/LLM goal never came through a tracker pick, so a goal that names the
+   pull request to land (`Goal: Land PR #N`) derives its evidence subject from
+   the goal text itself — the same merge-verb-near-PR matcher the pick path
+   parses, under the same pick-time OPEN guard, so a stale mention
+   self-disqualifies — and ships `ok` with that pull request's artifacts
+   verified on main instead of recording the false `no-pr` rows of loops
+   270/271/274/280. The `no-pr` early return also retires its queue claim
+   `failed` with the `no-pr` detail (the shape gate's lease-recycling
+   precedent) rather than leaving it to re-claim and re-burn the row every
+   lease; tracker-path iterations are unaffected (`queued == nil`).
+
 ## Running
 
 Single-process infinite runner (the Go driver, `internal/loopdriver` — production
