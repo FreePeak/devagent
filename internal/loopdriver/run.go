@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/FreePeak/devagent/internal/orchestrator"
+	"github.com/FreePeak/devagent/internal/version"
 )
 
 // run.go ports the main iteration loop of scripts/selfbuild-loop.sh
@@ -87,6 +88,16 @@ func (d *driver) haltExit(code int) int {
 func RunLoop(cfg LoopConfig) int {
 	cfg = cfg.WithDefaults()
 	d := &driver{cfg: cfg, stateDir: filepath.Join(cfg.Repo, ".selfbuild")}
+
+	// Stale-binary guard (2026-09-12): loops 290/291 burned implement-and-
+	// gate cycles while a driver built from an older commit held the loop
+	// seat, and nothing announced the mismatch. Advisory only — the warning
+	// names both sides and the loop still runs.
+	if rev := version.Revision(); rev == version.RevisionUnknown {
+		_, _ = fmt.Fprintln(cfg.Stderr, "[loop] WARN: stale binary: build carries no revision (go test / unstamped build) — rebuild with `make build` before trusting this loop")
+	} else if head, ok := d.gitQuiet("rev-parse", "HEAD"); ok && strings.TrimSpace(head) != rev {
+		_, _ = fmt.Fprintf(cfg.Stderr, "[loop] WARN: stale binary: built from %s, repo HEAD is %s — rebuild with `make build`\n", rev, strings.TrimSpace(head))
+	}
 
 	_ = os.MkdirAll(d.stateDir+"/research", 0o755)
 	_ = os.MkdirAll(d.stateDir+"/goals", 0o755)

@@ -180,16 +180,21 @@ type OperatorDegradedRecord struct {
 
 // ReleaseRecord is the Go ReleaseLedgerRecord (release/tag outcome, Q24).
 type ReleaseRecord struct {
-	TS      string  `json:"ts"`
-	Kind    string  `json:"kind"`
-	TaskID  string  `json:"taskId"`
-	Attempt int     `json:"attempt"`
-	Event   string  `json:"event"` // release-created
-	Tag     string  `json:"tag"`
-	SHA     string  `json:"sha"`
-	Version string  `json:"version"`
-	Source  string  `json:"source"`
-	Detail  *string `json:"detail,omitempty"`
+	TS      string `json:"ts"`
+	Kind    string `json:"kind"`
+	TaskID  string `json:"taskId"`
+	Attempt int    `json:"attempt"`
+	Event   string `json:"event"` // release-created
+	Tag     string `json:"tag"`
+	SHA     string `json:"sha"`
+	Version string `json:"version"`
+	// Revision is the Go-side stamp (version.Revision at write time): the
+	// binary that recorded the release. omitempty keeps unstamped Go rows
+	// byte-compatible with the TS writer; Node readers tolerate the extra
+	// key (TestSchemaDriftUnknownFieldsTolerated).
+	Revision string  `json:"revision,omitempty"`
+	Source   string  `json:"source"`
+	Detail   *string `json:"detail,omitempty"`
 }
 
 // StashRecord is the Go StashLedgerRecord (merge-back auto-stash, Q26).
