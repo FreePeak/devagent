@@ -4814,7 +4814,44 @@ existing driver with validation surfaces (test, command, telemetry,
 chaos schedule) so "the driver works perfectly" is a checkable claim,
 not a hope.</p>
 <hr />
-<p><em>Last updated: 2026-09-12 (FR-VAL-04 partial: deterministic seeded
+<p><em>Last updated: 2026-09-12 (goal-shape follow-up: queue-claim
+retirement + producer scope) — the shape gate's word cap binds every
+producer, not just PO output: a human goal from
+<code>POST /dispatch</code> or a scout-enqueued queue row past the
+120-word statement budget is refused at the boundary too (the PO prompt
+is the one statement contract all dispatched goals trace back to;
+DECISION.md divergence #5 records the reasoning). The same pass closed
+the leak the cap opened: a queued claim whose goal is off-contract is
+now retired as <code>failed</code> with the rejection detail as its
+LastError at BOTH invalid sites (the goal-file gate and the taskDispatch
+boundary) — pre-fix the claim sat until its 2h lease lapsed, re-claimed,
+and re-burned an invalid row every cycle, walking the loop into the
+starvation halt with the row still live. Covered by
+<code>TestRunLoopInvalidQueuedGoalRetiresTheClaim</code>
+(run_test.go).</em> <em>Last updated: 2026-09-12 (goal shape validated
+at the dispatch boundary) — <code>internal/loopdriver</code>'s
+<code>^Goal:</code> gate was a multiline regex scan: any goal file that
+merely contained a "Goal:" line — a crashed or garbled research/PO
+capture with the marker buried mid-blob — passed and burned a full task
+dispatch on garbage. The goal contract is now a single predicate,
+<code>validateGoalShape</code> (dispatch.go): the text must START with
+the "Goal: " prefix every producer emits (queue normalization,
+issue/merge templates, the PO prompt) and carry a non-empty statement of
+at most 120 words (the PO prompt's statement contract; the
+driver-appended phase-1 pick rationale rides after the statement and is
+not part of the word budget). It is enforced twice: at the
+<code>taskDispatch</code> boundary itself — an off-contract goal is
+refused with the <code>taskGoalInvalidRC</code> sentinel (-1,
+uncollidable with real child exit codes) and the child never spawns —
+and at the runIteration goal-file gate. <code>runTaskPhase</code> maps
+the sentinel to the established invalid-goal semantics (invalid row,
+fall-through, breaker never consulted — DECISION.md divergence #5), so a
+malformed goal can never burn breaker credit. Covered by
+<code>TestTaskDispatchValidatesGoalShape</code> (shape table +
+spawn-count proof), <code>TestValidateGoalShape</code> (predicate
+boundaries), and <code>TestRunLoopRejectsMalformedGoalShape</code>
+(invalid row + no dispatch) — dispatch_test.go / run_test.go.</em>
+<em>Last updated: 2026-09-12 (FR-VAL-04 partial: deterministic seeded
 fault-injection simulation of the run cycle) — the chaos-soak
 requirement gains its seeded simulation half:
 <code>internal/loopdriver/faultinject_test.go</code> drives the REAL

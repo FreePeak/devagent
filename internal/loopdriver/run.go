@@ -27,9 +27,6 @@ import (
 // block), and a fall-through iteration closes with the end marker + a
 // `tail -5` to stdout.
 
-// goalValidationRe is the ^Goal: gate on the goal file content.
-var goalValidationRe = regexp.MustCompile(`(?m)^Goal:`)
-
 // ledgerLines reads the ledger via the shared orchestrator reader.
 func ledgerLines(repo string) []string {
 	return orchestrator.ReadLedgerLines(filepath.Join(repo, ".selfbuild", "ledger.jsonl"))
@@ -296,15 +293,24 @@ func (d *driver) runIteration(n int, logF io.Writer, gradient, clusters string) 
 		}
 	}
 
-	// ^Goal: gate. The bash invalid branch has NO continue: it falls
-	// through to the tail (and the tail's fails=0), so an invalid iteration
-	// never trips the breaker — mirror that.
+	// Goal-shape gate at the dispatch boundary. The bash invalid branch has
+	// NO continue: it falls through to the tail (and the tail's fails=0), so
+	// an invalid iteration never trips the breaker — mirror that.
 	goalFile := filepath.Join(d.stateDir, "goals", fmt.Sprintf("loop-%d.md", n))
 	goalData, gerr := os.ReadFile(goalFile)
 	goalText := string(goalData)
-	if gerr != nil || !goalValidationRe.MatchString(goalText) {
-		_, _ = fmt.Fprintln(logF, "[validate] goal file missing Goal: line — marking iteration invalid")
+	if gerr != nil || !validateGoalShape(goalText) {
+		_, _ = fmt.Fprintln(logF, "[validate] goal file is not a Goal: statement — marking iteration invalid")
 		d.record(logF, n, "invalid", goalText)
+		// A queued claim whose goal is off-contract must be retired here or
+		// the claim sits until its 2h lease lapses, re-claims, and records
+		// another invalid row every cycle — the starvation halt with the row
+		// still live (the failed-path precedent below). Bash never needed
+		// this: its queue normalization guaranteed the ^Goal: prefix and it
+		// had no word cap, so a queued goal could not fail the gate.
+		if queued != nil {
+			_ = markQueueTaskDone(cfg.Repo, queued.ID, "failed", goalRejectedDetail, queued)
+		}
 		return outcomeFallThrough
 	}
 	goal := strings.TrimRight(goalText, "\n")
@@ -559,10 +565,25 @@ var prOpenedRe = regexp.MustCompile(`PR opened: (https?://\S+)`)
 // (failed row + queue done + breaker consult) and returns the PR URL the
 // dispatch reported ("" = no PR was opened). Before recording a failure it
 // consults rescue: a run whose picked issue's PR landed anyway ships instead
-// of failing (verify-and-merge completion).
+// of failing (verify-and-merge completion). A goal rejected at the
+// dispatch boundary (taskGoalInvalidRC) is the invalid-goal class, not a
+// failure: `invalid` row, fall-through, breaker never consulted.
 func (d *driver) runTaskPhase(n int, logF io.Writer, goal string, queued *claimedTask, rescue func() bool) (outcome, string) {
 	d.phase(n, "task", firstLineCapped(goal, 100))
 	out, rc := d.taskDispatch(goal)
+	if rc == taskGoalInvalidRC {
+		_, _ = fmt.Fprintln(logF, strings.TrimSpace(out))
+		d.record(logF, n, "invalid", goal)
+		// Same retirement as the goal-file gate: any invalid from the
+		// boundary must not leave its claim live. Unreachable for a queued
+		// goal today (the file gate validates the identical text first) —
+		// this is the guard that keeps the two-gate structure safe if the
+		// gates ever diverge.
+		if queued != nil {
+			_ = markQueueTaskDone(d.cfg.Repo, queued.ID, "failed", goalRejectedDetail, queued)
+		}
+		return outcomeFallThrough, ""
+	}
 	if rc != 0 {
 		if rescue != nil && rescue() {
 			_, _ = fmt.Fprintln(logF, "[verify] task dispatch failed but the picked issue's PR landed — recording the ship")

@@ -75,9 +75,21 @@ inputs.
    `[extract-aborted]` diagnostic when the stream has no text, raw stream
    preserved at `last.aborted.ndjson`) and reproduces the
    extract-failed fallback when the raw file is unreadable.
-5. **The `^Goal:` invalid path falls through to the iteration tail** (and
+5. **The goal-shape invalid path falls through to the iteration tail** (and
    the tail's `fails=0`), exactly like bash — an invalid iteration never
-   trips the breaker. Golden tests pin this.
+   trips the breaker. Golden tests pin this. One deliberate extension beyond
+   bash: an invalid goal **retires a queue claim as `failed`** with the
+   rejection detail (both the goal-file gate and the dispatch boundary).
+   Bash's queued goals could never fail its `^Goal:` gate — queue
+   normalization guarantees the prefix and bash had no word cap — so its
+   no-retirement invalid branch was unreachable for them. The Go shape gate
+   introduced the off-cap class (a human goal from POST /dispatch is a
+   producer), and an unretired claim re-claims after its 2h lease and
+   re-burns an invalid row every cycle: retirement is the failed-path
+   precedent (row retired at `failed` + detail). The cap binds every
+   producer, not just PO output — the PO prompt is the one statement
+   contract all dispatched goals trace back to, and the task row's
+   LastError carries the reason to the operator who enqueued it.
 
 ## What remains bash-only
 

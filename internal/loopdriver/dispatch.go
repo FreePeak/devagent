@@ -414,13 +414,63 @@ func (d *driver) runRepoLintGate(logF io.Writer) int {
 	return 0
 }
 
+// taskGoalInvalidRC is the shape-rejection return from taskDispatch: the
+// goal failed the boundary validation and the child was never spawned.
+// Negative on purpose — dispatchRc maps real child outcomes to 0-255
+// (plus the 124 wall convention), so no child exit can collide with it.
+const taskGoalInvalidRC = -1
+
+// goalWordCap is the statement cap (poPrompt: "max 120 words"): a longer
+// statement is off-contract and rejected at the boundary. It binds every
+// producer — PO output, queue rows (including human goals enqueued via
+// POST /dispatch), and issue templates — because the PO prompt is the one
+// contract all dispatched goals trace back to.
+const goalWordCap = 120
+
+// goalRejectedDetail is the failure detail stamped on a queue task retired
+// because its goal failed the shape gate: the operator who enqueued it sees
+// the contract it missed on the task row's LastError, not just an invalid
+// ledger row the queue never explains.
+var goalRejectedDetail = fmt.Sprintf("goal rejected — not a \"Goal: \"-prefixed statement of at most %d words", goalWordCap)
+
+// pickRationaleMarker opens the phase-1 pick rationale that
+// withPickRationale appends AFTER the goal statement; the word cap judges
+// the statement only — the rationale is cargo the loop itself adds, not
+// part of the PO's 120-word budget.
+const pickRationaleMarker = "\nPick rationale"
+
+// validateGoalShape is the goal contract every producer must meet before a
+// dispatch: the text must start with the "Goal: " prefix (queue
+// normalization, the issue/merge templates, and the PO prompt all emit it)
+// and carry a non-empty statement of at most goalWordCap words after it.
+// The old `(?m)^Goal:` file-gate scan accepted any text that merely
+// contained a "Goal:" line — a crashed or garbled research capture with
+// the marker buried mid-blob sailed through and burned a full task
+// dispatch on garbage.
+func validateGoalShape(goal string) bool {
+	stmt, ok := strings.CutPrefix(strings.TrimSpace(goal), "Goal: ")
+	if !ok {
+		return false
+	}
+	if i := strings.Index(stmt, pickRationaleMarker); i >= 0 {
+		stmt = stmt[:i]
+	}
+	stmt = strings.TrimSpace(stmt)
+	return stmt != "" && len(strings.Fields(stmt)) <= goalWordCap
+}
+
 // taskDispatch runs the phase-4 implementation dispatch
 // (`devagent task --prompt GOAL --repo REPO --worker W [--model M]
 // [--auto-pr]`) under the outer wall-clock cap; returns (combined output, rc).
 // The output matters in pr push mode: a shipped iteration must carry a
 // "PR opened: <url>" line before the driver may close the tracker issue
-// (issue #238: soak-169 closed an issue with no PR behind it).
+// (issue #238: soak-169 closed an issue with no PR behind it). The goal is
+// validated at this boundary first: an off-contract goal is refused with
+// taskGoalInvalidRC and never spawns the child.
 func (d *driver) taskDispatch(goal string) (string, int) {
+	if !validateGoalShape(goal) {
+		return fmt.Sprintf("[implement] goal rejected at the dispatch boundary — not a \"Goal: \"-prefixed statement of at most %d words\n", goalWordCap), taskGoalInvalidRC
+	}
 	args := []string{"task", "--prompt", goal + "\n\n" + prdPolicy, "--repo", d.cfg.Repo, "--worker", d.cfg.Worker}
 	if d.cfg.Model != "" {
 		args = append(args, "--model", d.cfg.Model)
