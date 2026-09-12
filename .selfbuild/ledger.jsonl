@@ -242,3 +242,4 @@
 {"loop":281,"ts":"2026-09-12T04:19:29Z","status":"pr-open","goal":"Goal: Close the fallback-route landing-evidence gap in `internal/loopdriver/run.go`. Off the tracker path `pick.mergePR` is 0, so PO/queued goals like `Goal: La"}
 {"loop":282,"ts":"2026-09-12T04:42:22Z","status":"failed","goal":"Goal: Land the already-complete fallback-route landing-evidence fix; do not re-implement it. Branch `devagent/TASK-mtxu01sd-1ted` (head `7a07b21`) sits 1 ahead "}
 {"loop":283,"ts":"2026-09-12T05:29:00Z","status":"pr-open","goal":"Goal: Close the landing-evidence certification gap in `internal/loopdriver`. `prState` (issues.go:110) reads only `state`, so an iteration whose PR merged mid-r"}
+{"loop":284,"ts":"2026-09-12T06:09:56Z","status":"pr-open","goal":"Goal: Make both zombie-PR hygiene probes three-valued so transport noise can never close a live PR. `BaseBranchGone` (internal/orchestrator/autopr.go:573) retur"}
