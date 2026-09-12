@@ -1,0 +1,22 @@
+{
+  "id": "x",
+  "result": {
+    "type": "pane_list",
+    "panes": [
+      {
+        "pane_id": "wM:p1",
+        "workspace_id": "wM",
+        "label": "research-a1",
+        "agent_status": "idle",
+        "cwd": "/repo"
+      },
+      {
+        "pane_id": "wS:p1",
+        "workspace_id": "wS",
+        "label": "scratch",
+        "agent_status": "idle",
+        "cwd": "/repo"
+      }
+    ]
+  }
+}

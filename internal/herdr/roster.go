@@ -45,10 +45,12 @@ func mapPaneState(agentStatus, cwd string) string {
 // paneState maps a roster row's agent_status to a display state, upgrading
 // idle/unknown rows with a live worker foreground process to "running"
 // (regression 2026-09-11, #317). Best-effort: an uninspectable pane keeps the
-// status-derived state.
-func paneState(cli CliRunner, agentStatus, cwd, paneID string) string {
+// status-derived state. The probe is session-scoped like every herdr call —
+// unscoped it read herdr's own default session and liveness was always false
+// (2026-09-13, the same bug that left the sweep's orphan class unreachable).
+func paneState(cli CliRunner, session, agentStatus, cwd, paneID string) string {
 	state := mapPaneState(agentStatus, cwd)
-	if idleStatuses[agentStatus] && PaneForegroundWorker(cli, paneID) {
+	if idleStatuses[agentStatus] && PaneForegroundWorker(cli, session, paneID) {
 		return "running"
 	}
 	return state
@@ -159,7 +161,7 @@ func ListSessionPanes(cli CliRunner, session string) []SessionPaneInfo {
 			Label:       label,
 			Cwd:         cwd,
 			AgentStatus: agentStatus,
-			State:       paneState(cli, agentStatus, cwd, paneID),
+			State:       paneState(cli, s, agentStatus, cwd, paneID),
 			PaneID:      paneID,
 			// Never fabricated: only what herdr reports.
 			StartedAt: derefOr(a.CreatedAt, ""),

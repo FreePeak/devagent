@@ -75,26 +75,53 @@ to their own direct dispatch so visibility never becomes a hard dependency.
 
 ### Sweep safety (FR-VIS-07, FR-VIS-10)
 
-`devagent herdr-sweep` closes only panes that satisfy both per-pane guards:
+`devagent herdr-sweep` orders its checks so each pane is judged by scope (may
+it be swept at all) → operator at the wheel → orphan evidence → roster spare →
+status classes. The two per-pane guards:
 
-1. **Automation ownership**: pane cwd sits inside `.devagent-worktrees/` —
-   operator scratch panes in the same session are never listed, let alone
-   closed.
-2. **No live dispatch**: `pane process-info` shows the foreground process; a
-   pane running `omp`/`pi`/`claude`/`opencode` is mid-run and skipped. This
-   guard exists because a busy pane can still report `agent_status: idle`
-   (the pane wrapper polls the done-marker, not the agent state machine) —
-   the 2026-09-05 in-flight-close regression.
+1. **Automation ownership**: a pane whose cwd sits inside `.devagent-worktrees/`
+   was spawned by the dispatcher, so the status classes reach it. Anywhere else —
+   the main checkout, where the loop's research/PO dispatches run beside the
+   operator's own windows — the cwd proves nothing: the pane is swept only by the
+   orphan class (`--orphans`) and only on positive **dispatch evidence**, the
+   run's capture contract (`<tmp>/devagent-herdr-<n>/{out,err,done}`) open on
+   fd 1 or fd 2 of one of its foreground processes. A worker the operator ran by
+   hand points at the pane tty and never matches, so scratch panes are
+   structurally spared.
+2. **No live dispatch**: `pane process-info` — asked **in the session under
+   sweep**; an unscoped probe answers for herdr's own default session, which made
+   every devagent pane read idle until 2026-09-13 — shows the foreground process,
+   and a pane running `omp`/`pi`/`claude`/`opencode` is mid-run and skipped. This
+   guard exists because a busy pane can still report `agent_status: idle` (the
+   pane wrapper polls the done-marker, not the agent state machine) — the
+   2026-09-05 in-flight-close regression.
+
+The one exception to guard 2 is the orphan class itself: a live worker whose
+collector is dead has nobody polling its done marker or closing its workspace, so
+`--orphans` reaps it. Ownership is the process that survives the whole run — the
+dispatching `devagent task` / `devagent pane-run` that polls the marker — **not**
+the `herdr pane run` client, which types the script into the pane's shell and
+exits; if that dispatcher is gone, or its `ps` ppid ancestry holds no live loop
+driver, the run is an orphan. The probes must ANSWER before anything is reaped:
+pgrep's own "no match" (exit 1, no output) means there is no collector and the
+pane goes, while a `pgrep`/`ps` that could not run — absent binary, the 5s cap, a
+rejected pattern, an ancestry walk that never completed — is no evidence and the
+class goes inert, because reaping on a probe that never inspected anything would
+close every live worker on a host that cannot read its own process table.
+Attribution is process-wide: any dispatcher still hanging off a live driver
+spares every live pane in the session, so the error direction is "leave a
+leftover running", never "close a run somebody is still collecting".
 
 The session name alone is not a safety property (PRD §18 Q23), so two
 operator-side bounds sit on top of the per-pane checks:
 
-3. **Operator-attach exemption**: a pane the FR-VIS-02 roster reports as live
-   (`state: running`) is never closed, and neither is anything in the session
-   while `DEVAGENT_OPERATOR_ATTACHED` is set in the sweep's environment — an
-   operator is at the wheel. Spared panes are still reported, with
-   `reason=operator-attached` (CLI line prefix `[spared]`), so a dry-run
-   explains why a pane survived. The exemption outranks the `--orphans` class.
+3. **Operator-attach exemption**: nothing in the session is sweepable while
+   `DEVAGENT_OPERATOR_ATTACHED` is set in the sweep's environment — an operator
+   is at the wheel, and that outranks every other class including `--orphans`.
+   Below it, the FR-VIS-02 roster spares a worktree pane it reports as live
+   (`state: running`) when no foreground worker was found. Spared panes are still
+   reported, with `reason=operator-attached` (CLI line prefix `[spared]`), so a
+   dry-run explains why a pane survived.
 
 4. **Managed deny toggle** (`devagent.json`):
 
@@ -122,6 +149,14 @@ operator-side bounds sit on top of the per-pane checks:
 anything, and states the bound when the sweep is disabled or denied.
 
 ### Orphaned worker-helper class (`--orphan-brokers`)
+
+**Status (2026-09-13): documented, not yet ported to Go.** `devagent
+herdr-sweep --orphan-brokers` is rejected as an unknown flag by the current
+binary (its surface is `--session`, `--dry-run`, `--orphans`); the class shipped
+in the Node implementation retired by #205 and has no Go counterpart, so nothing
+below runs. Read it as the port contract, not as live behavior — including the
+answered-probe rule above: a reaper must never kill on a process table it could
+not inspect.
 
 The per-pane guards above cannot see a different leak class: omp's
 `__omp_worker_daemon_broker` worker outliving its session. When an omp process
@@ -151,6 +186,13 @@ against a functional stub CLI (`DEVAGENT_HERDR_BIN` injects the binary): stdout
 capture, exit-code propagation, env injection without leakage, timeout teardown,
 keep-panes mode, fallback behavior, and config validation — plus the sweep guards
 above (FR-VIS-07 per-pane checks, the FR-VIS-10 deny toggle, the operator-attach
-exemption, `herdr.sweep` parsing/validation/env precedence). The orphaned-broker
-class is tested against a real child process that traps SIGTERM, so the
-SIGTERM→SIGKILL escalation is proven rather than stubbed.
+exemption, `herdr.sweep` parsing/validation/env precedence). The orphan probes
+are pinned from two directions: their test seams are keyed by what the sweep
+actually asks (the `pgrep` seam by the pattern, the capture seam by pane id, a
+miss counting as an unanswered probe), and the shapes behind those keys are
+checked against reality — the real `lsof` probe against a child holding a capture
+file on fd 1/2, and the owner pattern against the command lines
+`internal/loopdriver` builds — because on 2026-09-13 the stubs stayed green while
+live reaping matched nothing. The orphaned-broker class above has no Go
+implementation and therefore no test; porting it inherits the same rule — an
+unreachable process table yields no candidates, never a kill list.

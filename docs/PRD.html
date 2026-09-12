@@ -2771,14 +2771,15 @@ per-pane agent-state verification plus a managed-settings-style deny
 toggle, or keep <code>--all</code> out of scope permanently?</del>
 Resolved 2026-09-07: both halves of the safety requirement, and
 <code>--all</code> stays out of scope permanently — the sweep lists
-exactly one session and nothing widens it. Per-pane verification shipped
+exactly one session and nothing widens it. Per-pane verification ships
 as FR-VIS-07; the managed-settings-style toggle ships as FR-VIS-10:
 <code>herdr.sweep</code> (<code>src/config.ts:39</code>, resolved by
 <code>herdrSweepConfig</code> at <code>src/config.ts:427</code>) carries
 <code>enabled</code> (env `DEVAGENT_HERDR_SWEEP=0</td>
 <td>1<code>) and </code>denySessions<code>, and </code>findStalePanes<code>/</code>sweepStalePanes<code> (</code>src/integrations/herdr.ts:462<code>, </code>:699<code>) return nothing when the sweep is disabled or the resolved session is denied. A pane the FR-VIS-02 roster reports as live, or any sweep launched while </code>DEVAGENT_OPERATOR_ATTACHED<code>is set, is spared ahead of every other class — including</code>--orphans<code>— and reported with</code>reason:
-operator-attached<code>instead of closed. Unset defaults are today's behavior; an invalid</code>herdr.sweep`
-block fails closed. Removed.</td>
+operator-attached<code>instead of closed. Unset defaults are today's behavior; an invalid</code>herdr.sweep<code>block fails closed. **Corrected 2026-09-13:** only the env half of that ordering survives — the roster's</code>running<code>state is derived from the same foreground-worker probe the orphan class reads, so sparing it ahead of</code>--orphans<code>left the class unreachable; a live-worker pane is now orphan-reaped on collector evidence (FR-VIS-07),</code>DEVAGENT_OPERATOR_ATTACHED`
+still outranks everything, and the roster spare still covers worktree
+panes that are busy with no live worker. Removed.</td>
 <td>product</td>
 </tr>
 <tr>
@@ -4170,7 +4171,13 @@ roster (<code>/agents</code> → TUI chips,
 an idle/unknown row whose <code>pane process-info</code> foreground
 process is a worker binary maps to <code>running</code>, agent_status
 stays the signal for interactive panes
-(<code>internal/herdr/roster.go</code> <code>paneState</code>)</td>
+(<code>internal/herdr/roster.go</code> <code>paneState</code>).
+<strong>Fixed 2026-09-13:</strong> that discriminator was inert in
+production — the <code>pane process-info</code> probe went out
+<strong>without <code>--session</code></strong>, so herdr answered for
+its own default session and every devagent pane reported no foreground
+process; <code>PaneForegroundWorker</code> now takes the session and
+<code>paneState</code> passes it, so the upgrade actually fires</td>
 <td>M</td>
 </tr>
 <tr>
@@ -4233,12 +4240,25 @@ lands in an attachable pane too</td>
 </tr>
 <tr>
 <td>FR-VIS-07</td>
-<td>Sweep safety: <code>herdr-sweep</code> closes only panes whose cwd
-sits inside <code>.devagent-worktrees/</code> (automation-owned;
-operator scratch panes in the same session are untouchable) AND whose
-foreground process is not a worker CLI (<code>pane process-info</code>
-distinguishes a live omp/pi/claude/opencode from an idle shell) — an
-in-flight pane is never sweepable</td>
+<td>Sweep safety: <code>herdr-sweep</code> closes a pane only where it
+can prove automation owns it. Inside <code>.devagent-worktrees/</code>
+the cwd <strong>is</strong> that proof (the dispatcher cd's the run into
+the task's worktree), and the pane must additionally not be running a
+worker CLI — <code>pane process-info</code>, asked in the session under
+sweep, distinguishes a live omp/pi/claude/opencode from an idle shell
+(the 2026-09-05 in-flight-close regression). Outside the worktrees the
+cwd proves nothing, so a pane joins the sweep only when the orphan class
+is armed (<code>--orphans</code> / <code>herdr.sweep.orphans</code>)
+<strong>and</strong> carries positive dispatch evidence — the run's
+capture contract
+(<code>&lt;tmp&gt;/devagent-herdr-&lt;n&gt;/{out,err,done}</code>) open
+on fd 1/2 of one of its foreground processes; an operator's hand-run
+worker never carries it. An in-flight pane is closed only by that orphan
+class, and only when its collector is dead: the dispatching
+<code>devagent task</code> / <code>devagent pane-run</code> (the process
+that polls the done marker) is missing or detached from any live loop
+driver. <strong>Repaired 2026-09-13</strong> — both probes were dead and
+the class unreachable; see the 2026-09-13 footer entry</td>
 <td>M</td>
 </tr>
 <tr>
@@ -4925,8 +4945,58 @@ existing driver with validation surfaces (test, command, telemetry,
 chaos schedule) so "the driver works perfectly" is a checkable claim,
 not a hope.</p>
 <hr />
-<p>*Last updated: 2026-09-12 (the rescue reaches CLOSED-but-unmerged
-pull requests: a goal-named closed PR is reopened and merged, or lands
+<p>*Last updated: 2026-09-13 (herdr orphan-pane reaping: both probes
+were dead, repaired as one change) —
+<code>devagent herdr-sweep --orphans</code> had never reaped a live
+orphan: <code>pane process-info</code> went out without
+<code>--session</code>, so herdr answered for its own default session
+and "no such pane" was every devagent pane's liveness, which left the
+FR-VIS-07 in-flight guard, the FR-VIS-02 roster upgrade (#317) and the
+orphan class — gated on a live foreground worker — inert at once; the
+owner probe was <code>herdr.*pane run .*&lt;pane_id&gt;</code>, a
+process that does not exist while a pane runs (<code>pane run</code>
+types the script into the pane's shell and exits; verified live parent
+chain
+<code>omp -&gt; -zsh -&gt; herdr --session &lt;s&gt; server -&gt; launchd</code>),
+so <code>PaneRunOwnerOrphaned</code> always took its "no owner CLI -&gt;
+orphaned" exit and the driver spare behind it was unreachable. Each half
+alone is a regression — a working owner probe over an inert liveness
+probe closes live workers — so the fix lands atomically:
+<code>PaneForegroundWorker(cli, session, paneID)</code> scopes the probe
+(roster and sweep share it), the owner is now the surviving dispatcher
+(argv0-anchored <code>devagent</code>/<code>devagent-go</code>
+<code>task</code>/<code>pane-run</code>, optionally behind the driver's
+<code>timeout</code> wrapper, so a prompt quoting devagent cannot
+impersonate its own collector), non-worktree panes need positive
+per-pane dispatch evidence (the capture contract on the worker's fd
+1/2), and the orphan class moved ahead of the roster spare. Reaping also
+fails closed: <code>psPidsMatching</code> and
+<code>pidAncestryCommands</code> now report whether the probe answered
+at all — pgrep's exit-1 "no match" is an answer (no collector, reap), an
+absent binary / the 5s cap / a rejected pattern / an unfinished ancestry
+walk is not (spare) — because a reaper that read "could not inspect" as
+"no collector" would close every live pane on such a host. Test seams:
+<code>DEVAGENT_SWEEP_OWNER_PIDS_JSON</code> is keyed by the pattern
+asked for and a miss now counts as an unanswered probe (never a clean
+no-match), <code>DEVAGENT_SWEEP_PANE_CAPTURE_JSON</code> supplies
+pane-keyed evidence — and because the 2026-09-13 bug survived a green
+stub suite, both shapes are pinned from outside:
+<code>TestProcFdsCaptureSeesRealCaptureContract</code> runs the real
+<code>lsof</code> probe against a live child holding
+<code>&lt;tmp&gt;/devagent-herdr-&lt;n&gt;/out</code> on fd 1/2 (skipped
+where lsof is absent),
+<code>TestPaneRunOwnerPatternMatchesRealDispatchShapes</code> checks
+<code>paneRunOwnerPattern</code> against the command lines
+<code>internal/loopdriver</code> really builds and against the transient
+<code>herdr pane run</code> shape it used to search for, and
+<code>TestOrphanClassGoesInertWhenProbesCannotAnswer</code> pins the
+spare-on-no-answer direction at the matrix level.
+<code>TestPsPidsMatchingAnswersOnlyWhenPgrepAnswers</code> pins the same
+split against real <code>pgrep</code> exit codes: 1 means no collector
+(reap), 2 means the probe could not run (spare). Docs corrected:
+FR-VIS-02/07/10, §18 Q23, <code>docs/HERDR.md</code> sweep safety. *Last
+updated: 2026-09-12 (the rescue reaches CLOSED-but-unmerged pull
+requests: a goal-named closed PR is reopened and merged, or lands
 nothing) — the driver-side verify-and-merge rescue, and the goal-text
 derivation feeding it, only accepted subjects that read
 <code>OPEN</code> before the dispatch, so the false closes were
