@@ -251,3 +251,4 @@
 {"loop":290,"ts":"2026-09-12T12:27:14Z","status":"failed","goal":"Goal: Stamp the git revision into the Go driver at build time and make staleness loud. Use `debug.ReadBuildInfo()` vcs.revision in `internal/version` (a `Revisi"}
 {"loop":291,"ts":"2026-09-12T14:52:38Z","status":"failed","goal":"Goal: Make the Go driver self-identify its build revision so silent binary staleness is loud — six wasted loops (285–290) trace to it. Add `Revision()` to inter"}
 {"loop":292,"ts":"2026-09-12T16:06:54Z","status":"pr-open","goal":"Diagnosis complete: loops 290/291 died on transient infra retries mid-implement (run logs show Transient infra failure ×2, zero commits — both task branches sit"}
+{"loop":293,"ts":"2026-09-12T18:30:33Z","status":"failed","goal":"Goal: Stop markdown noise and truncated captures from burning iterations in `internal/loopdriver`. In `validateGoalShape` (dispatch.go), canonicalize before the"}
