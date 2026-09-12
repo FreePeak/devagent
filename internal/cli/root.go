@@ -235,9 +235,11 @@ func parentNames(cmd *cobra.Command) []string {
 // NewRoot builds the full cobra tree.
 func NewRoot() *cobra.Command {
 	root := &cobra.Command{
-		Use:     "devagent",
-		Short:   "Autonomous backend delivery agent: ticket to tested PR",
-		Version: version.Version,
+		Use:   "devagent",
+		Short: "Autonomous backend delivery agent: ticket to tested PR",
+		// The revision rides --version so a stale driver binary is
+		// diagnosable from one paste (loops 290/291 died on this class).
+		Version: version.Version + " (rev " + version.Revision() + ")",
 	}
 	root.SetVersionTemplate("{{.Version}}\n")
 	// commander prints usage on parse errors but not on action errors; cobra

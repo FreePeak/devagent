@@ -13,6 +13,7 @@ import (
 
 	"github.com/FreePeak/devagent/internal/ledger"
 	"github.com/FreePeak/devagent/internal/tui"
+	versionpkg "github.com/FreePeak/devagent/internal/version"
 	"github.com/spf13/cobra"
 )
 
@@ -231,15 +232,14 @@ func recordCommand() *cobra.Command {
 			}
 			version := strings.TrimPrefix(tag, "v")
 			ledger.AppendReleaseRecord(repo, ledger.ReleaseRecord{
-				TS:      time.Now().UTC().Format("2006-01-02T15:04:05.000Z07:00"),
-				Kind:    "event",
-				TaskID:  "release/" + version,
-				Attempt: 1,
-				Event:   "release-created",
-				Tag:     tag,
-				SHA:     sha,
-				Version: version,
-				Source:  source,
+				TS:       time.Now().UTC().Format("2006-01-02T15:04:05.000Z07:00"),
+				Kind:     "event",
+				TaskID:   "release/" + version,
+				Attempt:  1,
+				Event:    "release-created",
+				Version:  version,
+				Revision: versionpkg.Revision(),
+				Source:   source,
 			})
 			fmt.Printf("recorded release-created %s (%s @ %s) -> .devagent/runs/orchestration/events.jsonl\n", version, tag, sha)
 			return nil

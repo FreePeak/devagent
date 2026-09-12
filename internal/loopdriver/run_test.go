@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/FreePeak/devagent/internal/queue"
+	"github.com/FreePeak/devagent/internal/version"
 )
 
 // frozenClock returns a Now func advancing one second per call, starting at
@@ -2178,5 +2180,77 @@ func TestRunLoopRejectsMalformedGoalShape(t *testing.T) {
 	// empty devagent call log proves nothing was dispatched.
 	if calls, err := os.ReadFile(filepath.Join(repo, "devagent-calls.log")); err == nil && strings.Contains(string(calls), "task") {
 		t.Fatalf("malformed goal reached the task dispatch: %s", calls)
+	}
+}
+
+// TestRunLoopStaleBinaryWarns pins the driver's self-identification guard
+// (2026-09-12): a binary that cannot name its revision — the go-test binary
+// is exactly that shape — must WARN at startup; a revision differing from
+// the fixture HEAD must WARN naming both sides; a matching revision stays
+// quiet. The warn is advisory: every arm still runs and exits 0.
+func TestRunLoopStaleBinaryWarns(t *testing.T) {
+	old := version.RevisionOverride
+	t.Cleanup(func() { version.RevisionOverride = old })
+
+	// committedFixture returns a fixture repo with one commit plus its HEAD.
+	committedFixture := func() (string, string) {
+		t.Helper()
+		repo := initFixtureRepo(t)
+		installFakes(t, repo)
+		writeRepoFile(t, repo, "docs/PRD.md", "# PRD\n")
+		runGit := func(args ...string) string {
+			t.Helper()
+			cmd := exec.Command("git", args...)
+			cmd.Dir = repo
+			cmd.Env = append(os.Environ(),
+				"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=test@example.com",
+				"GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=test@example.com")
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+			}
+			return string(out)
+		}
+		runGit("add", "-A")
+		runGit("commit", "-q", "-m", "init")
+		return repo, strings.TrimSpace(runGit("rev-parse", "HEAD"))
+	}
+
+	runLoop := func(repo string) (int, string) {
+		t.Helper()
+		now, _ := frozenClock()
+		var stderr bytes.Buffer
+		cfg := loopConfigFor(t, repo, func(c *LoopConfig) {
+			c.Now = now
+			c.Stderr = &stderr
+		})
+		return RunLoop(cfg), stderr.String()
+	}
+
+	// Arm 1 — unknown revision (the go-test binary's own shape).
+	version.RevisionOverride = ""
+	repo, _ := committedFixture()
+	if rc, out := runLoop(repo); rc != 0 {
+		t.Fatalf("rc = %d, want 0 (the warn is advisory)", rc)
+	} else if !strings.Contains(out, "WARN: stale binary") || !strings.Contains(out, "no revision") {
+		t.Fatalf("unstamped warn missing from stderr:\n%s", out)
+	}
+
+	// Arm 2 — revision differs from HEAD.
+	version.RevisionOverride = "0000000000000000000000000000000000000000"
+	repo, _ = committedFixture()
+	if rc, out := runLoop(repo); rc != 0 {
+		t.Fatalf("rc = %d, want 0 (the warn is advisory)", rc)
+	} else if !strings.Contains(out, "WARN: stale binary") || !strings.Contains(out, "repo HEAD is") {
+		t.Fatalf("mismatch warn missing from stderr:\n%s", out)
+	}
+
+	// Arm 3 — matching revision: quiet, a current binary warns nowhere.
+	repo, head := committedFixture()
+	version.RevisionOverride = head
+	if rc, out := runLoop(repo); rc != 0 {
+		t.Fatalf("rc = %d, want 0 (the warn is advisory)", rc)
+	} else if strings.Contains(out, "stale binary") {
+		t.Fatalf("matching revision still warned:\n%s", out)
 	}
 }
