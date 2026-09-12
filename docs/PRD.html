@@ -2242,7 +2242,21 @@ the repo test gate onto the merged tree before verdicting it. The ledger
 status stays <code>ok</code>: <code>internal/lessons</code> scores any
 non-<code>ok</code> loop-result row as a failed loop, so the land is
 recorded in the iteration log, the <code>loop-phase</code> detail and
-the row's goal text instead.</p>
+the row's goal text instead. 2026-09-12 (landing evidence): the ship
+gate's artifact half. A merge verdict that rests on a pull request must
+show that pull request's touched implementation files on main via the
+<code>gh api</code> files/tree reads (docs surfaces exempt), or the
+iteration records the non-productive
+<code>landed-without-artifact</code> row with the tracker issue left
+live; a pick-time fingerprint preflight then refuses to re-dispatch that
+goal — retiring the queue claim as <code>failed</code> with the
+preflight detail (the shape gate's lease-recycling precedent) — because
+the same MERGED stamp would otherwise re-ship the same nothing
+(<code>internal/loopdriver/run.go</code>, <code>artifacts.go</code>).
+Motivation: loop 276 recorded <code>ok</code> for PR #342 (its
+auto-cleanup-snapshot merge never carried the new test file to main) and
+loop 277 burned a full iteration re-running that already-"landed"
+goal.</p>
 </blockquote>
 <p><del>- <strong>Cross-board retry memory beyond the SHA guard</strong>
 — commit 60638d3 stops re-issuing shipped goals, but re-queued failures
@@ -4814,9 +4828,40 @@ existing driver with validation surfaces (test, command, telemetry,
 chaos schedule) so "the driver works perfectly" is a checkable claim,
 not a hope.</p>
 <hr />
-<p><em>Last updated: 2026-09-12 (goal-shape follow-up: queue-claim
-retirement + producer scope) — the shape gate's word cap binds every
-producer, not just PO output: a human goal from
+<p><em>Last updated: 2026-09-12 (landing evidence: a ship needs
+artifacts on main) — <code>merged = shipped</code> trusted gh's status
+stamp alone, and three consecutive iterations (276–278) proved the stamp
+lies: loop 276 recorded <code>ok</code> for PR #342 (merged only as an
+auto-cleanup snapshot — the test file it was meant to add never reached
+main) and loop 277 burned a full iteration re-running that
+already-"landed" goal. The driver's verify-and-merge path now verifies
+the artifact half: <code>landedArtifactsVerified</code>
+(internal/loopdriver/artifacts.go) lists the merged PR's touched files
+and main's tree over the <code>gh api</code> files API and requires
+every touched implementation file to exist on main (docs surfaces exempt
+— a PRD regen ships alone; a file the PR <code>deleted</code> is no
+claim, and a truncated tree list reads as cannot-say); a mismatch
+records the non-productive <code>landed-without-artifact</code> row and
+returns before the <code>ok</code> write, so the queue claim and tracker
+issue stay live, and a pick-time preflight greps the ledger for the
+goal's fingerprint (the Q27 guard's 60-char key) on those rows and skips
+the dispatch instead of re-reading the same MERGED stamp — retiring that
+claim as <code>failed</code> with the preflight detail (the shape gate's
+lease-recycling precedent) while the issue stays open. A gh that cannot
+answer logs and passes — evidence gate, not a second availability gate —
+and both decoders were checked against the real repository before the
+fixtures were trusted. Covered by
+<code>TestRunLoopMergedWithoutArtifactRecordsEvidenceRow</code>,
+<code>TestRunLoopMergePickRescuedByDriverSideMerge</code>
+(artifact-backed ship),
+<code>TestRunLoopPreflightSkipsGoalLandedWithoutArtifact</code>,
+<code>TestLandedArtifactsVerifiedIgnoresRemovedAndTruncated</code> and
+<code>TestLedgerLandingFingerprint</code>; the goal-shape fix PR #343
+was recovered in the same iteration (re-opened, head 50891d5 verified
+with <code>go test ./...</code> in a throwaway worktree, merged as
+38e6513).</em> <em>Last updated: 2026-09-12 (goal-shape follow-up:
+queue-claim retirement + producer scope) — the shape gate's word cap
+binds every producer, not just PO output: a human goal from
 <code>POST /dispatch</code> or a scout-enqueued queue row past the
 120-word statement budget is refused at the boundary too (the PO prompt
 is the one statement contract all dispatched goals trace back to;

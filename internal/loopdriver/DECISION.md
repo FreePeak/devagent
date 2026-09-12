@@ -151,3 +151,65 @@ actually did lives in the iteration log, `loop-phase` detail, and goal text.
    correctly leaves the issue re-pickable.
 
 (Recorded 2026-09-11; shipped as PR #328.)
+
+## DECISION: a ship verdict needs artifacts on main (2026-09-12, TASK-mtxqd5xx-23cu)
+
+`merged = shipped` reads gh's status stamp, and three consecutive iterations
+(276-278) proved the stamp alone lies: loop 276 recorded `ok` for PR #342,
+which had merged as an auto-cleanup snapshot only — the new test file it was
+supposed to add never reached main — and loop 277 then burned a full
+iteration re-running that already-"landed" goal. The driver now verifies the
+artifact half of every ship verdict, on both ends:
+
+1. **Landing-evidence gate (post-merge).** When the iteration's ship evidence
+   is a merged pull request (`evidencePR`), `landedArtifactsVerified` lists
+   the PR's touched files (`gh api …/pulls/N/files`) and main's tree
+   (`gh api …/git/trees/main?recursive=1`) and requires every touched
+   implementation file to exist as a blob on main. Docs surfaces (`docs/`,
+   `*.md`) carry no implementation claim and are excluded — a
+   PRD-regeneration PR legitimately ships alone. A mismatch records the
+   non-productive `landed-without-artifact` row and returns before the
+   `ok`/`pr-open` write, so the queue claim and the tracker issue stay live:
+   the work is not on main, and the next iteration may run it again. A gh
+   that cannot answer (down, empty GHRepo, unparseable body) logs and passes
+   — the gate is evidence against false merges, not a second availability
+   gate.
+2. **Pick-time preflight.** Before a dispatch, the goal's fingerprint — the
+   Q27 guard's rule-1 key, the first 60 normalized characters — is grepped
+   for on `landed-without-artifact` rows; a match records `skipped` and does
+   not dispatch. Without it the re-picked goal re-reads the same MERGED
+   stamp and re-records the same artifact-less ship. Shipped rows stay the
+   Q27 guard's business: its verdict closes the issue, which this one must
+   not. The matched **queue claim is retired `failed`** with the preflight
+   detail (the shape gate's lease-recycling precedent: a claim left sitting
+   re-claims after its lease and re-burns a skipped row every cycle, never
+   reaching the halt on its own). The tracker issue stays open — the work is
+   not on main, and what to do about that is the operator's call, not the
+   loop's.
+
+`landed-without-artifact` is deliberately outside `ProductiveStatuses`
+(internal/orchestrator): it is not a ship, it does not break the starvation
+streak, and the loop halts for the operator instead of spinning. The row key
+order and status vocabulary contract above is untouched — the vocabulary
+already carried non-productive members (`no-pr`, `failed-*`, `invalid`), and
+consumers read unknown statuses as non-success (internal/lessons
+`isLoopSuccess`, the TUI palette's default).
+
+Recovery note: the goal-shape fix PR #343 (validateGoalShape at the dispatch
+boundary) was landed by this iteration directly — re-opened, head `50891d5`
+verified with `go test ./...` in a throwaway worktree, merged as `38e6513` —
+so it was not merged by the driver and did not itself exercise the gate
+live. Both branches are pinned by fixture tests instead:
+`TestRunLoopMergedWithoutArtifactRecordsEvidenceRow`,
+`TestRunLoopMergePickRescuedByDriverSideMerge` (artifact-backed ship),
+`TestRunLoopPreflightSkipsGoalLandedWithoutArtifact`,
+`TestLedgerLandingFingerprint`.
+
+Live decode note: the two API reads were checked against the real repository
+before the fixtures were trusted — `pulls/343/files` returns `filename` plus
+the lowercase `status` (`added`/`modified`/`removed`/`renamed`), and
+`git/trees/main?recursive=1` returns `truncated` plus `tree[].path`/`type`
+(`blob`/`tree`). A decode that silently mismatched would pass every merge as
+cannot-say while every test stayed green.
+
+(Recorded 2026-09-12; TASK-mtxqd5xx-23cu.)

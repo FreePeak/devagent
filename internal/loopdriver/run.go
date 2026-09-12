@@ -316,8 +316,11 @@ func (d *driver) runIteration(n int, logF io.Writer, gradient, clusters string) 
 	goal := strings.TrimRight(goalText, "\n")
 
 	// Q27 guard: never re-implement a goal that already shipped (a ledger
-	// entry with a productive status carries the same text).
-	if v := orchestrator.AlreadyShipped(goal, ledgerLines(cfg.Repo)); v.Shipped {
+	// entry with a productive status carries the same text). One ledger
+	// snapshot serves both guards below, so the preflight judges the same
+	// rows this guard did.
+	ledger := ledgerLines(cfg.Repo)
+	if v := orchestrator.AlreadyShipped(goal, ledger); v.Shipped {
 		d.record(logF, n, "skipped", goal)
 		if queued != nil {
 			_ = markQueueTaskDone(cfg.Repo, queued.ID, "done", "already shipped (Q27 guard)", queued)
@@ -327,6 +330,23 @@ func (d *driver) runIteration(n int, logF io.Writer, gradient, clusters string) 
 		}
 		_, _ = fmt.Fprintf(logF, "[ok] loop %d skipped (already shipped)\n", n)
 		return outcomeNextReset
+	}
+	// Landing-evidence preflight: a goal whose previous landing recorded
+	// landed-without-artifact must not be dispatched again — the merge behind
+	// that row already read MERGED, so the re-run would re-read the same
+	// stamp and record the same nothing. It sits beside the Q27 guard, ahead
+	// of the DryRun branch, because it is the same kind of dispatch decision:
+	// a dry run rehearses the verdict (and dispatches nothing either way).
+	// The tracker issue stays open — the work is not on main — while the
+	// queue claim is retired, or it would re-claim after its lease and
+	// re-burn a skipped row every cycle (the shape gate's precedent).
+	if ledgerLandingFingerprint(goal, ledger) != "" {
+		_, _ = fmt.Fprintln(logF, "[verify] goal fingerprint matches a landed-without-artifact row — skipping dispatch")
+		d.record(logF, n, "skipped", goal)
+		if queued != nil {
+			_ = markQueueTaskDone(cfg.Repo, queued.ID, "failed", preflightRejectedDetail, queued)
+		}
+		return outcomeSkip // bash: continue
 	}
 
 	if cfg.DryRun {
@@ -362,12 +382,20 @@ func (d *driver) runIteration(n int, logF io.Writer, gradient, clusters string) 
 	// its publish evidence. The pick-time OPEN guard is what makes the evidence
 	// mean anything: without it, a pull request merged last week would "prove"
 	// an iteration that did nothing.
-	landed := pick.mergePR != 0 && d.prMerged(pick.mergePR) ||
-		rescuedPR != 0 && d.prMerged(rescuedPR)
+	//
+	// evidencePR is the pull request whose merged state carries this
+	// iteration's ship evidence — the landing-evidence gate's subject below.
+	landed := false
+	evidencePR := 0
+	if pick.mergePR != 0 && d.prMerged(pick.mergePR) {
+		landed, evidencePR = true, pick.mergePR
+	} else if rescuedPR != 0 && d.prMerged(rescuedPR) {
+		landed, evidencePR = true, rescuedPR
+	}
 	shipped := prURL != "" || landed
 	if cfg.PushMode == "pr" && !shipped {
 		if pr := d.verifyAndMergeRescue(n, logF, pick.mergePR, issueNum); pr != 0 {
-			rescuedPR = pr
+			rescuedPR, evidencePR = pr, pr
 			landed = true
 		} else {
 			_, _ = fmt.Fprintln(logF, "[publish] task succeeded without opening a PR — leaving the issue open for re-pick")
@@ -426,11 +454,28 @@ func (d *driver) runIteration(n int, logF io.Writer, gradient, clusters string) 
 	// whose PR merged (`landed`), the opened PR having merged since (auto-
 	// merge or a human — #323 Case B: the loop used to close the issue at
 	// PR-open, stranding six shipped-but-unmergeable branches), and main
-	// push mode (commit+push above).
+	// push mode (commit+push above). evidencePR names the pull request the
+	// first two rest on, for the artifact gate below.
 	merged := landed || cfg.PushMode == "main"
-	if prNum := prNumberFromURL(prURL); prNum != 0 && d.prMerged(prNum) {
-		merged = true
+	if evidencePR == 0 {
+		if prNum := prNumberFromURL(prURL); prNum != 0 && d.prMerged(prNum) {
+			evidencePR = prNum
+			merged = true
+		}
 	}
+
+	// Landing-evidence gate: a merge verdict must be backed by the artifacts
+	// on main, not just gh's status stamp — loop 276 recorded `ok` for a PR
+	// merged only as an auto-cleanup snapshot while its implementation files
+	// never reached main. A PR whose touched implementation files are absent
+	// records the non-productive landed-without-artifact row and leaves the
+	// queue claim and tracker issue live, so the work stays pickable instead
+	// of reading as shipped.
+	if evidencePR != 0 && !d.landedArtifactsVerified(logF, evidencePR) {
+		d.record(logF, n, landedWithoutArtifactStatus, goal)
+		return outcomeSkip // bash: continue
+	}
+
 	// A landed merge records `ok` rather than `merged`: internal/lessons
 	// scores the Q39 lesson impact over loop-result rows (guard.go), and the
 	// TUI palette keys on `ok` — either a distinct label would read a

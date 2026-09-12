@@ -71,6 +71,11 @@ case "$1 $2" in
       printf '%s' "$GH_ISSUES_JSON"
     fi ;;
   "issue close") exit 0 ;;
+  # The landing-evidence gate's two API reads: the PR's touched files and
+  # main's tree (GH_PR_FILES_JSON / GH_TREE_JSON; empty = gh cannot say, the
+  # gate's skip branch). Every other api call still answers the timeline.
+  "api repos/"*"/pulls/"*"/files"*) printf '%s' "$GH_PR_FILES_JSON" ;;
+  "api repos/"*"/git/trees/"*) printf '%s' "$GH_TREE_JSON" ;;
   api\ *) printf '%s' "$GH_TIMELINE_JSON" ;;
   # gh 2.98 pipes --json output (compact); prState decodes, so the shape is
   # the real one and the driver must not care. GH_PR_STATE answers every call;
@@ -543,6 +548,11 @@ func TestRunLoopMergePickRescuedByDriverSideMerge(t *testing.T) {
 	t.Setenv("GH_PR_STATE_OPEN_CALLS", "4")
 	t.Setenv("GH_PR_STATE_OPEN_CALLS_FILE", filepath.Join(t.TempDir(), "pr-view-calls"))
 	t.Setenv("GH_PR_STATE", "MERGED")
+	// The landing-evidence gate reads the merged PR's files and main's tree:
+	// the code file is on main, and the PRD path (a doc, so outside the
+	// gate's claim) is listed but present nowhere — the PR still ships.
+	t.Setenv("GH_PR_FILES_JSON", `[{"filename":"internal/loopdriver/dispatch.go"},{"filename":"docs/PRD.md"}]`)
+	t.Setenv("GH_TREE_JSON", `{"tree":[{"path":"internal/loopdriver/dispatch.go","type":"blob"}],"truncated":false}`)
 	now, _ := frozenClock()
 	cfg := loopConfigFor(t, repo, func(c *LoopConfig) {
 		c.Now = now
@@ -575,6 +585,188 @@ func TestRunLoopMergePickRescuedByDriverSideMerge(t *testing.T) {
 	if !strings.Contains(string(logData), "[verify] run ended without shipping evidence — driver-side verify-and-merge of open PR #298") {
 		t.Fatalf("rescue not logged:\n%s", logData)
 	}
+	// The ship is artifact-backed: the gate consulted the files API for the
+	// merged PR and main's tree before the row was recorded `ok`.
+	assertFileContains(t, filepath.Join(repo, "devagent-calls.log"), "gh api repos/FreePeak/devagent/pulls/298/files")
+	assertFileContains(t, filepath.Join(repo, "devagent-calls.log"), "gh api repos/FreePeak/devagent/git/trees/main")
+	if !strings.Contains(string(logData), "[verify] PR #298's implementation files verified on main") {
+		t.Fatalf("artifact verification not logged:\n%s", logData)
+	}
+}
+
+// The landing-evidence gate's failure branch: the rescue merges PR #298 on
+// gh's MERGED stamp, but the files API shows its touched implementation file
+// absent from main — loop 276's class, where #342 merged only as an
+// auto-cleanup snapshot and the new test file never arrived. The row must be
+// the non-productive landed-without-artifact, the tracker issue must stay
+// open, and no dispatcher-side close may fire.
+func TestRunLoopMergedWithoutArtifactRecordsEvidenceRow(t *testing.T) {
+	repo := initFixtureRepo(t)
+	installFakes(t, repo)
+	seedResearchOutput(t, researchMergePick)
+	t.Setenv("GH_ISSUES_JSON", `[{"number":290,"title":"FR-VAL-02: devagent doctor","labels":[{"name":"priority:P0"}]}]`)
+	t.Setenv("DEVAGENT_FAKE_TASK_NO_PR", "1")
+	t.Setenv("GH_PR_STATE_OPEN_CALLS", "4")
+	t.Setenv("GH_PR_STATE_OPEN_CALLS_FILE", filepath.Join(t.TempDir(), "pr-view-calls"))
+	t.Setenv("GH_PR_STATE", "MERGED")
+	// Merged per gh, missing per main's tree: the artifact-less merge.
+	t.Setenv("GH_PR_FILES_JSON", `[{"filename":"internal/ledger/runregistry_sim_test.go"}]`)
+	t.Setenv("GH_TREE_JSON", `{"tree":[{"path":"internal/loopdriver/dispatch.go","type":"blob"}],"truncated":false}`)
+	now, _ := frozenClock()
+	cfg := loopConfigFor(t, repo, func(c *LoopConfig) {
+		c.Now = now
+		c.GHRepo = "FreePeak/devagent"
+		c.GhRun = execFakeGh
+	})
+	cfg.DryRun = false
+	if rc := RunLoop(cfg); rc != 0 {
+		t.Fatalf("rc = %d, want 0", rc)
+	}
+	rows := readLedger(t, repo)
+	if rows[0]["status"] != landedWithoutArtifactStatus ||
+		!strings.HasPrefix(rows[0]["goal"].(string), "Goal: Land GitHub issue #290") {
+		t.Fatalf("rows: %v, want the landed-without-artifact evidence row", rows)
+	}
+	for _, row := range rows {
+		if row["status"] == "ok" {
+			t.Fatalf("artifact-less merge recorded as shipped: %v", rows)
+		}
+	}
+	calls, err := os.ReadFile(filepath.Join(repo, "devagent-calls.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(calls), "gh pr merge 298") {
+		t.Fatalf("rescue did not merge, calls:\n%s", calls)
+	}
+	// The issue stays open for a re-pick: the work is not on main.
+	if strings.Contains(string(calls), "gh issue close") {
+		t.Fatalf("issue closed on an artifact-less merge, calls:\n%s", calls)
+	}
+	logData, err := os.ReadFile(filepath.Join(repo, ".selfbuild", "logs", "loop-1.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(logData), "[verify] PR #298 merged but absent from main: internal/ledger/runregistry_sim_test.go") {
+		t.Fatalf("artifact mismatch not logged:\n%s", logData)
+	}
+}
+
+// The landing-evidence preflight's skip branch, end to end: a goal whose
+// fingerprint sits on a landed-without-artifact row must not be dispatched
+// again — the merge behind that row already read MERGED, so the re-run would
+// re-read the same stamp and record the same nothing. The claim is retired
+// (the shape gate's lease-recycling precedent) and the issue stays open.
+func TestRunLoopPreflightSkipsGoalLandedWithoutArtifact(t *testing.T) {
+	repo := initFixtureRepo(t)
+	installFakes(t, repo)
+	if _, err := queue.EnqueueTask(repo, queue.EnqueueInput{
+		ID:    "TASK-1",
+		Title: "Fix the loop ledger numbering",
+		Goal:  "Goal: Fix the loop ledger numbering",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// A previous iteration landed this exact goal without artifacts.
+	if err := os.MkdirAll(filepath.Join(repo, ".selfbuild"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	prior := `{"loop":1,"ts":"2026-09-08T00:00:00Z","status":"` + landedWithoutArtifactStatus + `","goal":"Goal: Fix the loop ledger numbering"}` + "\n"
+	if err := os.WriteFile(filepath.Join(repo, ".selfbuild", "ledger.jsonl"), []byte(prior), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	now, _ := frozenClock()
+	// The seeded row makes this loop 2: raise the cap so the iteration runs.
+	cfg := loopConfigFor(t, repo, func(c *LoopConfig) { c.Now = now; c.MaxIterations = 3 })
+	cfg.DryRun = false
+	if rc := RunLoop(cfg); rc != 0 {
+		logData, _ := os.ReadFile(filepath.Join(repo, ".selfbuild", "logs", "loop-2.log"))
+		t.Fatalf("rc = %d, want 0\nlog:\n%s", rc, logData)
+	}
+	rows := readLedger(t, repo)
+	if len(rows) < 2 || rows[1]["status"] != "skipped" {
+		t.Fatalf("rows: %v, want the fingerprint skip after the prior row", rows)
+	}
+	calls, err := os.ReadFile(filepath.Join(repo, "devagent-calls.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(calls), "devagent task --prompt Goal: Fix the loop ledger numbering") {
+		t.Fatalf("fingerprinted goal dispatched anyway, calls:\n%s", calls)
+	}
+	// The claim is retired (the shape gate's precedent): left live it would
+	// re-claim after its lease and re-burn a skipped row every cycle, never
+	// reaching this state again on its own.
+	taskData, err := os.ReadFile(filepath.Join(repo, ".devagent", "queue", "TASK-1.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var task struct {
+		Status    string `json:"status"`
+		LastError string `json:"lastError"`
+	}
+	if err := json.Unmarshal(taskData, &task); err != nil {
+		t.Fatal(err)
+	}
+	if task.Status != "failed" || task.LastError != preflightRejectedDetail {
+		t.Fatalf("queue claim not retired with the preflight detail: status %q, lastError %q", task.Status, task.LastError)
+	}
+	assertFileContains(t, filepath.Join(repo, ".selfbuild", "logs", "loop-2.log"),
+		"[verify] goal fingerprint matches a landed-without-artifact row — skipping dispatch")
+}
+
+// The fingerprint matcher's two branches: only a landed-without-artifact row
+// whose goal carries the key (the first 60 normalized characters) matches —
+// shipped rows are the Q27 guard's verdict, not this preflight's.
+func TestLedgerLandingFingerprint(t *testing.T) {
+	key := "Goal: Fix the loop ledger numbering"
+	rows := []string{
+		`{"loop":1,"ts":"2026-09-08T00:00:00Z","status":"ok","goal":"` + key + `"}`,
+		`{"loop":2,"ts":"2026-09-08T00:00:01Z","status":"` + landedWithoutArtifactStatus + `","goal":"Goal: Port the worker adapters"}`,
+		`{"loop":3,"ts":"2026-09-08T00:00:02Z","status":"` + landedWithoutArtifactStatus + `","goal":"` + key + `"}`,
+	}
+	if got := ledgerLandingFingerprint(key, rows); !strings.Contains(got, `"loop":3`) {
+		t.Fatalf("fingerprint matched the wrong row: %q", got)
+	}
+	if got := ledgerLandingFingerprint("Goal: Some unrelated work", rows); got != "" {
+		t.Fatalf("unrelated goal matched: %q", got)
+	}
+	if got := ledgerLandingFingerprint(key, []string{rows[0]}); got != "" {
+		t.Fatalf("a shipped row is the Q27 guard's match, not this preflight's: %q", got)
+	}
+	if got := ledgerLandingFingerprint("", rows); got != "" {
+		t.Fatalf("empty goal matched: %q", got)
+	}
+}
+
+// The gate's cannot-claim decisions, unit-level: a file the PR deleted is not
+// an artifact claim (main is supposed to lack it), and a truncated tree
+// listing is not evidence of absence — both pass where a plain missing
+// implementation file fails.
+func TestLandedArtifactsVerifiedIgnoresRemovedAndTruncated(t *testing.T) {
+	repo := initFixtureRepo(t)
+	installFakes(t, repo)
+	d := &driver{cfg: loopConfigFor(t, repo, func(c *LoopConfig) { c.GHRepo = "FreePeak/devagent" })}
+	var log bytes.Buffer
+	assertVerified := func(want bool, why string) {
+		t.Helper()
+		log.Reset()
+		if got := d.landedArtifactsVerified(&log, 298); got != want {
+			t.Fatalf("%s: verified = %v, want %v\nlog:\n%s", why, got, want, log.String())
+		}
+	}
+	t.Setenv("GH_PR_FILES_JSON", `[{"filename":"internal/new.go","status":"added"},{"filename":"internal/old.go","status":"removed"}]`)
+	t.Setenv("GH_TREE_JSON", `{"tree":[{"path":"internal/new.go","type":"blob"}],"truncated":false}`)
+	assertVerified(true, "a deleted file is not a claim")
+	// The same PR's added file absent from a complete tree is the mismatch.
+	t.Setenv("GH_TREE_JSON", `{"tree":[{"path":"internal/other.go","type":"blob"}],"truncated":false}`)
+	assertVerified(false, "a missing added file is the artifact-less merge")
+	// A truncated listing cannot be judged.
+	t.Setenv("GH_TREE_JSON", `{"tree":[{"path":"internal/other.go","type":"blob"}],"truncated":true}`)
+	assertVerified(true, "a truncated tree is not evidence of absence")
+	// Nor a gh that cannot answer at all.
+	t.Setenv("GH_TREE_JSON", ``)
+	assertVerified(true, "gh unable to answer passes with a log line")
 }
 
 // Same rescue on the failure path: a task dispatch that exits nonzero must
