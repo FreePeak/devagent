@@ -239,3 +239,4 @@
 {"loop":278,"ts":"2026-09-12T01:45:09Z","status":"pr-open","goal":"Goal: Validate goal shape at the dispatch boundary in `internal/loopdriver`. A goal file is valid only if its first non-blank line starts with `Goal:` — replace"}
 {"loop":279,"ts":"2026-09-12T02:49:20Z","status":"pr-open","goal":"Goal: Close the landing-evidence gap in `internal/loopdriver`. First, recover the existing fix: `gh pr reopen 343`, verify checks and `go test ./...` on head 50"}
 {"loop":280,"ts":"2026-09-12T03:16:40Z","status":"no-pr","goal":"Goal: Land PR #344 (branch `devagent/TASK-mtxqd5xx-23cu`, head `543bcde`) — the loopdriver landing-evidence fix already open; do not re-implement it. Every gh c"}
+{"loop":281,"ts":"2026-09-12T04:19:29Z","status":"pr-open","goal":"Goal: Close the fallback-route landing-evidence gap in `internal/loopdriver/run.go`. Off the tracker path `pick.mergePR` is 0, so PO/queued goals like `Goal: La"}
