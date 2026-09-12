@@ -739,6 +739,140 @@ func TestLedgerLandingFingerprint(t *testing.T) {
 	}
 }
 
+// The fallback route's landing evidence (loops 270/271/274/280): a queued or
+// PO goal never came through a tracker pick, so pick.mergePR is 0 and a goal
+// naming the pull request to land had no evidence subject — the worker merged
+// it mid-run and the iteration still recorded no-pr. The goal text now
+// supplies the subject, under the pick-time OPEN guard, and the derived PR
+// rides the existing evidencePR/landedArtifactsVerified wiring.
+func TestRunLoopGoalNamedOpenPRMergedRecordsShip(t *testing.T) {
+	repo := initFixtureRepo(t)
+	installFakes(t, repo)
+	if _, err := queue.EnqueueTask(repo, queue.EnqueueInput{
+		ID:    "TASK-1",
+		Title: "Land PR 344",
+		Goal:  "Goal: Land PR #344 (branch `devagent/TASK-mtxqd5xx-23cu`) — verify it and merge it; do not re-implement.",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// The PR reads OPEN when the subject is derived (what makes it landable)
+	// and MERGED by record time: the worker merged it mid-run, so this dispatch
+	// never prints "PR opened:".
+	t.Setenv("DEVAGENT_FAKE_TASK_NO_PR", "1")
+	t.Setenv("GH_PR_STATE_OPEN_CALLS", "1")
+	t.Setenv("GH_PR_STATE_OPEN_CALLS_FILE", filepath.Join(t.TempDir(), "pr-view-calls"))
+	t.Setenv("GH_PR_STATE", "MERGED")
+	t.Setenv("GH_PR_FILES_JSON", `[{"filename":"internal/loopdriver/dispatch.go"}]`)
+	t.Setenv("GH_TREE_JSON", `{"tree":[{"path":"internal/loopdriver/dispatch.go","type":"blob"}],"truncated":false}`)
+	now, _ := frozenClock()
+	cfg := loopConfigFor(t, repo, func(c *LoopConfig) {
+		c.Now = now
+		c.GHRepo = "FreePeak/devagent"
+		c.GhRun = execFakeGh
+	})
+	cfg.DryRun = false
+	if rc := RunLoop(cfg); rc != 0 {
+		logData, _ := os.ReadFile(filepath.Join(repo, ".selfbuild", "logs", "loop-1.log"))
+		t.Fatalf("rc = %d, want 0\nlog:\n%s", rc, logData)
+	}
+	rows := readLedger(t, repo)
+	if len(rows) != 1 || rows[0]["status"] != "ok" {
+		t.Fatalf("rows: %v, want the shipped ok row (never no-pr)", rows)
+	}
+	logData, err := os.ReadFile(filepath.Join(repo, ".selfbuild", "logs", "loop-1.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(logData), "[verify] goal names open PR #344") {
+		t.Fatalf("derivation not logged:\n%s", logData)
+	}
+	// Artifact-backed ship: the gate read the derived PR's files and main's
+	// tree before the row was recorded.
+	assertFileContains(t, filepath.Join(repo, "devagent-calls.log"), "gh api repos/FreePeak/devagent/pulls/344/files")
+	assertFileContains(t, filepath.Join(repo, "devagent-calls.log"), "gh api repos/FreePeak/devagent/git/trees/main")
+	if !strings.Contains(string(logData), "[verify] PR #344's implementation files verified on main") {
+		t.Fatalf("artifact verification not logged:\n%s", logData)
+	}
+	// The claim shipped: retired done rather than left to re-claim the goal.
+	assertFileContains(t, filepath.Join(repo, ".devagent", "queue", "TASK-1.json"), `"status": "done"`)
+}
+
+// The stale-mention half of the fallback route: a goal naming a pull request
+// already merged when the iteration starts must not certify itself. The
+// pick-time OPEN guard refuses the derivation, nothing ships, and the no-pr
+// row retires the claim (left live it re-claimed after its lease and re-burned
+// the same row — the lease-recycling class DECISION.md names).
+func TestRunLoopGoalNamedMergedPRRecordsNoPR(t *testing.T) {
+	repo := initFixtureRepo(t)
+	installFakes(t, repo)
+	if _, err := queue.EnqueueTask(repo, queue.EnqueueInput{
+		ID:    "TASK-1",
+		Title: "Land PR 342",
+		Goal:  "Goal: Land PR #342 — it already merged as an auto-cleanup snapshot; do not re-implement.",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DEVAGENT_FAKE_TASK_NO_PR", "1")
+	t.Setenv("GH_PR_STATE", "MERGED")
+	now, _ := frozenClock()
+	cfg := loopConfigFor(t, repo, func(c *LoopConfig) {
+		c.Now = now
+		c.GHRepo = "FreePeak/devagent"
+	})
+	cfg.DryRun = false
+	if rc := RunLoop(cfg); rc != 0 {
+		logData, _ := os.ReadFile(filepath.Join(repo, ".selfbuild", "logs", "loop-1.log"))
+		t.Fatalf("rc = %d, want 0\nlog:\n%s", rc, logData)
+	}
+	rows := readLedger(t, repo)
+	if len(rows) != 1 || rows[0]["status"] != "no-pr" {
+		t.Fatalf("rows: %v, want the no-pr row (a merged mention cannot certify)", rows)
+	}
+	logData, err := os.ReadFile(filepath.Join(repo, ".selfbuild", "logs", "loop-1.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(logData), "deriving the merge-evidence subject") {
+		t.Fatalf("a merged PR must not derive an evidence subject:\n%s", logData)
+	}
+	taskData, err := os.ReadFile(filepath.Join(repo, ".devagent", "queue", "TASK-1.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var task struct {
+		Status    string `json:"status"`
+		LastError string `json:"lastError"`
+	}
+	if err := json.Unmarshal(taskData, &task); err != nil {
+		t.Fatal(err)
+	}
+	if task.Status != "failed" || task.LastError != noPRDetail {
+		t.Fatalf("queue claim not retired with the no-pr detail: status %q, lastError %q", task.Status, task.LastError)
+	}
+}
+
+// goalMergePR reads the merge target off a goal text: a present-tense
+// land/merge/ship verb near a PR reference matches; a past-tense mention
+// ("merged PR #342") does not — mergePickRe's documented contract.
+func TestGoalMergePR(t *testing.T) {
+	cases := []struct {
+		goal string
+		want int
+	}{
+		{"Goal: Land PR #344 (branch `devagent/TASK-mtxqd5xx-23cu`) — verify it and merge it; do not re-implement.", 344},
+		{"Goal: merge PR #298 only after its checks are green", 298},
+		{"Goal: ship PR #12", 12},
+		{"Goal: recovered by the merged PR #342 — do not re-implement", 0},
+		{"Goal: Implement GitHub issue #290 in full and verifiably.", 0},
+		{"", 0},
+	}
+	for _, c := range cases {
+		if got := goalMergePR(c.goal); got != c.want {
+			t.Fatalf("goalMergePR(%q) = %d, want %d", c.goal, got, c.want)
+		}
+	}
+}
+
 // The gate's cannot-claim decisions, unit-level: a file the PR deleted is not
 // an artifact claim (main is supposed to lack it), and a truncated tree
 // listing is not evidence of absence — both pass where a plain missing

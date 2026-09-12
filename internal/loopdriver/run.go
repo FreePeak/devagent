@@ -171,6 +171,14 @@ func RunLoop(cfg LoopConfig) int {
 	}
 }
 
+// noPRDetail is the failure detail stamped on a queue claim retired by the
+// no-pr early return: the dispatch ran to completion without opening a pull
+// request and no open PR existed to rescue, so the goal produced nothing to
+// land. Left live the claim re-claims after its lease and re-burns the same
+// no-pr row every cycle — the lease-recycling class the shape gate and the
+// landing-evidence preflight both retire against (DECISION.md).
+const noPRDetail = "task ended without a pull request (no-pr)"
+
 // runIteration executes one iteration body (bash lines 241-596).
 func (d *driver) runIteration(n int, logF io.Writer, gradient, clusters string) outcome {
 	cfg := d.cfg
@@ -363,6 +371,24 @@ func (d *driver) runIteration(n int, logF io.Writer, gradient, clusters string) 
 	// cross-referenced one, or one this very run opened — the driver lands
 	// it itself instead of stopping one step short (loops 270-272 recorded
 	// failed/no-pr while green mergeable PRs sat open).
+
+	// Fallback-route landing evidence (loops 270/271/274/280): off the tracker
+	// path pick.mergePR is 0 — queued and PO goals never came through a pick —
+	// so a goal that names the pull request to land ("Goal: Land PR #344") had
+	// no evidence subject: its worker-performed merge landed mid-run and the
+	// iteration still recorded no-pr. Four false non-productive rows in eleven
+	// passes against a starvation limit of five. Derive the subject from the
+	// goal text with the matcher researchPick parses, under the pick-time OPEN
+	// guard above: a stale or incidental PR mention self-disqualifies, so
+	// nothing here can certify a do-nothing iteration. The derived PR then
+	// flows through the prMerged/evidencePR/landedArtifactsVerified wiring.
+	if pick.mergePR == 0 {
+		if pr := goalMergePR(goal); pr != 0 && d.prState(pr) == "OPEN" {
+			pick.mergePR = pr
+			_, _ = fmt.Fprintf(logF, "[verify] goal names open PR #%d — deriving the merge-evidence subject from the goal text\n", pr)
+		}
+	}
+
 	var rescuedPR int
 	rescue := func() bool {
 		rescuedPR = d.verifyAndMergeRescue(n, logF, pick.mergePR, issueNum)
@@ -400,6 +426,13 @@ func (d *driver) runIteration(n int, logF io.Writer, gradient, clusters string) 
 		} else {
 			_, _ = fmt.Fprintln(logF, "[publish] task succeeded without opening a PR — leaving the issue open for re-pick")
 			d.record(logF, n, "no-pr", goal)
+			// The claim is retired here for the same reason the shape gate
+			// retires one: left live it re-claims after its lease and re-burns
+			// the same no-pr row every cycle, walking the loop into the
+			// starvation halt instead of ever reaching a verdict.
+			if queued != nil {
+				_ = markQueueTaskDone(cfg.Repo, queued.ID, "failed", noPRDetail, queued)
+			}
 			return outcomeSkip // bash: continue
 		}
 	}
@@ -816,6 +849,22 @@ var researchPickHeadingRe = regexp.MustCompile(`(?im)^\s*#+\s*pick\b`)
 // research prompt emit `PICK: issue=#N action=merge-pr pr=#N
 // rationale=<one line>` and parse key=value instead of prose.
 var mergePickRe = regexp.MustCompile(`(?i)\b(?:merge|merges|merging|land|lands|landing|ship|ships|shipping)\b[^#.\n]{0,24}?PR\s*#(\d+)`)
+
+// goalMergePR returns the pull request a goal text names as its merge target
+// (mergePickRe above), 0 when it names none. The fallback-route
+// landing-evidence derivation: off the tracker path pick.mergePR is 0, so the
+// goal text is the only place a PO/queued iteration's pull request is named.
+func goalMergePR(goal string) int {
+	m := mergePickRe.FindStringSubmatch(goal)
+	if m == nil {
+		return 0
+	}
+	pr, err := strconv.Atoi(m[1])
+	if err != nil || pr <= 0 {
+		return 0
+	}
+	return pr
+}
 
 // researchPickText returns the pick rationale from a phase-1 research
 // artifact: the "## Pick" section body, or — with no heading — the last
