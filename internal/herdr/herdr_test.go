@@ -399,17 +399,23 @@ func TestSessionResolution(t *testing.T) {
 func TestPaneForegroundWorkerContract(t *testing.T) {
 	cli := newFakeCli(t)
 	cli.procInfo["wX:p1"] = "testdata/sweep/process-info-omp.json"
-	if !PaneForegroundWorker(cli, "wX:p1") {
+	if !PaneForegroundWorker(cli, "devagent", "wX:p1") {
 		t.Error("omp foreground should read as live")
 	}
+	// The probe is scoped to the session it asks about. Unscoped, herdr
+	// answers for its own default session, every devagent pane reports no
+	// foreground process, and liveness was false for all of them (2026-09-13).
+	if !cli.called("--session devagent pane process-info --pane wX:p1") {
+		t.Fatalf("process-info argv = %v", cli.calls)
+	}
 	cli.procInfo["wX:p2"] = "testdata/sweep/process-info-zsh.json"
-	if PaneForegroundWorker(cli, "wX:p2") {
+	if PaneForegroundWorker(cli, "devagent", "wX:p2") {
 		t.Error("zsh foreground should read as idle")
 	}
-	if PaneForegroundWorker(cli, "") {
+	if PaneForegroundWorker(cli, "devagent", "") {
 		t.Error("empty pane id should be false")
 	}
-	if PaneForegroundWorker(cli, "wX:missing") {
+	if PaneForegroundWorker(cli, "devagent", "wX:missing") {
 		t.Error("unsupported reply should be false (best-effort)")
 	}
 }
@@ -459,10 +465,20 @@ func TestLedgerNowShape(t *testing.T) {
 }
 
 func TestPidSeamsDirect(t *testing.T) {
-	orphanSeams(t, "4242\n0\nbogus\n", map[string][]string{"4242": {"bash scripts/selfbuild-loop.sh"}})
-	got := psPidsMatching("ignored")
-	if len(got) != 1 || got[0] != 4242 {
+	// The real probe drops junk and self/pid-1 rows; parsePidList owns that.
+	if got := parsePidList("4242\n0\nbogus\n"); len(got) != 1 || got[0] != 4242 {
 		t.Fatalf("pids = %v, want [4242]", got)
+	}
+	orphanSeams(t, "4242\n", map[string][]string{"4242": {"bash scripts/selfbuild-loop.sh"}})
+	// The collector stub is keyed by the pattern asked for: only what the
+	// sweep actually searches for gets an answer, and anything else is an
+	// unanswered probe (never a clean "no match", which would reap).
+	got, answered := psPidsMatching(paneRunOwnerPattern)
+	if !answered || len(got) != 1 || got[0] != 4242 {
+		t.Fatalf("pids = %v (answered=%v), want [4242] answered", got, answered)
+	}
+	if pids, ok := psPidsMatching("herdr.*pane run .*wX:p9"); ok || len(pids) != 0 {
+		t.Fatalf("unstubbed pattern = %v (answered=%v), want no answer", pids, ok)
 	}
 	if PaneRunOwnerOrphaned("wX:p9") {
 		t.Fatal("owner with live driver ancestry should NOT be orphaned")
@@ -479,10 +495,17 @@ func TestPidSeamsDirect(t *testing.T) {
 	if !HasLoopDriverAncestor([]string{"nohup devagent loop"}) {
 		t.Error("installed-binary loop driver ancestor undetected")
 	}
-	// Missing ancestry entry = no evidence = orphaned.
-	orphanSeams(t, "4242\n", map[string][]string{})
+	// A walk that completed with no driver above the collector is an answer:
+	// detached owner -> orphaned.
+	orphanSeams(t, "4242\n", map[string][]string{"4242": {}})
 	if !PaneRunOwnerOrphaned("wX:p9") {
 		t.Fatal("detached owner should be orphaned")
+	}
+	// A collector whose ancestry was never walked is no evidence at all: the
+	// reaper leaves it running.
+	orphanSeams(t, "4242\n", map[string][]string{})
+	if PaneRunOwnerOrphaned("wX:p9") {
+		t.Fatal("unanswered ancestry probe must not assert orphanhood")
 	}
 }
 
@@ -549,7 +572,9 @@ func TestFixtureFilesExist(t *testing.T) {
 		"testdata/sweep/pane-list-scratch.json",
 		"testdata/sweep/pane-list-agentless.json",
 		"testdata/sweep/pane-list-two-idle.json",
+		"testdata/sweep/pane-list-main-checkout.json",
 		"testdata/sweep/process-info-omp.json",
+		"testdata/sweep/process-info-omp-handrun.json",
 		"testdata/sweep/process-info-zsh.json",
 		"testdata/sweep/agent-list-running.json",
 		"testdata/sweep/agent-list-idle.json",

@@ -669,7 +669,7 @@ func TestKillViaAnswer(t *testing.T) {
 	if len(fake.calls) != 4 {
 		t.Fatalf("herdr calls = %v", fake.calls)
 	}
-	wantProbe := []string{"pane", "process-info", "--pane", "p2"}
+	wantProbe := []string{"--session", "sess", "pane", "process-info", "--pane", "p2"}
 	wantKeys := []string{"--session", "sess", "pane", "send-keys", "p1", "ctrl+c"}
 	wantClose := []string{"--session", "sess", "workspace", "close", "w1"}
 	if strings.Join(fake.calls[1], " ") != strings.Join(wantProbe, " ") {
