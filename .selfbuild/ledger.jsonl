@@ -272,7 +272,7 @@
 {"loop":311,"ts":"2026-09-12T23:11:41Z","status":"invalid","goal":""}
 {"loop":312,"ts":"2026-09-12T23:11:54Z","status":"invalid","goal":""}
 {"loop":313,"ts":"2026-09-12T23:12:07Z","status":"invalid","goal":""}
-{"loop":314,"ts":"2026-09-12T23:12:19Z","status":"invalid","goal":""}
+{"loop":314,"ts":"2026-09-12T23:13:28Z","status":"operator-degraded","goal":"doc-sync deferred: PRD locally modified"}
 {"loop":315,"ts":"2026-09-12T23:12:40Z","status":"invalid","goal":""}
 {"loop":316,"ts":"2026-09-12T23:12:53Z","status":"invalid","goal":""}
 {"loop":317,"ts":"2026-09-12T23:13:05Z","status":"invalid","goal":""}
