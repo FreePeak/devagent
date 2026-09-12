@@ -4945,7 +4945,27 @@ existing driver with validation surfaces (test, command, telemetry,
 chaos schedule) so "the driver works perfectly" is a checkable claim,
 not a hope.</p>
 <hr />
-<p>*Last updated: 2026-09-13 (release-created rows carry
+<p>*Last updated: 2026-09-13 (caveat on #349's revision stamp:
+linked-worktree builds mis-stamp — <a
+href="https://github.com/FreePeak/devagent/issues/352">#352</a>) — while
+verifying #349's landing we found Go's <code>-buildvcs</code> resolves
+<code>vcs.revision</code> from the shared common gitdir in a linked
+worktree, so a <code>devagent</code> binary built inside a per-task
+worktree stamps the primary checkout's <code>refs/heads/main</code> tip
+rather than its own HEAD (<code>vcs.modified=true</code>). Proven A/B at
+the same commit <code>8ca0688</code>: a plain clone stamps
+<code>8ca0688</code>, a linked worktree stamps <code>50b03e8</code>.
+Scope: this is a latent defect confined to <em>worktree-built</em>
+binaries — the shipped driver is built by
+<code>scripts/self-update.sh</code> from the primary non-worktree
+checkout (<code>go build -trimpath ./cmd/devagent</code> after
+<code>git pull --ff-only</code>), so it stamps correctly and
+<code>RunLoop</code>'s stale-binary guard behaves as intended in the
+live loop; only a manually-built worktree binary writes a wrong
+<code>release-created</code> revision and false-trips the
+(advisory-only) WARN. #349's "a stale binary is loud" holds for the
+normal-checkout build path; the worktree edge is tracked in #352. *Last
+updated: 2026-09-13 (release-created rows carry
 <code>tag</code>/<code>sha</code> again: PR #349's Revision stamp landed
 as a silent data-loss regression) — #349 added a <code>Revision</code>
 field to the Go <code>ReleaseRecord</code> but dropped
