@@ -2085,7 +2085,23 @@ same sweep closes it — <code>shipped-elsewhere</code> citing the
 <code>(#N)</code> landing commit on main, or <code>superseded</code>
 with an explicit not-shipped comment when no landing commit exists; an
 open issue keeps the PR open with a once-per-PR evidence comment
-(internal/orchestrator/pr-hygiene.go). Legacy
+(internal/orchestrator/pr-hygiene.go). Both sweep probes are
+three-valued (2026-09-12): a base branch counts as <code>gone</code>
+only on gh's own not-found answer, and the landing listing reports "no
+landing commit" only when it actually answered — transport noise
+(network failure, 5xx, rate limit) is <code>unknown</code>, so the sweep
+acts on nothing (<code>untouched</code>/<code>base-unknown</code>,
+<code>untouched</code>/<code>landing-unknown</code>) and the merge-queue
+gate reads it as alive instead of parking a mergeable PR
+(internal/orchestrator/autopr.go). No auto-close runs before an age
+floor (2026-09-12): a definitive verdict alone no longer closes a PR —
+<code>closeAgeFloorHours</code> (24h, capped by
+<code>prHygiene.graceHours</code> so a long configured window never
+delays cleanup by months) must also have elapsed, and a PR with an
+unknown age is never closed. Fresh PRs are reported
+<code>untouched</code> (<code>base-superseded-age-floor</code>,
+<code>landing-age-floor</code>) carrying the verdict that will close
+them once they age past the floor. Legacy
 <code>mergeProjectBranches</code> gated so a board that published
 per-task PRs no longer double-merges (PR #107,
 <code>src/cli.ts:850</code>). Adapter-declared
@@ -4844,20 +4860,56 @@ existing driver with validation surfaces (test, command, telemetry,
 chaos schedule) so "the driver works perfectly" is a checkable claim,
 not a hope.</p>
 <hr />
-<p><em>Last updated: 2026-09-12 (fallback-route landing evidence: the
-ship verdict off the tracker path) — <code>pick.mergePR</code> is only
-ever set by a tracker pick, so a queue- or PO-delivered goal
-(<code>Goal: Land PR #N</code>) had no evidence subject at all: loops
-270/271/274/280 each logged <code>falling back to LLM selection</code>,
-each dispatched a goal naming the pull request to land, each of those
-pull requests merged inside its own iteration window, and each recorded
-the non-productive <code>no-pr</code> row — four false negatives in
-eleven passes against a starvation limit of five, with the Q27
-already-shipped guard equally blind. <code>runIteration</code> now
-derives the merge target from the goal text (<code>goalMergePR</code>,
-the <code>mergePickRe</code> researchPick already parses) before the
-task dispatch, under the pick-time <code>prState == OPEN</code> guard,
-so the derived pull request rides the existing <code>prMerged</code> →
+<p><em>Last updated: 2026-09-12 (zombie-PR hygiene probes are
+three-valued, with an auto-close age floor) — both gh probes behind the
+<code>pr-hygiene</code> sweep collapsed "gh never answered" into a
+decisive answer: <code>BaseBranchGone</code> returned
+<code>err != nil</code>, so a network hiccup, 5xx, or rate-limit
+response on the <code>branches/&lt;base&gt;</code> lookup read as a dead
+base and the sweep CLOSED a live PR as <code>base-superseded</code> (PR
+#346: created 05:27:21Z, closed 05:28:37Z, 76s later, never merged);
+<code>landingCommitOnMain</code> returned empty on a failed or
+unparseable commit listing, so transport noise read as "no landing
+commit" and the PR was closed as <code>superseded</code> with an
+explicit "not shipped" comment. <code>ProbeBaseBranch</code>
+(internal/orchestrator/autopr.go) now answers <code>BaseAlive</code> /
+<code>BaseGone</code> / <code>BaseUnknown</code>, judging "gone" only on
+gh's own not-found stderr (<code>ghNotFound</code> reads the diagnostic,
+never the argv-embedding message, whose ref names may themselves contain
+"404"; <code>GhError.Code</code> is the gh exit code and is never
+consulted), and <code>landingCommitOnMain</code> returns
+<code>(sha, ok)</code> with <code>ok</code> false whenever the listing
+failed. On <code>unknown</code> the sweep records
+<code>untouched</code>/<code>base-unknown</code> or
+<code>untouched</code>/<code>landing-unknown</code> and acts on nothing;
+the merge-queue gate treats <code>BaseUnknown</code> as alive, so a
+probe hiccup no longer parks a mergeable PR. Both auto-close arms now
+also wait out an age floor: <code>closeAgeFloorHours</code> (24h) capped
+by <code>prHygiene.graceHours</code>, with an unknown PR age treated as
+floored — a fresh PR is reported
+<code>untouched</code>/<code>base-superseded-age-floor</code> or
+<code>untouched</code>/<code>landing-age-floor</code> and the
+<code>--grace-hours</code> help states the floor. Regression-pinned by
+<code>TestSweepTaskPrHygiene</code> (base-probe noise, fresh and
+unknown-age floors), <code>TestSweepTaskPrHygieneLandingEvidence</code>
+(landing noise, unparseable listing, landing floor),
+<code>TestAutoMergeTreatsBaseProbeNoiseAsAlive</code>, and
+<code>TestGhNotFoundOnlyForRealGone</code> — each fails against the
+pre-fix behavior.</em> <em>Last updated: 2026-09-12 (fallback-route
+landing evidence: the ship verdict off the tracker path) —
+<code>pick.mergePR</code> is only ever set by a tracker pick, so a
+queue- or PO-delivered goal (<code>Goal: Land PR #N</code>) had no
+evidence subject at all: loops 270/271/274/280 each logged
+<code>falling back to LLM selection</code>, each dispatched a goal
+naming the pull request to land, each of those pull requests merged
+inside its own iteration window, and each recorded the non-productive
+<code>no-pr</code> row — four false negatives in eleven passes against a
+starvation limit of five, with the Q27 already-shipped guard equally
+blind. <code>runIteration</code> now derives the merge target from the
+goal text (<code>goalMergePR</code>, the <code>mergePickRe</code>
+researchPick already parses) before the task dispatch, under the
+pick-time <code>prState == OPEN</code> guard, so the derived pull
+request rides the existing <code>prMerged</code> →
 <code>evidencePR</code> → <code>landedArtifactsVerified</code> wiring
 and records <code>ok</code> with its artifacts verified — never
 <code>no-pr</code>, while a stale mention self-disqualifies and a

@@ -659,7 +659,7 @@ func newPrHygieneCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().String("repo", "", "target repository (used for gh context)")
-	cmd.Flags().Float64("grace-hours", -1, "hours a PR may stay red before being flagged (default from config prHygiene.graceHours)")
+	cmd.Flags().Float64("grace-hours", -1, "hours a PR may stay red before being flagged; also the auto-close age floor, capped at 24h (default from config prHygiene.graceHours)")
 	cmd.Flags().Bool("auto-merge", false, "report skipAutoMerge when a red-across-grace PR would have merged (default from config autoMerge)")
 	cmd.Flags().Bool("apply", false, "comment and close for real (default: config prHygiene.dryRun, itself defaulting to dry-run)")
 	return cmd

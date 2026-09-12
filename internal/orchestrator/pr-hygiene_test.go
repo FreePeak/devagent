@@ -181,10 +181,14 @@ func TestGraceAgeHours(t *testing.T) {
 }
 
 func TestSweepTaskPrHygiene(t *testing.T) {
+	// Past the auto-close age floor (closeAgeFloorHours) so these fixtures
+	// still exercise the close arms; the floor itself is pinned by the
+	// fresh-PR subtests below.
+	aged := time.Now().Add(-30 * time.Hour).UTC().Format("2006-01-02T15:04:05.000Z07:00")
 	t.Run("closes a base-superseded TASK PR (base branch deleted) and writes a ledger row", func(t *testing.T) {
 		repo := hygieneTempRepo(t)
 		run, calls := scriptedGhWithDeadBases([]string{"devagent/TASK-mtioq4ik-T0-a0"}, map[string]any{
-			"list":    "[" + hygieneTaskPr(t, nil) + "]",
+			"list":    "[" + hygieneTaskPr(t, map[string]any{"updatedAt": aged}) + "]",
 			"comment": "",
 			"close":   "",
 		})
@@ -239,10 +243,34 @@ func TestSweepTaskPrHygiene(t *testing.T) {
 		}
 	})
 
+	t.Run("a spawn timeout on the base probe leaves the PR untouched (never closes on a hiccup)", func(t *testing.T) {
+		repo := hygieneTempRepo(t)
+		run, calls := scriptedGh(map[string]any{
+			"list": "[" + hygieneTaskPr(t, nil) + "]",
+			"api":  &GhError{Message: "gh api repos/{owner}/{repo}/branches/devagent/TASK-mtioq4ik-T0-a0 exited -1: ", Code: -1}, // 30s spawn timeout: no stderr
+		})
+		dry := false
+		res := SweepTaskPrHygiene(repo, PrHygieneOptions{DryRun: &dry}, run)
+		if res.SkipAutoMerge {
+			t.Fatal("skipAutoMerge must be false")
+		}
+		if len(res.Outcomes) != 1 || res.Outcomes[0].Action != "untouched" || res.Outcomes[0].Reason != "base-unknown" {
+			t.Fatalf("outcomes = %+v", res.Outcomes)
+		}
+		for _, c := range *calls {
+			if len(c) > 1 && (c[1] == "close" || c[1] == "comment") {
+				t.Fatalf("transport noise must not act: %v", c)
+			}
+		}
+		if rows := readLedgerRows(t, repo); len(rows) != 0 {
+			t.Fatalf("expected no ledger rows, got %d", len(rows))
+		}
+	})
+
 	t.Run("flags base-superseded in dry-run: no comment, no close, still one ledger row", func(t *testing.T) {
 		repo := hygieneTempRepo(t)
 		run, calls := scriptedGhWithDeadBases([]string{"devagent/TASK-mtioq4ik-T0-a0"}, map[string]any{
-			"list": "[" + hygieneTaskPr(t, nil) + "]",
+			"list": "[" + hygieneTaskPr(t, map[string]any{"updatedAt": aged}) + "]",
 		})
 		res := SweepTaskPrHygiene(repo, PrHygieneOptions{}, run)
 		if res.SkipAutoMerge {
@@ -477,7 +505,7 @@ func TestSweepTaskPrHygiene(t *testing.T) {
 	t.Run("closes a red-within-grace PR whose base is gone (dead base cannot be fixed by waiting)", func(t *testing.T) {
 		repo := hygieneTempRepo(t)
 		run, calls := scriptedGhWithDeadBases([]string{"devagent/TASK-mtioq4ik-T0-a0"}, map[string]any{
-			"list":    "[" + hygieneTaskPr(t, map[string]any{"statusCheckRollup": hygieneRed}) + "]",
+			"list":    "[" + hygieneTaskPr(t, map[string]any{"statusCheckRollup": hygieneRed, "updatedAt": aged}) + "]",
 			"comment": "",
 			"close":   "",
 		})
@@ -512,7 +540,7 @@ func TestSweepTaskPrHygiene(t *testing.T) {
 		repo := hygieneTempRepo(t)
 		stale := time.Now().Add(-48 * time.Hour).UTC().Format("2006-01-02T15:04:05.000Z07:00")
 		listJSON := "[" +
-			hygieneTaskPr(t, map[string]any{"number": 11}) + "," + // base-superseded -> flagged (dry-run)
+			hygieneTaskPr(t, map[string]any{"number": 11, "updatedAt": aged}) + "," + // base-superseded -> flagged (dry-run), past the age floor
 			hygieneTaskPr(t, map[string]any{"number": 12, "baseRefName": "main", "statusCheckRollup": hygieneRed, "updatedAt": stale}) + "," + // red across grace -> flagged
 			hygieneTaskPr(t, map[string]any{"number": 13, "baseRefName": "main"}) + // green -> untouched
 			"]"
@@ -556,6 +584,58 @@ func TestSweepTaskPrHygiene(t *testing.T) {
 		if fl(t, rows[0]["pr"]) != 11 || rows[0]["action"] != "flagged" || rows[0]["reason"] != "base-superseded" ||
 			fl(t, rows[1]["pr"]) != 12 || rows[1]["action"] != "flagged" || rows[1]["reason"] != "red-across-grace" {
 			t.Fatalf("rows = %v", rows)
+		}
+	})
+
+	t.Run("a fresh PR is never auto-closed before the age floor (base branch deleted)", func(t *testing.T) {
+		repo := hygieneTempRepo(t)
+		run, calls := scriptedGhWithDeadBases([]string{"devagent/TASK-mtioq4ik-T0-a0"}, map[string]any{
+			"list":    "[" + hygieneTaskPr(t, nil) + "]", // updatedAt: now
+			"comment": "",
+			"close":   "",
+		})
+		dry := false
+		res := SweepTaskPrHygiene(repo, PrHygieneOptions{DryRun: &dry}, run)
+		if len(res.Outcomes) != 1 {
+			t.Fatalf("outcomes = %+v", res.Outcomes)
+		}
+		o := res.Outcomes[0]
+		if o.Action != "untouched" || o.Reason != "base-superseded-age-floor" {
+			t.Fatalf("outcome = %s/%s, want untouched/base-superseded-age-floor", o.Action, o.Reason)
+		}
+		if !strings.Contains(o.Detail, "auto-close floor") || !strings.Contains(o.Detail, "merged or deleted") {
+			t.Fatalf("detail must keep the verdict and name the floor: %q", o.Detail)
+		}
+		for _, c := range *calls {
+			if len(c) > 1 && (c[1] == "close" || c[1] == "comment") {
+				t.Fatalf("fresh PR must not be acted on: %v", c)
+			}
+		}
+		if rows := readLedgerRows(t, repo); len(rows) != 0 {
+			t.Fatalf("expected no ledger rows, got %d", len(rows))
+		}
+	})
+
+	t.Run("an unknown PR age is floored: no close without a timestamp", func(t *testing.T) {
+		repo := hygieneTempRepo(t)
+		run, calls := scriptedGhWithDeadBases([]string{"devagent/TASK-mtioq4ik-T0-a0"}, map[string]any{
+			"list":    "[" + hygieneTaskPr(t, map[string]any{"updatedAt": "not-a-date"}) + "]",
+			"comment": "",
+			"close":   "",
+		})
+		dry := false
+		res := SweepTaskPrHygiene(repo, PrHygieneOptions{DryRun: &dry}, run)
+		o := res.Outcomes[0]
+		if o.Action != "untouched" || o.Reason != "base-superseded-age-floor" || o.GraceAgeHours != nil {
+			t.Fatalf("outcome = %+v", o)
+		}
+		if !strings.Contains(o.Detail, "age is unknown") {
+			t.Fatalf("detail = %q", o.Detail)
+		}
+		for _, c := range *calls {
+			if len(c) > 1 && (c[1] == "close" || c[1] == "comment") {
+				t.Fatalf("unknown age must not be acted on: %v", c)
+			}
 		}
 	})
 }
@@ -626,7 +706,7 @@ func TestSweepTaskPrHygieneLandingEvidence(t *testing.T) {
 
 	t.Run("shipped-elsewhere: closed issue with a landing commit on main closes the PR citing the sha", func(t *testing.T) {
 		repo := hygieneTempRepo(t)
-		run, calls := landingScriptGh(t, prJSON("Closes #7", hygieneGreen, now),
+		run, calls := landingScriptGh(t, prJSON("Closes #7", hygieneGreen, old),
 			map[int]string{7: "CLOSED"}, mainWithLanding)
 		res := SweepTaskPrHygiene(repo, PrHygieneOptions{DryRun: &off, GraceHours: &grace}, run)
 		if len(res.Outcomes) != 1 {
@@ -659,7 +739,7 @@ func TestSweepTaskPrHygieneLandingEvidence(t *testing.T) {
 
 	t.Run("superseded: closed issue without a landing commit closes the PR as not shipped", func(t *testing.T) {
 		repo := hygieneTempRepo(t)
-		run, calls := landingScriptGh(t, prJSON("Closes #7", hygieneGreen, now),
+		run, calls := landingScriptGh(t, prJSON("Closes #7", hygieneGreen, old),
 			map[int]string{7: "CLOSED"}, mainEmpty)
 		res := SweepTaskPrHygiene(repo, PrHygieneOptions{DryRun: &off, GraceHours: &grace}, run)
 		if len(res.Outcomes) != 1 {
@@ -684,6 +764,63 @@ func TestSweepTaskPrHygieneLandingEvidence(t *testing.T) {
 		rows := hygieneRows(t, repo)
 		if len(rows) != 1 || rows[0]["action"] != "closed" || rows[0]["reason"] != "superseded" {
 			t.Fatalf("rows = %v", rows)
+		}
+	})
+
+	t.Run("transport noise on the landing listing never closes the PR as not shipped", func(t *testing.T) {
+		repo := hygieneTempRepo(t)
+		calls := &[][]string{}
+		run := RunGh(func(args []string, cwd string) (*GhResult, error) {
+			*calls = append(*calls, args)
+			switch {
+			case args[0] == "pr" && len(args) > 1 && args[1] == "list":
+				return &GhResult{Stdout: prJSON("Closes #7", hygieneGreen, now)}, nil
+			case args[0] == "issue":
+				return &GhResult{Stdout: `{"state":"CLOSED"}`}, nil
+			case strings.Contains(strings.Join(args, " "), "commits?sha=main"):
+				return nil, fmt.Errorf("gh api repos/{owner}/{repo}/commits exited 1: gh: Internal Server Error (HTTP 500)")
+			case args[0] == "api":
+				return &GhResult{}, nil // the branch lookup answered: base intact
+			}
+			return &GhResult{}, nil
+		})
+		res := SweepTaskPrHygiene(repo, PrHygieneOptions{DryRun: &off, GraceHours: &grace}, run)
+		if len(res.Outcomes) != 1 {
+			t.Fatalf("outcomes = %+v", res.Outcomes)
+		}
+		o := res.Outcomes[0]
+		if o.Action != "untouched" || o.Reason != "landing-unknown" {
+			t.Fatalf("outcome = %s/%s, want untouched/landing-unknown", o.Action, o.Reason)
+		}
+		for _, c := range *calls {
+			if c[0] == "pr" && (c[1] == "comment" || c[1] == "close") {
+				t.Fatalf("transport noise must not act: %v", c)
+			}
+		}
+		if rows := readLedgerRows(t, repo); len(rows) != 0 {
+			t.Fatalf("expected no ledger rows, got %d", len(rows))
+		}
+	})
+
+	t.Run("an unparseable landing listing is unknown evidence, not an empty main", func(t *testing.T) {
+		repo := hygieneTempRepo(t)
+		run, calls := scriptedGh(map[string]any{
+			"list":  prJSON("Closes #7", hygieneGreen, now),
+			"api":   "{not json",
+			"issue": `{"state":"CLOSED"}`,
+		})
+		res := SweepTaskPrHygiene(repo, PrHygieneOptions{DryRun: &off, GraceHours: &grace}, run)
+		if len(res.Outcomes) != 1 {
+			t.Fatalf("outcomes = %+v", res.Outcomes)
+		}
+		o := res.Outcomes[0]
+		if o.Action != "untouched" || o.Reason != "landing-unknown" {
+			t.Fatalf("outcome = %s/%s, want untouched/landing-unknown", o.Action, o.Reason)
+		}
+		for _, c := range *calls {
+			if c[0] == "pr" && (c[1] == "comment" || c[1] == "close") {
+				t.Fatalf("unparseable evidence must not act: %v", c)
+			}
 		}
 	})
 
@@ -723,7 +860,7 @@ func TestSweepTaskPrHygieneLandingEvidence(t *testing.T) {
 
 	t.Run("dry-run: triage flags without commenting or closing", func(t *testing.T) {
 		repo := hygieneTempRepo(t)
-		run, calls := landingScriptGh(t, prJSON("Closes #7", hygieneGreen, now),
+		run, calls := landingScriptGh(t, prJSON("Closes #7", hygieneGreen, old),
 			map[int]string{7: "CLOSED"}, mainWithLanding)
 		res := SweepTaskPrHygiene(repo, PrHygieneOptions{GraceHours: &grace}, run)
 		if len(res.Outcomes) != 1 || res.Outcomes[0].Action != "flagged" {
@@ -759,7 +896,7 @@ func TestSweepTaskPrHygieneLandingEvidence(t *testing.T) {
 
 	t.Run("closing-keyword refs win over incidental #N mentions", func(t *testing.T) {
 		repo := hygieneTempRepo(t)
-		run, calls := landingScriptGh(t, prJSON("Related to #12, see also #13. Closes #7", hygieneGreen, now),
+		run, calls := landingScriptGh(t, prJSON("Related to #12, see also #13. Closes #7", hygieneGreen, old),
 			map[int]string{7: "CLOSED"}, mainWithLanding)
 		res := SweepTaskPrHygiene(repo, PrHygieneOptions{DryRun: &off, GraceHours: &grace}, run)
 		if len(res.Outcomes) != 1 || res.Outcomes[0].Action != "closed" || res.Outcomes[0].Reason != "shipped-elsewhere" {
@@ -769,6 +906,31 @@ func TestSweepTaskPrHygieneLandingEvidence(t *testing.T) {
 			if c[0] == "issue" && strings.Join(c, " ") != "issue view 7 --json state" {
 				t.Fatalf("incidental issue lookup: %v", c)
 			}
+		}
+	})
+
+	t.Run("a fresh PR is never auto-closed before the age floor (issue shipped elsewhere)", func(t *testing.T) {
+		repo := hygieneTempRepo(t)
+		run, calls := landingScriptGh(t, prJSON("Closes #7", hygieneGreen, now), // fresh
+			map[int]string{7: "CLOSED"}, mainWithLanding)
+		res := SweepTaskPrHygiene(repo, PrHygieneOptions{DryRun: &off, GraceHours: &grace}, run)
+		if len(res.Outcomes) != 1 {
+			t.Fatalf("outcomes = %+v", res.Outcomes)
+		}
+		o := res.Outcomes[0]
+		if o.Action != "untouched" || o.Reason != "landing-age-floor" {
+			t.Fatalf("outcome = %s/%s, want untouched/landing-age-floor", o.Action, o.Reason)
+		}
+		if !strings.Contains(o.Detail, "f00dc0de") || !strings.Contains(o.Detail, "auto-close floor") {
+			t.Fatalf("detail must keep the landing sha and name the floor: %q", o.Detail)
+		}
+		for _, c := range *calls {
+			if c[0] == "pr" && (c[1] == "comment" || c[1] == "close") {
+				t.Fatalf("fresh PR must not be acted on: %v", c)
+			}
+		}
+		if rows := readLedgerRows(t, repo); len(rows) != 0 {
+			t.Fatalf("expected no ledger rows, got %d", len(rows))
 		}
 	})
 }

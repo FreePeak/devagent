@@ -18,6 +18,7 @@ package orchestrator
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"regexp"
@@ -566,13 +567,54 @@ func GetPrStatus(repoPath string, pr int, run RunGh) (PrStatus, error) {
 	return parsePr(raw), nil
 }
 
-// BaseBranchGone mirrors the TS baseBranchGone: a base branch is gone when
-// gh cannot resolve the ref (merged+deleted or deleted directly). Shared by
-// the merge-queue gate and the TASK-PR hygiene sweep: a PR whose head base
-// branch died can never integrate.
-func BaseBranchGone(repoPath string, base string, run RunGh) bool {
+// BaseProbe is the three-valued verdict of a gh reachability probe. The TS
+// booleans collapsed "gh answered not-found" and "gh never answered" into one
+// value, so transport noise (network failure, 5xx, rate limit) read as a dead
+// ref. The Go port keeps the unknown state explicit: callers act on a
+// definitive verdict only, never on Unknown.
+type BaseProbe string
+
+const (
+	BaseAlive   BaseProbe = "alive"   // the ref resolved: gh answered
+	BaseGone    BaseProbe = "gone"    // gh answered not-found (merged+deleted or deleted)
+	BaseUnknown BaseProbe = "unknown" // gh never answered: transport noise
+)
+
+// ghNotFoundRe matches gh's not-found signal: `gh api` reports an HTTP 404 as
+// exit 1 with "Branch not found (HTTP 404)" / "Not Found (HTTP 404)" on
+// stderr. The exit code cannot separate that from a network hiccup, so the
+// probe classifies on the diagnostic text.
+var ghNotFoundRe = regexp.MustCompile(`(?i)not found|http 404`)
+
+// ghNotFound reports whether a probe failure is a definitive gh 404 rather
+// than transport noise. A *GhError is judged on its stderr alone — its message
+// embeds the argv, whose ref names may themselves contain "404".
+func ghNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
+	var ge *GhError
+	if errors.As(err, &ge) {
+		return ghNotFoundRe.MatchString(ge.Stderr)
+	}
+	return ghNotFoundRe.MatchString(err.Error())
+}
+
+// ProbeBaseBranch is the three-valued successor of the TS boolean
+// baseBranchGone: a base branch is gone when gh answers not-found
+// (merged+deleted or deleted directly), alive when the ref resolves, and
+// unknown when the lookup itself failed. Shared by the merge-queue gate and
+// the TASK-PR hygiene sweep; a probe hiccup must never read as a dead base.
+func ProbeBaseBranch(repoPath string, base string, run RunGh) BaseProbe {
 	_, err := run([]string{"api", fmt.Sprintf("repos/{owner}/{repo}/branches/%s", base)}, repoPath)
-	return err != nil
+	switch {
+	case err == nil:
+		return BaseAlive
+	case ghNotFound(err):
+		return BaseGone
+	default:
+		return BaseUnknown
+	}
 }
 
 // ListOpenPrs mirrors the TS listOpenPrs.

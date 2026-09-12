@@ -185,13 +185,11 @@ func AutoReviewAndMergeOne(repoPath string, pr int, opts AutoReviewAndMergeOneOp
 	// Merge-queue gate 1 (base-superseded): a PR whose head base branch was
 	// merged or deleted can never integrate — waiting cannot fix a dead
 	// base, so skip it with a reason instead of parking the pipeline.
-	// Auto-close of such PRs stays owned by the pr-hygiene sweep. A probe
-	// hiccup cannot be distinguished from a dead base through the seam's
-	// boolean — the TS try/catch swallows probe errors into "fall through";
-	// the scripted seam mirrors gh by throwing only on real 404s, so this
-	// port probes through an error-carrying call and treats transport noise
-	// as alive (matching the tolerant TS behavior for non-404 failures).
-	if BaseBranchGone(repoPath, status.BaseRefName, run) {
+	// Auto-close of such PRs stays owned by the pr-hygiene sweep. Only a
+	// definitive gh 404 skips the PR: the probe is three-valued, and
+	// transport noise (BaseUnknown) reads as alive so a probe hiccup never
+	// parks a mergeable PR.
+	if ProbeBaseBranch(repoPath, status.BaseRefName, run) == BaseGone {
 		return AutoMergeOutcome{
 			PR:     pr,
 			Title:  status.Title,

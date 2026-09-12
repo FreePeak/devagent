@@ -23,6 +23,8 @@ import (
 // - superseded/abandoned: issue closed, no landing commit → close as not shipped;
 // - genuinely-still-wanted: issue open → leave the PR open, comment evidence.
 // Only an actual landing commit may claim a merge; the close comments state it.
+// Transport noise on the landing lookup is unknown evidence, not "no commit":
+// the PR is left untouched for the next sweep, never closed on a failed listing.
 
 var issueRefRe = regexp.MustCompile(`#[0-9]+`)
 
@@ -97,12 +99,15 @@ func prHygieneFlaggedInApply(repoPath string, pr int, reason string) bool {
 }
 
 // landingCommitOnMain returns the sha of the first commit on main whose
-// message cites the issue as `(#N)` (the squash-merge convention), "" when
-// none or the lookup fails.
-func landingCommitOnMain(repoPath string, n int, run RunGh) string {
+// message cites the issue as `(#N)` (the squash-merge convention). The second
+// return says whether the main-branch listing actually answered: (sha, true)
+// is a definitive verdict — sha "" then means no landing commit exists —
+// while ("", false) is transport noise (the lookup or its parse failed), which
+// is never evidence of "not shipped".
+func landingCommitOnMain(repoPath string, n int, run RunGh) (string, bool) {
 	r, err := run([]string{"api", "repos/{owner}/{repo}/commits?sha=main&per_page=100"}, repoPath)
 	if err != nil {
-		return ""
+		return "", false
 	}
 	var commits []struct {
 		SHA    string `json:"sha"`
@@ -111,14 +116,14 @@ func landingCommitOnMain(repoPath string, n int, run RunGh) string {
 		} `json:"commit"`
 	}
 	if json.Unmarshal([]byte(r.Stdout), &commits) != nil {
-		return ""
+		return "", false
 	}
 	for _, c := range commits {
 		if strings.Contains(c.Commit.Message, fmt.Sprintf("(#%d)", n)) {
-			return c.SHA
+			return c.SHA, true
 		}
 	}
-	return ""
+	return "", true
 }
 
 // Zombie-PR hygiene (PRD §17, surviving half of post-PR lifecycle automation):
@@ -129,11 +134,14 @@ func landingCommitOnMain(repoPath string, n int, run RunGh) string {
 // - red-across-grace: CI stays red (completed failures, nothing pending) for
 //   the full grace window — flag the PR and skip autoMerge until a green
 //   check arrives.
+// - age floor: no auto-close happens before the floor (closeAgeFloorHours,
+//   capped by the grace window) — a fresh PR is reported untouched instead,
+//   whatever the evidence says.
 // Every action writes one ledger row (pr, reason, grace-window age) so the
 // run ledger stays the replayable record of what automation did to PRs.
 //
 // The gh primitives (RunGh, DefaultRunGh, PrStatus, ListOpenPrs,
-// BaseBranchGone, PostPrComment, AgeHours) are the autopr.ts port owned by
+// ProbeBaseBranch, PostPrComment, AgeHours) are the autopr.ts port owned by
 // autopr.go — pr-hygiene.ts imports them the same way.
 
 var taskPrRe = regexp.MustCompile(`^devagent/TASK-`)
@@ -154,13 +162,46 @@ func formatGraceHours(f float64) string {
 // to the autopr.go port of ageHours.
 var GraceAgeHours = AgeHours
 
+// closeAgeFloorHours caps the age floor before ANY apply-mode auto-close: a PR
+// younger than the floor is never closed by the sweep, whatever the evidence
+// says (PR #346 was auto-closed 76 seconds after creation on a probe misread).
+// The floor defends fresh work from a residual false-gone; the cap keeps a long
+// operator-configured grace window from pushing zombie cleanup out by months.
+const closeAgeFloorHours = 24.0
+
+// closeUnderAgeFloor reports whether the PR is too young to auto-close for the
+// configured grace window, whose own close arm stays authoritative when it is
+// shorter. An unknown age counts as floored: no timestamp, no close.
+func closeUnderAgeFloor(age *float64, graceHours float64) bool {
+	return age == nil || *age < min(graceHours, closeAgeFloorHours)
+}
+
+// ageFloorDetail builds the untouched row for a floored close attempt, carrying
+// the verdict that would have acted once the PR ages past the floor.
+func ageFloorDetail(age *float64, graceHours float64, verdict string) string {
+	floor := formatGraceHours(min(graceHours, closeAgeFloorHours))
+	if age == nil {
+		return fmt.Sprintf("%s, but the PR age is unknown: within the %sh auto-close floor, not closed this sweep", verdict, floor)
+	}
+	return fmt.Sprintf("%s, but the PR is %.0fh old: within the %sh auto-close floor, not closed this sweep", verdict, *age, floor)
+}
+
+// ageLabel renders the grace-window age the sweep's details read it as.
+func ageLabel(age *float64) string {
+	if age == nil {
+		return "unknown age"
+	}
+	return fmt.Sprintf("%dh since last update", int(*age))
+}
+
 // PrHygieneOutcome mirrors the TS PrHygieneOutcome interface.
 type PrHygieneOutcome struct {
 	PR     int    `json:"pr"`
 	Title  string `json:"title"`
 	Action string `json:"action"`
 	// Why the action fired: base-superseded | red-across-grace |
-	// not-a-task-pr | pending | green | red-within-grace.
+	// not-a-task-pr | pending | green | red-within-grace | base-unknown |
+	// landing-unknown | base-superseded-age-floor | landing-age-floor.
 	Reason string `json:"reason"`
 	// Hours since the PR's last update (grace-window age); null when unknown
 	// or not applicable. TS JSON.stringify emits the key with null, so no
@@ -171,8 +212,9 @@ type PrHygieneOutcome struct {
 
 // PrHygieneOptions mirrors the TS PrHygieneOptions interface.
 type PrHygieneOptions struct {
-	// Hours a PR may stay red before it is flagged for skip-autoMerge
-	// (config prHygiene.graceHours, default 24).
+	// Hours a PR may stay red before it is flagged for skip-autoMerge; also
+	// the auto-close age floor, capped by closeAgeFloorHours (config
+	// prHygiene.graceHours, default 24).
 	GraceHours *float64
 	// Report without commenting or closing (config prHygiene.dryRun,
 	// default true).
@@ -260,8 +302,28 @@ func SweepTaskPrHygiene(repoPath string, opts PrHygieneOptions, run RunGh) PrHyg
 
 		// Base-superseded first (condition 1): a PR whose head base branch
 		// was merged or deleted can never integrate, whatever its CI says —
-		// waiting cannot fix a dead base.
-		if BaseBranchGone(repoPath, status.BaseRefName, run) {
+		// waiting cannot fix a dead base. Only a definitive gh 404 acts: the
+		// three-valued probe keeps transport noise from closing a live PR.
+		base := ProbeBaseBranch(repoPath, status.BaseRefName, run)
+		if base == BaseUnknown {
+			outcomes = append(outcomes, PrHygieneOutcome{
+				PR: status.Number, Title: status.Title, Action: "untouched",
+				Reason:        "base-unknown",
+				GraceAgeHours: age,
+				Detail:        fmt.Sprintf("base %s lookup failed (transport); not acted on this sweep", status.BaseRefName),
+			})
+			continue
+		}
+		if base == BaseGone {
+			if closeUnderAgeFloor(age, graceHours) {
+				outcomes = append(outcomes, PrHygieneOutcome{
+					PR: status.Number, Title: status.Title, Action: "untouched",
+					Reason:        "base-superseded-age-floor",
+					GraceAgeHours: age,
+					Detail:        ageFloorDetail(age, graceHours, fmt.Sprintf("base %s was merged or deleted", status.BaseRefName)),
+				})
+				continue
+			}
 			detail := fmt.Sprintf("base %s was merged or deleted; branch can never integrate", status.BaseRefName)
 			if dryRun {
 				ledger.AppendPrHygieneRecord(repoPath, ledger.PrHygieneRecord{
@@ -311,7 +373,21 @@ func SweepTaskPrHygiene(repoPath string, opts PrHygieneOptions, run RunGh) PrHyg
 				continue
 			}
 			var detail, comment, reason string
-			if sha := landingCommitOnMain(repoPath, n, run); sha != "" {
+			sha, known := landingCommitOnMain(repoPath, n, run)
+			if !known {
+				// Transport noise: the landing evidence is unknown, not
+				// absent — closing here would claim "not shipped" for work
+				// that may have landed. Leave the PR for the next sweep.
+				outcomes = append(outcomes, PrHygieneOutcome{
+					PR: status.Number, Title: status.Title, Action: "untouched",
+					Reason:        "landing-unknown",
+					GraceAgeHours: age,
+					Detail:        fmt.Sprintf("issue #%d is closed but the main-branch commit listing failed (transport); not acted on this sweep", n),
+				})
+				handled = true
+				break
+			}
+			if sha != "" {
 				reason = "shipped-elsewhere"
 				detail = fmt.Sprintf("issue #%d is closed and shipped elsewhere: landing commit %s on main", n, sha)
 				comment = strings.Join([]string{
@@ -326,6 +402,16 @@ func SweepTaskPrHygiene(repoPath string, opts PrHygieneOptions, run RunGh) PrHyg
 					fmt.Sprintf("Issue #%d is closed and no landing commit exists on main, so this work was not shipped.", n),
 					"Reopen the issue and this PR if the work is still wanted.",
 				}, "\n")
+			}
+			if closeUnderAgeFloor(age, graceHours) {
+				outcomes = append(outcomes, PrHygieneOutcome{
+					PR: status.Number, Title: status.Title, Action: "untouched",
+					Reason:        "landing-age-floor",
+					GraceAgeHours: age,
+					Detail:        ageFloorDetail(age, graceHours, detail),
+				})
+				handled = true
+				break
 			}
 			if dryRun {
 				ledger.AppendPrHygieneRecord(repoPath, ledger.PrHygieneRecord{
@@ -371,10 +457,7 @@ func SweepTaskPrHygiene(repoPath string, opts PrHygieneOptions, run RunGh) PrHyg
 			overdue := age == nil || *age >= graceHours
 			if overdue {
 				skipAutoMerge = true
-				ageStr := "unknown age"
-				if age != nil {
-					ageStr = fmt.Sprintf("%dh since last update", int(*age))
-				}
+				ageStr := ageLabel(age)
 				// Genuinely-still-wanted: the cited issues are open, so
 				// the PR stays open — record the evidence on the PR.
 				if !dryRun && len(cited) > 0 && !prHygieneFlaggedInApply(repoPath, status.Number, "red-across-grace") {

@@ -985,6 +985,57 @@ func TestAutoMergeSkipsBaseSuperseded(t *testing.T) {
 	}
 }
 
+func TestAutoMergeTreatsBaseProbeNoiseAsAlive(t *testing.T) {
+	// transport noise is not a dead base: a probe hiccup must not park a
+	// mergeable PR as base-superseded
+	run, calls := autoScriptedGh(map[string]ghResp{
+		"view": {out: basePrView}, "diff": {}, "review": {}, "merge": {},
+		"api": {err: &GhError{Stderr: "gh: Internal Server Error (HTTP 500)\n"}},
+	})
+	o := AutoReviewAndMergeOne("/repo", 9, AutoReviewAndMergeOneOpts{}, run)
+	if o.Action != ActionMerged {
+		t.Fatalf("expected merged, got %+v", o)
+	}
+	if autoCallCount(calls, "merge") == 0 {
+		t.Fatal("a probe hiccup must not park the merge")
+	}
+}
+
+func TestGhNotFoundOnlyForRealGone(t *testing.T) {
+	// the three-valued probe's discriminator: only gh's own not-found answer
+	// is a dead ref — every other failure is transport noise
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil", nil, false},
+		{"plain not-found error", fmt.Errorf("gh: Branch not found (HTTP 404)"), true},
+		{"gh spawn timeout (goal's timeout case), no stderr", &GhError{Message: "gh api repos/o/r/branches/devagent/TASK-x exited -1: ", Code: -1}, false},
+		{"gh branch not-found stderr", &GhError{Stderr: "gh: Branch not found (HTTP 404)\n"}, true},
+		{"gh generic 404 stderr", &GhError{Stderr: "gh: Not Found (HTTP 404)\n"}, true},
+		{"gh 5xx", &GhError{Stderr: "gh: Internal Server Error (HTTP 500)\n"}, false},
+		{"gh network failure", &GhError{Stderr: "dial tcp: lookup api.github.com: no such host\n"}, false},
+		{"gh rate limit", &GhError{Stderr: "gh: API rate limit exceeded for user\n"}, false},
+		// The message embeds the argv, and a ref name may itself read like a
+		// 404 marker ("feature-404-fix"). These pin the INVARIANT that only
+		// gh's own wording in stderr can read as gone: the marker set stays
+		// narrow, so argv text never matches either alternative. They are not
+		// a reachable false-positive — git ref names cannot contain the space
+		// both alternatives require — so they fail only if the marker set is
+		// widened to a bare "404".
+		{"argv mentioning 404", &GhError{Message: "gh api repos/o/r/branches/feature-404-fix exited 1: connection refused", Stderr: "connection refused"}, false},
+		{"argv mentioning not found", &GhError{Message: "gh api repos/o/r/branches/not-found-cleanup exited 128: timed out", Stderr: "timed out"}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ghNotFound(tc.err); got != tc.want {
+				t.Fatalf("ghNotFound(%v) = %v, want %v", tc.err, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestAutoMergeSkipsSupersededSibling(t *testing.T) {
 	// skips a non-candidate head superseded by a same-base candidate
 	conflicting := strings.Replace(basePrView, `"number":9`, `"number":7`, 1)
