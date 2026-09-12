@@ -243,3 +243,4 @@
 {"loop":282,"ts":"2026-09-12T04:42:22Z","status":"failed","goal":"Goal: Land the already-complete fallback-route landing-evidence fix; do not re-implement it. Branch `devagent/TASK-mtxu01sd-1ted` (head `7a07b21`) sits 1 ahead "}
 {"loop":283,"ts":"2026-09-12T05:29:00Z","status":"pr-open","goal":"Goal: Close the landing-evidence certification gap in `internal/loopdriver`. `prState` (issues.go:110) reads only `state`, so an iteration whose PR merged mid-r"}
 {"loop":284,"ts":"2026-09-12T06:09:56Z","status":"pr-open","goal":"Goal: Make both zombie-PR hygiene probes three-valued so transport noise can never close a live PR. `BaseBranchGone` (internal/orchestrator/autopr.go:573) retur"}
+{"loop":285,"ts":"2026-09-12T06:33:30Z","status":"failed","goal":"Goal: Land both existing green heads straight onto main — no PR, no re-implementation (the still-armed zombie sweep closes fresh PRs; #347/#346 were auto-closed"}
