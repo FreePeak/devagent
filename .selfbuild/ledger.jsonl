@@ -255,7 +255,7 @@
 {"loop":294,"ts":"2026-09-12T20:33:48Z","status":"pr-open","goal":"Goal: Make herdr orphan-pane reaping work in `internal/herdr`, atomically. (1) Thread `session` into `PaneForegroundWorker` (sweep.go:245) and emit `--session` "}
 {"loop":295,"ts":"2026-09-12T20:52:13Z","status":"failed","goal":"Goal: Land PR #350 (head 8e242fb, branch devagent/TASK-mtyqggp1-32tw) — the complete atomic herdr orphan-reaping fix; do not reimplement it. In a throwaway work"}
 {"loop":296,"ts":"2026-09-12T21:52:41Z","status":"no-pr","goal":"Goal: Land PR #349 (head f2adb77, branch devagent/TASK-mtyis3ci-7gvj) by rebasing onto main and force-pushing; merge only after post-push CI is green, with `go "}
-{"loop":297,"ts":"2026-09-12T23:00:03Z","status":"operator-degraded","goal":"doc-sync deferred: PRD locally modified"}
+{"loop":297,"ts":"2026-09-13T00:00:50Z","status":"failed","goal":"Goal: Close #352 (linked-worktree builds mis-stamp `vcs.revision`). In `internal/version` add a dedicated `-X` var `RevisionStamped` (not `Revision`; func name "}
 {"loop":298,"ts":"2026-09-12T23:01:16Z","status":"operator-degraded","goal":"doc-sync deferred: PRD locally modified"}
 {"loop":299,"ts":"2026-09-12T23:02:29Z","status":"operator-degraded","goal":"doc-sync deferred: PRD locally modified"}
 {"loop":300,"ts":"2026-09-12T23:03:40Z","status":"operator-degraded","goal":"doc-sync deferred: PRD locally modified"}
