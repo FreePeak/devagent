@@ -470,6 +470,8 @@ devagent run --ticket LINEAR-204 --worker claude-code   # or opencode | both
 | `devagent status [--run <id>]` | Show recent runs and stage states |
 | `devagent log --run <id>` | Print structured run log |
 | `devagent config` | Show effective configuration (workers, budgets, credentials presence) |
+| `devagent up` / `devagent down` | One command to check prerequisites, seed the work lane from `docs/PRD.md`, and start/stop the self-build driver + daemon (FR-SIMPLE-07) |
+| `devagent prd-intake` | Queue the operator's open `- [ ]` items in `docs/PRD.md` as loop work (FR-SIMPLE-08; deterministic, idempotent, `--dry-run`/`--json`) |
 
 ### Flags (`run`)
 
@@ -1090,6 +1092,29 @@ Direction addendum 2026-09-03 (section 20): DevAgent becomes the local-first, BY
 > scaffolded — PR #267), #146 TUI polish (FR-TUI-P-01..12, PR #268). The
 > network sandbox allowlist (#180, P2) is the remaining Phase 4 leftover.
 > Shipped from this phase: Grok/xAI worker adapter (`internal/workers/grok.go`),
+>
+> **Go-port gap audit (2026-09-13):** a code-level audit of the Go surface
+> found the following specced-but-stubbed seams, each now tracked as an issue
+> (issue-first per the tracker note above) — `serve` webhook-triggered
+> dispatch still prints the FR-GO-07 #194 deviation stub and never calls the
+> pipeline (#356, `internal/cli/actions_serve.go:220`); `init --smoke`
+> reports hardcoded `fixtureOK`/`gatesOK := true`, so the FR-SIMPLE-01
+> "verified smoke" verifies nothing (#357, `internal/commands/init.go:131`);
+> the daemon/executor worker-reaper seams are nil by default, so
+> stale-worker reaping silently skips on paths that don't inject a
+> dispatcher (#358, FR-GO-05); `spawn.visibility` in devagent.json resolves
+> env-only — the `SpawnVisibilityConfig` global is read but never assigned
+> (#359); the Grok cost-ledger seam `OnCost` (FR-GROK-03) is invoked but
+> never set, so per-run cost never reaches the ledger (#363);
+> `herdr-sweep --orphan-brokers` remains Node-only per the HERDR.md status
+> note (#360); FR-CTX-01..05 remain unimplemented (#368, see §20.1); and
+> docs/PRODUCTION-READINESS.md still describes the retired Node tree, so no
+> Go-era readiness verdict exists (#362). Lower-priority convergence work,
+> also issue-first: lessons-digest dedupe + eval guard (#361), Windows
+> parity (#364), parity-shim convergence + vestigial exit-3 machinery
+> (#365), ClaudeCode adapter hardening (#366), internal/cli +
+> cmd/devagent test coverage (#367), War Room as a first-class Go command
+> (#369).
 - **Easy handoff / control plane (FR-HAND, #145)** — Shipped 2026-09-08: cold path is exactly `devagent init` → `devagent tui` (optional `start` alias); TUI dispatch sheet (`n`, FR-HAND-02) + approve sheet (`g`, FR-HAND-07); `POST /dispatch` threads `autoPr` into the spawned `task --auto-pr` argv gated on `GITHUB_TOKEN` (FR-HAND-03); init adds worker-detect chips (FR-HAND-04), herdr default-on advisory (FR-HAND-05), Orca repo registration without worktree provisioning (FR-HAND-06). Look/feel bar: #146.
 - **Daemon control API** — ~~localhost REST + SSE control surface on the existing `serve` pattern with per-boot token auth and Origin/Host validation (FR-CTRL-01..05).~~ **Shipped 2026-09-08 (#179, PR #243):** internal/daemon serving `/status` `/agents` `/events` SSE `/history` + `POST /dispatch` `/approve`, per-boot token + loopback bind, wired as `devagent daemon` and live on :7788.
 - **Cross-platform desktop control app** — ~~Tauri 2 tray + dashboard on macOS, Linux, and Windows: dispatch agents/roles/tools, live agent log tails, approval inbox, notifications, pipeline visualization (FR-UI-01..09).~~ **Shipped 2026-09-09 (#181, PR #267):** Tauri 2 thin client at `app/` (Rust core + TS webview): FR-UI-01/02/03/04/07/08 functional (tray state, dispatch sheet, SSE dashboard, approval inbox + notifications, stage timeline), FR-UI-05 wired (autostart/single-instance), FR-UI-06 signing and FR-UI-09 3-OS CI scaffolded by design (no fake signing); see `app/README.md`.
@@ -1580,9 +1605,45 @@ new runtime subsystem and does not change the pipeline contract (§8, §10–11)
 | FR-SIMPLE-04 | Progressive disclosure: at any moment each surface shows the current phase and the one next action (including the `devagent attach <task>` hint from FR-VIS-02); everything else is one keystroke/click away but never required to reach the first PR | S |
 | FR-SIMPLE-05 | First-run "where do I look" screen: after init, one view answers what the factory is doing right now, what happens next, and where to look — composed from the existing FR-CTRL status/events API (no second event system, no new tooling to learn) | S |
 | FR-SIMPLE-06 | Simplicity regression review: each release walks the four principles over the onboarding path and default surfaces; a change that adds a required step or a required concept is fixed or flagged before release | C |
+| FR-SIMPLE-07 | One-command factory lifecycle: `devagent up` runs the prerequisite gate, creates the state/queue directories, ingests `docs/PRD.md` intent into the work lane, prints the lane census, starts the control-plane daemon and the self-build driver (detached, from its own executable, idempotent against a live loop lock), and **proves** the start — it holds the lock and published a heartbeat — instead of reporting a pid; `devagent down` stops exactly what `up` recorded | M |
+| FR-SIMPLE-08 | Intent lane: an open `- [ ]` checkbox in `docs/PRD.md` is an instruction the driver implements, so stating what to build uses the document the operator already writes in — no second tool, no tracker syntax, no env wiring (`internal/prdintake`, `devagent prd-intake`) | M |
 
 **Boundary:** simplicity is the default presentation, not a restriction — everything
 stays scriptable over FR-CTRL and flags; automation is unaffected.
+
+> **Status (2026-09-14):** FR-SIMPLE-07 and FR-SIMPLE-08 shipped together —
+> `internal/commands/updown.go` (`devagent up` / `devagent down`,
+> [#371](https://github.com/FreePeak/devagent/issues/371)) and
+> `internal/prdintake` ([#370](https://github.com/FreePeak/devagent/issues/370)),
+> wired into the driver at `internal/loopdriver/intake.go` so every iteration
+> ingests the PRD before it picks. This is the fix for
+> [#355](https://github.com/FreePeak/devagent/issues/355)'s "long runtime,
+> little value": with an empty lane the driver could only find itself, and the
+> empty-lane fallback now logs and breadcrumbs as `queue-empty` with the refill
+> instructions. `#371` also retires the remaining setup traps it exposed: the
+> driver no longer needs a `devagent` on `PATH` (`up` pins
+> `SELFBUILD_DEVAGENT_BIN` to the executable that started it), and
+> `devagent create`'s scout/tracker LaunchAgents no longer bake the deleted
+> `dist/src/cli.js` into argv where cobra would choke on it. The companion
+> scout-cycle port is
+> [#372](https://github.com/FreePeak/devagent/issues/372), which `up --scout`
+> now starts as a second recorded child so the researcher fills the lane
+> between iterations and `devagent down` stops both.
+>
+> **Green `up` means a running factory (the review finding that shaped
+> FR-SIMPLE-07).** Because `up` is the driver's parent, a driver that halts at
+> its own gate — iteration cap already reached, starvation halt, a lock
+> refusal — stays a pid that answers a liveness probe, and it exits 0, so
+> nothing else reports it either; the first smoke run printed a healthy pid for
+> fifteen seconds after `max iterations reached`. `up` now reaps its own child
+> and treats that reap as the verdict, waiting (bounded by `--wait`, default
+> 15s) until the driver holds `​.selfbuild/loop.lock.d` AND its
+> `heartbeat.json` names an iteration and a phase — then reporting exactly that
+> (`driver running (pid N) — holds the loop lock, iteration 2, phase
+> queue-empty`) or failing the run with the halt line pulled from
+> `.selfbuild/logs/`. The `lane` step reports the same census upstream:
+> pending queue rows, open PRD checkboxes, open `selfbuild` issues, with the
+> #355 remedy as its hint when all three are zero.
 
 ## 22. Addendum: Full Go Migration (FR-GO)
 
@@ -1695,6 +1756,7 @@ existing driver with validation surfaces (test, command, telemetry, chaos
 schedule) so "the driver works perfectly" is a checkable claim, not a hope.
 
 ---
+*Last updated: 2026-09-14 (the PRD became an input, and `up` became a health receipt: FR-SIMPLE-07/08, #370 + #371) — `devagent up` now covers the whole setup-to-running path (prerequisite gate through the `init` checks → state/queue dirs → `docs/PRD.md` intake → a `lane` census of pending rows / open PRD checkboxes / open `selfbuild` issues → daemon → detached driver launched from its own executable with `SELFBUILD_DEVAGENT_BIN` pinned to match) and **proves** the start rather than reporting a pid: `up` is the driver's parent, so a driver that halts at its own gate exits 0 and stays a zombie whose pid answers any liveness probe (measured 2026-09-14: `max iterations reached` on stderr while `up` printed a healthy pid for fifteen more seconds), so it now reaps its own child and waits (bounded by `--wait`, default 15s) until the loop lock AND a phase-naming heartbeat exist — `driver running (pid N) — holds the loop lock, iteration 2, phase queue-empty` — or fails the run with the halt line read out of `.selfbuild/logs/`. Work intake flipped the other way too: an open `- [ ]` checkbox in `docs/PRD.md` is now an instruction (`internal/prdintake` queues it with its heading as context, its sub-bullets as criteria and its section body as the task-PRD sidecar; the driver ingests at iteration head after the PRD-currency gate, `SELFBUILD_PRD_INTAKE=0` opts out) and the shipped PR ticks the checkbox it built, so a built item cannot re-enter the lane. Queue-first already outranked the tracker, so operator intent now outranks LLM self-selection — the value half of #355, whose other half (an empty lane logged and breadcrumb'd as `queue-empty` with the refill instructions instead of reading as progress) landed in the same change. `devagent create --scout/--tracker` also stopped baking the deleted `dist/src/cli.js` into LaunchAgent argv, and the scout cycle itself is live in Go at last (#372).
 *Last updated: 2026-09-13 (caveat on #349's revision stamp: linked-worktree builds mis-stamp — [#352](https://github.com/FreePeak/devagent/issues/352)) — while verifying #349's landing we found Go's `-buildvcs` resolves `vcs.revision` from the shared common gitdir in a linked worktree, so a `devagent` binary built inside a per-task worktree stamps the primary checkout's `refs/heads/main` tip rather than its own HEAD (`vcs.modified=true`). Proven A/B at the same commit `8ca0688`: a plain clone stamps `8ca0688`, a linked worktree stamps `50b03e8`. Scope: this is a latent defect confined to *worktree-built* binaries — the shipped driver is built by `scripts/self-update.sh` from the primary non-worktree checkout (`go build -trimpath ./cmd/devagent` after `git pull --ff-only`), so it stamps correctly and `RunLoop`'s stale-binary guard behaves as intended in the live loop; only a manually-built worktree binary writes a wrong `release-created` revision and false-trips the (advisory-only) WARN. #349's "a stale binary is loud" holds for the normal-checkout build path; the worktree edge is tracked in #352.
 *Last updated: 2026-09-13 (release-created rows carry `tag`/`sha` again: PR #349's Revision stamp landed as a silent data-loss regression) — #349 added a `Revision` field to the Go `ReleaseRecord` but dropped `Tag`/`SHA` from the `record release` literal while still printing `(tag @ sha)` to stdout, so every Go-written release row persisted `"tag":""` `"sha":""` (the Q24 fields the record exists to carry) and no test covered the write site, so it shipped green. Restored both fields; `internal/cli/actions_release_test.go` now pins the CLI row shape (proven red on the regressed literal, green after); regenerated `docs/PRD.html` so the styled mirror matches `PRD.md`.
 *Last updated: 2026-09-13 (herdr orphan-pane reaping: both probes were dead, repaired as one change) — `devagent herdr-sweep --orphans` had never reaped a live orphan: `pane process-info` went out without `--session`, so herdr answered for its own default session and "no such pane" was every devagent pane's liveness, which left the FR-VIS-07 in-flight guard, the FR-VIS-02 roster upgrade (#317) and the orphan class — gated on a live foreground worker — inert at once; the owner probe was `herdr.*pane run .*<pane_id>`, a process that does not exist while a pane runs (`pane run` types the script into the pane's shell and exits; verified live parent chain `omp -> -zsh -> herdr --session <s> server -> launchd`), so `PaneRunOwnerOrphaned` always took its "no owner CLI -> orphaned" exit and the driver spare behind it was unreachable. Each half alone is a regression — a working owner probe over an inert liveness probe closes live workers — so the fix lands atomically: `PaneForegroundWorker(cli, session, paneID)` scopes the probe (roster and sweep share it), the owner is now the surviving dispatcher (argv0-anchored `devagent`/`devagent-go` `task`/`pane-run`, optionally behind the driver's `timeout` wrapper, so a prompt quoting devagent cannot impersonate its own collector), non-worktree panes need positive per-pane dispatch evidence (the capture contract on the worker's fd 1/2), and the orphan class moved ahead of the roster spare. Reaping also fails closed: `psPidsMatching` and `pidAncestryCommands` now report whether the probe answered at all — pgrep's exit-1 "no match" is an answer (no collector, reap), an absent binary / the 5s cap / a rejected pattern / an unfinished ancestry walk is not (spare) — because a reaper that read "could not inspect" as "no collector" would close every live pane on such a host. Test seams: `DEVAGENT_SWEEP_OWNER_PIDS_JSON` is keyed by the pattern asked for and a miss now counts as an unanswered probe (never a clean no-match), `DEVAGENT_SWEEP_PANE_CAPTURE_JSON` supplies pane-keyed evidence — and because the 2026-09-13 bug survived a green stub suite, both shapes are pinned from outside: `TestProcFdsCaptureSeesRealCaptureContract` runs the real `lsof` probe against a live child holding `<tmp>/devagent-herdr-<n>/out` on fd 1/2 (skipped where lsof is absent), `TestPaneRunOwnerPatternMatchesRealDispatchShapes` checks `paneRunOwnerPattern` against the command lines `internal/loopdriver` really builds and against the transient `herdr pane run` shape it used to search for, and `TestOrphanClassGoesInertWhenProbesCannotAnswer` pins the spare-on-no-answer direction at the matrix level. `TestPsPidsMatchingAnswersOnlyWhenPgrepAnswers` pins the same split against real `pgrep` exit codes: 1 means no collector (reap), 2 means the probe could not run (spare). Docs corrected: FR-VIS-02/07/10, §18 Q23, `docs/HERDR.md` sweep safety.

@@ -1,9 +1,12 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/FreePeak/devagent/internal/scout"
@@ -11,11 +14,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// scoutCommand mirrors `devagent scout` for the read-only surface the scout
-// package ports (--replay: replay captured worker-output fixtures through
-// extractScoutPayload and diff against golden.json). Live dispatch
-// (runScoutOnce / runScoutLoop) depends on the queue + worker runtime —
-// FR-GO-04 #194 — so every other mode keeps the exit-3 not-ported contract.
+// scoutCommand mirrors `devagent scout`: --replay replays the captured
+// worker-output fixtures through extractScoutPayload and diffs against
+// golden.json; every other mode runs the live FR-SCOUT-01 cycle
+// (scout.RunOnce / scout.RunLoop). The exit-3 not-ported stub retired with
+// FR-GO-04 #194 — the LaunchAgent (`com.devagent.scout`, installed by
+// `devagent create --scout`) launches `devagent scout --repo … --interval …`
+// 24/7, and until this wiring landed those launches died silently on exit 3
+// while the queue writer starved (2026-09-14 audit).
 func scoutCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "scout",
@@ -23,7 +29,7 @@ func scoutCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			replay, _ := cmd.Flags().GetBool("replay")
 			if !replay {
-				return &notPortedError{msg: "devagent scout: not yet ported to Go (FR-GO #192) — only --replay is wired; live dispatch needs the queue + worker runtime (FR-GO-04 #194)"}
+				return runScoutLive(cmd)
 			}
 			results, err := scout.ReplayScoutFixtures("")
 			if err != nil {
@@ -50,6 +56,51 @@ func scoutCommand() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+// runScoutLive wires the frozen scout flag surface (--repo --worker
+// --interval --timeout --once --dry-run) onto the cycle. Units match
+// scripts/install-scout-launchagent.sh: --interval and --timeout are
+// MINUTES. A bare run (neither --once nor --interval) performs ONE cycle,
+// not a foreground daemon: an operator typing `devagent scout` must not be
+// surprised into a Ctrl+C-or-SIGHUP session, while the LaunchAgent always
+// passes --interval explicitly. --dry-run dispatches nothing (no AI call,
+// docs/SCOUT.md) and prints the prompt length + what it would enqueue.
+func runScoutLive(cmd *cobra.Command) error {
+	repo, _ := cmd.Flags().GetString("repo")
+	if repo == "" {
+		repo, _ = os.Getwd() // same cwd fallback as scout-status
+	}
+	worker, _ := cmd.Flags().GetString("worker")
+	interval, _ := cmd.Flags().GetInt("interval")
+	timeout, _ := cmd.Flags().GetInt("timeout")
+	once, _ := cmd.Flags().GetBool("once")
+	dryRun, _ := cmd.Flags().GetBool("dry-run")
+
+	opts := scout.RunOptions{RepoPath: repo, Worker: worker, DryRun: dryRun}
+	if timeout > 0 {
+		opts.Timeout = time.Duration(timeout) * time.Minute
+	}
+	if once || interval <= 0 {
+		res, err := scout.RunOnce(opts)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "scout: %v\n", err)
+			setExitCode(1)
+			return nil
+		}
+		fmt.Printf("[scout] %s %s\n", res.Status, res.Detail)
+		if !res.OK {
+			setExitCode(1)
+			return nil
+		}
+		setExitCode(0)
+		return nil
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	scout.RunLoop(repo, time.Duration(interval)*time.Minute, ctx.Done(), opts)
+	setExitCode(0)
+	return nil
 }
 
 // jsJSONString mirrors JSON.stringify of a string|null: quoted JSON string

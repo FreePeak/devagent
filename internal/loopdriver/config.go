@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/FreePeak/devagent/internal/orchestrator"
+	"github.com/FreePeak/devagent/internal/prdintake"
 )
 
 // LoopConfig carries every knob the bash driver reads from the SELFBUILD_*
@@ -90,6 +91,17 @@ type LoopConfig struct {
 	GhBin string
 	// LockDir overrides the default Repo/.selfbuild/loop.lock.d; test seam.
 	LockDir string
+	// PRDIntake runs docs/PRD.md intake at the head of every iteration
+	// (SELFBUILD_PRD_INTAKE, issue #370). nil = enabled: the operator's open
+	// `- [ ]` items are the lane's best work source, and an empty lane is
+	// what makes the driver ship loop plumbing (issue #355).
+	PRDIntake *bool
+	// PRDIntakeMax caps how many new rows one pass may enqueue
+	// (SELFBUILD_PRD_INTAKE_MAX; 0 = prdintake.DefaultMaxItems, negative =
+	// unbounded).
+	PRDIntakeMax int
+	// Intake is the seam hermetic tests inject; nil = prdintake.Ingest.
+	Intake func(prdintake.Options) (prdintake.Report, error)
 	// ExitWatchdogDelay bounds how long a terminal loop verdict may take
 	// to actually leave the process (issue #286): the driver printed its
 	// starvation halt and then hung forever in a wedged exec teardown
@@ -150,6 +162,18 @@ func getintOr(getenv func(string) string, key string, def int) int {
 
 func getenvSet(getenv func(string) string, key string) bool {
 	return getenv(key) == "1"
+}
+
+// getenvFlag reads a tri-state 0/1 knob: unset is nil (the default applies),
+// "0" disables, anything else enables. SELFBUILD_PRD_INTAKE needs the
+// three-way because its default is on, which a plain bool cannot express.
+func getenvFlag(getenv func(string) string, key string) *bool {
+	v := getenv(key)
+	if v == "" {
+		return nil
+	}
+	on := v != "0"
+	return &on
 }
 
 // WithDefaults fills zero-valued fields with the bash defaults. GHRepo
@@ -231,6 +255,12 @@ func (c LoopConfig) WithDefaults() LoopConfig {
 	if c.Stderr == nil {
 		c.Stderr = os.Stderr
 	}
+	// PRD intake is on unless SELFBUILD_PRD_INTAKE=0 said otherwise
+	// (issue #370).
+	if c.PRDIntake == nil {
+		on := true
+		c.PRDIntake = &on
+	}
 	return c
 }
 
@@ -276,5 +306,7 @@ func ConfigFromGetenv(repo string, getenv func(string) string) LoopConfig {
 		NoProgressTimeoutMS:    getintOr(getenv, "SELFBUILD_NO_PROGRESS_TIMEOUT_MS", defaultNoProgressMS),
 		SyncRetrySecs:          getintOr(getenv, "SELFBUILD_SYNC_RETRY_SECS", defaultSyncRetrySecs),
 		DevagentBin:            getenv("SELFBUILD_DEVAGENT_BIN"),
+		PRDIntake:              getenvFlag(getenv, "SELFBUILD_PRD_INTAKE"),
+		PRDIntakeMax:           getintOr(getenv, "SELFBUILD_PRD_INTAKE_MAX", 0),
 	}
 }

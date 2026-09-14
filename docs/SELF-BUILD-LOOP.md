@@ -109,6 +109,49 @@ the Node tree (FR-GO-16, #205).
 
 ## Running
 
+### One command (the intended path, issue #371)
+
+```sh
+make build          # ./devagent-go — the Go single binary
+./devagent-go up    # check → seed the lane from docs/PRD.md → start the driver
+./devagent-go down  # stop exactly the processes `up` recorded
+```
+
+`up` is idempotent and reports one line per step:
+
+| Step | What it proves |
+|---|---|
+| `checks` | the `devagent init` prerequisite gate (a missing worker CLI aborts the start with the install line, instead of burning tokens on iterations that can never dispatch) |
+| `dirs` | `.selfbuild/{research,goals,logs,curation,run}` + the queue/prds dirs exist, so every path the report names is real |
+| `intake` | how many of the operator's `docs/PRD.md` items became queue rows (see "Tracker + PRD policy") |
+| `prd` | `docs/PRD.md` is committed — the driver's own currency gate skips **every** iteration while the state doc is dirty, so starting over a draft buys a busy factory that ships nothing, and intake would have queued the draft as intent (`up` refuses until it is committed) |
+| `lane` | the one number that predicts the next ten hours: pending queue rows, open PRD checkboxes, open `selfbuild` issues. An empty lane says so, with the fix — this is issue #355's "long runtime, little value" made visible before the start rather than after |
+| `daemon` | the localhost control plane is listening (port answer, not a process-name guess; `--no-daemon` skips it) |
+| `scout` | with `--scout`: the 24/7 researcher (`devagent scout --interval N`, cadence from `scout.intervalMinutes`) as a second detached child with its own pid file and log — the lane's other feeder (FR-SCOUT-01, issue #372) |
+| `loop` | **a health receipt, not a spawn receipt**: `up` watches the driver it launched until it holds the loop lock AND writes a heartbeat naming an iteration and phase, and fails the run with the cause when it doesn't |
+
+The driver is launched from **its own executable** with
+`SELFBUILD_DEVAGENT_BIN` pinned to match, which is what makes a checkout that
+never installed a `devagent` on PATH work end to end. A live loop lock
+outranks our pid file: a second `up` reports the running driver rather than
+starting a competing one, and `devagent down` signals recorded pids only —
+never a pattern kill (issue #354). `--dry-run` prints the plan and changes
+nothing (no network probe either); `--foreground` runs the driver in this
+terminal; `--wait 0` skips the health window for scripted starts; and
+`--scout` adds the researcher as a second child so the lane fills itself
+between iterations (`devagent down` stops both).
+
+Why the health window exists: `up` is the driver's **parent**, so a driver
+that halts at its own gate — iteration cap reached, starvation halt, a lock
+refusal — stays a reap-able zombie whose pid still answers a liveness probe,
+and it exits 0, so no supervisor says anything either. The measured failure
+(2026-09-14 smoke): `max iterations reached` on stderr while `up` printed a
+healthy pid for fifteen more seconds. `up` therefore reaps its own child and
+treats "the OS said it exited" as the verdict, reading the halt line out of
+`.selfbuild/logs/` to name the cause.
+
+### The driver directly
+
 Single-process infinite runner (the Go driver, `internal/loopdriver` — production
 since FR-GO-16, #205; the bash driver `scripts/selfbuild-loop.sh` was deleted in the
 same change):
@@ -129,6 +172,8 @@ Environment knobs (all optional):
 | `SELFBUILD_PUSH_MODE` | `pr` | `pr` (branch + PR via auto-pr) or `main` (direct commit) |
 | `SELFBUILD_TEST_CMD` | `go test ./...` (default since the Node-tree retirement, #300) | Post-merge-back repo-level test gate (seam #230) |
 | `SELFBUILD_ISSUE_LABEL` | `selfbuild` | Issue label defining the loop's tracker queue |
+| `SELFBUILD_PRD_INTAKE` | `1` | `0` stops the driver ingesting `docs/PRD.md` at iteration head (issue #370) |
+| `SELFBUILD_PRD_INTAKE_MAX` | `5` | Cap on new queue rows per intake pass (document order wins) |
 | `SELFBUILD_ISSUE_MAX` | `50` | Max issues fetched per pick (deterministic sort: priority rank, then issue number) |
 | `SELFBUILD_GH_REPO` | derived from `git remote get-url origin` | Target repo for the tracker pick (`gh issue`) |
 | `SELFBUILD_DEVAGENT_BIN` | `devagent` | CLI binary the driver shells out to (pane-run, task, preflight, sync-docs, scan-text, ledger, herdr-sweep, page-degrade-breach) |
@@ -196,6 +241,28 @@ default and the bash driver is gone.
   rank, then oldest issue number), builds it, and closes it with evidence. The
   LLM selection path exists only as the empty-tracker fallback; anything it picks
   still ships against the repo directly.
+- **The one PRD exception: an open checkbox is an instruction (2026-09-14,
+  issue #370).** A tracker-only lane with no tracker left the driver inventing
+  work for itself — #355, where every iteration repaired loop plumbing. So
+  `internal/prdintake` reads `docs/PRD.md` at the head of each iteration and
+  queues every OPEN `- [ ]` item: its enclosing heading is the section
+  context, its indented sub-bullets become the acceptance criteria, and the
+  section body rides along as the queue task-PRD sidecar, so the worker gets
+  the spec rather than one bullet. Everything else in the PRD stays exactly
+  what policy says it is — `- [x]` is shipped state, a blockquote is a state
+  note, a struck line is history, a fenced example is documentation, a plain
+  bullet is prose — and the currency gate above still means an *uncommitted*
+  PRD edit is never read as intent.
+- **Intake is idempotent by content hash.** A row's queue id is `PRD-<8 hex>`
+  of the normalized item text, so re-running over an unchanged PRD queues
+  nothing, and the row's own `TickCriterion` makes the shipped PR flip the
+  source checkbox to `- [x]` so a built item cannot re-enter the lane. By
+  hand: `devagent prd-intake [--dry-run] [--json] [--max N]`; automatically:
+  every iteration, or `devagent up` before it starts the driver. Knobs:
+  `SELFBUILD_PRD_INTAKE=0`, `SELFBUILD_PRD_INTAKE_MAX`.
+- **Queue-first outranks the tracker, deliberately.** Phase 2a claims the
+  queue before `pickIssue` is consulted, so intent a human wrote down beats
+  both the issue lane and LLM self-selection.
 - **The phase-1 pick rides along (issue #301).** The tracker decides *which*
   issue, research decides *what to do with it* — so on an issue-first pick the
   driver reads this iteration's `.selfbuild/research/loop-N.md` (the `## Pick`

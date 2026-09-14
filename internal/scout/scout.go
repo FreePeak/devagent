@@ -1,9 +1,9 @@
 // scout.go is the deterministic core of src/scout.ts: task-id resolution,
 // payload extraction, the golden replay harness, heartbeat persistence, the
 // single-instance lock, and prompt assembly. Live worker dispatch
-// (runScoutOnce/runScoutLoop) stays in TS until the queue (FR-GO-04) and
-// doc-sync (FR-GO-05) ports land. See extract.go for the canonical package
-// comment.
+// (runScoutOnce/runScoutLoop) is ported in run.go (FR-SCOUT-01 revival,
+// 2026-09-14) on top of the queue (FR-GO-04 #194) and worker-runtime
+// packages. See extract.go for the canonical package comment.
 
 package scout
 

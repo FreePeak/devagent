@@ -5,11 +5,12 @@
 // (compact-context splice, lessons digest, knowledge context) and
 // src/planner.ts (ticket classification + plan outline).
 //
-// Live scout dispatch (runScoutOnce / runScoutLoop) is intentionally NOT
-// ported here: it depends on the queue (enqueueTask, FR-GO-04), the doc
-// sync gate (FR-GO-05) and the worker CLI runtime — sibling wave-1
-// packages. The CLI commands `scout` (with --replay) and `scout-status`
-// become wireable from this package's exported surface.
+// Live scout dispatch (RunOnce/RunLoop, the runScoutOnce/runScoutLoop
+// port) lands in run.go: it builds on the queue package (FR-GO-04 #194)
+// and the worker runtime (internal/workers). The doc-sync gate (FR-GO-05)
+// stays a separate command (`devagent sync-docs`) that operators wrap the
+// cycle with. The CLI commands `scout` (live + --replay) and `scout-status`
+// wire from this package's exported surface.
 package scout
 
 import (

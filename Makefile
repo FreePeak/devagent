@@ -5,8 +5,10 @@
 #   make agents-on         # re-enable + load them again
 #   make loop-status       # is the loop running? (+ supervision mode) tail of its latest iteration log
 #   make agents-uninstall  # bootout + disable + delete installed plists (repo copies kept)
-#   make loop-start        # start the Go selfbuild loop (./devagent-go loop) in the background
-#   make loop-stop         # stop the background selfbuild loop
+#   make up                # seed the lane from docs/PRD.md + start the driver (proven alive)
+#   make down              # stop what `make up` recorded
+#   make loop-start        # alias of `make up`
+#   make loop-stop         # alias of `make down`
 #   make loop-status       # is the loop running? tail of its latest iteration log
 #   make loop-log          # tail -f the running loop's driver output
 #   make daemon-start      # start the FR-CTRL daemon (./devagent-go daemon) in the background
@@ -39,26 +41,25 @@ WATCHDOG_LABELS := \
 
 ALL_LABELS := $(DEVAGENT_LABELS) $(WATCHDOG_LABELS)
 
-.PHONY: loop-start loop-stop loop-status loop-log daemon-start daemon-stop
+.PHONY: up down loop-start loop-stop loop-status loop-log daemon-start daemon-stop
 
 # --- Selfbuild loop (background) --------------------------------------------
 # The loop runs via hub-managed nohup; workers default to visible herdr panes
 # (attach with `devagent attach <task>`), headless via DEVAGENT_VISIBILITY=headless.
 LOOP_LOG_DIR := .selfbuild/logs
 
-loop-start:
-	@if pgrep -f "devagent-go loop" >/dev/null 2>&1; then \
-		echo "selfbuild loop already running (pid $$(pgrep -f 'devagent-go loop' | head -1))"; exit 0; \
-	fi
+# Thin wrappers over the binary's own lifecycle commands (issue #371): the
+# muscle memory survives, but there is now ONE start path. `up` seeds the work
+# lane from docs/PRD.md and proves the driver is alive (loop lock + heartbeat)
+# instead of printing a pid; `down` signals the pids it recorded, so the old
+# `pkill -f "devagent-go loop"` is retired — a pattern kill also hits drivers
+# started from another checkout (issue #354).
+up loop-start:
 	@if [ ! -x ./devagent-go ]; then echo "no ./devagent-go — run: make build" >&2; exit 1; fi
-	@mkdir -p "$(LOOP_LOG_DIR)"
-	@nohup ./devagent-go loop >> "$(LOOP_LOG_DIR)/driver.log" 2>&1 & \
-	echo "selfbuild loop started (pid $$!) — log: $(LOOP_LOG_DIR)/driver.log; TUI: devagent tui"
+	@./devagent-go up --no-daemon
 
-loop-stop:
-	@if pgrep -f "devagent-go loop" >/dev/null 2>&1; then \
-		pkill -f "devagent-go loop" && echo "selfbuild loop stopped"; \
-	else echo "selfbuild loop not running"; fi
+down loop-stop:
+	@if [ -x ./devagent-go ]; then ./devagent-go down; else pkill -f "devagent-go loop" && echo "selfbuild loop stopped"; fi
 
 loop-status:
 	@if pgrep -f "devagent-go loop" >/dev/null 2>&1; then \

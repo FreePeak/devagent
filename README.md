@@ -226,6 +226,52 @@ Tracked in the [roadmap](docs/PRD.md#17-roadmap) and the [Grok Bot & control app
 - **Bot-style UX floor** — named persistent agent identities, teach-once routines, visible bot-to-bot handoff (§20.1, Q45)
 - **Durable knowledge-graph context** — whether the LeanKG digest persists across runs or stays per-run (Q28)
 
+## Run the automated driver (one command)
+
+```bash
+make build                       # -> ./devagent-go
+
+devagent up                      # check prerequisites → queue your PRD items → start the driver
+devagent up --scout              # ...and run the 24/7 researcher beside it (FR-SCOUT-01)
+devagent up --dry-run            # print that plan without touching anything
+devagent status                  # what is running, what it is doing, what happens next
+devagent down                    # stop exactly what `up` started
+```
+
+`devagent up` is the whole setup: it runs the `devagent init` prerequisite
+gate (a missing worker CLI aborts the start instead of burning tokens on work
+that can never be dispatched), creates the loop state and queue directories,
+ingests your `docs/PRD.md` into the work lane, prints the lane census (pending
+rows, open PRD items, open `selfbuild` issues — the number that says whether
+the next ten hours ship product or plumbing), brings up the localhost daemon
+the TUI reads, and starts the self-build driver detached — launched from the
+same binary you just ran, so nothing has to be installed on `PATH`.
+
+Then it proves the start instead of reporting a pid: a green line means the
+driver holds the loop lock and has published a heartbeat naming its iteration
+and phase (`driver running (pid 31815) — holds the loop lock, iteration 2,
+phase queue-empty`); a driver that halts at its own gate fails `up` with the
+halt line from its log. `--wait 0` skips that proof for scripted starts.
+
+**Tell it what to build in the PRD.** An open checkbox anywhere in
+`docs/PRD.md` is an instruction; the driver picks items top-of-file first,
+implements each against its own pipeline, and ships a PR that updates the PRD
+and ticks that checkbox:
+
+```markdown
+- [ ] Add a `--watch` mode to `devagent status`
+  - one line per iteration, exits on SIGINT
+```
+
+```bash
+devagent prd-intake --dry-run    # preview what your PRD currently queues
+devagent prd-intake              # queue it — the next iteration claims it
+```
+
+Everything the driver does per iteration is in
+[docs/SELF-BUILD-LOOP.md](docs/SELF-BUILD-LOOP.md); `devagent loop` remains
+the foreground form of the same driver.
+
 ## Factory (24/7 scout + Orca workers)
 
 ```bash

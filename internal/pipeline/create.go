@@ -161,14 +161,17 @@ func BuildLaunchAgentPlist(spec plistSpec) string {
 func RolePlistSpecs(opts CreateOptions, intervalMinutes int, scoutWorker string, trackIntervalMinutes int) []plistSpec {
 	var specs []plistSpec
 	selfExe := createSelfExePath()
-	devagentBin := filepath.Join(opts.RepoPath, "dist", "src", "cli.js")
+	// The Go build is one self-contained binary, so argv is [selfExe,
+	// <subcommand>, …]. The retired Node tree needed a second slot for
+	// dist/src/cli.js; leaving that entry in made every installed agent die
+	// at cobra's command lookup (issue #371).
 	if opts.Scout {
 		specs = append(specs, plistSpec{
 			label:    "com.devagent.scout",
 			logName:  "devagent-scout.log",
 			repoPath: opts.RepoPath,
 			programArgs: []string{
-				selfExe, devagentBin, "scout", "--repo", opts.RepoPath,
+				selfExe, "scout", "--repo", opts.RepoPath,
 				"--interval", fmt.Sprintf("%d", intervalMinutes),
 				"--worker", scoutWorker, "--timeout", "30",
 			},
@@ -180,7 +183,7 @@ func RolePlistSpecs(opts CreateOptions, intervalMinutes int, scoutWorker string,
 			logName:  "devagent-tracker.log",
 			repoPath: opts.RepoPath,
 			programArgs: []string{
-				selfExe, devagentBin, "track", "--repo", opts.RepoPath,
+				selfExe, "track", "--repo", opts.RepoPath,
 				"--interval", fmt.Sprintf("%d", trackIntervalMinutes),
 			},
 		})
