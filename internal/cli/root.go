@@ -467,6 +467,14 @@ func wiredCommands() map[string]*cobra.Command {
 		// Curator follow-through (issue #202 / PRD Q15 wiring).
 		"prd-audit": prdAuditCommand(),
 
+		// Lifecycle family (issue #371): `up` brings the driver + daemon up
+		// after checking prerequisites and seeding the lane from docs/PRD.md;
+		// `down` stops what `up` recorded. `prd-intake` (#370) is the same
+		// intake step run by hand.
+		"up":         newUpCmd(),
+		"down":       newDownCmd(),
+		"prd-intake": newPrdIntakeCmd(),
+
 		// Driver-validation family (§23): doctor (FR-VAL-02, issue #290),
 		// supervision (issue #321 — the loop's resolved supervisor policy,
 		// also surfaced by doctor and `make loop-status`).

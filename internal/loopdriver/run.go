@@ -238,6 +238,13 @@ func (d *driver) runIteration(n int, logF io.Writer, gradient, clusters string) 
 		}
 	}
 
+	// PRD intake (issue #370): operator-authored open checkboxes become
+	// queue rows before this iteration picks anything, so the deterministic
+	// lane carries real intent instead of falling through to LLM
+	// self-selection. Runs after the PRD-currency gate above: the file now
+	// matches a commit, so a draft mid-edit can never be read as intent.
+	d.runPrdIntake(n, logF)
+
 	// Tracker snapshot (issue-first): one gh call per iteration; a failed
 	// listing degrades to empty and the LLM selection path runs instead.
 	issuePick := ""
@@ -311,7 +318,15 @@ func (d *driver) runIteration(n int, logF io.Writer, gradient, clusters string) 
 		}
 		d.phase(n, "issue", detail)
 	} else if queued == nil {
-		_, _ = fmt.Fprintln(logF, "[issue] no open selfbuild issue found — falling back to LLM selection")
+		// The empty lane is the finding, not a detail (issue #355): every
+		// recent iteration shipped loop plumbing because this branch ran
+		// silently and the LLM could only find itself to work on. The
+		// ledger row shape is byte-identical to the bash driver's and must
+		// stay that way, so the breadcrumb goes to events.jsonl where the
+		// TUI and `devagent status` read it, and the remedy is named in the
+		// log line.
+		_, _ = fmt.Fprintln(logF, "[issue] empty lane: no open selfbuild issue and no queue row — falling back to LLM selection (refill: label real work `selfbuild`, or open a `- [ ]` item in docs/PRD.md for prd-intake)")
+		d.phase(n, "queue-empty", "label selfbuild issues or add docs/PRD.md - [ ] items")
 	}
 
 	// Phases 2-3: PO/LLM fallback (empty tracker + empty queue only).

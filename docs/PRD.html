@@ -1471,6 +1471,18 @@ class="sourceCode bash"><code class="sourceCode bash"><span id="cb4-1"><a href="
 <td>Show effective configuration (workers, budgets, credentials
 presence)</td>
 </tr>
+<tr>
+<td><code>devagent up</code> / <code>devagent down</code></td>
+<td>One command to check prerequisites, seed the work lane from
+<code>docs/PRD.md</code>, and start/stop the self-build driver + daemon
+(FR-SIMPLE-07)</td>
+</tr>
+<tr>
+<td><code>devagent prd-intake</code></td>
+<td>Queue the operator's open <code>- [ ]</code> items in
+<code>docs/PRD.md</code> as loop work (FR-SIMPLE-08; deterministic,
+idempotent, <code>--dry-run</code>/<code>--json</code>)</td>
+</tr>
 </tbody>
 </table>
 <h3 id="flags-run">Flags (<code>run</code>)</h3>
@@ -2435,6 +2447,31 @@ signing + FR-UI-09 3-OS CI scaffolded — PR #267), #146 TUI polish
 (FR-TUI-P-01..12, PR #268). The network sandbox allowlist (#180, P2) is
 the remaining Phase 4 leftover. Shipped from this phase: Grok/xAI worker
 adapter (<code>internal/workers/grok.go</code>),</p>
+<p><strong>Go-port gap audit (2026-09-13):</strong> a code-level audit
+of the Go surface found the following specced-but-stubbed seams, each
+now tracked as an issue (issue-first per the tracker note above) —
+<code>serve</code> webhook-triggered dispatch still prints the FR-GO-07
+#194 deviation stub and never calls the pipeline (#356,
+<code>internal/cli/actions_serve.go:220</code>);
+<code>init --smoke</code> reports hardcoded
+<code>fixtureOK</code>/<code>gatesOK := true</code>, so the FR-SIMPLE-01
+"verified smoke" verifies nothing (#357,
+<code>internal/commands/init.go:131</code>); the daemon/executor
+worker-reaper seams are nil by default, so stale-worker reaping silently
+skips on paths that don't inject a dispatcher (#358, FR-GO-05);
+<code>spawn.visibility</code> in devagent.json resolves env-only — the
+<code>SpawnVisibilityConfig</code> global is read but never assigned
+(#359); the Grok cost-ledger seam <code>OnCost</code> (FR-GROK-03) is
+invoked but never set, so per-run cost never reaches the ledger (#363);
+<code>herdr-sweep --orphan-brokers</code> remains Node-only per the
+HERDR.md status note (#360); FR-CTX-01..05 remain unimplemented (#368,
+see §20.1); and docs/PRODUCTION-READINESS.md still describes the retired
+Node tree, so no Go-era readiness verdict exists (#362). Lower-priority
+convergence work, also issue-first: lessons-digest dedupe + eval guard
+(#361), Windows parity (#364), parity-shim convergence + vestigial
+exit-3 machinery (#365), ClaudeCode adapter hardening (#366),
+internal/cli + cmd/devagent test coverage (#367), War Room as a
+first-class Go command (#369).</p>
 </blockquote>
 <ul>
 <li><strong>Easy handoff / control plane (FR-HAND, #145)</strong> —
@@ -4549,11 +4586,74 @@ required step or a required concept is fixed or flagged before
 release</td>
 <td>C</td>
 </tr>
+<tr>
+<td>FR-SIMPLE-07</td>
+<td>One-command factory lifecycle: <code>devagent up</code> runs the
+prerequisite gate, creates the state/queue directories, ingests
+<code>docs/PRD.md</code> intent into the work lane, prints the lane
+census, starts the control-plane daemon and the self-build driver
+(detached, from its own executable, idempotent against a live loop
+lock), and <strong>proves</strong> the start — it holds the lock and
+published a heartbeat — instead of reporting a pid;
+<code>devagent down</code> stops exactly what <code>up</code>
+recorded</td>
+<td>M</td>
+</tr>
+<tr>
+<td>FR-SIMPLE-08</td>
+<td>Intent lane: an open <code>- [ ]</code> checkbox in
+<code>docs/PRD.md</code> is an instruction the driver implements, so
+stating what to build uses the document the operator already writes in —
+no second tool, no tracker syntax, no env wiring
+(<code>internal/prdintake</code>, <code>devagent prd-intake</code>)</td>
+<td>M</td>
+</tr>
 </tbody>
 </table>
 <p><strong>Boundary:</strong> simplicity is the default presentation,
 not a restriction — everything stays scriptable over FR-CTRL and flags;
 automation is unaffected.</p>
+<blockquote>
+<p><strong>Status (2026-09-14):</strong> FR-SIMPLE-07 and FR-SIMPLE-08
+shipped together — <code>internal/commands/updown.go</code>
+(<code>devagent up</code> / <code>devagent down</code>, <a
+href="https://github.com/FreePeak/devagent/issues/371">#371</a>) and
+<code>internal/prdintake</code> (<a
+href="https://github.com/FreePeak/devagent/issues/370">#370</a>), wired
+into the driver at <code>internal/loopdriver/intake.go</code> so every
+iteration ingests the PRD before it picks. This is the fix for <a
+href="https://github.com/FreePeak/devagent/issues/355">#355</a>'s "long
+runtime, little value": with an empty lane the driver could only find
+itself, and the empty-lane fallback now logs and breadcrumbs as
+<code>queue-empty</code> with the refill instructions. <code>#371</code>
+also retires the remaining setup traps it exposed: the driver no longer
+needs a <code>devagent</code> on <code>PATH</code> (<code>up</code> pins
+<code>SELFBUILD_DEVAGENT_BIN</code> to the executable that started it),
+and <code>devagent create</code>'s scout/tracker LaunchAgents no longer
+bake the deleted <code>dist/src/cli.js</code> into argv where cobra
+would choke on it. The companion scout-cycle port is <a
+href="https://github.com/FreePeak/devagent/issues/372">#372</a>, which
+<code>up --scout</code> now starts as a second recorded child so the
+researcher fills the lane between iterations and
+<code>devagent down</code> stops both.</p>
+<p><strong>Green <code>up</code> means a running factory (the review
+finding that shaped FR-SIMPLE-07).</strong> Because <code>up</code> is
+the driver's parent, a driver that halts at its own gate — iteration cap
+already reached, starvation halt, a lock refusal — stays a pid that
+answers a liveness probe, and it exits 0, so nothing else reports it
+either; the first smoke run printed a healthy pid for fifteen seconds
+after <code>max iterations reached</code>. <code>up</code> now reaps its
+own child and treats that reap as the verdict, waiting (bounded by
+<code>--wait</code>, default 15s) until the driver holds
+<code>​.selfbuild/loop.lock.d</code> AND its <code>heartbeat.json</code>
+names an iteration and a phase — then reporting exactly that
+(<code>driver running (pid N) — holds the loop lock, iteration 2, phase queue-empty</code>)
+or failing the run with the halt line pulled from
+<code>.selfbuild/logs/</code>. The <code>lane</code> step reports the
+same census upstream: pending queue rows, open PRD checkboxes, open
+<code>selfbuild</code> issues, with the #355 remedy as its hint when all
+three are zero.</p>
+</blockquote>
 <h2 id="22-addendum-full-go-migration-fr-go">22. Addendum: Full Go
 Migration (FR-GO)</h2>
 <blockquote>
@@ -4945,8 +5045,39 @@ existing driver with validation surfaces (test, command, telemetry,
 chaos schedule) so "the driver works perfectly" is a checkable claim,
 not a hope.</p>
 <hr />
-<p>*Last updated: 2026-09-13 (caveat on #349's revision stamp:
-linked-worktree builds mis-stamp — <a
+<p>*Last updated: 2026-09-14 (the PRD became an input, and
+<code>up</code> became a health receipt: FR-SIMPLE-07/08, #370 + #371) —
+<code>devagent up</code> now covers the whole setup-to-running path
+(prerequisite gate through the <code>init</code> checks → state/queue
+dirs → <code>docs/PRD.md</code> intake → a <code>lane</code> census of
+pending rows / open PRD checkboxes / open <code>selfbuild</code> issues
+→ daemon → detached driver launched from its own executable with
+<code>SELFBUILD_DEVAGENT_BIN</code> pinned to match) and
+<strong>proves</strong> the start rather than reporting a pid:
+<code>up</code> is the driver's parent, so a driver that halts at its
+own gate exits 0 and stays a zombie whose pid answers any liveness probe
+(measured 2026-09-14: <code>max iterations reached</code> on stderr
+while <code>up</code> printed a healthy pid for fifteen more seconds),
+so it now reaps its own child and waits (bounded by <code>--wait</code>,
+default 15s) until the loop lock AND a phase-naming heartbeat exist —
+<code>driver running (pid N) — holds the loop lock, iteration 2, phase queue-empty</code>
+— or fails the run with the halt line read out of
+<code>.selfbuild/logs/</code>. Work intake flipped the other way too: an
+open <code>- [ ]</code> checkbox in <code>docs/PRD.md</code> is now an
+instruction (<code>internal/prdintake</code> queues it with its heading
+as context, its sub-bullets as criteria and its section body as the
+task-PRD sidecar; the driver ingests at iteration head after the
+PRD-currency gate, <code>SELFBUILD_PRD_INTAKE=0</code> opts out) and the
+shipped PR ticks the checkbox it built, so a built item cannot re-enter
+the lane. Queue-first already outranked the tracker, so operator intent
+now outranks LLM self-selection — the value half of #355, whose other
+half (an empty lane logged and breadcrumb'd as <code>queue-empty</code>
+with the refill instructions instead of reading as progress) landed in
+the same change. <code>devagent create --scout/--tracker</code> also
+stopped baking the deleted <code>dist/src/cli.js</code> into LaunchAgent
+argv, and the scout cycle itself is live in Go at last (#372). *Last
+updated: 2026-09-13 (caveat on #349's revision stamp: linked-worktree
+builds mis-stamp — <a
 href="https://github.com/FreePeak/devagent/issues/352">#352</a>) — while
 verifying #349's landing we found Go's <code>-buildvcs</code> resolves
 <code>vcs.revision</code> from the shared common gitdir in a linked
