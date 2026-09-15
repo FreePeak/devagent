@@ -6,7 +6,7 @@
 
 **The Autonomous Backend Delivery Agent — ticket in, tested pull request out.**
 
-[![CI (Go)](https://github.com/FreePeak/devagent/actions/workflows/ci-go.yml/badge.svg?branch=main)](https://github.com/FreePeak/devagent/actions/workflows/ci-go.yml)
+[![CI (Go)](https://github.com/FreePeak/devagent/actions/workflows/ci-go.yml/badge.svg?branch=release)](https://github.com/FreePeak/devagent/actions/workflows/ci-go.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-6366F1.svg)](LICENSE)
 [![Go](https://img.shields.io/badge/go-1.25-00ADD8)](go.mod)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
@@ -199,8 +199,9 @@ Research sources backing the PRD are cited inline and collected in the [research
 
 ## Status
 
-Releases are tagged automatically on every push to `main` (see
-[Releases](https://github.com/FreePeak/devagent/releases)); each release
+Releases are tagged automatically on every push to the `release` branch (cut
+by promoting `main` onto it); see
+[Releases](https://github.com/FreePeak/devagent/releases). Each release
 appends a `release-created` row to the orchestration ledger. Current surface:
 
 - **Trackers & hosts** — Linear, Jira, GitHub Issues ingestion; GitHub + GitLab PR publishing

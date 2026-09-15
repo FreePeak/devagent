@@ -1,16 +1,21 @@
 name: Release
 
-# On merge to the default branch (push to main), compute the next semantic
-# version from Conventional-Commit PR titles since the last v* tag, gate on
+# On push to the release branch, compute the next semantic version from
+# Conventional-Commit PR titles since the last v* tag, gate on
 # Go CI, then publish a GitHub release with generated notes, the five
 # cross-compiled Go binaries (issue #204) stamped with that version via
 # -X internal/version.Version (issue #249), and a ledger release record
 # written by the freshly built linux-amd64 binary itself.
 # Version computation is the Go tool scripts/release/nextversion (issue
 # #250): the Go toolchain is the only runtime this workflow needs.
+#
+# main is the integration line and never publishes: cut a release by
+# promoting main onto the release branch —
+#   git checkout release && git merge --ff-only origin/main && git push origin release
+# (or `gh pr create --base release` for a reviewed cut).
 on:
   push:
-    branches: [main]
+    branches: [release]
 
 permissions:
   contents: write
@@ -151,8 +156,8 @@ jobs:
 
   release:
     needs: [semver, go-test, go-windows-cross, go-windows-build, go-lint, build]
-    # Skip release runs themselves (tag pushes) and fork pushes.
-    if: github.ref == 'refs/heads/main' && !startsWith(github.event.head_commit.message, 'Release v')
+    # Release line only: main never publishes. Also skips tag pushes.
+    if: github.ref == 'refs/heads/release' && !startsWith(github.event.head_commit.message, 'Release v')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
