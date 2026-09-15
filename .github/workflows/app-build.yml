@@ -25,7 +25,7 @@ on:
   #   paths:
   #     - "app/**"
   push:
-    branches: [main]
+    branches: [release]
     paths:
       - "app/**"
 
