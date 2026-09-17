@@ -713,8 +713,14 @@ func LessonShingles(text string) map[string]bool {
 // so an empty candidate can never bypass the guard by containing nothing to
 // compare.
 func LessonSimilarity(a string, b string) float64 {
-	sa := LessonShingles(a)
-	sb := LessonShingles(b)
+	return shingleSimilarity(LessonShingles(a), LessonShingles(b))
+}
+
+// shingleSimilarity is the trigram-Jaccard score of two already-built
+// shingle sets — the body of LessonSimilarity, split out so a caller
+// comparing one line against many (the ratchet dedupe below) reuses the kept
+// lines' shingles instead of rebuilding them for every pair.
+func shingleSimilarity(sa, sb map[string]bool) float64 {
 	if len(sa) == 0 && len(sb) == 0 {
 		return 1
 	}
@@ -729,6 +735,70 @@ func LessonSimilarity(a string, b string) float64 {
 		return 1
 	}
 	return float64(inter) / float64(union)
+}
+
+// isLessonContentLine reports whether a raw lessons-file line is lesson
+// content — the granularity the guard compares — rather than structure:
+// blank lines, `---` fences, and markdown headings carry no lesson, so they
+// are never dedupe candidates and always survive verbatim. The single filter
+// rule behind ReadLessonEntries and DedupeLessonContent.
+func isLessonContentLine(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" || trimmed == "---" {
+		return false
+	}
+	return !lessonHeaderRe.MatchString(trimmed)
+}
+
+// DedupeLessonContent collapses content-similarity repeats in a lessons file
+// body (issue #361). The lessons ratchet merge is the self-build loop's write
+// path for machine appends; exact-line dedupe alone let near-duplicate
+// rewordings of a lesson the digest already carries accumulate until they
+// spent the LessonsMaxChars budget on repeats instead of on new lessons.
+//
+// The first occurrence of each content line wins (the ratchet's
+// `awk '!seen[$0]++'` convention: remote content merges ahead of local
+// appends); a later line whose normalized word-trigram similarity to an
+// already-kept content line is at or above threshold is dropped as a repeat.
+// Structural lines (see isLessonContentLine) always survive, so the merged
+// file keeps its dated section layout. threshold <= 0 means
+// DefaultLessonsDedupeSimilarity.
+//
+// Pure function. Line joining and the trailing newline mirror the line merge
+// it guards: "" for an empty result, otherwise a trailing "\n".
+func DedupeLessonContent(text string, threshold float64) string {
+	if threshold <= 0 {
+		threshold = DefaultLessonsDedupeSimilarity
+	}
+	lines := strings.Split(text, "\n")
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	kept := make([]map[string]bool, 0, len(lines))
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if !isLessonContentLine(line) {
+			out = append(out, line)
+			continue
+		}
+		shingles := LessonShingles(line)
+		repeat := false
+		for _, other := range kept {
+			if shingleSimilarity(shingles, other) >= threshold {
+				repeat = true
+				break
+			}
+		}
+		if repeat {
+			continue
+		}
+		kept = append(kept, shingles)
+		out = append(out, line)
+	}
+	if len(out) == 0 {
+		return ""
+	}
+	return strings.Join(out, "\n") + "\n"
 }
 
 // LessonsDedupeResult is the result of a lessons dedupe check (and, with
@@ -773,14 +843,7 @@ func ReadLessonEntries(lessonsPath string) []string {
 	}
 	out := []string{}
 	for _, line := range strings.Split(string(raw), "\n") {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
-			continue
-		}
-		if trimmed == "---" {
-			continue
-		}
-		if lessonHeaderRe.MatchString(trimmed) {
+		if !isLessonContentLine(line) {
 			continue
 		}
 		out = append(out, strings.TrimRight(line, " \t\r\n"))

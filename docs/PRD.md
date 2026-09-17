@@ -1071,6 +1071,28 @@ Webhook-triggered runs with HMAC verification and dedup, run dashboard/status co
 > head-gone, reopen-refused) and
 > `TestVerifyAndMergeRescueRefusesNonReopenablePR`
 > (`internal/loopdriver/run.go`, `issues.go`).
+>
+> 2026-09-17 (issue #361: the lessons ratchet dedupes on content, so a repeat
+> is not a write): the propose→evaluate→accept guard, the Q39 impact telemetry
+> and the held-out must-beat tier all shipped in the Go port
+> (`internal/lessons`, FR-GO-07 #194), but the loop's own write path did not
+> use them: the ratchet merge of the state branch collapsed only *exact*
+> duplicate lines (`stateSync.mergeLessons`), so a lesson re-landed with
+> reworded punctuation — `Lessons eval guard` vs `Lessons-eval-guard`, the
+> live `.selfbuild/lessons.md` regression — survived as a second copy and
+> spent the 4000-char `lessonsMaxChars` budget the digest is bounded by.
+> `lessons.DedupeLessonContent` now applies the guard's own similarity policy
+> (normalized word-trigram Jaccard at the 0.8
+> `DefaultLessonsDedupeSimilarity`, first occurrence wins) to the merged body,
+> so appending an existing lesson — verbatim or reworded — is a no-op;
+> structural lines (blank, `---`, headings) always survive so the ratchet
+> keeps its dated sections, and the merge is idempotent. Measured on the live
+> file: 123,009 → 122,448 bytes, and the digest's newest-40-line window
+> 15,320 → 14,759 bytes. Pinned by `TestDedupeLessonContent` and
+> `TestMergeLessonLinesNearDuplicateAppendIsNoop`. Named ceiling, unchanged
+> from the guard: the 0.4–0.7 near-dup band still lands on purpose, so a v2
+> rewrite of a shipped lesson can be re-measured
+> (`internal/lessons/guard.go`, `internal/loopdriver/state.go`).
 
 ~~- **Cross-board retry memory beyond the SHA guard** — commit 60638d3 stops re-issuing shipped goals, but re-queued failures still get a fresh attempt budget; carry the prior board's failure class onto the re-bridged goal so the scout deprioritizes until the root-cause fix lands (Q27).~~
 ~~- **Regression oracle before board merge** — gates judge single PRs and PR #108's committed STRIDE allowlist widens suppression paths; add a board-level "is the system at least as good?" check (full suite on the merged result) ahead of `autoMerge`, per the Kitchen Loop zero-regression rule.~~
@@ -1109,10 +1131,11 @@ Direction addendum 2026-09-03 (section 20): DevAgent becomes the local-first, BY
 > `herdr-sweep --orphan-brokers` remains Node-only per the HERDR.md status
 > note (#360); FR-CTX-01..05 remain unimplemented (#368, see §20.1); and
 > docs/PRODUCTION-READINESS.md still describes the retired Node tree, so no
-> Go-era readiness verdict exists (#362). Lower-priority convergence work,
-> also issue-first: lessons-digest dedupe + eval guard (#361), Windows
-> parity (#364), parity-shim convergence + vestigial exit-3 machinery
-> (#365), ClaudeCode adapter hardening (#366), internal/cli +
+> Go-era readiness verdict exists (#362); the lessons-digest dedupe + eval
+> guard gap (#361) closed 2026-09-17 on the ratchet write path (Phase 4
+> history entry above). Lower-priority convergence work, also issue-first:
+> Windows parity (#364), parity-shim convergence + vestigial exit-3
+> machinery (#365), ClaudeCode adapter hardening (#366), internal/cli +
 > cmd/devagent test coverage (#367), War Room as a first-class Go command
 > (#369).
 - **Easy handoff / control plane (FR-HAND, #145)** — Shipped 2026-09-08: cold path is exactly `devagent init` → `devagent tui` (optional `start` alias); TUI dispatch sheet (`n`, FR-HAND-02) + approve sheet (`g`, FR-HAND-07); `POST /dispatch` threads `autoPr` into the spawned `task --auto-pr` argv gated on `GITHUB_TOKEN` (FR-HAND-03); init adds worker-detect chips (FR-HAND-04), herdr default-on advisory (FR-HAND-05), Orca repo registration without worktree provisioning (FR-HAND-06). Look/feel bar: #146.
@@ -1756,6 +1779,7 @@ existing driver with validation surfaces (test, command, telemetry, chaos
 schedule) so "the driver works perfectly" is a checkable claim, not a hope.
 
 ---
+*Last updated: 2026-09-17 (issue #361: the lessons ratchet dedupes on content, not just on exact lines) — the selfbuild lessons file is no longer write-only on the loop's own path: `stateSync.mergeLessons` collapsed only exact duplicate lines, so a lesson re-landed with reworded punctuation (`Lessons eval guard` vs `Lessons-eval-guard` — the live `.selfbuild/lessons.md` regression) landed as a second copy and spent the 4000-char `lessonsMaxChars` digest budget. The merge now runs `lessons.DedupeLessonContent` — the guard's own normalized word-trigram Jaccard policy at the 0.8 `DefaultLessonsDedupeSimilarity`, first occurrence wins, structural lines always kept, idempotent — so appending an existing lesson, verbatim or reworded, is a no-op (measured on the live file: 122,448 bytes vs 123,009; the newest-40-line digest window 14,759 vs 15,320). The guard, the Q39 accept/reject × loop-result telemetry and the held-out must-beat tier were already shipped in the Go port; this closes the convergence gap on the loop's write path. Pinned by `TestDedupeLessonContent` and `TestMergeLessonLinesNearDuplicateAppendIsNoop` (`internal/lessons/guard.go`, `internal/loopdriver/state.go`).
 *Last updated: 2026-09-14 (the PRD became an input, and `up` became a health receipt: FR-SIMPLE-07/08, #370 + #371) — `devagent up` now covers the whole setup-to-running path (prerequisite gate through the `init` checks → state/queue dirs → `docs/PRD.md` intake → a `lane` census of pending rows / open PRD checkboxes / open `selfbuild` issues → daemon → detached driver launched from its own executable with `SELFBUILD_DEVAGENT_BIN` pinned to match) and **proves** the start rather than reporting a pid: `up` is the driver's parent, so a driver that halts at its own gate exits 0 and stays a zombie whose pid answers any liveness probe (measured 2026-09-14: `max iterations reached` on stderr while `up` printed a healthy pid for fifteen more seconds), so it now reaps its own child and waits (bounded by `--wait`, default 15s) until the loop lock AND a phase-naming heartbeat exist — `driver running (pid N) — holds the loop lock, iteration 2, phase queue-empty` — or fails the run with the halt line read out of `.selfbuild/logs/`. Work intake flipped the other way too: an open `- [ ]` checkbox in `docs/PRD.md` is now an instruction (`internal/prdintake` queues it with its heading as context, its sub-bullets as criteria and its section body as the task-PRD sidecar; the driver ingests at iteration head after the PRD-currency gate, `SELFBUILD_PRD_INTAKE=0` opts out) and the shipped PR ticks the checkbox it built, so a built item cannot re-enter the lane. Queue-first already outranked the tracker, so operator intent now outranks LLM self-selection — the value half of #355, whose other half (an empty lane logged and breadcrumb'd as `queue-empty` with the refill instructions instead of reading as progress) landed in the same change. `devagent create --scout/--tracker` also stopped baking the deleted `dist/src/cli.js` into LaunchAgent argv, and the scout cycle itself is live in Go at last (#372).
 *Last updated: 2026-09-13 (caveat on #349's revision stamp: linked-worktree builds mis-stamp — [#352](https://github.com/FreePeak/devagent/issues/352)) — while verifying #349's landing we found Go's `-buildvcs` resolves `vcs.revision` from the shared common gitdir in a linked worktree, so a `devagent` binary built inside a per-task worktree stamps the primary checkout's `refs/heads/main` tip rather than its own HEAD (`vcs.modified=true`). Proven A/B at the same commit `8ca0688`: a plain clone stamps `8ca0688`, a linked worktree stamps `50b03e8`. Scope: this is a latent defect confined to *worktree-built* binaries — the shipped driver is built by `scripts/self-update.sh` from the primary non-worktree checkout (`go build -trimpath ./cmd/devagent` after `git pull --ff-only`), so it stamps correctly and `RunLoop`'s stale-binary guard behaves as intended in the live loop; only a manually-built worktree binary writes a wrong `release-created` revision and false-trips the (advisory-only) WARN. #349's "a stale binary is loud" holds for the normal-checkout build path; the worktree edge is tracked in #352.
 *Last updated: 2026-09-13 (release-created rows carry `tag`/`sha` again: PR #349's Revision stamp landed as a silent data-loss regression) — #349 added a `Revision` field to the Go `ReleaseRecord` but dropped `Tag`/`SHA` from the `record release` literal while still printing `(tag @ sha)` to stdout, so every Go-written release row persisted `"tag":""` `"sha":""` (the Q24 fields the record exists to carry) and no test covered the write site, so it shipped green. Restored both fields; `internal/cli/actions_release_test.go` now pins the CLI row shape (proven red on the regressed literal, green after); regenerated `docs/PRD.html` so the styled mirror matches `PRD.md`.

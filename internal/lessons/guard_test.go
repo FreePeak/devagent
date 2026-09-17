@@ -295,6 +295,66 @@ func TestCheckLessonsDedupe(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// dedupeLessonContent (the ratchet merge's content-similarity dedupe, #361)
+// ---------------------------------------------------------------------------
+
+func TestDedupeLessonContent(t *testing.T) {
+	lesson := "- **Lessons eval guard is the single best next backlog item**: the digest is write-only, so a repeat spends the budget."
+	hyphenDup := strings.Replace(lesson, "Lessons eval guard", "Lessons-eval-guard", 1)
+	distinct := "- Fencing tokens kill double dispatch even after kill -9 and lease reclaim."
+
+	t.Run("appending an existing lesson is a no-op", func(t *testing.T) {
+		file := "## 2026-09-02\n\n" + lesson + "\n"
+		if got := DedupeLessonContent(file+lesson+"\n", 0); got != file {
+			t.Fatalf("exact repeat changed the file:\ngot  %q\nwant %q", got, file)
+		}
+	})
+
+	t.Run("a near-duplicate reword is dropped, the first occurrence wins", func(t *testing.T) {
+		file := "## 2026-09-02\n\n" + lesson + "\n"
+		if got := DedupeLessonContent(file+hyphenDup+"\n", 0); got != file {
+			t.Fatalf("near-duplicate changed the file:\ngot  %q\nwant %q", got, file)
+		}
+	})
+
+	t.Run("keeps a distinct lesson and every structural line", func(t *testing.T) {
+		file := "## 2026-09-02\n\n" + lesson + "\n---\n" + distinct + "\n"
+		if got := DedupeLessonContent(file, 0); got != file {
+			t.Fatalf("distinct content changed:\ngot  %q\nwant %q", got, file)
+		}
+	})
+
+	t.Run("honors the threshold override", func(t *testing.T) {
+		// The near-dup-band pair from TestCheckLessonsDedupe: admitted at the
+		// 0.8 default (a v2 rewrite is allowed to land so its effect can be
+		// re-measured), collapsed at 0.5.
+		first := "one two three four five six seven eight"
+		second := "one two three four five six seven nine"
+		file := first + "\n" + second + "\n"
+		if got := DedupeLessonContent(file, 0); got != file {
+			t.Fatalf("default threshold dropped a near-dup-band lesson: %q", got)
+		}
+		if got, want := DedupeLessonContent(file, 0.5), first+"\n"; got != want {
+			t.Fatalf("threshold 0.5 should collapse the near-dup band:\ngot  %q\nwant %q", got, want)
+		}
+	})
+
+	t.Run("is idempotent: the merged file is a fixed point of the next merge", func(t *testing.T) {
+		file := "## 2026-09-02\n\n" + lesson + "\n" + hyphenDup + "\n" + distinct + "\n"
+		once := DedupeLessonContent(file, 0)
+		if twice := DedupeLessonContent(once, 0); twice != once {
+			t.Fatalf("second merge changed the file:\ngot  %q\nwant %q", twice, once)
+		}
+	})
+
+	t.Run("empty input stays empty", func(t *testing.T) {
+		if got := DedupeLessonContent("", 0); got != "" {
+			t.Fatalf("got %q, want empty", got)
+		}
+	})
+}
+
+// ---------------------------------------------------------------------------
 // appendLessonGuarded (eval-gated append: impact → dedupe → evaluate)
 // ---------------------------------------------------------------------------
 
