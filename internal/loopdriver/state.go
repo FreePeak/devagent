@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/FreePeak/devagent/internal/git"
+	"github.com/FreePeak/devagent/internal/lessons"
 )
 
 const (
@@ -175,14 +176,27 @@ func extractField(re *regexp.Regexp, line, marker string) string {
 	return strings.TrimPrefix(line[loc[0]:loc[1]], marker)
 }
 
+// mergeLessons is the lessons ratchet's write path: the union of the remote
+// state-branch file and the local one.
 func (s *stateSync) mergeLessons() {
 	remote := s.fileAtState(".selfbuild/lessons.md")
 	local, _ := os.ReadFile(s.lessonsPath())
 	_ = os.MkdirAll(filepath.Dir(s.lessonsPath()), 0o755)
 	// Bash touches the lessons file first, so an empty merge still leaves an
 	// (empty) file behind — mirror that.
-	merged := dedupeLines(remote + string(local))
+	merged := mergeLessonLines(remote, string(local))
 	_ = os.WriteFile(s.lessonsPath(), []byte(merged), 0o644)
+}
+
+// mergeLessonLines is the pure body of the lessons merge: the remote file
+// first, then the local one, with repeats collapsed — exact duplicates (the
+// `awk '!seen[$0]++'` ratchet port) and, since issue #361, near-duplicates on
+// content similarity, so an append that only rewords a lesson the digest
+// already carries is a no-op instead of a repeat that spends the
+// LessonsMaxChars budget. First occurrence wins; structural lines always
+// survive (DedupeLessonContent).
+func mergeLessonLines(remote, local string) string {
+	return lessons.DedupeLessonContent(dedupeLines(remote+local), lessons.DefaultLessonsDedupeSimilarity)
 }
 
 // dedupeLines ports `awk '!seen[$0]++'`: keep the first occurrence of every

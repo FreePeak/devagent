@@ -58,6 +58,36 @@ func TestDedupeLinesKeepsFirstOccurrence(t *testing.T) {
 	}
 }
 
+// Issue #361: the ratchet merge is the loop's write path for machine appends,
+// so re-appending a lesson the file already carries — verbatim or reworded —
+// must leave the merged file byte-identical instead of spending the digest
+// budget on a repeat.
+func TestMergeLessonLinesNearDuplicateAppendIsNoop(t *testing.T) {
+	lesson := "- Lessons eval guard is the single best next backlog item: the digest is write-only, so repeats spend the budget."
+	// The live .selfbuild/lessons.md shape: the same lesson appended again as
+	// a hyphen-only reword.
+	reword := strings.Replace(lesson, "Lessons eval guard", "Lessons-eval-guard", 1)
+	distinct := "- Fencing tokens kill double dispatch even after kill -9 and lease reclaim."
+	remote := "## 2026-09-02\n\n" + lesson + "\n"
+
+	t.Run("appending an existing lesson is a no-op", func(t *testing.T) {
+		if got := mergeLessonLines(remote, remote); got != remote {
+			t.Fatalf("merge changed the file:\ngot  %q\nwant %q", got, remote)
+		}
+		if got := mergeLessonLines(remote, lesson+"\n"); got != remote {
+			t.Fatalf("re-appending the lesson changed the file:\ngot  %q\nwant %q", got, remote)
+		}
+	})
+
+	t.Run("a reworded repeat is merged away, a distinct lesson lands", func(t *testing.T) {
+		got := mergeLessonLines(remote, reword+"\n"+distinct+"\n")
+		want := remote + distinct + "\n"
+		if got != want {
+			t.Fatalf("merge mismatch:\ngot  %q\nwant %q", got, want)
+		}
+	})
+}
+
 func TestStatePullFreshRemote(t *testing.T) {
 	repo := initFixtureRepo(t)
 	addBareOrigin(t, repo)
